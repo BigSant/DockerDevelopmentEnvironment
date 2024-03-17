@@ -52,44 +52,81 @@ services:
       retries: 3
       interval: 5s
 
-  #  app:
-  #    container_name: ${PROJECT_NAME}-${ENV}-app
-  #    restart: unless-stopped
-  #    deploy:
-  #      resources:
-  #        limits:
-  #          memory: 4096M
-  #    build:
-  #      context: .
-  #      dockerfile: ./Dockerfile
-  #      args:
-  #        PS_INSTANCE: ${PS_VERSION_TAG}
-  #        MODULE_NAME: ${PROJECT_NAME}
-  #    env_file:
-  #      - .env
-  #    environment:
-  #      PS_DEV_MODE: 1
-  #      DB_SERVER: ${DATABASE_HOST}
-  #      DB_USER: ${DATABASE_USER}
-  #      DB_PASSWD: ${DATABASE_PASSWORD}
-  #      DB_NAME: ${DATABASE_NAME}
-  #      PS_DOMAIN: ${DOMAIN}
-  #      PS_FOLDER_ADMIN: admintestas
-  #      XDEBUG_CONFIG: remote_host=host.docker.internal
-  #    depends_on:
-  #      - nginx
-  #      - mariadb
-  #    networks:
-  #      - network_app
-  #    volumes:
-  #      - ./app/:/var/www/html/
-  #      - ./nginx/log:/var/log/nginx
-  #    healthcheck:
-  #      test: ['CMD', 'curl', '-f', 'localhost:80']
-  #      interval: 10s
-  #      start_period: 15s
-  #      timeout: 10s
-  #      retries: 5
+  php-fpm-base:
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-base
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/php-fpm/${PHP_VERSION?}/Dockerfile
+      target: env-${ENV?}
+      args:
+        PHP_VERSION: ${PHP_VERSION?}
+    profiles:
+      - build_only
+    env_file:
+      - ${ENV_FILE?}
+    networks:
+      - network_app
+#    profiles:
+#      - build-only
+
+  php-fpm:
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+      target: env-${ENV?}
+      args:
+        ENV: ${ENV?}
+        PROJECT_NAME: ${PROJECT_NAME?}
+    env_file:
+      - ${ENV_FILE?}
+#    environment:
+#      PS_DEV_MODE: 1
+#      DB_SERVER: ${DATABASE_HOST}
+#      DB_USER: ${DATABASE_USER}
+#      DB_PASSWD: ${DATABASE_PASSWORD}
+#      DB_NAME: ${DATABASE_NAME}
+#      PS_DOMAIN: ${DOMAIN}
+#      PS_FOLDER_ADMIN: admintestas
+#      XDEBUG_CONFIG: remote_host=host.docker.internal
+    depends_on:
+      - nginx-proxy
+      - mariadb
+    networks:
+      - network_app
+    volumes:
+      - ./app/:/var/www/html/
+#      - ./nginx/log:/var/log/nginx
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'localhost:80']
+      interval: 10s
+      start_period: 15s
+      timeout: 10s
+      retries: 5
+
+  nginx:
+    container_name: ${PROJECT_NAME}-${ENV}-nginx
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/nginx/Dockerfile
+      args:
+        DOMAIN: ${DOMAIN?}
+    env_file:
+      - ${ENV_FILE?}
+    depends_on:
+      - nginx-proxy
+      - php-fpm
+    networks:
+      - network_app
+    volumes:
+      - ./app/:/var/www/html/
 
   pma:
     container_name: ${PROJECT_NAME}-${ENV}-pma
@@ -99,7 +136,6 @@ services:
       dockerfile: ./docker/pma/Dockerfile
       target: env-${ENV?}
       args:
-        ENV: ${ENV?}
         DATABASE_USER: ${DATABASE_USER?}
         DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
     env_file:
@@ -116,32 +152,6 @@ services:
 
 
 
-#  nginx:
-#    container_name: ${PROJECT_NAME}-${ENV}-nginx
-#    restart: unless-stopped
-#    tty: true
-#    build:
-#      context: .
-#      dockerfile: conf/nginx/Dockerfile
-#      args:
-#        DOMAIN: ${DOMAIN}
-#    env_file:
-#      - .env
-#    depends_on:
-#      - php-fmp
-#      - pma
-#      - mailpit
-#    networks:
-#      - network_app
-#    volumes:
-#      # APP mapping
-#      - ./app/:/var/www/html/
-#      # Nginx SSL config
-#      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
-#      - ./_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
-#      - ./conf/nginx/localhost.sh:/docker-entrypoint-initdb.d/localhost.sh
-#      # Nginx access log
-#      - ./_cache/nginx/log:/var/log/nginx/
 #
 #  php-fmp:
 #    container_name: ${PROJECT_NAME}-${ENV}-php
