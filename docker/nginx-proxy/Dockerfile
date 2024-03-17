@@ -14,3 +14,7 @@ RUN sed -i "s/#{ALLOW_IP};/${WHITELISTED_IP}/g" /etc/nginx/conf.d/sites.conf
 RUN sed -i "s/#{ALLOW_IP};/${WHITELISTED_IP}/g" /etc/nginx/conf.d/sites_env.conf
 
 COPY /docker/nginx-proxy/conf/nginx.conf /etc/nginx/nginx.conf
+
+RUN mkdir -p /var/www/html
+WORKDIR /var/www/html
+RUN echo '<h1>Nginx proxy</h1>' > index.html

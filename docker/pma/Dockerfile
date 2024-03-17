@@ -1,6 +1,5 @@
 FROM phpmyadmin:5.2.1-apache as base
 
-ARG ENV=""
 ARG DATABASE_USER=""
 ARG DATABASE_PASSWORD=""
 
