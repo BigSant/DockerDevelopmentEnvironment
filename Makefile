@@ -1,5 +1,60 @@
 ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
+build-local:
+	make build-docker-compose env=local
+
+up-local:
+	make up-docker-compose env=local
+
+down-local:
+	make down-docker-compose env=local
+
+build-prod:
+	make build-docker-compose env=prod
+
+up-prod:
+	make up-docker-compose env=prod
+
+down-prod:
+	make down-docker-compose env=prod
+
+build-stage:
+	make build-docker-compose env=stage
+
+up-stage:
+	make up-docker-compose env=stage
+
+down-stage:
+	make down-docker-compose env=stage
+
+build-docker-compose:
+	make run-docker-compose env=${env} action=build
+
+up-docker-compose:
+	make run-docker-compose env=${env} action=up
+
+down-docker-compose:
+	make run-docker-compose env=${env} action=down
+
+run-docker-compose:
+	make generate-env-file env=${env}
+	export ENV_FILE=/tmp/.env && docker-compose -f $(ROOT_DIR)/docker-compose.yml --env-file /tmp/.env ${action}
+
+generate-env-file:
+	sort -u -t '=' -k 1,1 $(ROOT_DIR)/.env.${env} $(ROOT_DIR)/.env > /tmp/.env
+	echo "\n"COMPOSE_PROJECT_NAME=$$\{PROJECT_NAME\}-$$\{ENV\}  >> /tmp/.env
+
+docker-clean-builds:
+	docker rmi -f $(docker images -a -q)
+
+
+
+
+
+
+
+
+
 run-ps:
 	docker network create prestashop-net-${ps_instance} || true
 	docker run -ti --name some-mysql-${ps_instance} --network prestashop-net-${ps_instance} --platform ${platform} -e APP_ENV=ci -e MYSQL_ROOT_PASSWORD=admin -e MYSQL_DATABASE=prestashop -p 4420:3306 -d mariadb:10.7.4

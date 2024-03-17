@@ -1,105 +1,170 @@
-version: '3.3'
+version: "3"
 services:
-  nginx:
-#    user: ${USERID}:${GROUPID}
-    container_name: ${PROJECT_NAME}-${ENV}-nginx
-    restart: always
+
+  nginx-proxy:
+    container_name: ${PROJECT_NAME?}-${ENV?}-nginx-proxy
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE?}
     build:
       context: .
-      dockerfile: _docker/nginx/Dockerfile
+      dockerfile: ./docker/nginx-proxy/Dockerfile
       args:
-        CONTAINER_USER: ${CONTAINER_USER}
-        CONTAINER_USERID: ${CONTAINER_USERID}
-        CONTAINER_GROUP: ${CONTAINER_GROUP}
-        CONTAINER_GROUPID: ${CONTAINER_GROUPID}
-    env_file:
-      - .env
-      #      - .env.prod
-      #      - .env.stage
-      - .env.local
+        ENV: ${ENV?}
+        DOMAIN: ${DOMAIN?}
+        WHITELISTED_IP: ${WHITELISTED_IP}
+#    volumes:
+#      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
+#      - ./_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
     ports:
       - ${LOCALHOST_PORT}:80
-    depends_on:
-      - php-fmp
-      - pma
-      - mailpit
-#    volumes:
-#      - ./app:/var/www/html
-#      - ./_cache/nginx/log:/var/log/nginx
+#      - ${LOCALHOST_PORT_SSL}:443
+    networks:
+      - network_app
 
-  php-fmp:
-#    user: ${USERID}:${GROUPID}
-    container_name: ${PROJECT_NAME}-${ENV}-php
+  mariadb:
+    container_name: ${PROJECT_NAME?}-${ENV?}-mariadb
+    restart: unless-stopped
     build:
       context: .
-      dockerfile: _docker/php/8.1/Dockerfile
+      dockerfile: ./docker/mariadb/Dockerfile
       args:
-        CONTAINER_USER: ${CONTAINER_USER}
-        CONTAINER_USERID: ${CONTAINER_USERID}
-        CONTAINER_GROUP: ${CONTAINER_GROUP}
-        CONTAINER_GROUPID: ${CONTAINER_GROUPID}
-#    volumes:
-#      - ./app:/var/www/html
-#      - ./_cache/php/log:/var/log/fpm-php.www.log
-
-  database:
-    container_name: ${PROJECT_NAME}-${ENV}-mysql
-#    image: mariadb:11.3.2
-    restart: always
-    build:
-      context: .
-      dockerfile: _docker/mariadb/Dockerfile
+        DATABASE_HOST: ${DATABASE_HOST:-%}
+        DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
+        DATABASE_NAME: ${DATABASE_NAME?}
+        EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
     env_file:
-      - .env
-#      - .env.prod
-#      - .env.stage
-      - .env.local
+      - ${ENV_FILE?}
     environment:
-      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
-      MYSQL_USER: ${DATABASE_USER}
-      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
-      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD?}
+      MYSQL_USER: ${DATABASE_USER?}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD?}
+      MYSQL_DATABASE: ${DATABASE_NAME?}
+    volumes:
+      - ./_cache/mariadb/${PROJECT_NAME?}-${ENV?}:/var/lib/mysql
+    depends_on:
+      - nginx-proxy
+    networks:
+      - network_app
     healthcheck:
       test: "mariadb-admin ping -h 127.0.0.1 -u${DATABASE_USER} -p${DATABASE_PASSWORD} --silent"
-      interval: 10s
-    volumes:
-      - ./_cache/mysql/${PROJECT_NAME}-${ENV}:/var/lib/mysql
-#    ports:
-#      - ${LOCALHOST_PORT}1:3306
+      retries: 3
+      interval: 5s
+
+  #  app:
+  #    container_name: ${PROJECT_NAME}-${ENV}-app
+  #    restart: unless-stopped
+  #    deploy:
+  #      resources:
+  #        limits:
+  #          memory: 4096M
+  #    build:
+  #      context: .
+  #      dockerfile: ./Dockerfile
+  #      args:
+  #        PS_INSTANCE: ${PS_VERSION_TAG}
+  #        MODULE_NAME: ${PROJECT_NAME}
+  #    env_file:
+  #      - .env
+  #    environment:
+  #      PS_DEV_MODE: 1
+  #      DB_SERVER: ${DATABASE_HOST}
+  #      DB_USER: ${DATABASE_USER}
+  #      DB_PASSWD: ${DATABASE_PASSWORD}
+  #      DB_NAME: ${DATABASE_NAME}
+  #      PS_DOMAIN: ${DOMAIN}
+  #      PS_FOLDER_ADMIN: admintestas
+  #      XDEBUG_CONFIG: remote_host=host.docker.internal
+  #    depends_on:
+  #      - nginx
+  #      - mariadb
+  #    networks:
+  #      - network_app
+  #    volumes:
+  #      - ./app/:/var/www/html/
+  #      - ./nginx/log:/var/log/nginx
+  #    healthcheck:
+  #      test: ['CMD', 'curl', '-f', 'localhost:80']
+  #      interval: 10s
+  #      start_period: 15s
+  #      timeout: 10s
+  #      retries: 5
 
   pma:
     container_name: ${PROJECT_NAME}-${ENV}-pma
+    restart: unless-stopped
     build:
       context: .
-      dockerfile: _docker/pma/Dockerfile
-#    ports:
-#      - ${LOCALHOST_PORT}2:80
-    restart: always
+      dockerfile: ./docker/pma/Dockerfile
+      target: env-${ENV?}
+      args:
+        ENV: ${ENV?}
+        DATABASE_USER: ${DATABASE_USER?}
+        DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
     env_file:
-      - .env
-#      - .env.prod
-#      - .env.stage
-      - .env.local
-    depends_on:
-      - database
+      - ${ENV_FILE?}
     environment:
-      PMA_HOST: database
-      PMA_ABSOLUTE_URI: pim.${DOMAIN}
-      PMA_PASSWORD: ${DATABASE_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
-      PMA_USER: root
+      PMA_HOST: mariadb
+    depends_on:
+      - mariadb
+    networks:
+      - network_app
+
+
+
+
+
+
+#  nginx:
+#    container_name: ${PROJECT_NAME}-${ENV}-nginx
+#    restart: unless-stopped
+#    tty: true
+#    build:
+#      context: .
+#      dockerfile: conf/nginx/Dockerfile
+#      args:
+#        DOMAIN: ${DOMAIN}
+#    env_file:
+#      - .env
+#    depends_on:
+#      - php-fmp
+#      - pma
+#      - mailpit
+#    networks:
+#      - network_app
+#    volumes:
+#      # APP mapping
+#      - ./app/:/var/www/html/
+#      # Nginx SSL config
+#      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
+#      - ./_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
+#      - ./conf/nginx/localhost.sh:/docker-entrypoint-initdb.d/localhost.sh
+#      # Nginx access log
+#      - ./_cache/nginx/log:/var/log/nginx/
+#
+#  php-fmp:
+#    container_name: ${PROJECT_NAME}-${ENV}-php
+#    restart: unless-stopped
+#    tty: true
+#    build:
+#      context: .
+#      dockerfile: conf/php/8.1/Dockerfile
+#    networks:
+#      - network_app
+#    volumes:
+#      # APP mapping
+#      - ./app/:/var/www/html/
+##      - ./_cache/php/log:/var/log/fpm-php.www.log
+
+
 
   mailpit:
     container_name: ${PROJECT_NAME}-${ENV}-mailpit
+    restart: unless-stopped
     image: axllent/mailpit
-#    ports:
-#      - ${LOCALHOST_PORT}3:8025
-#      - ${LOCALHOST_PORT}4:1025
     env_file:
-      - .env
-#      - .env.prod
-#      - .env.stage
-      - .env.local
+      - ${ENV_FILE?}
     environment:
       TZ: Europe/Vilnius
       MP_MAX_MESSAGES: 5000
@@ -107,46 +172,109 @@ services:
       MP_DATA_FILE: /data/mailpit.db
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    networks:
+      - network_app
+    depends_on:
+      - nginx-proxy
     volumes:
-      - ./_docker/mailpit:/data
+      - ./_cache/mailpit:/data
 
-#  app:
-#    container_name: ${PROJECT_NAME}-${ENV}-app
-#    deploy:
-#      resources:
-#        limits:
-#          memory: 4096M
+  grafana:
+    image: docker.io/grafana/grafana-oss:10.4.0
+    container_name: ${PROJECT_NAME}-${ENV}-grafana
+    restart: unless-stopped
+    networks:
+      - network_app
+    volumes:
+      - ./_cache/grafana:/var/lib/grafana
+
+  prometheus:
+    container_name: ${PROJECT_NAME}-${ENV}-prometheus
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/prometheus/Dockerfile
+    depends_on:
+      - grafana
+    networks:
+      - network_app
+    volumes:
+      - ./_cache/prometheus:/prometheus
+
+  mysqld-exporter:
+    container_name: ${PROJECT_NAME?}-${ENV?}-mysqld-exporter
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/mysqld-exporter/Dockerfile
+      args:
+        EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
+    env_file:
+      - ${ENV_FILE?}
+    depends_on:
+      - grafana
+      - mariadb
+    networks:
+      - network_app
+
+
+
+
+#  nginx-prometheus-exporter:
+#    image: nginx/nginx-prometheus-exporter:0.10.0
+#    container_name: ${PROJECT_NAME}-${ENV}-nginx-prometheus-exporter
+#    restart: unless-stopped
+#    command:
+#      - -nginx.scrape-uri=http://nginx/metrics
+#      - -web.telemetry-path=/metrics
+#    networks:
+#      - network_app
+#    depends_on:
+#      - prometheus
+#      - nginx
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: ${PROJECT_NAME}-${ENV}-cadvisor
+    restart: unless-stopped
+    depends_on:
+      - grafana
+    networks:
+      - network_app
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+#  loki:
+#    container_name: ${PROJECT_NAME}-${ENV}-loki
+#    restart: unless-stopped
 #    build:
 #      context: .
-#      dockerfile: Dockerfile
-#      args:
-#        PS_INSTANCE: ${PS_VERSION_TAG}
-#        MODULE_NAME: ${PROJECT_NAME}
-#    env_file:
-#      - .env
-#      - .env.prod
-#      - .env.stage
-#      - .env.local
-#    environment:
-#      PS_INSTALL_AUTO: 1
-#      DB_PASSWD: prestashop
-#      DB_NAME: prestashop
-#      DB_SERVER: mysql
-#      PS_DOMAIN: ${PS_DOMAIN}
-#      PS_FOLDER_INSTALL: install
-#      PS_FOLDER_ADMIN: admin1
-#      PS_ENABLE_SSL: 0
-#      XDEBUG_CONFIG: remote_host=host.docker.internal
+#      dockerfile: ./docker/loki/Dockerfile
 #    depends_on:
-#      - database
-#    ports:
-#      - ${LOCALHOST_PORT}5:80
+#      - grafana
+#    networks:
+#      - network_app
 #    volumes:
-#      - ./app:/var/www/html
-#      - ./nginx/log:/var/log/nginx
-#    healthcheck:
-#      test: ['CMD', 'curl', '-f', 'localhost:80']
-#      interval: 10s
-#      start_period: 15s
-#      timeout: 10s
-#      retries: 5
+#      - ./_cache/loki:/etc/loki
+#
+#  promtail:
+#    container_name: ${PROJECT_NAME}-${ENV}-promtail
+#    build:
+#      context: .
+#      dockerfile: ./docker/promtail/Dockerfile
+#    command:
+#      - -config.file=/etc/promtail/promtail-config.yml
+#    depends_on:
+#      - loki
+#    networks:
+#      - network_app
+
+
+networks:
+  network_app:
+    driver: bridge
+    name: ${PROJECT_NAME}-${ENV}-network
