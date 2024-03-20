@@ -3,7 +3,8 @@ pipelines:
     - step:
         name: Step 1
         runs-on:
-          - 'self.hosted'
+          - self.hosted
+          - linux
         script:
           - echo "This step will run on a self hosted runner.";
     - step:
