@@ -1,0 +1,12 @@
+pipelines:
+  default:
+    - step:
+        name: Step 1
+        runs-on:
+          - 'self.hosted'
+        script:
+          - echo "This step will run on a self hosted runner.";
+    - step:
+        name: Step 2
+        script:
+          - echo "This step will run on Atlassian's infrastructure as usual.";

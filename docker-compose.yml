@@ -128,6 +128,25 @@ services:
     volumes:
       - ./app/:/var/www/html/
 
+#  certbot:
+#    container_name: ${PROJECT_NAME}-${ENV}-certbot
+#    restart: unless-stopped
+#    build:
+#      context: .
+#      dockerfile: ./docker/certbot/Dockerfile
+#      target: env-${ENV?}
+#      args:
+#        DOMAIN: ${DOMAIN?}
+#    env_file:
+#      - ${ENV_FILE?}
+#    depends_on:
+#      - nginx-proxy
+#    networks:
+#      - network_app
+#    volumes:
+#      - ./_cache/certbot/letsencrypt:/etc/letsencrypt
+#      - ./_cache/certbot/www:/tmp/letsencrypt
+
   pma:
     container_name: ${PROJECT_NAME}-${ENV}-pma
     restart: unless-stopped
@@ -146,6 +165,10 @@ services:
       - mariadb
     networks:
       - network_app
+
+  phpstan:
+    container_name: ${PROJECT_NAME}-${ENV}-phpstan
+    image: phpstan/phpstan
 
 
 
@@ -190,7 +213,7 @@ services:
       - ./_cache/mailpit:/data
 
   grafana:
-    image: docker.io/grafana/grafana-oss:10.4.0
+    image: grafana/grafana-oss:10.4.0
     container_name: ${PROJECT_NAME}-${ENV}-grafana
     restart: unless-stopped
     networks:
@@ -259,30 +282,24 @@ services:
       - /dev/disk/:/dev/disk:ro
 
 #  loki:
+#    image: grafana/loki:2.9.2
 #    container_name: ${PROJECT_NAME}-${ENV}-loki
 #    restart: unless-stopped
-#    build:
-#      context: .
-#      dockerfile: ./docker/loki/Dockerfile
 #    depends_on:
 #      - grafana
+#    command: -config.file=/etc/loki/local-config.yaml
 #    networks:
 #      - network_app
-#    volumes:
-#      - ./_cache/loki:/etc/loki
 #
 #  promtail:
+#    image: grafana/promtail:2.9.2
 #    container_name: ${PROJECT_NAME}-${ENV}-promtail
-#    build:
-#      context: .
-#      dockerfile: ./docker/promtail/Dockerfile
-#    command:
-#      - -config.file=/etc/promtail/promtail-config.yml
+#    restart: unless-stopped
 #    depends_on:
 #      - loki
+#    command: -config.file=/etc/promtail/config.yml
 #    networks:
 #      - network_app
-
 
 networks:
   network_app:

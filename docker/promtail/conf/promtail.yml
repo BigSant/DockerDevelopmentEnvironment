@@ -1,0 +1,28 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+# local machine logs
+scrape_configs:
+  - job_name: auth
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: authlogs
+          __path__: /var/log/auth.log
+
+  - job_name: npm
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: npmlogs
+          __path__: /var/log/npm/proxy-host-1_access.log
+          #__path__: /var/log/npm/proxy-host-*_access.log
