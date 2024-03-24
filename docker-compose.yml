@@ -4,8 +4,6 @@ services:
   nginx-proxy:
     container_name: ${PROJECT_NAME?}-${ENV?}-nginx-proxy
     restart: unless-stopped
-    env_file:
-      - ${ENV_FILE?}
     build:
       context: .
       dockerfile: ./docker/nginx-proxy/Dockerfile
@@ -68,8 +66,6 @@ services:
       - ${ENV_FILE?}
     networks:
       - network_app
-#    profiles:
-#      - build-only
 
   php-fpm:
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
@@ -165,14 +161,6 @@ services:
       - mariadb
     networks:
       - network_app
-
-  phpstan:
-    container_name: ${PROJECT_NAME}-${ENV}-phpstan
-    image: phpstan/phpstan
-
-
-
-
 
 
 #

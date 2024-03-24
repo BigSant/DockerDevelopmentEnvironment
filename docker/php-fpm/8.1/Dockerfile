@@ -18,6 +18,8 @@ RUN apt-get update \
         unzip \
         libonig-dev
 
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
 RUN rm -rf /var/lib/apt/lists/*
 RUN docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
 RUN docker-php-ext-install iconv intl pdo_mysql mbstring soap gd zip bcmath
