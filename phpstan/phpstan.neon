@@ -1,18 +1,18 @@
 includes:
-	- phpstan-baseline.neon
+#	- phpstan-baseline.neon
+#	- phpstan-tmp-legacy-layout-baseline.neon
 #	- phpstan-disallowed-calls.neon
-	- phpstan-tmp-legacy-layout-baseline.neon
 parameters:
+  bootstrapFiles:
+      - /var/www/html/config/config.inc.php
   phpVersion: 80100
   level: 5
-#  bootstrapFiles:
-#    - .github/workflows/phpstan/autoload.php
   paths:
 #    - admin-dev
 #    - app
 #    - bin
 #    - cache
-#    - classes
+    - /var/www/html/classes
 #    - config
 #    - controllers
 #    - docs
@@ -21,9 +21,9 @@ parameters:
 #    - install-dev
 #    - js
 #    - localization
-    - mails
+#    - /var/www/html/mails
     # - modules
-    - override
+#    - /var/www/html/override
 #    - pdf
 #    - src
 #    - tests

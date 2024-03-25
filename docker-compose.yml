@@ -88,6 +88,7 @@ services:
       - network_app
     volumes:
       - ./app/:/var/www/html/
+      - ./phpstan/:/phpstan
 #    healthcheck:
 #      test: ['CMD', 'curl', '-f', 'localhost:80']
 #      interval: 10s

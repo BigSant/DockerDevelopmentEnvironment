@@ -1,6 +1,8 @@
 ARG PHP_VERSION=""
 ARG COMPOSER_VERSION=""
 FROM composer:${COMPOSER_VERSION} as composer
+FROM ghcr.io/phpstan/phpstan:1 as phpstan
+
 FROM php:${PHP_VERSION}-fpm as base
 
 ARG PHP_VERSION=""
@@ -21,6 +23,9 @@ RUN apt-get update \
         libonig-dev
 
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
+
+COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin/phpstan
+RUN chmod a+x /usr/local/bin/phpstan
 
 RUN apt-get install -y cron
 
