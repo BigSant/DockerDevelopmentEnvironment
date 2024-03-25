@@ -20,8 +20,6 @@ RUN mkdir -p /var/www/html
 WORKDIR /var/www/html
 RUN echo '<h1>Nginx proxy</h1>' > index.html
 
-USER nobody
-
 FROM base as env-local
 FROM base as env-prod
 FROM base as env-stage
