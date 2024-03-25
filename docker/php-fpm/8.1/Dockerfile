@@ -55,8 +55,8 @@ RUN find /var/www/html/ -type f -exec chmod 644 {} +
 RUN usermod -u 0 -o www-data && groupmod -g 0 -o www-data
 WORKDIR /var/www/html
 
-CMD ["php-fpm", "-R"]
 CMD ["cron", "-f"]
+CMD ["php-fpm", "-R"]
 
 
 
