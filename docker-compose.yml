@@ -63,6 +63,7 @@ services:
       target: env-${ENV?}
       args:
         PHP_VERSION: ${PHP_VERSION?}
+        COMPOSER_VERSION: ${COMPOSER_VERSION?}
     profiles:
       - build_only
     env_file:

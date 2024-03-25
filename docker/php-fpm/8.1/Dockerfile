@@ -1,7 +1,9 @@
-ARG PHP_VERSION=''
+ARG PHP_VERSION=""
+ARG COMPOSER_VERSION=""
+FROM composer:${COMPOSER_VERSION} as composer
 FROM php:${PHP_VERSION}-fpm as base
 
-ARG PHP_VERSION=''
+ARG PHP_VERSION=""
 
 RUN apt-get update \
     && apt-get install -y libmcrypt-dev \
@@ -18,8 +20,9 @@ RUN apt-get update \
         unzip \
         libonig-dev
 
+COPY --from=composer /usr/bin/composer /usr/local/bin/composer
+
 RUN apt-get install -y cron
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
 RUN rm -rf /var/lib/apt/lists/*
 RUN docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
@@ -62,12 +65,13 @@ CMD ["php-fpm", "-R"]
 
 FROM base as env-local
 
-#RUN apt-get update \
-#    && apt-get install -y php-xdebug
-#
-#RUN rm -rf /var/lib/apt/lists/*
+ARG PHP_VERSION=""
 
-#COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php-fpm.d/php-fpm.conf
+RUN pecl install xdebug \
+    && docker-php-ext-enable xdebug \
+    && docker-php-source delete
+
+COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 
 FROM base as env-prod
 FROM base as env-stage
