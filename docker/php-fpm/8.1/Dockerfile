@@ -62,10 +62,10 @@ CMD ["cron", "-f"]
 
 FROM base as env-local
 
-RUN apt-get update \
-    && apt-get install -y php-xdebug
-
-RUN rm -rf /var/lib/apt/lists/*
+#RUN apt-get update \
+#    && apt-get install -y php-xdebug
+#
+#RUN rm -rf /var/lib/apt/lists/*
 
 #COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php-fpm.d/php-fpm.conf
 

@@ -1,5 +1,5 @@
 ARG MAILPIT_VERSION=""
-FROM axllent/mailpit:${MARIADB_VERSION} as base
+FROM axllent/mailpit:v${MAILPIT_VERSION} as base
 
 RUN mkdir -p /data
 RUN touch /data/authfile

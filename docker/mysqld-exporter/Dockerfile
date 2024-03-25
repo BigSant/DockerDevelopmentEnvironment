@@ -1,5 +1,5 @@
 ARG MYSQLD_EXPORTER_VERSION=""
-FROM prom/mysqld-exporter:${MYSQLD_EXPORTER_VERSION} as base
+FROM prom/mysqld-exporter:v${MYSQLD_EXPORTER_VERSION} as base
 
 ARG EXPORTER_PASSWORD=""
 

@@ -180,7 +180,7 @@ services:
       dockerfile: ./docker/grafana/Dockerfile
       target: env-${ENV?}
       args:
-        GRAFANA_VERSION: '10.4'
+        GRAFANA_VERSION: '10.4.0'
     networks:
       - network_app
     volumes:
@@ -210,7 +210,7 @@ services:
       dockerfile: ./docker/mysqld-exporter/Dockerfile
       target: env-${ENV?}
       args:
-        MYSQLD_EXPORTER_VERSION: '1.8'
+        MYSQLD_EXPORTER_VERSION: '0.15.1'
         EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
     depends_on:
       - grafana
