@@ -7,7 +7,9 @@ services:
     build:
       context: .
       dockerfile: ./docker/nginx-proxy/Dockerfile
+      target: env-${ENV?}
       args:
+        NGINX_VERSION: '1.25'
         ENV: ${ENV?}
         DOMAIN: ${DOMAIN?}
         WHITELISTED_IP: ${WHITELISTED_IP}
@@ -26,14 +28,15 @@ services:
     build:
       context: .
       dockerfile: ./docker/mariadb/Dockerfile
+      target: env-${ENV?}
       args:
-        DATABASE_HOST: ${DATABASE_HOST:-%}
+        MARIADB_VERSION: '11.3.2'
+        ENV: ${ENV?}
+        PROJECT_NAME: ${PROJECT_NAME?}
         DATABASE_USER: ${DATABASE_USER?}
         DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
         DATABASE_NAME: ${DATABASE_NAME?}
         EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
-    env_file:
-      - ${ENV_FILE?}
     environment:
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD?}
@@ -70,10 +73,6 @@ services:
   php-fpm:
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 4096M
     build:
       context: .
       dockerfile: ./Dockerfile
@@ -81,17 +80,6 @@ services:
       args:
         ENV: ${ENV?}
         PROJECT_NAME: ${PROJECT_NAME?}
-    env_file:
-      - ${ENV_FILE?}
-#    environment:
-#      PS_DEV_MODE: 1
-#      DB_SERVER: ${DATABASE_HOST}
-#      DB_USER: ${DATABASE_USER}
-#      DB_PASSWD: ${DATABASE_PASSWORD}
-#      DB_NAME: ${DATABASE_NAME}
-#      PS_DOMAIN: ${DOMAIN}
-#      PS_FOLDER_ADMIN: admintestas
-#      XDEBUG_CONFIG: remote_host=host.docker.internal
     depends_on:
       - nginx-proxy
       - mariadb
@@ -112,10 +100,10 @@ services:
     build:
       context: .
       dockerfile: ./docker/nginx/Dockerfile
+      target: env-${ENV?}
       args:
+        NGINX_VERSION: '1.25'
         DOMAIN: ${DOMAIN?}
-    env_file:
-      - ${ENV_FILE?}
     depends_on:
       - nginx-proxy
       - php-fpm
@@ -151,10 +139,9 @@ services:
       dockerfile: ./docker/pma/Dockerfile
       target: env-${ENV?}
       args:
+        PMA_VERSION: '5.2.1'
         DATABASE_USER: ${DATABASE_USER?}
         DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
-    env_file:
-      - ${ENV_FILE?}
     environment:
       PMA_HOST: mariadb
     depends_on:
@@ -162,33 +149,18 @@ services:
     networks:
       - network_app
 
-
-#
-#  php-fmp:
-#    container_name: ${PROJECT_NAME}-${ENV}-php
-#    restart: unless-stopped
-#    tty: true
-#    build:
-#      context: .
-#      dockerfile: conf/php/8.1/Dockerfile
-#    networks:
-#      - network_app
-#    volumes:
-#      # APP mapping
-#      - ./app/:/var/www/html/
-##      - ./_cache/php/log:/var/log/fpm-php.www.log
-
-
-
   mailpit:
     container_name: ${PROJECT_NAME}-${ENV}-mailpit
     restart: unless-stopped
-    image: axllent/mailpit
-    env_file:
-      - ${ENV_FILE?}
+    build:
+      context: .
+      dockerfile: ./docker/mailpit/Dockerfile
+      target: env-${ENV?}
+      args:
+        MAILPIT_VERSION: '1.15'
     environment:
       TZ: Europe/Vilnius
-      MP_MAX_MESSAGES: 5000
+      MP_MAX_MESSAGES: 1000
       MP_UI_AUTH_FILE: /data/authfile
       MP_DATA_FILE: /data/mailpit.db
       MP_SMTP_AUTH_ACCEPT_ANY: 1
@@ -201,9 +173,14 @@ services:
       - ./_cache/mailpit:/data
 
   grafana:
-    image: grafana/grafana-oss:10.4.0
     container_name: ${PROJECT_NAME}-${ENV}-grafana
     restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/grafana/Dockerfile
+      target: env-${ENV?}
+      args:
+        GRAFANA_VERSION: '10.4'
     networks:
       - network_app
     volumes:
@@ -215,6 +192,9 @@ services:
     build:
       context: .
       dockerfile: ./docker/prometheus/Dockerfile
+      target: env-${ENV?}
+      args:
+        PROMETHEUS_VERSION: '2.50.1'
     depends_on:
       - grafana
     networks:
@@ -228,18 +208,15 @@ services:
     build:
       context: .
       dockerfile: ./docker/mysqld-exporter/Dockerfile
+      target: env-${ENV?}
       args:
+        MYSQLD_EXPORTER_VERSION: '1.8'
         EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
-    env_file:
-      - ${ENV_FILE?}
     depends_on:
       - grafana
       - mariadb
     networks:
       - network_app
-
-
-
 
 #  nginx-prometheus-exporter:
 #    image: nginx/nginx-prometheus-exporter:0.10.0
@@ -255,9 +232,14 @@ services:
 #      - nginx
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.2
     container_name: ${PROJECT_NAME}-${ENV}-cadvisor
     restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ./docker/cadvisor/Dockerfile
+      target: env-${ENV?}
+      args:
+        CADVISOR_VERSION: '0.47.2'
     depends_on:
       - grafana
     networks:

@@ -1,4 +1,5 @@
-FROM nginx:1.25
+ARG NGINX_VERSION=""
+FROM nginx:${NGINX_VERSION} as base
 
 ARG ENV=""
 ARG DOMAIN=""
@@ -18,3 +19,9 @@ COPY /docker/nginx-proxy/conf/nginx.conf /etc/nginx/nginx.conf
 RUN mkdir -p /var/www/html
 WORKDIR /var/www/html
 RUN echo '<h1>Nginx proxy</h1>' > index.html
+
+USER nobody
+
+FROM base as env-local
+FROM base as env-prod
+FROM base as env-stage

@@ -10,10 +10,6 @@ FROM base as env-prod
 FROM base as env-stage
 
 
-RUN #usermod -u 0 -o www-data && groupmod -g 0 -o www-data
-
-
-
 
 
 

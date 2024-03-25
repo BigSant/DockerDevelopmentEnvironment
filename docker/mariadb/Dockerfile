@@ -1,6 +1,8 @@
-FROM mariadb:11.3.2
+ARG MARIADB_VERSION=""
+FROM mariadb:${MARIADB_VERSION} as base
 
-
+ARG ENV=""
+ARG PROJECT_NAME=""
 ARG DATABASE_USER=""
 ARG DATABASE_PASSWORD=""
 ARG DATABASE_NAME=""
@@ -13,3 +15,11 @@ RUN sed -i "s/{DATABASE_USER}/${DATABASE_USER}/g" /docker-entrypoint-initdb.d/in
 RUN sed -i "s/{DATABASE_PASSWORD}/${DATABASE_PASSWORD}/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
 RUN sed -i "s/{DATABASE_NAME}/${DATABASE_NAME}/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
 RUN sed -i "s/{EXPORTER_PASSWORD}/${EXPORTER_PASSWORD}/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
+
+FROM base as env-local
+
+FROM base as env-prod
+#COPY ./../../_cache/mariadb/${PROJECT_NAME}-${ENV} /var/lib/mysql
+
+FROM base as env-stage
+#COPY ./../../_cache/mariadb/${PROJECT_NAME}-${ENV} /var/lib/mysql

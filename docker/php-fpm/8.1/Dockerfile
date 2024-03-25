@@ -18,6 +18,7 @@ RUN apt-get update \
         unzip \
         libonig-dev
 
+RUN apt-get install -y cron
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
 RUN rm -rf /var/lib/apt/lists/*
@@ -55,8 +56,18 @@ RUN usermod -u 0 -o www-data && groupmod -g 0 -o www-data
 WORKDIR /var/www/html
 
 CMD ["php-fpm", "-R"]
+CMD ["cron", "-f"]
+
 
 
 FROM base as env-local
+
+RUN apt-get update \
+    && apt-get install -y php-xdebug
+
+RUN rm -rf /var/lib/apt/lists/*
+
+#COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php-fpm.d/php-fpm.conf
+
 FROM base as env-prod
 FROM base as env-stage
