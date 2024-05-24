@@ -88,7 +88,7 @@ services:
       - network_app
     volumes:
       - ./app/:/var/www/html/
-      - ./phpstan/:/phpstan
+      - ./phpstan/:/phpstan/
 #    healthcheck:
 #      test: ['CMD', 'curl', '-f', 'localhost:80']
 #      interval: 10s
@@ -234,8 +234,10 @@ services:
 #      - nginx
 
   cadvisor:
-    container_name: ${PROJECT_NAME}-${ENV}-cadvisor
     restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 1
     build:
       context: .
       dockerfile: ./docker/cadvisor/Dockerfile

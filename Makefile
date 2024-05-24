@@ -54,7 +54,6 @@ docker-clean-builds:
 
 
 
-
 run-ps:
 	docker network create prestashop-net-${ps_instance} || true
 	docker run -ti --name some-mysql-${ps_instance} --network prestashop-net-${ps_instance} --platform ${platform} -e APP_ENV=ci -e MYSQL_ROOT_PASSWORD=admin -e MYSQL_DATABASE=prestashop -p 4420:3306 -d mariadb:10.7.4

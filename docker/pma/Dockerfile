@@ -1,5 +1,5 @@
 ARG PMA_VERSION=""
-FROM phpmyadmin:${PMA_VERSION}-apache as base
+FROM phpmyadmin:${PMA_VERSION}-fpm as base
 
 ARG DATABASE_USER=""
 ARG DATABASE_PASSWORD=""
