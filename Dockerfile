@@ -5,6 +5,8 @@ FROM ${PROJECT_NAME}-${ENV}_php-fpm-base as base
 
 ADD https://github.com/PrestaShop/PrestaShop/releases/download/8.0.1/prestashop_8.0.1.zip /var/www/html
 
+RUN docker-php-ext-install calendar && docker-php-ext-configure calendar
+
 FROM base as env-local
 FROM base as env-prod
 FROM base as env-stage

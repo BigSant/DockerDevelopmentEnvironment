@@ -10,8 +10,8 @@ services:
       target: env-${ENV?}
       args:
         NGINX_VERSION: '1.25'
-        ENV: ${ENV?}
-        DOMAIN: ${DOMAIN?}
+        ENV: ${ENV}
+        DOMAIN: ${DOMAIN}
         WHITELISTED_IP: ${WHITELISTED_IP}
 #    volumes:
 #      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
@@ -63,6 +63,7 @@ services:
       target: env-${ENV?}
       args:
         PHP_VERSION: ${PHP_VERSION?}
+        XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION?}
     profiles:
       - build_only
