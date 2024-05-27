@@ -1,5 +1,9 @@
-FROM grafana/promtail:latest
+ARG PROMTAIL_VERSION=""
+FROM grafana/promtail:${PROMTAIL_VERSION} as base
 
 COPY ./docker/promtail/conf/promtail.yml /etc/promtail/promtail-config.yml
+CMD ["-config.file=/etc/promtail/promtail-config.yml"]
 
-CMD ["/usr/bin/promtail", "-config.file=/etc/config/promtail-local-config.yaml"]
+FROM base as env-local
+FROM base as env-prod
+FROM base as env-stage

@@ -20,6 +20,8 @@ services:
     depends_on:
       - nginx
       - pma
+      - mailpit
+      - grafana
     networks:
       - network_app
 
@@ -33,7 +35,7 @@ services:
       target: env-${ENV}
       args:
         MARIADB_VERSION: ${MARIADB_VERSION}
-    command: /usr/local/bin/init.sh '${DATABASE_USER}' '${DATABASE_PASSWORD}' '${DATABASE_NAME}' '${EXPORTER_PASSWORD}'
+    command: /usr/local/bin/init.sh '${DATABASE_USER}' '${DATABASE_PASSWORD}' '${DATABASE_NAME}' '${MYSQLD_EXPORTER_PASSWORD}'
     environment:
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
@@ -67,8 +69,8 @@ services:
       - network_app
 
   php-fpm:
-    image: ${PROJECT_NAME}-php-fpm-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
-    container_name: ${PROJECT_NAME}-php-fpm-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    image: ${PROJECT_NAME}-php-fpm-${ENV}
+    container_name: ${PROJECT_NAME}-php-fpm-${ENV}
     restart: unless-stopped
     build:
       context: .
@@ -149,129 +151,181 @@ services:
     networks:
       - network_app
 
-#  mailpit:
-#    container_name: ${PROJECT_NAME}-${ENV}-mailpit
-#    restart: unless-stopped
-#    build:
-#      context: .
-#      dockerfile: ./docker/mailpit/Dockerfile
-#      target: env-${ENV?}
-#      args:
-#        MAILPIT_VERSION: '1.15'
-#    environment:
-#      TZ: Europe/Vilnius
-#      MP_MAX_MESSAGES: 1000
-#      MP_UI_AUTH_FILE: /data/authfile
-#      MP_DATA_FILE: /data/mailpit.db
-#      MP_SMTP_AUTH_ACCEPT_ANY: 1
-#      MP_SMTP_AUTH_ALLOW_INSECURE: 1
-#    networks:
-#      - network_app
-#    depends_on:
-#      - nginx-proxy
-#    volumes:
-#      - ./_cache/mailpit:/data
-#
-#  grafana:
-#    container_name: ${PROJECT_NAME}-${ENV}-grafana
-#    restart: unless-stopped
-#    build:
-#      context: .
-#      dockerfile: ./docker/grafana/Dockerfile
-#      target: env-${ENV?}
-#      args:
-#        GRAFANA_VERSION: '10.4.0'
-#    networks:
-#      - network_app
-#    volumes:
-#      - ./_cache/grafana:/var/lib/grafana
-#
-#  prometheus:
-#    container_name: ${PROJECT_NAME}-${ENV}-prometheus
-#    restart: unless-stopped
-#    build:
-#      context: .
-#      dockerfile: ./docker/prometheus/Dockerfile
-#      target: env-${ENV?}
-#      args:
-#        PROMETHEUS_VERSION: '2.50.1'
-#    depends_on:
-#      - grafana
-#    networks:
-#      - network_app
-#    volumes:
-#      - ./_cache/prometheus:/prometheus
-#
-#  mysqld-exporter:
-#    container_name: ${PROJECT_NAME?}-${ENV?}-mysqld-exporter
-#    restart: unless-stopped
-#    build:
-#      context: .
-#      dockerfile: ./docker/mysqld-exporter/Dockerfile
-#      target: env-${ENV?}
-#      args:
-#        MYSQLD_EXPORTER_VERSION: '0.15.1'
-#        EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
-#    depends_on:
-#      - grafana
-#      - mariadb
-#    networks:
-#      - network_app
-#
-##  nginx-prometheus-exporter:
-##    image: nginx/nginx-prometheus-exporter:0.10.0
-##    container_name: ${PROJECT_NAME}-${ENV}-nginx-prometheus-exporter
-##    restart: unless-stopped
-##    command:
-##      - -nginx.scrape-uri=http://nginx/metrics
-##      - -web.telemetry-path=/metrics
-##    networks:
-##      - network_app
-##    depends_on:
-##      - prometheus
-##      - nginx
-#
-#  cadvisor:
-#    restart: unless-stopped
-#    deploy:
-#      mode: replicated
-#      replicas: 1
-#    build:
-#      context: .
-#      dockerfile: ./docker/cadvisor/Dockerfile
-#      target: env-${ENV?}
-#      args:
-#        CADVISOR_VERSION: '0.47.2'
-#    depends_on:
-#      - grafana
-#    networks:
-#      - network_app
-#    volumes:
-#      - /:/rootfs:ro
-#      - /var/run:/var/run:ro
-#      - /sys:/sys:ro
-#      - /var/lib/docker/:/var/lib/docker:ro
-#      - /dev/disk/:/dev/disk:ro
+  mailpit:
+    image: mailpit-${ENV}-${MAILPIT_VERSION}
+    container_name: mailpit-${ENV}-${MAILPIT_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/mailpit/Dockerfile
+      target: env-${ENV}
+      args:
+        MAILPIT_VERSION: ${MAILPIT_VERSION}
+    environment:
+      TZ: Europe/Vilnius
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    networks:
+      - network_app
+    volumes:
+      - ./_cache/mailpit:/data
 
-#  loki:
-#    image: grafana/loki:2.9.2
-#    container_name: ${PROJECT_NAME}-${ENV}-loki
-#    restart: unless-stopped
-#    depends_on:
-#      - grafana
-#    command: -config.file=/etc/loki/local-config.yaml
-#    networks:
-#      - network_app
-#
-#  promtail:
-#    image: grafana/promtail:2.9.2
-#    container_name: ${PROJECT_NAME}-${ENV}-promtail
-#    restart: unless-stopped
-#    depends_on:
-#      - loki
-#    command: -config.file=/etc/promtail/config.yml
-#    networks:
-#      - network_app
+  grafana:
+    image: grafana-${ENV}-${GRAFANA_VERSION}
+    container_name: grafana-${ENV}-${GRAFANA_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/grafana/Dockerfile
+      target: env-${ENV}
+      args:
+        GRAFANA_VERSION: ${GRAFANA_VERSION}
+    user: '0'
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - network_app
+    volumes:
+      - ./_cache/grafana:/var/lib/grafana
+
+  prometheus:
+    image: prometheus-${ENV}-${PROMETHEUS_VERSION}
+    container_name: prometheus-${ENV}-${PROMETHEUS_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/prometheus/Dockerfile
+      target: env-${ENV}
+      args:
+        PROMETHEUS_VERSION: ${PROMETHEUS_VERSION}
+    user: '0'
+    depends_on:
+      - mysqld-exporter
+      - cadvisor
+      - nginx-exporter
+      - php-fpm-exporter
+      - page-speed-exporter
+    networks:
+      - network_app
+    volumes:
+      - ./_cache/prometheus:/prometheus
+
+  mysqld-exporter:
+    image: mysqld-exporter-${ENV}-${MYSQLD_EXPORTER_VERSION}
+    container_name: mysqld-exporter-${ENV}-${MYSQLD_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/mysqld-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        MYSQLD_EXPORTER_VERSION: ${MYSQLD_EXPORTER_VERSION}
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
+    depends_on:
+      - mariadb
+    networks:
+      - network_app
+
+  nginx-exporter:
+    image: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
+    container_name: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/nginx-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        NGINX_EXPORTER_VERSION: ${NGINX_EXPORTER_VERSION}
+    depends_on:
+      - nginx
+    networks:
+      - network_app
+
+  php-fpm-exporter:
+    image: php-fpm-exporter-${ENV}-${PHP_FPM_EXPORTER_VERSION}
+    container_name: php-fpm-exporter-${ENV}-${PHP_FPM_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/php-fpm-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_FPM_EXPORTER_VERSION: ${PHP_FPM_EXPORTER_VERSION}
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
+
+  page-speed-exporter:
+    image: page-speed-exporter-${ENV}-${PAGE_SPEED_EXPORTER_VERSION}
+    container_name: page-speed-exporter-${ENV}-${PAGE_SPEED_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/pagespeed-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        PAGE_SPEED_EXPORTER_VERSION: ${PAGE_SPEED_EXPORTER_VERSION}
+    environment:
+      PAGESPEED_API_KEY: 'AIzaSyBpTbMSMTetOh6gU2PkpuHtF3W30HrWwKc'
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
+
+  cadvisor:
+    image: cadvisor-${ENV}-${CADVISOR_VERSION}
+    container_name: cadvisor-${ENV}-${CADVISOR_VERSION}
+    restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 1
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/cadvisor/Dockerfile
+      target: env-${ENV}
+      args:
+        CADVISOR_VERSION: ${CADVISOR_VERSION}
+    networks:
+      - network_app
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  loki:
+    image: loki-${ENV}-${LOKI_VERSION}
+    container_name: loki-${ENV}-${LOKI_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/loki/Dockerfile
+      target: env-${ENV}
+      args:
+        LOKI_VERSION: ${LOKI_VERSION}
+    networks:
+      - network_app
+
+  promtail:
+    image: promtail-${ENV}-${PROMTAIL_VERSION}
+    container_name: promtail-${ENV}-${PROMTAIL_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/promtail/Dockerfile
+      target: env-${ENV}
+      args:
+        PROMTAIL_VERSION: ${PROMTAIL_VERSION}
+    depends_on:
+      - loki
+    networks:
+      - network_app
 
 networks:
   network_app:
