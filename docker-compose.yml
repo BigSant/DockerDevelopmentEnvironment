@@ -1,52 +1,47 @@
-version: "3"
 services:
-
   nginx-proxy:
-    container_name: ${PROJECT_NAME?}-${ENV?}-nginx-proxy
+    image: nginx-proxy-${ENV}-${NGINX_VERSION}
+    container_name: nginx-proxy-${ENV}-${NGINX_VERSION}
     restart: unless-stopped
     build:
-      context: .
+      context: ./docker-context
       dockerfile: ./docker/nginx-proxy/Dockerfile
-      target: env-${ENV?}
+      target: env-${ENV}
       args:
-        NGINX_VERSION: '1.25'
+        NGINX_VERSION: ${NGINX_VERSION}
         ENV: ${ENV}
-        DOMAIN: ${DOMAIN}
-        WHITELISTED_IP: ${WHITELISTED_IP}
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}'
 #    volumes:
 #      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
 #      - ./_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
     ports:
       - ${LOCALHOST_PORT}:80
       - ${LOCALHOST_PORT_SSL}:443
+    depends_on:
+      - nginx
+      - pma
     networks:
       - network_app
 
   mariadb:
-    container_name: ${PROJECT_NAME?}-${ENV?}-mariadb
+    image: mariadb-${ENV}-${MARIADB_VERSION}
+    container_name: mariadb-${ENV}-${MARIADB_VERSION}
     restart: unless-stopped
     build:
-      context: .
+      context: ./docker-context
       dockerfile: ./docker/mariadb/Dockerfile
-      target: env-${ENV?}
+      target: env-${ENV}
       args:
-        MARIADB_VERSION: '11.3.2'
-        ENV: ${ENV?}
-        PROJECT_NAME: ${PROJECT_NAME?}
-        DATABASE_USER: ${DATABASE_USER?}
-        DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
-        DATABASE_NAME: ${DATABASE_NAME?}
-        EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
+        MARIADB_VERSION: ${MARIADB_VERSION}
+    command: /usr/local/bin/init.sh '${DATABASE_USER}' '${DATABASE_PASSWORD}' '${DATABASE_NAME}' '${EXPORTER_PASSWORD}'
     environment:
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
-      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD?}
-      MYSQL_USER: ${DATABASE_USER?}
-      MYSQL_PASSWORD: ${DATABASE_PASSWORD?}
-      MYSQL_DATABASE: ${DATABASE_NAME?}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_USER: ${DATABASE_USER}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_DATABASE: ${DATABASE_NAME}
     volumes:
-      - ./_cache/mariadb/${PROJECT_NAME?}-${ENV?}:/var/lib/mysql
-    depends_on:
-      - nginx-proxy
+      - ./_cache/mariadb/${ENV}:/var/lib/mysql
     networks:
       - network_app
     healthcheck:
@@ -55,41 +50,42 @@ services:
       interval: 5s
 
   php-fpm-base:
-    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-base
+    image: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
     restart: unless-stopped
     build:
-      context: .
-      dockerfile: ./docker/php-fpm/${PHP_VERSION?}/Dockerfile
-      target: env-${ENV?}
+      context: ./docker-context
+      dockerfile: ./docker/php-fpm/${PHP_VERSION}/Dockerfile
+      target: env-${ENV}
       args:
-        PHP_VERSION: ${PHP_VERSION?}
+        PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
-        COMPOSER_VERSION: ${COMPOSER_VERSION?}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
     profiles:
       - build_only
-    env_file:
-      - ${ENV_FILE?}
     networks:
       - network_app
 
   php-fpm:
-    container_name: ${PROJECT_NAME}-${ENV}-php-fpm
+    image: ${PROJECT_NAME}-php-fpm-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    container_name: ${PROJECT_NAME}-php-fpm-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
     restart: unless-stopped
     build:
       context: .
       dockerfile: ./Dockerfile
-      target: env-${ENV?}
+      target: env-${ENV}
       args:
-        ENV: ${ENV?}
-        PROJECT_NAME: ${PROJECT_NAME?}
+        ENV: ${ENV}
+        PHP_VERSION: ${PHP_VERSION}
+        XDEBUG_VERSION: ${XDEBUG_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
-      - nginx-proxy
       - mariadb
     networks:
       - network_app
     volumes:
       - ./app/:/var/www/html/
-      - ./phpstan/:/phpstan/
+#      - ./phpstan/:/phpstan/
 #    healthcheck:
 #      test: ['CMD', 'curl', '-f', 'localhost:80']
 #      interval: 10s
@@ -98,53 +94,54 @@ services:
 #      retries: 5
 
   nginx:
-    container_name: ${PROJECT_NAME}-${ENV}-nginx
+    image: nginx-${ENV}-${NGINX_VERSION}
+    container_name: nginx-${ENV}-${NGINX_VERSION}
     restart: unless-stopped
     build:
-      context: .
+      context: ./docker-context
       dockerfile: ./docker/nginx/Dockerfile
-      target: env-${ENV?}
+      target: env-${ENV}
       args:
-        NGINX_VERSION: '1.25'
-        DOMAIN: ${DOMAIN?}
+        NGINX_VERSION: ${NGINX_VERSION}
+    command: /usr/local/bin/init.sh '${DOMAIN}'
     depends_on:
-      - nginx-proxy
       - php-fpm
     networks:
       - network_app
     volumes:
       - ./app/:/var/www/html/
 
-#  certbot:
-#    container_name: ${PROJECT_NAME}-${ENV}-certbot
-#    restart: unless-stopped
-#    build:
-#      context: .
-#      dockerfile: ./docker/certbot/Dockerfile
-#      target: env-${ENV?}
-#      args:
-#        DOMAIN: ${DOMAIN?}
-#    env_file:
-#      - ${ENV_FILE?}
-#    depends_on:
-#      - nginx-proxy
-#    networks:
-#      - network_app
-#    volumes:
-#      - ./_cache/certbot/letsencrypt:/etc/letsencrypt
-#      - ./_cache/certbot/www:/tmp/letsencrypt
+##  certbot:
+##    container_name: ${PROJECT_NAME}-${ENV}-certbot
+##    restart: unless-stopped
+##    build:
+##      context: .
+##      dockerfile: ./docker/certbot/Dockerfile
+##      target: env-${ENV?}
+##      args:
+##        DOMAIN: ${DOMAIN?}
+##    env_file:
+##      - ${ENV_FILE?}
+##    depends_on:
+##      - nginx-proxy
+##    networks:
+##      - network_app
+##    volumes:
+##      - ./_cache/certbot/letsencrypt:/etc/letsencrypt
+##      - ./_cache/certbot/www:/tmp/letsencrypt
 
   pma:
-    container_name: ${PROJECT_NAME}-${ENV}-pma
+    image: pma-${ENV}-${PMA_VERSION}
+    container_name: pma-${ENV}-${PMA_VERSION}
     restart: unless-stopped
     build:
-      context: .
+      context: ./docker-context
       dockerfile: ./docker/pma/Dockerfile
-      target: env-${ENV?}
+      target: env-${ENV}
       args:
-        PMA_VERSION: '5.2.1'
-        DATABASE_USER: ${DATABASE_USER?}
-        DATABASE_PASSWORD: ${DATABASE_PASSWORD?}
+        PMA_VERSION: ${PMA_VERSION}
+        DATABASE_USER: ${DATABASE_USER}
+        DATABASE_PASSWORD: ${DATABASE_PASSWORD}
     environment:
       PMA_HOST: mariadb
     depends_on:
@@ -152,109 +149,109 @@ services:
     networks:
       - network_app
 
-  mailpit:
-    container_name: ${PROJECT_NAME}-${ENV}-mailpit
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: ./docker/mailpit/Dockerfile
-      target: env-${ENV?}
-      args:
-        MAILPIT_VERSION: '1.15'
-    environment:
-      TZ: Europe/Vilnius
-      MP_MAX_MESSAGES: 1000
-      MP_UI_AUTH_FILE: /data/authfile
-      MP_DATA_FILE: /data/mailpit.db
-      MP_SMTP_AUTH_ACCEPT_ANY: 1
-      MP_SMTP_AUTH_ALLOW_INSECURE: 1
-    networks:
-      - network_app
-    depends_on:
-      - nginx-proxy
-    volumes:
-      - ./_cache/mailpit:/data
-
-  grafana:
-    container_name: ${PROJECT_NAME}-${ENV}-grafana
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: ./docker/grafana/Dockerfile
-      target: env-${ENV?}
-      args:
-        GRAFANA_VERSION: '10.4.0'
-    networks:
-      - network_app
-    volumes:
-      - ./_cache/grafana:/var/lib/grafana
-
-  prometheus:
-    container_name: ${PROJECT_NAME}-${ENV}-prometheus
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: ./docker/prometheus/Dockerfile
-      target: env-${ENV?}
-      args:
-        PROMETHEUS_VERSION: '2.50.1'
-    depends_on:
-      - grafana
-    networks:
-      - network_app
-    volumes:
-      - ./_cache/prometheus:/prometheus
-
-  mysqld-exporter:
-    container_name: ${PROJECT_NAME?}-${ENV?}-mysqld-exporter
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: ./docker/mysqld-exporter/Dockerfile
-      target: env-${ENV?}
-      args:
-        MYSQLD_EXPORTER_VERSION: '0.15.1'
-        EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
-    depends_on:
-      - grafana
-      - mariadb
-    networks:
-      - network_app
-
-#  nginx-prometheus-exporter:
-#    image: nginx/nginx-prometheus-exporter:0.10.0
-#    container_name: ${PROJECT_NAME}-${ENV}-nginx-prometheus-exporter
+#  mailpit:
+#    container_name: ${PROJECT_NAME}-${ENV}-mailpit
 #    restart: unless-stopped
-#    command:
-#      - -nginx.scrape-uri=http://nginx/metrics
-#      - -web.telemetry-path=/metrics
+#    build:
+#      context: .
+#      dockerfile: ./docker/mailpit/Dockerfile
+#      target: env-${ENV?}
+#      args:
+#        MAILPIT_VERSION: '1.15'
+#    environment:
+#      TZ: Europe/Vilnius
+#      MP_MAX_MESSAGES: 1000
+#      MP_UI_AUTH_FILE: /data/authfile
+#      MP_DATA_FILE: /data/mailpit.db
+#      MP_SMTP_AUTH_ACCEPT_ANY: 1
+#      MP_SMTP_AUTH_ALLOW_INSECURE: 1
 #    networks:
 #      - network_app
 #    depends_on:
-#      - prometheus
-#      - nginx
-
-  cadvisor:
-    restart: unless-stopped
-    deploy:
-      mode: replicated
-      replicas: 1
-    build:
-      context: .
-      dockerfile: ./docker/cadvisor/Dockerfile
-      target: env-${ENV?}
-      args:
-        CADVISOR_VERSION: '0.47.2'
-    depends_on:
-      - grafana
-    networks:
-      - network_app
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
+#      - nginx-proxy
+#    volumes:
+#      - ./_cache/mailpit:/data
+#
+#  grafana:
+#    container_name: ${PROJECT_NAME}-${ENV}-grafana
+#    restart: unless-stopped
+#    build:
+#      context: .
+#      dockerfile: ./docker/grafana/Dockerfile
+#      target: env-${ENV?}
+#      args:
+#        GRAFANA_VERSION: '10.4.0'
+#    networks:
+#      - network_app
+#    volumes:
+#      - ./_cache/grafana:/var/lib/grafana
+#
+#  prometheus:
+#    container_name: ${PROJECT_NAME}-${ENV}-prometheus
+#    restart: unless-stopped
+#    build:
+#      context: .
+#      dockerfile: ./docker/prometheus/Dockerfile
+#      target: env-${ENV?}
+#      args:
+#        PROMETHEUS_VERSION: '2.50.1'
+#    depends_on:
+#      - grafana
+#    networks:
+#      - network_app
+#    volumes:
+#      - ./_cache/prometheus:/prometheus
+#
+#  mysqld-exporter:
+#    container_name: ${PROJECT_NAME?}-${ENV?}-mysqld-exporter
+#    restart: unless-stopped
+#    build:
+#      context: .
+#      dockerfile: ./docker/mysqld-exporter/Dockerfile
+#      target: env-${ENV?}
+#      args:
+#        MYSQLD_EXPORTER_VERSION: '0.15.1'
+#        EXPORTER_PASSWORD: ${EXPORTER_PASSWORD?}
+#    depends_on:
+#      - grafana
+#      - mariadb
+#    networks:
+#      - network_app
+#
+##  nginx-prometheus-exporter:
+##    image: nginx/nginx-prometheus-exporter:0.10.0
+##    container_name: ${PROJECT_NAME}-${ENV}-nginx-prometheus-exporter
+##    restart: unless-stopped
+##    command:
+##      - -nginx.scrape-uri=http://nginx/metrics
+##      - -web.telemetry-path=/metrics
+##    networks:
+##      - network_app
+##    depends_on:
+##      - prometheus
+##      - nginx
+#
+#  cadvisor:
+#    restart: unless-stopped
+#    deploy:
+#      mode: replicated
+#      replicas: 1
+#    build:
+#      context: .
+#      dockerfile: ./docker/cadvisor/Dockerfile
+#      target: env-${ENV?}
+#      args:
+#        CADVISOR_VERSION: '0.47.2'
+#    depends_on:
+#      - grafana
+#    networks:
+#      - network_app
+#    volumes:
+#      - /:/rootfs:ro
+#      - /var/run:/var/run:ro
+#      - /sys:/sys:ro
+#      - /var/lib/docker/:/var/lib/docker:ro
+#      - /dev/disk/:/dev/disk:ro
 
 #  loki:
 #    image: grafana/loki:2.9.2
