@@ -1,20 +1,24 @@
 #!/bin/bash
 
-database_user="$1"
-database_password="$2"
-database_name="$3"
-exporter_password="$4"
+database_user="${MYSQL_USER}"
+database_password="${MYSQL_PASSWORD}"
+database_name="${MYSQL_DATABASE}"
+exporter_password="${MYSQLD_EXPORTER_PASSWORD}"
 
 if [[ -z "$database_user" || -z "$database_password" || -z "$database_name" || -z "$exporter_password" ]]; then
   echo "Not all required parameters provided"
   exit 1
 fi
 
-sed -i "s/{DATABASE_USER}/$database_user/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
-sed -i "s/{DATABASE_PASSWORD}/$database_password/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
-sed -i "s/{DATABASE_NAME}/$database_name/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
-sed -i "s/{EXPORTER_PASSWORD}/$exporter_password/g" /docker-entrypoint-initdb.d/initialize_exporter.sql
+echo "
+CREATE USER IF NOT EXISTS '$database_user'@'localhost' IDENTIFIED BY '$database_password';
+GRANT ALL PRIVILEGES ON $database_name.* TO '$database_user'@'%' IDENTIFIED BY '$database_password' WITH GRANT OPTION;
 
-chown -R mysql:mysql /var/lib/mysql
-chown -R mysql:mysql /var/run/mysqld
-runuser -u mysql -- mariadbd --skip-grant-tables
+CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED BY '$exporter_password' WITH MAX_USER_CONNECTIONS 3;
+GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'%' IDENTIFIED BY '$exporter_password' WITH GRANT OPTION;
+--GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%' IDENTIFIED BY '$exporter_password' WITH GRANT OPTION;
+
+FLUSH PRIVILEGES;
+" | tee /docker-entrypoint-initdb.d/initialize_exporter.sql > /dev/null
+
+exit 0

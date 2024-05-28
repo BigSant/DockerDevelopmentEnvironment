@@ -35,13 +35,13 @@ services:
       target: env-${ENV}
       args:
         MARIADB_VERSION: ${MARIADB_VERSION}
-    command: /usr/local/bin/init.sh '${DATABASE_USER}' '${DATABASE_PASSWORD}' '${DATABASE_NAME}' '${MYSQLD_EXPORTER_PASSWORD}'
     environment:
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
     volumes:
       - ./_cache/mariadb/${ENV}:/var/lib/mysql
     networks:
@@ -133,7 +133,7 @@ services:
 ##      - ./_cache/certbot/www:/tmp/letsencrypt
 
   pma:
-    image: pma-${ENV}-${PMA_VERSION}
+    image: ${PROJECT_NAME}-pma-${ENV}-${PMA_VERSION}
     container_name: pma-${ENV}-${PMA_VERSION}
     restart: unless-stopped
     build:
@@ -145,7 +145,8 @@ services:
         DATABASE_USER: ${DATABASE_USER}
         DATABASE_PASSWORD: ${DATABASE_PASSWORD}
     environment:
-      PMA_HOST: mariadb
+      PHPMYADMIN_ABSOLUTE_URI: http://pma.${DOMAIN}
+      DATABASE_HOST: mariadb
     depends_on:
       - mariadb
     networks:
@@ -326,6 +327,8 @@ services:
       - loki
     networks:
       - network_app
+    volumes:
+      - ./app/logs:/var/system_log:ro
 
 networks:
   network_app:

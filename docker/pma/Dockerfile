@@ -1,14 +1,13 @@
 ARG PMA_VERSION=""
-FROM phpmyadmin:${PMA_VERSION}-fpm as base
-
-COPY /docker/pma/conf/config.php /etc/phpmyadmin/config.user.inc.php
+FROM bitnami/phpmyadmin:${PMA_VERSION} as base
 
 FROM base as env-local
+
 ARG DATABASE_USER=""
 ARG DATABASE_PASSWORD=""
-ENV PMA_USER=${DATABASE_USER}
-ENV PMA_PASSWORD=${DATABASE_PASSWORD}
-ENV MYSQL_ROOT_PASSWORD=${DATABASE_PASSWORD}
+ENV DATABASE_DEFAULT_ALLOW_NO_PASSWORD="yes"
+ENV DATABASE_USER=${DATABASE_USER}
+ENV DATABASE_PASSWORD=${DATABASE_PASSWORD}
 
 FROM base as env-prod
 FROM base as env-stage
