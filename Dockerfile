@@ -1,16 +1,13 @@
 ARG ENV=''
-ARG PROJECT_NAME=''
+ARG PHP_VERSION=''
+ARG XDEBUG_VERSION=''
+ARG COMPOSER_VERSION=''
 
-FROM ${PROJECT_NAME}-${ENV}_php-fpm-base as base
-
-ADD https://github.com/PrestaShop/PrestaShop/releases/download/8.0.1/prestashop_8.0.1.zip /var/www/html
-
-RUN docker-php-ext-install calendar && docker-php-ext-configure calendar
+FROM php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION} as base
 
 FROM base as env-local
 FROM base as env-prod
 FROM base as env-stage
-
 
 # Cypress - https://github.com/uniter/cypress-php-example
 # Storybook - https://storybook.js.org/docs/writing-tests
