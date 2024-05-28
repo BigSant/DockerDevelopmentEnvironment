@@ -38,7 +38,7 @@ down-docker-compose:
 
 run-docker-compose:
 	make generate-env-file env=${env}
-	export ENV_FILE=/tmp/.env && COMPOSE_PROFILES=${profile} docker-compose -f $(ROOT_DIR)/docker-compose.yml --env-file /tmp/.env ${action}
+	export ENV_FILE=/tmp/.env && COMPOSE_PROFILES=${profile} docker compose -f $(ROOT_DIR)/docker-compose.yml --env-file /tmp/.env ${action}
 
 generate-env-file:
 	sort -u -t '=' -k 1,1 $(ROOT_DIR)/.env.${env} $(ROOT_DIR)/.env > /tmp/.env
