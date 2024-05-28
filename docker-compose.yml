@@ -272,7 +272,7 @@ services:
       args:
         PAGE_SPEED_EXPORTER_VERSION: ${PAGE_SPEED_EXPORTER_VERSION}
     environment:
-      PAGESPEED_API_KEY: 'AIzaSyBpTbMSMTetOh6gU2PkpuHtF3W30HrWwKc'
+      PAGESPEED_API_KEY: ${PAGE_SPEED_EXPORTER_API_KEY}
     depends_on:
       - php-fpm
     networks:
