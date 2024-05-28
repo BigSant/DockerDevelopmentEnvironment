@@ -2,6 +2,7 @@ ARG NGINX_VERSION=""
 FROM nginx:${NGINX_VERSION} as base
 
 COPY /docker/nginx/conf/nginx.conf /etc/nginx/nginx.conf
+COPY /docker/nginx/conf/default.conf /etc/nginx/conf.d/default.conf
 COPY /docker/nginx/conf/sites.conf /etc/nginx/conf.d/sites.conf
 
 COPY /docker/nginx/conf/init.sh /usr/local/bin/init.sh
