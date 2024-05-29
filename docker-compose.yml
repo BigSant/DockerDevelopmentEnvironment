@@ -313,6 +313,8 @@ services:
         LOKI_VERSION: ${LOKI_VERSION}
     networks:
       - network_app
+    volumes:
+      - ./_cache/loki:/tmp/loki
 
   promtail:
     image: promtail-${ENV}-${PROMTAIL_VERSION}
@@ -329,7 +331,7 @@ services:
     networks:
       - network_app
     volumes:
-      - ./app/logs:/var/system_log:ro
+      - ./app:/app:ro
 
 networks:
   network_app:
