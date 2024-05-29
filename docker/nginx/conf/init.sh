@@ -9,6 +9,9 @@ if [[ -z "$domain" ]]; then
 fi
 
 sed -i "s/{DOMAIN};/$domain;/g" /etc/nginx/conf.d/sites.conf
-sed -i "s/{DOCUMENT_ROOT};/$document_root;/g" /etc/nginx/conf.d/sites.conf
+
+if [[ ! -z "$document_root" && "$document_root" != "/" ]]; then
+  sed -i "s#root /var/www/html;#root /var/www/html$document_root;#g" /etc/nginx/conf.d/sites.conf
+fi
 
 exec nginx -g "daemon off;"
