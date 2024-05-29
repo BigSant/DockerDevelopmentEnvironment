@@ -22,6 +22,11 @@ RUN apt-get update \
         unzip \
         libonig-dev
 
+# Install APCu and APC backward compatibility
+RUN pecl install apcu
+RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
+    && docker-php-ext-enable apcu --ini-name 20-docker-php-ext-apc.ini
+
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 
 COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin/phpstan

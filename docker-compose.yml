@@ -82,7 +82,7 @@ services:
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
-      - php-fpm-base
+#      - php-fpm-base
       - mariadb
     networks:
       - network_app
@@ -106,7 +106,7 @@ services:
       target: env-${ENV}
       args:
         NGINX_VERSION: ${NGINX_VERSION}
-    command: /usr/local/bin/init.sh '${DOMAIN}'
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}'
     depends_on:
       - php-fpm
     networks:
