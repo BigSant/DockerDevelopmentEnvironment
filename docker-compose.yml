@@ -1,7 +1,7 @@
 services:
   nginx-proxy:
     image: nginx-proxy-${ENV}-${NGINX_VERSION}
-    container_name: nginx-proxy-${ENV}-${NGINX_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-nginx-proxy-${NGINX_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -27,7 +27,7 @@ services:
 
   mariadb:
     image: mariadb-${ENV}-${MARIADB_VERSION}
-    container_name: mariadb-${ENV}-${MARIADB_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -70,7 +70,7 @@ services:
 
   php-fpm:
     image: ${PROJECT_NAME}-php-fpm-${ENV}
-    container_name: ${PROJECT_NAME}-php-fpm-${ENV}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm
     restart: unless-stopped
     build:
       context: .
@@ -82,6 +82,7 @@ services:
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
+      - php-fpm-base
       - mariadb
     networks:
       - network_app
@@ -97,7 +98,7 @@ services:
 
   nginx:
     image: nginx-${ENV}-${NGINX_VERSION}
-    container_name: nginx-${ENV}-${NGINX_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-nginx-${NGINX_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -134,7 +135,7 @@ services:
 
   pma:
     image: ${PROJECT_NAME}-pma-${ENV}-${PMA_VERSION}
-    container_name: pma-${ENV}-${PMA_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -154,7 +155,7 @@ services:
 
   mailpit:
     image: mailpit-${ENV}-${MAILPIT_VERSION}
-    container_name: mailpit-${ENV}-${MAILPIT_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mailpit-${MAILPIT_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -175,7 +176,7 @@ services:
 
   grafana:
     image: grafana-${ENV}-${GRAFANA_VERSION}
-    container_name: grafana-${ENV}-${GRAFANA_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-grafana-${GRAFANA_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -194,7 +195,7 @@ services:
 
   prometheus:
     image: prometheus-${ENV}-${PROMETHEUS_VERSION}
-    container_name: prometheus-${ENV}-${PROMETHEUS_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-prometheus-${PROMETHEUS_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -216,7 +217,7 @@ services:
 
   mysqld-exporter:
     image: mysqld-exporter-${ENV}-${MYSQLD_EXPORTER_VERSION}
-    container_name: mysqld-exporter-${ENV}-${MYSQLD_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mysqld-exporter-${MYSQLD_EXPORTER_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -233,7 +234,7 @@ services:
 
   nginx-exporter:
     image: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
-    container_name: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-nginx-exporter-${NGINX_EXPORTER_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -248,7 +249,7 @@ services:
 
   php-fpm-exporter:
     image: php-fpm-exporter-${ENV}-${PHP_FPM_EXPORTER_VERSION}
-    container_name: php-fpm-exporter-${ENV}-${PHP_FPM_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-exporter-${PHP_FPM_EXPORTER_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -263,7 +264,7 @@ services:
 
   page-speed-exporter:
     image: page-speed-exporter-${ENV}-${PAGE_SPEED_EXPORTER_VERSION}
-    container_name: page-speed-exporter-${ENV}-${PAGE_SPEED_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-page-speed-exporter-${PAGE_SPEED_EXPORTER_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -280,7 +281,7 @@ services:
 
   cadvisor:
     image: cadvisor-${ENV}-${CADVISOR_VERSION}
-    container_name: cadvisor-${ENV}-${CADVISOR_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-cadvisor-${CADVISOR_VERSION}
     restart: unless-stopped
     deploy:
       mode: replicated
@@ -302,7 +303,7 @@ services:
 
   loki:
     image: loki-${ENV}-${LOKI_VERSION}
-    container_name: loki-${ENV}-${LOKI_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-loki-${LOKI_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
@@ -315,7 +316,7 @@ services:
 
   promtail:
     image: promtail-${ENV}-${PROMTAIL_VERSION}
-    container_name: promtail-${ENV}-${PROMTAIL_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-promtail-${PROMTAIL_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context

@@ -30,7 +30,7 @@ RUN chmod a+x /usr/local/bin/phpstan
 RUN apt-get install -y cron
 
 RUN rm -rf /var/lib/apt/lists/*
-RUN docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
+RUN #docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
 RUN docker-php-ext-install iconv intl pdo_mysql mbstring soap gd zip bcmath
 
 RUN docker-php-source extract \
@@ -74,8 +74,9 @@ CMD ["php-fpm", "-R"]
 FROM base as env-local
 
 ARG PHP_VERSION=""
+ARG XDEBUG_VERSION=""
 
-RUN pecl install xdebug \
+RUN pecl install xdebug-${XDEBUG_VERSION} \
     && docker-php-ext-enable xdebug \
     && docker-php-source delete
 
