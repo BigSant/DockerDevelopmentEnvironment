@@ -15,14 +15,14 @@ scrape_configs:
           - localhost
         labels:
           job: prod.log
-          __path__: /app/logs/pr_logs/prod.log
+          __path__: /app/var/logs/prod.log
       - targets:
           - localhost
         labels:
           job: dev.log
-          __path__: /app/logs/pr_logs/dev.log
+          __path__: /app/var/logs/dev.log
       - targets:
           - localhost
         labels:
           job: pr_logs
-          __path__: /app/logs/pr_logs/*log
+          __path__: /app/var/logs/pr_logs/*log

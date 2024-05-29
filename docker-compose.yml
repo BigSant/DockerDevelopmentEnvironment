@@ -311,6 +311,7 @@ services:
       target: env-${ENV}
       args:
         LOKI_VERSION: ${LOKI_VERSION}
+    user: '0'
     networks:
       - network_app
     volumes:
