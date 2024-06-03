@@ -18,7 +18,7 @@ services:
       - ${LOCALHOST_PORT}:80
       - ${LOCALHOST_PORT_SSL}:443
     depends_on:
-      - nginx
+      - webserver
       - pma
       - mailpit
       - grafana
@@ -96,16 +96,18 @@ services:
 #      timeout: 10s
 #      retries: 5
 
-  nginx:
-    image: nginx-${ENV}-${NGINX_VERSION}
-    container_name: ${PROJECT_NAME}-${ENV}-nginx-${NGINX_VERSION}
+  webserver:
+    image: webserver-${ENV}-${NGINX_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-webserver-${NGINX_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
-      dockerfile: ./docker/nginx/Dockerfile
+      dockerfile: ./docker/apache/Dockerfile
+#      dockerfile: ./docker/nginx/Dockerfile
       target: env-${ENV}
       args:
-        NGINX_VERSION: ${NGINX_VERSION}
+        APACHE_VERSION: ${APACHE_VERSION}
+#        NGINX_VERSION: ${NGINX_VERSION}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}'
     depends_on:
       - php-fpm
@@ -207,7 +209,7 @@ services:
     depends_on:
       - mysqld-exporter
       - cadvisor
-      - nginx-exporter
+#      - nginx-exporter
       - php-fpm-exporter
       - page-speed-exporter
     networks:
@@ -232,20 +234,20 @@ services:
     networks:
       - network_app
 
-  nginx-exporter:
-    image: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
-    container_name: ${PROJECT_NAME}-${ENV}-nginx-exporter-${NGINX_EXPORTER_VERSION}
-    restart: unless-stopped
-    build:
-      context: ./docker-context
-      dockerfile: ./docker/nginx-exporter/Dockerfile
-      target: env-${ENV}
-      args:
-        NGINX_EXPORTER_VERSION: ${NGINX_EXPORTER_VERSION}
-    depends_on:
-      - nginx
-    networks:
-      - network_app
+#  nginx-exporter:
+#    image: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
+#    container_name: ${PROJECT_NAME}-${ENV}-nginx-exporter-${NGINX_EXPORTER_VERSION}
+#    restart: unless-stopped
+#    build:
+#      context: ./docker-context
+#      dockerfile: ./docker/nginx-exporter/Dockerfile
+#      target: env-${ENV}
+#      args:
+#        NGINX_EXPORTER_VERSION: ${NGINX_EXPORTER_VERSION}
+#    depends_on:
+#      - nginx
+#    networks:
+#      - network_app
 
   php-fpm-exporter:
     image: php-fpm-exporter-${ENV}-${PHP_FPM_EXPORTER_VERSION}
