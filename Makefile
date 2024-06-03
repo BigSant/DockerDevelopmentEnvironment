@@ -9,6 +9,12 @@ up-local:
 down-local:
 	make down-docker-compose env=local
 
+sql-fix:
+	path="$(realpath $(firstword $(path)))"
+	sed -i 's/utf8mb4_unicode_520_ci/utf8mb4_unicode_ci/g' $(path)
+	sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_general_ci/g' $(path)
+	echo 'DONE, upload SQL'
+
 build-prod:
 	make build-docker-compose env=prod
 

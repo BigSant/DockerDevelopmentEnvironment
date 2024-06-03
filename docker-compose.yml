@@ -10,7 +10,7 @@ services:
       args:
         NGINX_VERSION: ${NGINX_VERSION}
         ENV: ${ENV}
-    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}'
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${NGINX_TIMEOUT_AFTER}'
 #    volumes:
 #      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
 #      - ./_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
