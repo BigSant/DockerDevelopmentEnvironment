@@ -10,7 +10,7 @@ services:
       args:
         NGINX_VERSION: ${NGINX_VERSION}
         ENV: ${ENV}
-    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${NGINX_TIMEOUT_AFTER}'
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${WEBSERVICE_TIMEOUT}'
 #    volumes:
 #      - ./_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
 #      - ./_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
@@ -25,31 +25,57 @@ services:
     networks:
       - network_app
 
-  mariadb:
-    image: mariadb-${ENV}-${MARIADB_VERSION}
-    container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
+#  database:
+#    image: mariadb-${ENV}-${MARIADB_VERSION}
+#    container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
+#    restart: unless-stopped
+#    build:
+#      context: ./docker-context
+#      dockerfile: ./docker/mariadb/Dockerfile
+#      target: env-${ENV}
+#      args:
+#        MARIADB_VERSION: ${MARIADB_VERSION}
+#    environment:
+#      MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
+#      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+#      MYSQL_USER: ${DATABASE_USER}
+#      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+#      MYSQL_DATABASE: ${DATABASE_NAME}
+#      MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
+#    volumes:
+#      - ./_cache/mariadb/${ENV}:/var/lib/mysql
+#    networks:
+#      - network_app
+#    healthcheck:
+#      test: "mariadb-admin ping -h 127.0.0.1 -u${DATABASE_USER} -p${DATABASE_PASSWORD} --silent"
+#      retries: 3
+#      interval: 5s
+
+  database:
+    image: mysql-${ENV}-${MYSQL_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
-      dockerfile: ./docker/mariadb/Dockerfile
+      dockerfile: ./docker/mysql/Dockerfile
       target: env-${ENV}
       args:
-        MARIADB_VERSION: ${MARIADB_VERSION}
+        MYSQL_VERSION: ${MYSQL_VERSION}
     environment:
-      MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
+      MYSQL_HOST: ${DATABASE_HOST:-%}
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}
       MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
     volumes:
-      - ./_cache/mariadb/${ENV}:/var/lib/mysql
+      - ./_cache/mysql/${ENV}:/var/lib/mysql
     networks:
       - network_app
-    healthcheck:
-      test: "mariadb-admin ping -h 127.0.0.1 -u${DATABASE_USER} -p${DATABASE_PASSWORD} --silent"
-      retries: 3
-      interval: 5s
+#    healthcheck:
+#      test: "mariadb-admin ping -h 127.0.0.1 -u${DATABASE_USER} -p${DATABASE_PASSWORD} --silent"
+#      retries: 3
+#      interval: 5s
 
   php-fpm-base:
     image: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
@@ -69,7 +95,7 @@ services:
       - network_app
 
   php-fpm:
-    image: ${PROJECT_NAME}-php-fpm-${ENV}
+    image: ${PROJECT_NAME}-php-fpm-${ENV}p
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
     restart: unless-stopped
     build:
@@ -83,7 +109,7 @@ services:
         COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
 #      - php-fpm-base
-      - mariadb
+      - database
     networks:
       - network_app
     volumes:
@@ -97,24 +123,42 @@ services:
 #      retries: 5
 
   webserver:
-    image: webserver-${ENV}-${NGINX_VERSION}
-    container_name: ${PROJECT_NAME}-${ENV}-webserver-${NGINX_VERSION}
+    image: webserver-nginx-${ENV}-${NGINX_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-webserver-nginx-${NGINX_VERSION}
     restart: unless-stopped
     build:
       context: ./docker-context
-      dockerfile: ./docker/apache/Dockerfile
-#      dockerfile: ./docker/nginx/Dockerfile
+      dockerfile: ./docker/nginx/Dockerfile
       target: env-${ENV}
       args:
-        APACHE_VERSION: ${APACHE_VERSION}
-#        NGINX_VERSION: ${NGINX_VERSION}
-    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}'
+        PROFILE: ${PROFILE}
+        NGINX_VERSION: ${NGINX_VERSION}
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${WEBSERVICE_TIMEOUT}'
     depends_on:
       - php-fpm
     networks:
       - network_app
     volumes:
       - ./app/:/var/www/html/
+
+#  webserver:
+#    image: webserver-apache-${ENV}-${APACHE_VERSION}
+#    container_name: ${PROJECT_NAME}-${ENV}-webserver-apache-${APACHE_VERSION}
+#    restart: unless-stopped
+#    build:
+#      context: ./docker-context
+#      dockerfile: ./docker/apache/Dockerfile
+#      target: env-${ENV}
+#      args:
+#        PROFILE: ${PROFILE}
+#        APACHE_VERSION: ${APACHE_VERSION}
+#    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}'
+#    depends_on:
+#      - php-fpm
+#    networks:
+#      - network_app
+#    volumes:
+#      - ./app/:/var/www/html/
 
 ##  certbot:
 ##    container_name: ${PROJECT_NAME}-${ENV}-certbot
@@ -135,6 +179,38 @@ services:
 ##      - ./_cache/certbot/letsencrypt:/etc/letsencrypt
 ##      - ./_cache/certbot/www:/tmp/letsencrypt
 
+  elasticsearch:
+    image: elasticsearch-${ENV}-${ELASTICSEARCH_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-elasticsearch-${ELASTICSEARCH_VERSION}
+    restart: unless-stopped
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/elasticsearch/Dockerfile
+      target: env-${ENV}
+      args:
+        ELASTICSEARCH_VERSION: ${ELASTICSEARCH_VERSION}
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=es-docker-cluster
+      - xpack.security.enabled=false
+#      - discovery.seed_hosts=es02,es03
+#      - cluster.initial_master_nodes=elasticsearch
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - discovery.type=single-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+#    volumes:
+#      - ./_cache/elasticsearch/${ENV}:/usr/share/elasticsearch/data
+    networks:
+      - network_app
+
   pma:
     image: ${PROJECT_NAME}-pma-${ENV}-${PMA_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
@@ -149,9 +225,9 @@ services:
         DATABASE_PASSWORD: ${DATABASE_PASSWORD}
     environment:
       PHPMYADMIN_ABSOLUTE_URI: http://pma.${DOMAIN}
-      DATABASE_HOST: mariadb
+      DATABASE_HOST: database
     depends_on:
-      - mariadb
+      - database
     networks:
       - network_app
 
@@ -208,7 +284,7 @@ services:
     user: '0'
     depends_on:
       - mysqld-exporter
-      - cadvisor
+#      - cadvisor
 #      - nginx-exporter
       - php-fpm-exporter
       - page-speed-exporter
@@ -230,7 +306,7 @@ services:
     environment:
       MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
     depends_on:
-      - mariadb
+      - database
     networks:
       - network_app
 
@@ -281,27 +357,27 @@ services:
     networks:
       - network_app
 
-  cadvisor:
-    image: cadvisor-${ENV}-${CADVISOR_VERSION}
-    container_name: ${PROJECT_NAME}-${ENV}-cadvisor-${CADVISOR_VERSION}
-    restart: unless-stopped
-    deploy:
-      mode: replicated
-      replicas: 1
-    build:
-      context: ./docker-context
-      dockerfile: ./docker/cadvisor/Dockerfile
-      target: env-${ENV}
-      args:
-        CADVISOR_VERSION: ${CADVISOR_VERSION}
-    networks:
-      - network_app
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
+#  cadvisor:
+#    image: cadvisor-${ENV}-${CADVISOR_VERSION}
+#    container_name: ${PROJECT_NAME}-${ENV}-cadvisor-${CADVISOR_VERSION}
+#    restart: unless-stopped
+#    deploy:
+#      mode: replicated
+#      replicas: 1
+#    build:
+#      context: ./docker-context
+#      dockerfile: ./docker/cadvisor/Dockerfile
+#      target: env-${ENV}
+#      args:
+#        CADVISOR_VERSION: ${CADVISOR_VERSION}
+#    networks:
+#      - network_app
+#    volumes:
+#      - /:/rootfs:ro
+#      - /var/run:/var/run:ro
+#      - /sys:/sys:ro
+#      - /var/lib/docker/:/var/lib/docker:ro
+#      - /dev/disk/:/dev/disk:ro
 
   loki:
     image: loki-${ENV}-${LOKI_VERSION}

@@ -12,13 +12,13 @@ fi
 
 echo "
 CREATE USER IF NOT EXISTS '$database_user'@'localhost' IDENTIFIED BY '$database_password';
-GRANT ALL PRIVILEGES ON $database_name.* TO '$database_user'@'%' IDENTIFIED BY '$database_password' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON $database_name.* TO '$database_user'@'%' WITH GRANT OPTION;
 
 CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED BY '$exporter_password' WITH MAX_USER_CONNECTIONS 3;
-GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'%' IDENTIFIED BY '$exporter_password' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'%';
 --GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%' IDENTIFIED BY '$exporter_password' WITH GRANT OPTION;
 
 FLUSH PRIVILEGES;
-" | tee /docker-entrypoint-initdb.d/2-initialize_exporter.sql > /dev/null
+" | tee /docker-entrypoint-initdb.d/3-initialize_exporter.sql > /dev/null
 
 exit 0
