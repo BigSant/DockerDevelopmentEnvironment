@@ -284,7 +284,7 @@ services:
     user: '0'
     depends_on:
       - mysqld-exporter
-#      - cadvisor
+      - cadvisor
 #      - nginx-exporter
       - php-fpm-exporter
       - page-speed-exporter
@@ -357,27 +357,27 @@ services:
     networks:
       - network_app
 
-#  cadvisor:
-#    image: cadvisor-${ENV}-${CADVISOR_VERSION}
-#    container_name: ${PROJECT_NAME}-${ENV}-cadvisor-${CADVISOR_VERSION}
-#    restart: unless-stopped
-#    deploy:
-#      mode: replicated
-#      replicas: 1
-#    build:
-#      context: ./docker-context
-#      dockerfile: ./docker/cadvisor/Dockerfile
-#      target: env-${ENV}
-#      args:
-#        CADVISOR_VERSION: ${CADVISOR_VERSION}
-#    networks:
-#      - network_app
-#    volumes:
-#      - /:/rootfs:ro
-#      - /var/run:/var/run:ro
-#      - /sys:/sys:ro
-#      - /var/lib/docker/:/var/lib/docker:ro
-#      - /dev/disk/:/dev/disk:ro
+  cadvisor:
+    image: cadvisor-${ENV}-${CADVISOR_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-cadvisor-${CADVISOR_VERSION}
+    restart: unless-stopped
+    deploy:
+      mode: replicated
+      replicas: 1
+    build:
+      context: ./docker-context
+      dockerfile: ./docker/cadvisor/Dockerfile
+      target: env-${ENV}
+      args:
+        CADVISOR_VERSION: ${CADVISOR_VERSION}
+    networks:
+      - network_app
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
 
   loki:
     image: loki-${ENV}-${LOKI_VERSION}
