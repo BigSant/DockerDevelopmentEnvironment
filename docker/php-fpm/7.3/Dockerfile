@@ -6,6 +6,7 @@ FROM ghcr.io/phpstan/phpstan:1 as phpstan
 FROM php:${PHP_VERSION}-fpm as base
 
 ARG PHP_VERSION=""
+ENV ACCEPT_EULA=Y
 
 RUN apt-get update \
     && apt-get install -y libmcrypt-dev \
@@ -81,6 +82,10 @@ RUN pecl install xdebug-${XDEBUG_VERSION} \
     && docker-php-source delete
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+
+RUN mkdir -p /var/www/profile
+RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/profile
+RUN chmod -R 777 /var/www/profile
 
 FROM base as env-prod
 FROM base as env-stage
