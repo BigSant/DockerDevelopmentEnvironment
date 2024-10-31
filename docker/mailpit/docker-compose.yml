@@ -1,0 +1,21 @@
+services:
+  mailpit:
+    image: mailpit-${ENV}-${MAILPIT_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mailpit-${MAILPIT_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/mailpit/Dockerfile
+      target: env-${ENV}
+      args:
+        MAILPIT_VERSION: ${MAILPIT_VERSION}
+    environment:
+      TZ: Europe/Vilnius
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DIRECTORY}/_cache/mailpit:/data

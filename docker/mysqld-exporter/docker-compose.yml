@@ -1,0 +1,17 @@
+services:
+  mysqld-exporter:
+    image: mysqld-exporter-${ENV}-${MYSQLD_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mysqld-exporter-${MYSQLD_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/mysqld-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        MYSQLD_EXPORTER_VERSION: ${MYSQLD_EXPORTER_VERSION}
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
+    depends_on:
+      - database
+    networks:
+      - network_app

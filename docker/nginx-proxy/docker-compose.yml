@@ -1,0 +1,26 @@
+services:
+  nginx-proxy:
+    image: nginx-proxy-${ENV}-${NGINX_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-nginx-proxy-${NGINX_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/nginx-proxy/Dockerfile
+      target: env-${ENV}
+      args:
+        NGINX_VERSION: ${NGINX_VERSION}
+        ENV: ${ENV}
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${WEBSERVICE_TIMEOUT}'
+    #    volumes:
+    #      - ${PROJECT_DIRECTORY}/_cache/nginx/ssl/certs/:/etc/nginx/ssl/certs/
+    #      - ${PROJECT_DIRECTORY}/_cache/nginx/ssl/private/:/etc/nginx/ssl/private/
+    ports:
+      - ${LOCALHOST_PORT}:80
+      - ${LOCALHOST_PORT_SSL}:443
+    depends_on:
+      - webserver
+      - pma
+      - mailpit
+      - grafana
+    networks:
+      - network_app

@@ -1,0 +1,19 @@
+services:
+  grafana:
+    image: grafana-${ENV}-${GRAFANA_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-grafana-${GRAFANA_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/grafana/Dockerfile
+      target: env-${ENV}
+      args:
+        GRAFANA_VERSION: ${GRAFANA_VERSION}
+    user: '0'
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DIRECTORY}/_cache/grafana:/var/lib/grafana

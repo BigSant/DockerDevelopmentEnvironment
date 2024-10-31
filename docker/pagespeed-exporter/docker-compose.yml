@@ -1,0 +1,17 @@
+services:
+  page-speed-exporter:
+    image: page-speed-exporter-${ENV}-${PAGE_SPEED_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-page-speed-exporter-${PAGE_SPEED_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/pagespeed-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        PAGE_SPEED_EXPORTER_VERSION: ${PAGE_SPEED_EXPORTER_VERSION}
+    environment:
+      PAGESPEED_API_KEY: ${PAGE_SPEED_EXPORTER_API_KEY}
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app

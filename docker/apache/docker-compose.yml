@@ -1,0 +1,19 @@
+services:
+  webserver:
+    image: webserver-apache-${ENV}-${APACHE_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-webserver-apache-${APACHE_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/apache/Dockerfile
+      target: env-${ENV}
+      args:
+        PROFILE: ${PROFILE}
+        APACHE_VERSION: ${APACHE_VERSION}
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}'
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DIRECTORY}/app/:/var/www/html/

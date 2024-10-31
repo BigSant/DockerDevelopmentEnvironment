@@ -1,0 +1,15 @@
+services:
+  nginx-exporter:
+    image: nginx-exporter-${ENV}-${NGINX_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-nginx-exporter-${NGINX_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/nginx-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        NGINX_EXPORTER_VERSION: ${NGINX_EXPORTER_VERSION}
+    depends_on:
+      - nginx
+    networks:
+      - network_app

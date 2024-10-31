@@ -1,0 +1,47 @@
+services:
+  php-fpm-base:
+    image: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/php-fpm/${PHP_VERSION}/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_VERSION: ${PHP_VERSION}
+        XDEBUG_VERSION: ${XDEBUG_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
+    profiles:
+      - build_only
+    networks:
+      - network_app
+
+  php-fpm:
+    image: ${PROJECT_NAME}-php-fpm-${ENV}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm
+    restart: unless-stopped
+    build:
+      context: ${PROJECT_DIRECTORY}
+      dockerfile: ./Dockerfile
+      target: env-${ENV}
+      args:
+        ENV: ${ENV}
+        PHP_VERSION: ${PHP_VERSION}
+        XDEBUG_VERSION: ${XDEBUG_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
+    depends_on:
+#      - php-fpm-base
+      - database
+    networks:
+      - network_app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${PROJECT_DIRECTORY}/app/:/var/www/html/
+#      - ${PROJECT_DIRECTORY}/phpstan/:/phpstan/
+#    healthcheck:
+#      test: ['CMD', 'curl', '-f', 'localhost:80']
+#      interval: 10s
+#      start_period: 15s
+#      timeout: 10s
+#      retries: 5

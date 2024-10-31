@@ -1,0 +1,19 @@
+services:
+  certbot:
+    container_name: ${PROJECT_NAME}-${ENV}-certbot
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/certbot/Dockerfile
+      target: env-${ENV?}
+      args:
+        DOMAIN: ${DOMAIN?}
+    env_file:
+      - ${ENV_FILE?}
+    depends_on:
+      - nginx-proxy
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DIRECTORY}/_cache/certbot/letsencrypt:/etc/letsencrypt
+      - ${PROJECT_DIRECTORY}/_cache/certbot/www:/tmp/letsencrypt

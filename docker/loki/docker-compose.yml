@@ -1,0 +1,16 @@
+services:
+  loki:
+    image: loki-${ENV}-${LOKI_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-loki-${LOKI_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/loki/Dockerfile
+      target: env-${ENV}
+      args:
+        LOKI_VERSION: ${LOKI_VERSION}
+    user: '0'
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DIRECTORY}/_cache/loki:/tmp/loki

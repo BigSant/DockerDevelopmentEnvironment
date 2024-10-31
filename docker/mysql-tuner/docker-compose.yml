@@ -1,0 +1,17 @@
+services:
+  mysql-tuner:
+    image: mysql-tuner
+    container_name: mysql-tuner
+    restart: no
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/mysql-tuner/Dockerfile
+      target: env-${ENV}
+      args:
+        DATABASE_USER: ${DATABASE_USER}
+        DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+    command: /usr/local/bin/init.sh '${DATABASE_USER}' '${DATABASE_PASSWORD}'
+    depends_on:
+      - database
+    networks:
+      - network_app

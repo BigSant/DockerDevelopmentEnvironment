@@ -1,0 +1,35 @@
+ROOT_DIRECTORY:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+DOCKER_DIRECTORY:=$(ROOT_DIRECTORY)/docker-context
+
+sql-fix:
+	path="$(realpath $(firstword $(path)))"
+	sed -i 's/utf8mb4_unicode_520_ci/utf8mb4_unicode_ci/g' $(path)
+	sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_general_ci/g' $(path)
+	echo 'DONE, upload SQL'
+
+build-local:
+	$(MAKE) -C $(DOCKER_DIRECTORY) build-local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+up-local:
+	$(MAKE) -C $(DOCKER_DIRECTORY) up-local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+down-local:
+	$(MAKE) -C $(DOCKER_DIRECTORY) down-local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+build-prod:
+	$(MAKE) -C $(DOCKER_DIRECTORY) build-prod PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+up-prod:
+	$(MAKE) -C $(DOCKER_DIRECTORY) up-prod PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+down-prod:
+	$(MAKE) -C $(DOCKER_DIRECTORY) down-prod PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+build-stage:
+	$(MAKE) -C $(DOCKER_DIRECTORY) build-stage PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+up-stage:
+	$(MAKE) -C $(DOCKER_DIRECTORY) up-stage PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+down-stage:
+	$(MAKE) -C $(DOCKER_DIRECTORY) down-stage PROJECT_DIRECTORY=$(ROOT_DIRECTORY)

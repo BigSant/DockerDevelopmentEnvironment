@@ -1,0 +1,30 @@
+services:
+  database:
+    image: mysql-${ENV}-${MYSQL_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${PROJECT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
+      target: env-${ENV}
+      args:
+        ENV: ${ENV}
+        PROFILE: ${PROFILE}
+        MYSQL_VERSION: ${MYSQL_VERSION}
+        ROOT_DIRECTORY: ${ROOT_DIRECTORY}
+        PROJECT_DIRECTORY: ${PROJECT_DIRECTORY}
+    environment:
+      MYSQL_HOST: ${DATABASE_HOST:-%}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_USER: ${DATABASE_USER}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
+    volumes:
+      - ${PROJECT_DIRECTORY}/_cache/mysql/${ENV}:/var/lib/mysql
+    networks:
+      - network_app
+    healthcheck:
+      test: "mariadb-admin ping -h 127.0.0.1 -u${DATABASE_USER} -p${DATABASE_PASSWORD} --silent"
+      retries: 3
+      interval: 5s

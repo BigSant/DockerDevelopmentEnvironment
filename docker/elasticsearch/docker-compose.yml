@@ -1,0 +1,32 @@
+services:
+  elasticsearch:
+    image: elasticsearch-${ENV}-${ELASTICSEARCH_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-elasticsearch-${ELASTICSEARCH_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/elasticsearch/Dockerfile
+      target: env-${ENV}
+      args:
+        ELASTICSEARCH_VERSION: ${ELASTICSEARCH_VERSION}
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=es-docker-cluster
+      - xpack.security.enabled=false
+      #      - discovery.seed_hosts=es02,es03
+      #      - cluster.initial_master_nodes=elasticsearch
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - discovery.type=single-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    #    volumes:
+    #      - ${PROJECT_DIRECTORY}/_cache/elasticsearch/${ENV}:/usr/share/elasticsearch/data
+    networks:
+      - network_app

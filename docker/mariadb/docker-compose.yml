@@ -1,0 +1,26 @@
+services:
+  database:
+    image: mariadb-${ENV}-${MARIADB_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/mariadb/Dockerfile
+      target: env-${ENV}
+      args:
+        MARIADB_VERSION: ${MARIADB_VERSION}
+    environment:
+      MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_USER: ${DATABASE_USER}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_DATABASE: ${DATABASE_NAME}
+      MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
+    volumes:
+      - ${PROJECT_DIRECTORY}/_cache/mariadb/${ENV}:/var/lib/mysql
+    networks:
+      - network_app
+  #    healthcheck:
+  #      test: "mariadb-admin ping -h 127.0.0.1 -u${DATABASE_USER} -p${DATABASE_PASSWORD} --silent"
+  #      retries: 3
+  #      interval: 5s

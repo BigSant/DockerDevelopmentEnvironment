@@ -1,0 +1,20 @@
+services:
+  pma:
+    image: pma-${ENV}-${PMA_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/pma/Dockerfile
+      target: env-${ENV}
+      args:
+        PMA_VERSION: ${PMA_VERSION}
+        DATABASE_USER: ${DATABASE_USER}
+        DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+    environment:
+      PHPMYADMIN_ABSOLUTE_URI: http://pma.${DOMAIN}
+      DATABASE_HOST: database
+    depends_on:
+      - database
+    networks:
+      - network_app

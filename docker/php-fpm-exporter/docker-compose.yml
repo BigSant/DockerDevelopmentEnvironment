@@ -1,0 +1,15 @@
+services:
+  php-fpm-exporter:
+    image: php-fpm-exporter-${ENV}-${PHP_FPM_EXPORTER_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-exporter-${PHP_FPM_EXPORTER_VERSION}
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/php-fpm-exporter/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_FPM_EXPORTER_VERSION: ${PHP_FPM_EXPORTER_VERSION}
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
