@@ -11,11 +11,11 @@ services:
         PROMETHEUS_VERSION: ${PROMETHEUS_VERSION}
     user: '0'
     depends_on:
-      - mysqld-exporter
+#      - mysqld-exporter
       - cadvisor
       #      - nginx-exporter
       - php-fpm-exporter
-      - page-speed-exporter
+#      - page-speed-exporter
     networks:
       - network_app
     volumes:

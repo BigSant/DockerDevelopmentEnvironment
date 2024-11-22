@@ -11,8 +11,8 @@ services:
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
-    profiles:
-      - build_only
+#    profiles:
+#      - build_only
     networks:
       - network_app
 
@@ -30,7 +30,7 @@ services:
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
-#      - php-fpm-base
+      - php-fpm-base
       - database
     networks:
       - network_app

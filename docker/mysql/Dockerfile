@@ -2,7 +2,7 @@ ARG MYSQL_VERSION=""
 FROM mysql:${MYSQL_VERSION} as base
 
 COPY /docker/mysql/conf/my.cnf /etc/mysql/conf.d/my.cnf
-COPY /docker/mysql/conf/enable-mysql-native-password.cnf /etc/mysql/conf.d/enable-mysql-native-password.cnf
+#COPY /docker/mysql/conf/enable-mysql-native-password.cnf /etc/mysql/conf.d/enable-mysql-native-password.cnf
 
 COPY /docker/mysql/conf/init.sh /docker-entrypoint-initdb.d/1-init.sh
 RUN chmod +x /docker-entrypoint-initdb.d/1-init.sh

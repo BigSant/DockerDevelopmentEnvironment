@@ -12,7 +12,7 @@ fi
 
 echo "
 CREATE USER IF NOT EXISTS '$database_user'@'localhost' IDENTIFIED BY '$database_password';
-GRANT ALL PRIVILEGES ON $database_name.* TO '$database_user'@'%' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO '$database_user'@'%' WITH GRANT OPTION;
 
 CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED BY '$exporter_password' WITH MAX_USER_CONNECTIONS 3;
 GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'%';

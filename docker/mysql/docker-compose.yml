@@ -4,8 +4,8 @@ services:
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
     restart: unless-stopped
     build:
-      context: ${PROJECT_DIRECTORY}
-      dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ./docker/mysql/Dockerfile
       target: env-${ENV}
       args:
         ENV: ${ENV}
