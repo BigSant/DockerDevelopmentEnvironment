@@ -1,0 +1,20 @@
+services:
+  php-psalm:
+    image: php-psalm-${PHP_PSALM_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-psalm-${PHP_PSALM_VERSION}
+    restart: no
+    entrypoint: ["tail", "-f", "/dev/null"]
+    mem_limit: 4g
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/php-psalm/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_PSALM_VERSION: ${PHP_PSALM_VERSION}
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DIRECTORY}/app/:/var/www/html/:ro
+      - ${PROJECT_DIRECTORY}/_analysis/psalm/:/tmp/analysis/psalm/
