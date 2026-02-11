@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/php-fpm/${PHP_VERSION}/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/php-fpm/${PHP_VERSION}/Dockerfile
       target: env-${ENV}
       args:
         PHP_VERSION: ${PHP_VERSION}
@@ -21,8 +21,8 @@ services:
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
     restart: unless-stopped
     build:
-      context: ${PROJECT_DIRECTORY}
-      dockerfile: ./Dockerfile
+      context: ${DOCKERFILE_DIRECTORY}
+      dockerfile: ${DOCKERFILE_DIRECTORY}/Dockerfile
       target: env-${ENV}
       args:
         ENV: ${ENV}

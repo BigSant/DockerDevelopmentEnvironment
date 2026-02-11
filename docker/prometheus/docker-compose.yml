@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/prometheus/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/prometheus/Dockerfile
       target: env-${ENV}
       args:
         PROMETHEUS_VERSION: ${PROMETHEUS_VERSION}

@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/mysql/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
       target: env-${ENV}
       args:
         ENV: ${ENV}

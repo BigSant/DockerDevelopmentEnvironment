@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/php-fpm-exporter/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/php-fpm-exporter/Dockerfile
       target: env-${ENV}
       args:
         PHP_FPM_EXPORTER_VERSION: ${PHP_FPM_EXPORTER_VERSION}

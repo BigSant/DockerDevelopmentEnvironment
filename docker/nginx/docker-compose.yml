@@ -5,12 +5,12 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/nginx/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/nginx/Dockerfile
       target: env-${ENV}
       args:
         PROFILE: ${PROFILE}
         NGINX_VERSION: ${NGINX_VERSION}
-    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${WEBSERVICE_TIMEOUT}'
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${WEBSERVICE_TIMEOUT}'\
     depends_on:
       - php-fpm
     networks:

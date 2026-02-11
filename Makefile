@@ -1,8 +1,12 @@
 ROOT_DIRECTORY:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 PROJECT_DIRECTORY=$(PROJECT_DIRECTORY)
 
+local:
+	make config-local
+	make build-local
+	make up-local
+
 build-local:
-	#make run-kubernetes
 	make build-docker-compose env=local
 
 up-local:
@@ -10,6 +14,14 @@ up-local:
 
 down-local:
 	make down-docker-compose env=local
+
+config-local:
+	make config-docker-compose env=local
+
+prod:
+	make config-prod
+	make build-prod
+	make up-prod
 
 build-prod:
 	make build-docker-compose env=prod
@@ -20,6 +32,14 @@ up-prod:
 down-prod:
 	make down-docker-compose env=prod
 
+config-prod:
+	make config-docker-compose env=prod
+
+stage:
+	make config-stage
+	make build-stage
+	make up-stage
+
 build-stage:
 	make build-docker-compose env=stage
 
@@ -28,6 +48,9 @@ up-stage:
 
 down-stage:
 	make down-docker-compose env=stage
+
+config-stage:
+	make config-docker-compose env=stage
 
 # -----------------------------------------------------------------
 build-docker-compose:
@@ -38,6 +61,12 @@ up-docker-compose:
 
 down-docker-compose:
 	make run-docker-compose env=${env} action=down
+
+config-docker-compose:
+ifneq ("$(wildcard $(PROJECT_DIRECTORY)/docker-compose.yml)","")
+	rm $(PROJECT_DIRECTORY)/docker-compose.yml
+endif
+	make run-docker-compose env=${env} action="config -o $(PROJECT_DIRECTORY)/docker-compose.yml"
 
 run-docker-compose:
 	make generate-env-file env=${env}
@@ -58,10 +87,18 @@ ifneq ("$(wildcard $(PROJECT_DIRECTORY)/.env.${env})","")
 endif
 	echo "\n"ROOT_DIRECTORY=$(ROOT_DIRECTORY) >> /tmp/.env
 	echo "\n"PROJECT_DIRECTORY=$(PROJECT_DIRECTORY) >> /tmp/.env
+ifneq ("$(wildcard $(PROJECT_DIRECTORY)/Dockerfile)","")
+	echo "\n"DOCKERFILE_DIRECTORY=$(PROJECT_DIRECTORY) >> /tmp/.env
+else
+	echo "\n"DOCKERFILE_DIRECTORY=$(ROOT_DIRECTORY) >> /tmp/.env
+endif
 
 generate-compose-yml:
 	make load-qt
-	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DIRECTORY)/docker-compose.yml")' $(ROOT_DIRECTORY)/docker-compose.yml > /tmp/docker-compose.yml
+	cp $(ROOT_DIRECTORY)/docker-compose.yml /tmp/docker-compose.yml
+ifneq ("$(wildcard $(PROJECT_DIRECTORY)/docker-compose.yml)","")
+	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DIRECTORY)/docker-compose.yml")' /tmp/docker-compose.yml > /tmp/docker-compose.yml
+endif
 ifneq ("$(wildcard $(PROJECT_DIRECTORY)/docker-compose.${env}.yml)","")
 	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DIRECTORY)/docker-compose.${env}.yml")' /tmp/docker-compose.yml > /tmp/docker-compose.yml
 endif

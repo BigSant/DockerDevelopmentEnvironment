@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/mailpit/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/mailpit/Dockerfile
       target: env-${ENV}
       args:
         MAILPIT_VERSION: ${MAILPIT_VERSION}

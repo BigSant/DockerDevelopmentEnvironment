@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/nginx-proxy/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/nginx-proxy/Dockerfile
       target: env-${ENV}
       args:
         NGINX_VERSION: ${NGINX_VERSION}

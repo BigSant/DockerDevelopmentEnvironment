@@ -3,12 +3,13 @@ include:
   - ${ROOT_DIRECTORY}/docker/mariadb/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/nginx-proxy/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/php-fpm/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/nginx/docker-compose.yml
+  - ${ROOT_DIRECTORY}/docker/apache/docker-compose.yml
+#  - ${ROOT_DIRECTORY}/docker/nginx/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/prometheus/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/grafana/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/mysqld-exporter/docker-compose.yml
+#  - ${ROOT_DIRECTORY}/docker/mysqld-exporter/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/php-fpm-exporter/docker-compose.yml
 #  - ${ROOT_DIRECTORY}/docker/pagespeed-exporter/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/cadvisor/docker-compose.yml

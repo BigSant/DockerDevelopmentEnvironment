@@ -3,17 +3,19 @@ services:
     image: pma-${ENV}-${PMA_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
     restart: unless-stopped
+    ports:
+      - 8080:80
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/pma/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/pma/Dockerfile
       target: env-${ENV}
       args:
         PMA_VERSION: ${PMA_VERSION}
-        DATABASE_USER: ${DATABASE_USER}
-        DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+        PMA_USER: ${DATABASE_USER}
+        PMA_PASSWORD: ${DATABASE_PASSWORD}
     environment:
-      PHPMYADMIN_ABSOLUTE_URI: http://pma.${DOMAIN}
-      DATABASE_HOST: database
+      PMA_ABSOLUTE_URI: http://pma.${DOMAIN}
+      PMA_HOST: database
     depends_on:
       - database
     networks:

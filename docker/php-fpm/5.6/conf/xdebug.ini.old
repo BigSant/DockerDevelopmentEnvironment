@@ -1,7 +1,7 @@
 zend_extension=xdebug.so
 xdebug.remote_enable = 1
 xdebug.mode=develop,coverage,debug,profile
-xdebug.start_with_request=trigger
+xdebug.start_with_request=yes
 xdebug.remote_autostart = 0
 xdebug.remote_connect_back = 1
 xdebug.remote_host = 0.0.0.0

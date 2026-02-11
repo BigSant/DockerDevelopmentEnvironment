@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/pagespeed-exporter/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/pagespeed-exporter/Dockerfile
       target: env-${ENV}
       args:
         PAGE_SPEED_EXPORTER_VERSION: ${PAGE_SPEED_EXPORTER_VERSION}

@@ -58,6 +58,7 @@ COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/p
 RUN sed -i "s#user = www-data#user = ${CONTAINER_USER}#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#group = www-data#group = ${CONTAINER_GROUP}#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#;pm\.status_path = \/status#pm\.status_path = \/fpm_stub_status#g" /usr/local/etc/php-fpm.d/www.conf
+RUN sed -i "s#pm\.max_children = 5#pm\.max_children = 50#g" /usr/local/etc/php-fpm.d/www.conf
 
 RUN mkdir -p /var/www/html
 #COPY /app /var/www/html

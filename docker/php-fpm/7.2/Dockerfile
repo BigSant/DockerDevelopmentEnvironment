@@ -23,6 +23,8 @@ RUN apt-get update \
         unzip \
         libonig-dev
 
+RUN apt-get install -y pv
+
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 
 COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin/phpstan

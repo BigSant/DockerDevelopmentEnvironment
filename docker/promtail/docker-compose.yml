@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/promtail/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/promtail/Dockerfile
       target: env-${ENV}
       args:
         PROMTAIL_VERSION: ${PROMTAIL_VERSION}

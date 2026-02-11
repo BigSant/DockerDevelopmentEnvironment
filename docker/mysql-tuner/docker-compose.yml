@@ -5,7 +5,7 @@ services:
     restart: no
     build:
       context: ${ROOT_DIRECTORY}
-      dockerfile: ./docker/mysql-tuner/Dockerfile
+      dockerfile: ${ROOT_DIRECTORY}/docker/mysql-tuner/Dockerfile
       target: env-${ENV}
       args:
         DATABASE_USER: ${DATABASE_USER}
