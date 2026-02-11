@@ -80,7 +80,11 @@ run-kubernetes:
 
 # -----------------------------------------------------------------
 generate-env-file:
-	sort -u -t '=' -k 1,1 $(PROJECT_DIRECTORY)/.env $(ROOT_DIRECTORY)/.env > /tmp/.env
+	cp $(ROOT_DIRECTORY)/.env /tmp/.env
+ifneq ("$(wildcard $(PROJECT_DIRECTORY)/.env)","")
+	cp /tmp/.env /tmp/.env.tmp
+	sort -u -t '=' -k 1,1 $(PROJECT_DIRECTORY)/.env /tmp/.env.tmp > /tmp/.env
+endif
 ifneq ("$(wildcard $(PROJECT_DIRECTORY)/.env.${env})","")
 	cp /tmp/.env /tmp/.env.tmp
 	sort -u -t '=' -k 1,1 $(PROJECT_DIRECTORY)/.env.${env} /tmp/.env.tmp > /tmp/.env
