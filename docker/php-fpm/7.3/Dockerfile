@@ -85,9 +85,5 @@ RUN pecl install xdebug-${XDEBUG_VERSION} \
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 
-RUN mkdir -p /var/www/profile
-RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/profile
-RUN chmod -R 777 /var/www/profile
-
 FROM base as env-prod
 FROM base as env-stage
