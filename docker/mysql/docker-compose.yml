@@ -21,7 +21,7 @@ services:
       MYSQL_DATABASE: ${DATABASE_NAME}
       MYSQLD_EXPORTER_PASSWORD: ${MYSQLD_EXPORTER_PASSWORD}
     volumes:
-      - ${PROJECT_DIRECTORY}/_cache/mysql/${ENV}:/var/lib/mysql
+      - ${PROJECT_DIRECTORY}/_data/mysql/${ENV}:/var/lib/mysql
     networks:
       - network_app
     healthcheck:
