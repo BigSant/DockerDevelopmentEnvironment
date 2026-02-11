@@ -91,6 +91,7 @@ ifneq ("$(wildcard $(PROJECT_DIRECTORY)/.env.${env})","")
 endif
 	echo "\n"ROOT_DIRECTORY=$(ROOT_DIRECTORY) >> /tmp/.env
 	echo "\n"PROJECT_DIRECTORY=$(PROJECT_DIRECTORY) >> /tmp/.env
+	echo "\n"ENV=${env} >> /tmp/.env
 ifneq ("$(wildcard $(PROJECT_DIRECTORY)/Dockerfile)","")
 	echo "\n"DOCKERFILE_DIRECTORY=$(PROJECT_DIRECTORY) >> /tmp/.env
 else
