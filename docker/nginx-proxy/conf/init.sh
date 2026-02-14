@@ -9,8 +9,8 @@ if [[ -z "$domain" || -z "$whitelist" || -z "$timeout" ]]; then
   exit 1
 fi
 
-sed -i "s/{DOMAIN};/$domain;/g" /etc/nginx/conf.d/sites.conf
-sed -i "s/{DOMAIN};/$domain;/g" /etc/nginx/conf.d/sites_env.conf
+sed -i "s/{DOMAIN}/$domain/g" /etc/nginx/conf.d/sites.conf
+sed -i "s/{DOMAIN}/$domain/g" /etc/nginx/conf.d/sites_env.conf
 
 sed -i "s/#{ALLOW_IP};/$whitelist/g" /etc/nginx/conf.d/sites.conf
 sed -i "s/#{ALLOW_IP};/$whitelist/g" /etc/nginx/conf.d/sites_env.conf

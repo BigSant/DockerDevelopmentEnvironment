@@ -1,15 +1,6 @@
 ROOT_DIRECTORY:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-DOCKER_DIRECTORY:=/home/magnustwentythree/public_html/docker
-
-sql-fix:
-	path="$(realpath $(firstword $(path)))"
-	sed -i 's/utf8mb4_unicode_520_ci/utf8mb4_unicode_ci/g' $(path)
-	sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_general_ci/g' $(path)
-	echo 'DONE, upload SQL'
-
-sql-upload:
-	path="$(realpath $(firstword $(path)))"
-	pv $(path) | mysql -u$(USENAME) -p(PASSWORD) $(DATABASE)
+ROOT_DIRECTORY:=$(abspath $(APP_DOCKER_DIRECTORY)/../../)
+DOCKER_DIRECTORY:={docker_dir}
 
 local:
 	$(MAKE) -C $(DOCKER_DIRECTORY) local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)

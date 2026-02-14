@@ -10,10 +10,11 @@ services:
       args:
         PROFILE: ${PROFILE}
         APACHE_VERSION: ${APACHE_VERSION}
-    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}'
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${ENV}'
     depends_on:
       - php-fpm
     networks:
       - network_app
     volumes:
-      - ${PROJECT_DIRECTORY}/app/:/var/www/html/
+      - ${PROJECT_WEB_DIRECTORY}:/var/www/html/
+      - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro

@@ -18,4 +18,4 @@ services:
     networks:
       - network_app
     volumes:
-      - ${PROJECT_DIRECTORY}/_data/mailpit:/data
+      - ${PROJECT_DATA_DIRECTORY}/mailpit/:/data
