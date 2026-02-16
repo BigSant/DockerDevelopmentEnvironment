@@ -112,7 +112,7 @@ build-docker-compose:
 	make run-docker-compose env=${env} action=build profile=build_only
 
 up-docker-compose:
-	make run-docker-compose env=${env} action=up
+	make run-docker-compose env=${env} action="up -d"
 
 down-docker-compose:
 	make run-docker-compose env=${env} action=down
