@@ -16,5 +16,6 @@ services:
     networks:
       - network_app
     volumes:
-      - ${PROJECT_DIRECTORY}/app/:/var/www/html/:ro
-      - ${PROJECT_DIRECTORY}/_analysis/psalm/:/tmp/analysis/psalm/
+      - ${PROJECT_APP_DIRECTORY}:/var/www/html/:ro
+      - ${PROJECT_CONFIG_DIRECTORY}/psalm/:/tmp/psalm/config/
+      - ${PROJECT_DATA_DIRECTORY}/psalm/:/tmp/psalm/cache/

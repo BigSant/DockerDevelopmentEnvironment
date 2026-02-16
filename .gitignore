@@ -1,6 +1,3 @@
 .idea
 _cache/*
-!_cache/.gitkeep
-app/*
-!app/.gitkeep
 .env.*

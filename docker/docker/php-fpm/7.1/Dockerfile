@@ -42,10 +42,6 @@ RUN docker-php-source extract \
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/php.ini /usr/local/etc/php/php.ini
 
-COPY /docker/php-fpm/conf/write-node-exporter-metric.sh /usr/local/bin/write-node-exporter-metric
-RUN chmod +x /usr/local/bin/write-node-exporter-metric
-CMD ["--collector.textfile.directory=/hostfs/var/tmp"]
-
 ARG CONTAINER_USER="root"
 ARG CONTAINER_USERID="0"
 ARG CONTAINER_GROUP="root"

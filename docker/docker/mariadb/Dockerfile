@@ -9,7 +9,6 @@ RUN chmod +x /docker-entrypoint-initdb.d/1-init.sh
 COPY /docker/mariadb/conf/initialize_exporter.sql /docker-entrypoint-initdb.d/2-initialize_exporter.sql
 RUN chmod 777 /docker-entrypoint-initdb.d/2-initialize_exporter.sql
 
-
 FROM base as env-local
 FROM base as env-prod
 FROM base as env-stage

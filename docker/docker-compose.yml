@@ -10,14 +10,6 @@ include:
 
 #  - ${ROOT_DIRECTORY}/docker/mariadb/docker-compose.yml
 #  - ${ROOT_DIRECTORY}/docker/nginx/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/prometheus/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/grafana/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/mysqld-exporter/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/php-fpm-exporter/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/pagespeed-exporter/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/cadvisor/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/loki/docker-compose.yml
-#  - ${ROOT_DIRECTORY}/docker/promtail/docker-compose.yml
 
 networks:
   network_app:
