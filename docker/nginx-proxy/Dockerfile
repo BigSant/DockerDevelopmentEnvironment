@@ -3,8 +3,9 @@ FROM nginx:${NGINX_VERSION} as base
 
 ARG ENV=""
 
-COPY /docker/nginx-proxy/conf/nginx.conf /etc/nginx/nginx.conf
-COPY /docker/nginx-proxy/conf/sites.conf /etc/nginx/conf.d/sites.conf
+COPY /docker/nginx-proxy/conf/nginx.conf      /etc/nginx/nginx.conf
+COPY /docker/nginx-proxy/conf/proxy_params    /etc/nginx/proxy_params
+COPY /docker/nginx-proxy/conf/sites.conf      /etc/nginx/conf.d/sites.conf
 COPY /docker/nginx-proxy/conf/sites.${ENV}.conf /etc/nginx/conf.d/sites_env.conf
 
 COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh

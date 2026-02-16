@@ -1,10 +1,11 @@
 ENTRY_PATH=/usr/local/bin/entrypoint.sh
+PROJECT_DIRECTORY=/var/www/html
 
 baseline:
-	$(ENTRY_PATH) --set-baseline=/tmp/analysis/psalm/psalm-baseline.xml --threads=1 --disable-extension=parallel
+	cd $(PROJECT_DIRECTORY) && $(ENTRY_PATH) --set-baseline=/tmp/analysis/psalm/psalm-baseline.xml --threads=1 --disable-extension=parallel
 
 analysis:
-	$(ENTRY_PATH)
+	cd $(PROJECT_DIRECTORY) && $(ENTRY_PATH) --diff
 
 report:
-	$(ENTRY_PATH) --output-format=json > /tmp/analysis/psalm/report.json
+	cd $(PROJECT_DIRECTORY) && $(ENTRY_PATH) --diff --output-format=json > /tmp/analysis/psalm/report.json

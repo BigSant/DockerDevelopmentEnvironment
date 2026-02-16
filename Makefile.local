@@ -1,15 +1,12 @@
-ROOT_DIRECTORY:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
-DOCKER_DIRECTORY:=/home/magnustwentythree/public_html/docker
+APP_DOCKER_DIRECTORY:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+ROOT_DIRECTORY:=$(abspath $(APP_DOCKER_DIRECTORY)/../../)
+DOCKER_DIRECTORY:={docker_dir}
+SQL_DUMP_FILE:=$(or $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS)), $(file))
+SQL_DUMP_DATABASE:=$(database)
+SQL_DUMP_DROP_DATABASE:=$(drop)
 
-sql-fix:
-	path="$(realpath $(firstword $(path)))"
-	sed -i 's/utf8mb4_unicode_520_ci/utf8mb4_unicode_ci/g' $(path)
-	sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_general_ci/g' $(path)
-	echo 'DONE, upload SQL'
-
-sql-upload:
-	path="$(realpath $(firstword $(path)))"
-	pv $(path) | mysql -u$(USENAME) -p(PASSWORD) $(DATABASE)
-
-local:
+run:
 	$(MAKE) -C $(DOCKER_DIRECTORY) local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+
+db:
+	$(MAKE) -C $(DOCKER_DIRECTORY) db-init-local SQL_DUMP_FILE=$(SQL_DUMP_FILE) SQL_DUMP_DATABASE=$(SQL_DUMP_DATABASE) SQL_DUMP_DROP_DATABASE=$(SQL_DUMP_DROP_DATABASE) PROJECT_DIRECTORY=$(ROOT_DIRECTORY)

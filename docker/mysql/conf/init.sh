@@ -11,12 +11,17 @@ if [[ -z "$database_user" || -z "$database_password" || -z "$database_name" || -
 fi
 
 echo "
-CREATE USER IF NOT EXISTS '$database_user'@'localhost' IDENTIFIED BY '$database_password';
-GRANT ALL PRIVILEGES ON *.* TO '$database_user'@'%' IDENTIFIED BY '$database_password' WITH GRANT OPTION;
+CREATE USER IF NOT EXISTS '$database_user'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$database_password';
+CREATE USER IF NOT EXISTS '$database_user'@'%' IDENTIFIED WITH caching_sha2_password BY '$database_password';
 
-CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED BY '$exporter_password' WITH MAX_USER_CONNECTIONS 3;
-GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'%' IDENTIFIED BY '$exporter_password' WITH GRANT OPTION;
---GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%' IDENTIFIED BY '$exporter_password' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO '$database_user'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO '$database_user'@'%' WITH GRANT OPTION;
+
+CREATE USER IF NOT EXISTS 'exporter'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$exporter_password' WITH MAX_USER_CONNECTIONS 3;
+CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED WITH caching_sha2_password BY '$exporter_password' WITH MAX_USER_CONNECTIONS 3;
+
+GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO 'exporter'@'%' WITH GRANT OPTION;
 
 FLUSH PRIVILEGES;
 " | tee /docker-entrypoint-initdb.d/3-initialize_exporter.sql > /dev/null

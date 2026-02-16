@@ -31,18 +31,12 @@ services:
         COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
       - php-fpm-base
-      - database
+#      - database
     networks:
       - network_app
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${PROJECT_DIRECTORY}/app/:/var/www/html/
-      - ${PROJECT_DIRECTORY}/_profiling/:/tmp/profiling/
+      - ${PROJECT_WEB_DIRECTORY}:/var/www/html/
+      - ${PROJECT_DATA_DIRECTORY}/profiling/:/tmp/profiling/
 #      - ${PROJECT_DIRECTORY}/phpstan/:/tmp/analysis/phpstan/
-#    healthcheck:
-#      test: ['CMD', 'curl', '-f', 'localhost:80']
-#      interval: 10s
-#      start_period: 15s
-#      timeout: 10s
-#      retries: 5
