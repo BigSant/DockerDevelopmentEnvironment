@@ -12,6 +12,7 @@ RUN mkdir -p /opt/psalm /tmp/psalm/cache/ && cat > /opt/psalm/psalm.xml <<'EOF'
     xsi:schemaLocation="https://getpsalm.org/schema/config vendor/vimeo/psalm/config.xsd"
     errorLevel="4"
     cacheDirectory="/tmp/psalm/cache"
+    threads="1"
 >
     <projectFiles>
         <directory name="/var/www/html/" />
