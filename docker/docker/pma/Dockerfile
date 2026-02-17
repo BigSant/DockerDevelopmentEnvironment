@@ -1,6 +1,8 @@
 ARG PMA_VERSION=""
 FROM phpmyadmin/phpmyadmin:${PMA_VERSION} as base
 
+RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+
 RUN apt-get update && apt-get install -y libpng16-16 libzip4 --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 FROM base as env-local

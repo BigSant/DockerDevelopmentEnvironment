@@ -10,6 +10,7 @@ PROJECT_WEB_DIRECTORY=$(PROJECT_APP_DIRECTORY)/public
 SQL_DUMP_FILE:=$(SQL_DUMP_FILE)
 SQL_DUMP_DATABASE:=$(SQL_DUMP_DATABASE)
 SQL_DUMP_DROP_DATABASE:=$(SQL_DUMP_DROP_DATABASE)
+SQL_DUMP_INITIALIZE:=$(SQL_DUMP_INITIALIZE)
 
 local:
 	make config-local
@@ -74,10 +75,16 @@ db-init:
 	$(eval TARGET_DB := $(SQL_DUMP_DATABASE))
 	$(eval TARGET_DB := $(or $(TARGET_DB), $(shell grep '^DATABASE_NAME=' /tmp/.env | cut -d= -f2)))
 
+	$(eval INITIALIZE := $(SQL_DUMP_INITIALIZE))
+	$(eval INITIALIZE := $(or $(INITIALIZE), "1"))
+
 ifeq ("$(SQL_DUMP_DROP_DATABASE)","1")
 	echo "==> Dropping and recreating: ${TARGET_DB}"
 	docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env exec -T database mysql --user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key -e "DROP DATABASE IF EXISTS \`$(TARGET_DB)\`; CREATE DATABASE \`$(TARGET_DB)\`;"
 endif
+
+	echo "==> Creating table: ${TARGET_DB}"
+	docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env exec -T database mysql --user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key -e "CREATE DATABASE IF NOT EXISTS \`$(TARGET_DB)\`;"
 
 	echo "==> Uploading dump: $SQL_DUMP_FILE"
 ifeq ("$(shell command -v pv 2>/dev/null)", "")
@@ -86,6 +93,7 @@ else
 	pv "$(SQL_DUMP_FILE)" | docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env exec -T database mysql --user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key "$(TARGET_DB)"
 endif
 
+ifeq ("$(INITIALIZE)","1")
 	echo "==> Running init configuration"
 	@if [ -s "$(PROJECT_CONFIG_DIRECTORY)/sql/init.sql" ]; then \
 		echo "==> Running init.sql" && \
@@ -106,6 +114,7 @@ endif
 				--user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key \
 				"$(TARGET_DB)"'; \
 	fi
+endif
 
 # -----------------------------------------------------------------
 build-docker-compose:

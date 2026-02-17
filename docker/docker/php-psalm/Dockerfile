@@ -5,7 +5,7 @@ FROM ghcr.io/danog/psalm:${PHP_PSALM_VERSION} as base
 RUN mkdir -p /opt/psalm /tmp/psalm/cache/ && cat > /opt/psalm/psalm.xml <<'EOF'
 <?xml version="1.0"?>
 <psalm
-    errorBaseline="/tmp/psalm/config/psalm-baseline.xml"
+    errorBaseline="/tmp/psalm/cache/psalm-baseline.xml"
     resolveFromConfigFile="false"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xmlns="https://getpsalm.org/schema/config"
