@@ -1,7 +1,14 @@
 ENTRY_PATH=/usr/local/bin/entrypoint.sh
 PROJECT_DIRECTORY=/var/www/html
-HOST_PROJECT_PATH ?= /var/www/html
+HOST_PROJECT_PATH ?= /home/tomas/Projects/joldija/app/public
 BASE_BRANCH ?= origin/main
+DIR:=$(or $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS)), $(dir))
+
+dir-analysis:
+ifndef DIR
+	$(error DIR is required. Usage: make dir-analysis DIR=src/MyModule)
+endif
+	cd $(PROJECT_DIRECTORY) && $(ENTRY_PATH) --error-format=json $(PROJECT_DIRECTORY)/$(DIR) > /tmp/phpstan/cache/report.json
 
 baseline:
 	cd $(PROJECT_DIRECTORY) && $(ENTRY_PATH) --generate-baseline=/tmp/phpstan/cache/phpstan-baseline.neon
