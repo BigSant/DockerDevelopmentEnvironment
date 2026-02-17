@@ -1,0 +1,22 @@
+services:
+  php-phpstan:
+    image: php-phpstan-${PHP_PHPSTAN_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-phpstan-${PHP_PHPSTAN_VERSION}
+    restart: no
+    entrypoint: ["tail", "-f", "/dev/null"]
+    mem_limit: 4g
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/php-phpstan/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_PHPSTAN_VERSION: ${PHP_PHPSTAN_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_WEB_DIRECTORY}:/var/www/html/:ro
+      - ${PROJECT_CONFIG_DIRECTORY}/phpstan/:/tmp/phpstan/config/
+      - ${PROJECT_DATA_DIRECTORY}/phpstan/:/tmp/phpstan/cache/

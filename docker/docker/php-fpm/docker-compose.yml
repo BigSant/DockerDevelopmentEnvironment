@@ -11,8 +11,8 @@ services:
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
-#    profiles:
-#      - build_only
+    profiles:
+      - build_only
     networks:
       - network_app
 
@@ -34,8 +34,6 @@ services:
       PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME:-30}
       PHP_UPLOAD_MAX_FILESIZE: ${PHP_UPLOAD_MAX_FILESIZE:-20M}
       PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE:-20M}
-    depends_on:
-      - php-fpm-base
     networks:
       - network_app
     extra_hosts:

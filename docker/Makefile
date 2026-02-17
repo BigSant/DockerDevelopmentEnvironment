@@ -118,7 +118,8 @@ endif
 
 # -----------------------------------------------------------------
 build-docker-compose:
-	make run-docker-compose env=${env} action=build profile=build_only
+	make run-docker-compose env=${env} action="build php-fpm-base" profile=build_only
+	make run-docker-compose env=${env} action=build
 
 up-docker-compose:
 	make run-docker-compose env=${env} action="up -d"
@@ -133,7 +134,7 @@ config-docker-compose:
 ifneq ("$(wildcard $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml)","")
 	rm $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml
 endif
-	make run-docker-compose env=${env} action="config -o $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml"
+	make run-docker-compose env=${env} action="config -o $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml" profile=build_only
 
 run-docker-compose:
 	make generate-env-file env=${env}
