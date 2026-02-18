@@ -1,0 +1,21 @@
+services:
+  php-cs:
+    image: php-cs-${PHP_CS_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-php-fpm-cs-${PHP_CS_VERSION}
+    restart: no
+    entrypoint: ["tail", "-f", "/dev/null"]
+    mem_limit: 2g
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/php-cs/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_CS_VERSION: ${PHP_CS_VERSION}
+    depends_on:
+      - php-fpm
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_WEB_DIRECTORY}:/var/www/html/
+      - ${PROJECT_CONFIG_DIRECTORY}/php-cs/:/tmp/php-cs-fixer/config/
+      - ${PROJECT_DATA_DIRECTORY}/php-cs/:/tmp/php-cs-fixer/cache/

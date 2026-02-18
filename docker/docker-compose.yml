@@ -6,6 +6,7 @@ include:
   - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/php-phpstan/docker-compose.yml
+  - ${ROOT_DIRECTORY}/docker/php-cs/docker-compose.yml
 
 #  - ${ROOT_DIRECTORY}/docker/mariadb/docker-compose.yml
 #  - ${ROOT_DIRECTORY}/docker/nginx/docker-compose.yml
