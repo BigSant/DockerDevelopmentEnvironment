@@ -1,0 +1,27 @@
+services:
+  php-doctrine-migrations:
+    image: php-doctrine-migrations-${PHP_VERSION}-${DOCTRINE_MIGRATIONS_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-php-doctrine-migrations-${PHP_VERSION}-${DOCTRINE_MIGRATIONS_VERSION}
+    restart: no
+    entrypoint: ["tail", "-f", "/dev/null"]
+    mem_limit: 512m
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/php-doctrine-migrations/Dockerfile
+      target: env-${ENV}
+      args:
+        PHP_VERSION: ${PHP_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
+        DOCTRINE_MIGRATIONS_VERSION: ${DOCTRINE_MIGRATIONS_VERSION}
+    depends_on:
+      - database
+    networks:
+      - network_app
+    environment:
+      DATABASE_HOST: database
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+    volumes:
+      - ${PROJECT_CONFIG_DIRECTORY}/doctrine-migrations/:/tmp/doctrine-migrations/config/
+      - ${PROJECT_DATA_DIRECTORY}/doctrine-migrations/:/tmp/doctrine-migrations/cache/
