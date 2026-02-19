@@ -8,6 +8,12 @@ FROM php:${PHP_VERSION}-fpm as base
 ARG PHP_VERSION=""
 ENV ACCEPT_EULA=Y
 
+RUN sed -i \
+    -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+    -e 's|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+    -e '/buster-updates/d' \
+    /etc/apt/sources.list
+
 RUN apt-get update \
     && apt-get install -y libmcrypt-dev \
         libjpeg62-turbo-dev \
