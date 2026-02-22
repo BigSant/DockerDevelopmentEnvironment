@@ -93,28 +93,27 @@ else
 	pv "$(SQL_DUMP_FILE)" | docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env exec -T database mysql --user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key "$(TARGET_DB)"
 endif
 
-ifeq ("$(INITIALIZE)","1")
-	echo "==> Running init configuration"
-	@if [ -s "$(PROJECT_CONFIG_DIRECTORY)/sql/init.sql" ]; then \
-		echo "==> Running init.sql" && \
-		bash -c 'set -a && source /tmp/.env && set +a && \
-			envsubst < "$(PROJECT_CONFIG_DIRECTORY)/sql/init.sql" | \
-			docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
-				exec -T database mysql \
-				--user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key \
-				"$(TARGET_DB)"'; \
+	@if [ "$(INITIALIZE)" = "1" ]; then \
+		echo "==> Running init configuration"; \
+		if [ -s "$(PROJECT_CONFIG_DIRECTORY)/sql/init.sql" ]; then \
+			echo "==> Running init.sql" && \
+			bash -c 'set -a && source /tmp/.env && set +a && \
+				envsubst < "$(PROJECT_CONFIG_DIRECTORY)/sql/init.sql" | \
+				docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
+					exec -T database mysql \
+					--user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key \
+					"$(TARGET_DB)"'; \
+		fi; \
+		if [ -s "$(PROJECT_CONFIG_DIRECTORY)/sql/init.$(env).sql" ]; then \
+			echo "==> Running init.$(env).sql" && \
+			bash -c 'set -a && source /tmp/.env && set +a && \
+				envsubst < "$(PROJECT_CONFIG_DIRECTORY)/sql/init.$(env).sql" | \
+				docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
+					exec -T database mysql \
+					--user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key \
+					"$(TARGET_DB)"'; \
+		fi; \
 	fi
-
-	@if [ -s "$(PROJECT_CONFIG_DIRECTORY)/sql/init.$(env).sql" ]; then \
-		echo "==> Running init.$(env).sql" && \
-		bash -c 'set -a && source /tmp/.env && set +a && \
-			envsubst < "$(PROJECT_CONFIG_DIRECTORY)/sql/init.$(env).sql" | \
-			docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
-				exec -T database mysql \
-				--user="$(DB_USER)" --password="$(DB_PASS)" --get-server-public-key \
-				"$(TARGET_DB)"'; \
-	fi
-endif
 
 # -----------------------------------------------------------------
 build-docker-compose:

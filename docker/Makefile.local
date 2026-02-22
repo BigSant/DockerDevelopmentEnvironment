@@ -6,7 +6,7 @@ SQL_DUMP_DATABASE:=$(database)
 SQL_DUMP_DROP_DATABASE:=$(drop)
 SQL_DUMP_INITIALIZE:=$(initialize)
 
-run:
+up:
 	$(MAKE) -C $(DOCKER_DIRECTORY) local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
 
 down:
