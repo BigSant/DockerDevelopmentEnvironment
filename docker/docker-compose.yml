@@ -1,3 +1,5 @@
+name: ${PROJECT_NAME}-${ENV}
+
 include:
   - ${ROOT_DIRECTORY}/docker/nginx-proxy/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/apache/docker-compose.yml
