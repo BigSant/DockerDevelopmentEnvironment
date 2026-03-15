@@ -33,8 +33,10 @@ RUN chmod a+x /usr/local/bin/phpstan
 RUN #apt-get install -y cron
 
 RUN rm -rf /var/lib/apt/lists/*
-RUN docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-png-dir=/usr/include/ --with-jpeg-dir=/usr/include/
+RUN #docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-png-dir=/usr/include/ --with-jpeg-dir=/usr/include/
 RUN docker-php-ext-install iconv intl pdo_mysql mbstring soap gd zip bcmath exif
+RUN docker-php-ext-enable exif
+RUN docker-php-ext-enable gd
 
 RUN docker-php-source extract \
     && if [ -d "/usr/src/php/ext/mysql" ]; then docker-php-ext-install mysql; fi \
