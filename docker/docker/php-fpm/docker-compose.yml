@@ -11,6 +11,7 @@ services:
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
+        NODE_VERSION: ${NODE_VERSION}
     profiles:
       - build_only
     networks:
@@ -29,6 +30,7 @@ services:
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
+        NODE_VERSION: ${NODE_VERSION}
     environment:
       PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-512M}
       PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME:-30}

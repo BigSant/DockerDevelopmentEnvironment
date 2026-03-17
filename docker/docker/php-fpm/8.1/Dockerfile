@@ -22,9 +22,8 @@ RUN apt-get install -y unzip
 RUN apt-get install -y libonig-dev
 RUN apt-get install -y pv
 
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash \
-    && . ~/.nvm/nvm.sh \
-    && nvm install 22
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash && . ~/.nvm/nvm.sh \
+RUN nvm install ${NODE_VERSION}
 
 # Install APCu and APC backward compatibility
 RUN pecl install apcu
