@@ -1,7 +1,7 @@
 services:
   php-fpm-base:
-    image: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}-${NODE_VERSION}
-    container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}-${NODE_VERSION}
+    image: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
