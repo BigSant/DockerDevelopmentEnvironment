@@ -22,9 +22,6 @@ RUN apt-get install -y unzip
 RUN apt-get install -y libonig-dev
 RUN apt-get install -y pv
 
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash && . ~/.nvm/nvm.sh \
-RUN nvm install ${NODE_VERSION}
-
 # Install APCu and APC backward compatibility
 RUN pecl install apcu
 RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
@@ -36,6 +33,9 @@ COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin
 RUN chmod a+x /usr/local/bin/phpstan
 
 RUN apt-get install -y cron
+
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash && . ~/.nvm/nvm.sh \
+RUN nvm install ${NODE_VERSION}
 
 RUN rm -rf /var/lib/apt/lists/*
 RUN #docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
