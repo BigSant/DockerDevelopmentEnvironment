@@ -34,6 +34,7 @@ RUN chmod a+x /usr/local/bin/phpstan
 
 RUN apt-get install -y cron
 
+ARG NODE_VERSION=""
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash && . ~/.nvm/nvm.sh \
 RUN nvm install ${NODE_VERSION}
 
