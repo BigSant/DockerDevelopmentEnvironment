@@ -169,10 +169,10 @@ generate-compose-yml:
 	make load-qt
 	cp $(ROOT_DIRECTORY)/docker-compose.yml /tmp/docker-compose.yml
 ifneq ("$(wildcard $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml)","")
-	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml")' /tmp/docker-compose.yml > /tmp/docker-compose.yml
+	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml")' /tmp/docker-compose.yml > /tmp/docker-compose.tmp && mv /tmp/docker-compose.tmp /tmp/docker-compose.yml
 endif
 ifneq ("$(wildcard $(PROJECT_DOCKER_DIRECTORY)/docker-compose.${env}.yml)","")
-	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DOCKER_DIRECTORY)/docker-compose.${env}.yml")' /tmp/docker-compose.yml > /tmp/docker-compose.yml
+	$(ROOT_DIRECTORY)/qt '. *= load("$(PROJECT_DOCKER_DIRECTORY)/docker-compose.${env}.yml")' /tmp/docker-compose.yml > /tmp/docker-compose.tmp && mv /tmp/docker-compose.tmp /tmp/docker-compose.yml
 endif
 
 load-qt:
