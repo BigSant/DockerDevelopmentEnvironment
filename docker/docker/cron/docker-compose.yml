@@ -1,0 +1,24 @@
+services:
+  cron:
+    image: ${PROJECT_NAME}-php-fpm-${ENV}
+    container_name: ${PROJECT_NAME}-${ENV}-cron
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        : > /tmp/crontab
+        for f in /etc/cron.d/crontab /etc/cron.d/crontab.${ENV}; do
+          if [ -f "$$f" ]; then
+            cat "$$f" >> /tmp/crontab
+            echo "" >> /tmp/crontab
+          fi
+        done
+        exec supercronic /tmp/crontab
+    depends_on:
+      - php-fpm
+      - database
+    networks:
+      - network_app
+    restart: unless-stopped
+    volumes:
+      - ${PROJECT_WEB_DIRECTORY}:/var/www/html
+      - ${PROJECT_CONFIG_DIRECTORY}/cron:/etc/cron.d:ro
