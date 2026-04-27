@@ -29,7 +29,12 @@ COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin/phpstan
 RUN chmod a+x /usr/local/bin/phpstan
 
-RUN #apt-get install -y cron
+ARG SUPERCRONIC_VERSION=0.2.29
+ARG SUPERCRONIC_SHA1SUM=cd48d45c4b10f3f0bfdd3a57d054cd05ac96812b
+RUN curl -fsSLo /usr/local/bin/supercronic \
+        "https://github.com/aptible/supercronic/releases/download/v${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \
+    && echo "${SUPERCRONIC_SHA1SUM}  /usr/local/bin/supercronic" | sha1sum -c - \
+    && chmod +x /usr/local/bin/supercronic
 
 RUN rm -rf /var/lib/apt/lists/*
 #RUN docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-png-dir=/usr/include/ --with-jpeg-dir=/usr/include/
@@ -67,7 +72,6 @@ RUN find /var/www/html/ -type f -exec chmod 644 {} +
 RUN usermod -u 0 -o www-data && groupmod -g 0 -o www-data
 WORKDIR /var/www/html
 
-#CMD ["cron", "-f"]
 CMD ["php-fpm", "-R"]
 
 FROM base as env-local
