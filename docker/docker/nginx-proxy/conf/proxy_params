@@ -9,3 +9,10 @@ proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
 proxy_set_header   X-Forwarded-Proto  $scheme;
 proxy_set_header   X-Forwarded-Host   $host;
 proxy_set_header   X-Forwarded-Port   $server_port;
+
+# Upstream response header buffer — protect against large Set-Cookie chains
+# (PrestaShop session + prestashop-* + _token + _ga* echoes after login).
+# Default 4-8k overflows → 502 "upstream sent too big header".
+proxy_buffer_size      32k;
+proxy_buffers        8 32k;
+proxy_busy_buffers_size 64k;

@@ -151,6 +151,9 @@ server {
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection \$connection_upgrade;
     proxy_buffering off;
+    proxy_buffer_size 32k;
+    proxy_buffers 8 32k;
+    proxy_busy_buffers_size 64k;
     proxy_connect_timeout 3600;
     proxy_send_timeout 3600;
     proxy_read_timeout 3600;
@@ -182,6 +185,9 @@ server {
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection \$connection_upgrade;
     proxy_buffering off;
+    proxy_buffer_size 32k;
+    proxy_buffers 8 32k;
+    proxy_busy_buffers_size 64k;
     proxy_connect_timeout 3600;
     proxy_send_timeout 3600;
     proxy_read_timeout 3600;
