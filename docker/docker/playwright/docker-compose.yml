@@ -1,0 +1,23 @@
+services:
+  playwright:
+    image: playwright-${PLAYWRIGHT_VERSION}
+    container_name: ${PROJECT_NAME}-${ENV}-playwright
+    restart: "no"
+    entrypoint: ["tail", "-f", "/dev/null"]
+    working_dir: /e2e
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/playwright/Dockerfile
+      target: env-${ENV}
+      args:
+        PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION}
+    depends_on:
+      - webserver
+    networks:
+      - network_app
+    environment:
+      BASE_URL: https://${DOMAIN}
+    volumes:
+      - ${PROJECT_CONFIG_DIRECTORY}/playwright/:/e2e/config/
+      - ${PROJECT_DIRECTORY}/tests/playwright/:/e2e/tests/
+      - ${PROJECT_DATA_DIRECTORY}/playwright/:/e2e/data/
