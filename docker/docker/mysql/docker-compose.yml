@@ -3,7 +3,7 @@ services:
     image: mysql-${ENV}-${MYSQL_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
     restart: unless-stopped
-    user: "1000:1000"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
@@ -12,8 +12,6 @@ services:
         ENV: ${ENV}
         PROFILE: ${PROFILE}
         MYSQL_VERSION: ${MYSQL_VERSION}
-        ROOT_DIRECTORY: ${ROOT_DIRECTORY}
-        PROJECT_DIRECTORY: ${PROJECT_DIRECTORY}
     environment:
       MYSQL_HOST: ${DATABASE_HOST:-%}
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
@@ -22,5 +20,14 @@ services:
       MYSQL_DATABASE: ${DATABASE_NAME}
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/mysql/:/var/lib/mysql
+      - ${PROJECT_DOCKER_DIRECTORY}/config/mysql/:/etc/mysql/project.d/:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/config/mysql/${ENV}/:/etc/mysql/project.d.env/:ro
+    healthcheck:
+      # Healthy only once the real server accepts TCP (not the skip-networking init server).
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - network_app

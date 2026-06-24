@@ -1,22 +1,18 @@
 #!/bin/bash
+set -euo pipefail
 
-database_user="${MYSQL_USER}"
-database_password="${MYSQL_PASSWORD}"
-database_name="${MYSQL_DATABASE}"
+: "${MYSQL_USER:?MYSQL_USER is required}"
+: "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}"
 
-if [[ -z "$database_user" || -z "$database_password" || -z "$database_name" ]]; then
-  echo "Not all required parameters provided"
-  exit 1
-fi
-
-echo "
-CREATE USER IF NOT EXISTS '$database_user'@'localhost' IDENTIFIED WITH caching_sha2_password BY '$database_password';
-CREATE USER IF NOT EXISTS '$database_user'@'%' IDENTIFIED WITH caching_sha2_password BY '$database_password';
-
-GRANT ALL PRIVILEGES ON *.* TO '$database_user'@'localhost' WITH GRANT OPTION;
-GRANT ALL PRIVILEGES ON *.* TO '$database_user'@'%' WITH GRANT OPTION;
-
+# Runs once during first-time DB initialization (docker-entrypoint-initdb.d). The official
+# entrypoint already creates MYSQL_USER@'%' and grants it MYSQL_DATABASE; here we also add
+# the @'localhost' variant and elevate the app user to full privileges so it can create /
+# drop databases, run migrations, etc. (dev environment). SQL is executed directly against
+# the init server — no self-modifying init files.
+mysql --protocol=socket -uroot -p"${MYSQL_ROOT_PASSWORD}" <<EOSQL
+CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED WITH caching_sha2_password BY '${MYSQL_PASSWORD}';
+CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED WITH caching_sha2_password BY '${MYSQL_PASSWORD}';
+GRANT ALL PRIVILEGES ON *.* TO '${MYSQL_USER}'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO '${MYSQL_USER}'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
-" | tee /docker-entrypoint-initdb.d/3-initialize_exporter.sql > /dev/null
-
-exit 0
+EOSQL
