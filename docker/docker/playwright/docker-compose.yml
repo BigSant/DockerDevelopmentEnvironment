@@ -19,5 +19,5 @@ services:
       BASE_URL: https://${DOMAIN}
     volumes:
       - ${PROJECT_CONFIG_DIRECTORY}/playwright/:/e2e/config/
-      - ${PROJECT_DIRECTORY}/tests/playwright/:/e2e/tests/
+      - ${PROJECT_APP_DIRECTORY}/tests/playwright/:/e2e/tests/
       - ${PROJECT_DATA_DIRECTORY}/playwright/:/e2e/data/
