@@ -1,16 +1,11 @@
 ARG PHP_PHPSTAN_VERSION=""
 
-FROM ghcr.io/phpstan/phpstan:${PHP_PHPSTAN_VERSION} as base
+FROM ghcr.io/phpstan/phpstan:${PHP_PHPSTAN_VERSION} AS base
 
-# Store phpstan.neon template outside the mount path
-RUN mkdir -p /opt/phpstan /tmp/phpstan/cache/ && cat > /opt/phpstan/phpstan.neon <<'EOF'
-parameters:
-    level: 6
-    paths:
-        - /var/www/html/
-    tmpDir: /tmp/phpstan/cache
-    errorFormat: table
-EOF
+# Default phpstan.neon template, stored outside the mount path. The entrypoint seeds it
+# into the project config dir on first run; the project then owns and may override it.
+RUN mkdir -p /opt/phpstan /tmp/phpstan/cache/
+COPY /config/phpstan/phpstan.neon /opt/phpstan/phpstan.neon
 
 RUN apk add --no-cache git bash make jq
 
@@ -23,6 +18,6 @@ RUN chmod +x /usr/local/bin/generate-report.sh
 COPY /docker/php-phpstan/Makefile /phpstan/Makefile
 WORKDIR /phpstan
 
-FROM base as env-local
-FROM base as env-prod
-FROM base as env-stage
+FROM base AS env-local
+FROM base AS env-prod
+FROM base AS env-stage

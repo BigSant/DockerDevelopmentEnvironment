@@ -2,6 +2,8 @@ services:
   php-cs:
     image: php-cs-${PHP_CS_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm-cs-${PHP_CS_VERSION}
+    profiles:
+      - phpcs
     restart: no
     entrypoint: ["tail", "-f", "/dev/null"]
     mem_limit: 2g
@@ -12,7 +14,8 @@ services:
       args:
         PHP_CS_VERSION: ${PHP_CS_VERSION}
     depends_on:
-      - php-fpm
+      php-fpm:
+        condition: service_healthy
     networks:
       - network_app
     volumes:

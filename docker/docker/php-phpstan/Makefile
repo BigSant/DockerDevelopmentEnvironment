@@ -1,6 +1,9 @@
 ENTRY_PATH=/usr/local/bin/entrypoint.sh
 PROJECT_DIRECTORY=/var/www/html
-HOST_PROJECT_PATH ?= /home/tomas/Projects/joldija/app/public
+# Host path to the project (for clickable links in the HTML report). Injected by
+# docker-compose as HOST_PROJECT_PATH=${PROJECT_WEB_DIRECTORY}; falls back to the
+# container path when run standalone.
+HOST_PROJECT_PATH ?= /var/www/html
 BASE_BRANCH ?= origin/main
 DIR:=$(or $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS)), $(dir))
 

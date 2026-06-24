@@ -2,6 +2,8 @@ services:
   php-phpstan:
     image: php-phpstan-${PHP_PHPSTAN_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm-phpstan-${PHP_PHPSTAN_VERSION}
+    profiles:
+      - phpstan
     restart: no
     entrypoint: ["tail", "-f", "/dev/null"]
     mem_limit: 4g
@@ -13,7 +15,10 @@ services:
         PHP_PHPSTAN_VERSION: ${PHP_PHPSTAN_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
-      - php-fpm
+      php-fpm:
+        condition: service_healthy
+    environment:
+      HOST_PROJECT_PATH: ${PROJECT_WEB_DIRECTORY}
     networks:
       - network_app
     volumes:
