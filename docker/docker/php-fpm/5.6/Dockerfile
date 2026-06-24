@@ -1,9 +1,9 @@
 ARG PHP_VERSION=""
 ARG COMPOSER_VERSION=""
-FROM composer:${COMPOSER_VERSION} as composer
-FROM ghcr.io/phpstan/phpstan:1 as phpstan
+FROM composer:${COMPOSER_VERSION} AS composer
+FROM ghcr.io/phpstan/phpstan:1 AS phpstan
 
-FROM php:${PHP_VERSION}-fpm as base
+FROM php:${PHP_VERSION}-fpm AS base
 
 ARG PHP_VERSION=""
 ENV ACCEPT_EULA=Y
@@ -57,8 +57,8 @@ RUN getent group ${CONTAINER_GROUPID} || addgroup --gid ${CONTAINER_GROUPID} ${C
 RUN id ${CONTAINER_USER} || adduser --system --no-create-home --disabled-password --uid ${CONTAINER_USERID} --ingroup ${CONTAINER_GROUP} ${CONTAINER_USER}
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/php-fpm.conf
-RUN sed -i "s#user = www-data#user = ${CONTAINER_USER}#g" /usr/local/etc/php-fpm.d/www.conf
-RUN sed -i "s#group = www-data#group = ${CONTAINER_GROUP}#g" /usr/local/etc/php-fpm.d/www.conf
+RUN sed -i "s#^user = www-data#;user = www-data#g" /usr/local/etc/php-fpm.d/www.conf
+RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#;pm\.status_path = \/status#pm\.status_path = \/fpm_stub_status#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#pm\.max_children = 5#pm\.max_children = 50#g" /usr/local/etc/php-fpm.d/www.conf
 
@@ -69,12 +69,11 @@ RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/html/
 RUN find /var/www/html/ -type d -exec chmod 755 {} +
 RUN find /var/www/html/ -type f -exec chmod 644 {} +
 
-RUN usermod -u 0 -o www-data && groupmod -g 0 -o www-data
 WORKDIR /var/www/html
 
 CMD ["php-fpm", "-R"]
 
-FROM base as env-local
+FROM base AS env-local
 
 ARG PHP_VERSION=""
 ARG XDEBUG_VERSION=""
@@ -85,5 +84,5 @@ ARG XDEBUG_VERSION=""
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 
-FROM base as env-prod
-FROM base as env-stage
+FROM base AS env-prod
+FROM base AS env-stage
