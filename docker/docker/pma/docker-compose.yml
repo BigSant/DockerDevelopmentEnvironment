@@ -2,6 +2,8 @@ services:
   pma:
     image: pma-${ENV}-${PMA_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
+    profiles:
+      - pma
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
@@ -9,12 +11,14 @@ services:
       target: env-${ENV}
       args:
         PMA_VERSION: ${PMA_VERSION}
-        PMA_USER: ${DATABASE_USER}
-        PMA_PASSWORD: ${DATABASE_PASSWORD}
     environment:
       PMA_ABSOLUTE_URI: http://pma.${DOMAIN}
       PMA_HOST: database
+      # Credentials injected at runtime — never baked into the shared pma image.
+      PMA_USER: ${DATABASE_USER}
+      PMA_PASSWORD: ${DATABASE_PASSWORD}
     depends_on:
-      - database
+      database:
+        condition: service_healthy
     networks:
       - network_app

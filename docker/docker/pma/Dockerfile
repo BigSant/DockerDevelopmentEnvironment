@@ -1,17 +1,15 @@
 ARG PMA_VERSION=""
-FROM phpmyadmin/phpmyadmin:${PMA_VERSION} as base
+FROM phpmyadmin/phpmyadmin:${PMA_VERSION} AS base
 
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
 RUN apt-get update && apt-get install -y libpng16-16 libzip5 --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-FROM base as env-local
+FROM base AS env-local
 
-ARG PMA_USER=""
-ARG PMA_PASSWORD=""
+# Credentials (PMA_USER/PMA_PASSWORD) are provided at runtime via compose `environment:`,
+# not baked here — keeps them out of the shared image's layers and `docker history`.
 ENV DATABASE_DEFAULT_ALLOW_NO_PASSWORD="yes"
-ENV PMA_USER=${PMA_USER}
-ENV PMA_PASSWORD=${PMA_PASSWORD}
 
-FROM base as env-prod
-FROM base as env-stage
+FROM base AS env-prod
+FROM base AS env-stage
