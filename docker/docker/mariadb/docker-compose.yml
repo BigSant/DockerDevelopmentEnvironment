@@ -3,11 +3,15 @@ services:
     image: mariadb-${ENV}-${MARIADB_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
     restart: unless-stopped
+    # Run as the host user so data/files are host-owned, not root (mirrors mysql).
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mariadb/Dockerfile
       target: env-${ENV}
       args:
+        ENV: ${ENV}
+        PROFILE: ${PROFILE}
         MARIADB_VERSION: ${MARIADB_VERSION}
     environment:
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
@@ -16,6 +20,14 @@ services:
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}
     volumes:
-      - ${PROJECT_DIRECTORY}/_data/mariadb/${ENV}:/var/lib/mysql
+      - ${PROJECT_DATA_DIRECTORY}/mariadb/:/var/lib/mysql
+      - ${PROJECT_DOCKER_DIRECTORY}/config/mariadb/:/etc/mysql/project.d/:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/config/mariadb/${ENV}/:/etc/mysql/project.d.env/:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - network_app
