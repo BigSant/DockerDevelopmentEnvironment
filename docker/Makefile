@@ -12,6 +12,11 @@ SQL_DUMP_DATABASE:=$(SQL_DUMP_DATABASE)
 SQL_DUMP_DROP_DATABASE:=$(SQL_DUMP_DROP_DATABASE)
 SQL_DUMP_INITIALIZE:=$(SQL_DUMP_INITIALIZE)
 
+# All profiles — activated only when rendering the full project compose snapshot
+# (config-docker-compose) so the snapshot stays complete regardless of the runtime
+# selection. Keep in sync with the profiles: keys in docker/*/docker-compose.yml.
+ALL_PROFILES := build_only,phpcs,phpstan,mailpit,pma,cron,playwright
+
 local:
 	make config-local
 	make build-local
@@ -133,12 +138,15 @@ config-docker-compose:
 ifneq ("$(wildcard $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml)","")
 	rm $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml
 endif
-	make run-docker-compose env=${env} action="config -o $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml" profile=build_only
+	make run-docker-compose env=${env} action="config -o $(PROJECT_DOCKER_DIRECTORY)/docker-compose.yml" profile=$(ALL_PROFILES)
 
 run-docker-compose:
 	make generate-env-file env=${env}
 	make generate-compose-yml env=${env}
-	export ENV_FILE=/tmp/.env && COMPOSE_PROFILES=${profile} docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env ${action}
+	export ENV_FILE=/tmp/.env BUILDX_NO_DEFAULT_ATTESTATIONS=1 BUILDX_METADATA_PROVENANCE=disabled && \
+	PROFILES="${profile}" && \
+	if [ -z "$$PROFILES" ]; then PROFILES="$$(grep '^COMPOSE_PROFILES=' /tmp/.env | tail -n1 | cut -d= -f2-)"; fi && \
+	COMPOSE_PROFILES="$$PROFILES" docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env ${action}
 
 # -----------------------------------------------------------------
 generate-env-file:
@@ -159,6 +167,8 @@ endif
 	echo "\n"PROJECT_CONFIG_DIRECTORY=$(PROJECT_CONFIG_DIRECTORY) >> /tmp/.env
 	echo "\n"PROJECT_WEB_DIRECTORY=$(PROJECT_WEB_DIRECTORY) >> /tmp/.env
 	echo "\n"ENV=${env} >> /tmp/.env
+	echo "\n"HOST_UID=$(shell id -u) >> /tmp/.env
+	echo "\n"HOST_GID=$(shell id -g) >> /tmp/.env
 ifneq ("$(wildcard $(PROJECT_DOCKER_DIRECTORY)/Dockerfile)","")
 	echo "\n"DOCKERFILE_DIRECTORY=$(PROJECT_DOCKER_DIRECTORY) >> /tmp/.env
 else

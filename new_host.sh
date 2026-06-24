@@ -14,7 +14,6 @@ docker_dir="$current_dir/docker"
 
 # Local configurable variables
 projects_dir="/home/$user/Projects"
-index_file="$current_dir/index_counter"
 
 # Development environment variables
 extension="local"
@@ -68,10 +67,6 @@ if [[ ! $(command -v "mkcert" 2>/dev/null) ]] || [[ ! $(command -v "certutil" 2>
   exit 1
 fi
 
-if [[ ! -f $index_file ]]; then
-  echo 0 > $index_file
-fi
-
 domain_dir="$projects_dir/$domain"
 
 if [[ ! -f /etc/nginx/conf.d/connection_upgrade.conf ]]; then
@@ -86,11 +81,23 @@ fi
 # Install CA
 mkcert -install
 
-index=$(head -n 1 $index_file)
-index=$((index + 1))
-port=$((base_port + index))
-index=$((index + 1))
-port_ssl=$((base_port + index))
+# Allocate the localhost port pair. Reuse the project's existing pair if it was already
+# created; otherwise pick the lowest free pair. Used ports are read from every project's
+# .env.local (HTTP + SSL), so ports freed by removed projects are reclaimed instead of a
+# counter climbing forever.
+existing_env="$domain_dir/app/docker/.env.local"
+if [[ -f "$existing_env" ]]; then
+  port="$(grep '^LOCALHOST_PORT=' "$existing_env" | cut -d= -f2)"
+  port_ssl="$(grep '^LOCALHOST_PORT_SSL=' "$existing_env" | cut -d= -f2)"
+else
+  used_ports="$(grep -rhoE '^LOCALHOST_PORT(_SSL)?=[0-9]+' "$projects_dir"/*/app/docker/.env.local 2>/dev/null | cut -d= -f2)"
+  offset=1
+  while grep -qx "$((base_port + offset))" <<< "$used_ports" || grep -qx "$((base_port + offset + 1))" <<< "$used_ports"; do
+    offset=$((offset + 2))
+  done
+  port=$((base_port + offset))
+  port_ssl=$((base_port + offset + 1))
+fi
 
 # Create directory for project
 if [[ ! -e "$domain_dir" ]]; then
@@ -105,6 +112,12 @@ if [[ ! -e "$domain_dir" ]]; then
   mkdir -p "$app_dir/config" # Store configuration for psalm, phpstan, etc.
   app_docker_dir="$app_dir/docker"
   mkdir -p "$app_docker_dir"
+
+  # Per-project container config (overrides base + profile). Base dir = all envs;
+  # the env subdir (matching ENV, e.g. "local") = ENV-specific overrides.
+  for svc in mysql mariadb php apache nginx-proxy; do
+    mkdir -p "$app_docker_dir/config/$svc/local"
+  done
   
   cp "$docker_dir/Makefile.local" "$app_docker_dir/Makefile"
   update_config "{docker_dir}" "$docker_dir" "$app_docker_dir/Makefile"
@@ -119,6 +132,10 @@ LOCALHOST_PORT_SSL=$port_ssl
 DATABASE_USER=$domain
 DATABASE_PASSWORD=$domain
 DATABASE_NAME=$domain
+
+# Override which optional containers run for this project (default in docker/.env).
+# Available: phpcs, phpstan, mailpit, pma, cron, playwright
+#COMPOSE_PROFILES=mailpit,pma,cron
 " | tee "$app_docker_dir/.env.local" > /dev/null
 fi
 
@@ -132,7 +149,6 @@ fi
 
 # Create nginx reverse proxy for new domain
 if [[ ! -e "/etc/nginx/sites-available/$domain.$extension.conf" ]]; then
-  echo "$index" | tee "$index_file" > /dev/null
   
   echo "# HTTP
 server {
