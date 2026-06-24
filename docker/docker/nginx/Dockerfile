@@ -1,5 +1,5 @@
 ARG NGINX_VERSION=""
-FROM nginx:${NGINX_VERSION} as base
+FROM nginx:${NGINX_VERSION} AS base
 
 COPY /docker/nginx/conf/nginx.conf /etc/nginx/nginx.conf
 COPY /docker/nginx/conf/default.conf /etc/nginx/conf.d/default.conf
@@ -29,6 +29,6 @@ RUN find /var/www/html/ -type f -exec chmod 644 {} +
 
 WORKDIR /var/www/html
 
-FROM base as env-local
-FROM base as env-prod
-FROM base as env-stage
+FROM base AS env-local
+FROM base AS env-prod
+FROM base AS env-stage

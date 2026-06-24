@@ -2,6 +2,8 @@ services:
   mailpit:
     image: mailpit-${ENV}-${MAILPIT_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-mailpit-${MAILPIT_VERSION}
+    profiles:
+      - mailpit
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}

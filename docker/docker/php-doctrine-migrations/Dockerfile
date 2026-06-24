@@ -1,8 +1,8 @@
 ARG PHP_VERSION=""
 ARG COMPOSER_VERSION=""
-FROM composer:${COMPOSER_VERSION} as composer
+FROM composer:${COMPOSER_VERSION} AS composer
 
-FROM php:${PHP_VERSION}-cli as base
+FROM php:${PHP_VERSION}-cli AS base
 
 ARG PHP_VERSION=""
 ARG DOCTRINE_MIGRATIONS_VERSION=""
@@ -71,6 +71,6 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 COPY /docker/php-doctrine-migrations/Makefile /doctrine-migrations/Makefile
 WORKDIR /doctrine-migrations
 
-FROM base as env-local
-FROM base as env-prod
-FROM base as env-stage
+FROM base AS env-local
+FROM base AS env-prod
+FROM base AS env-stage

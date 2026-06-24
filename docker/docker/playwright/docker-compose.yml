@@ -2,6 +2,8 @@ services:
   playwright:
     image: playwright-${PLAYWRIGHT_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-playwright
+    profiles:
+      - playwright
     restart: "no"
     entrypoint: ["tail", "-f", "/dev/null"]
     working_dir: /e2e
