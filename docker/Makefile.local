@@ -1,10 +1,10 @@
 APP_DOCKER_DIRECTORY:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 ROOT_DIRECTORY:=$(abspath $(APP_DOCKER_DIRECTORY)/../../)
-DOCKER_DIRECTORY:={docker_dir}
+# Central setup repo's docker dir — resolved dynamically as the sibling
+# .../Projects/setup/docker (projects are created next to the setup repo).
+# Override DOCKER_DIRECTORY=... on the CLI/env if your layout differs.
+DOCKER_DIRECTORY?=$(abspath $(ROOT_DIRECTORY)/../setup/docker)
 SQL_DUMP_FILE:=$(or $(wordlist 2, $(words $(MAKECMDGOALS)), $(MAKECMDGOALS)), $(file))
-SQL_DUMP_DATABASE:=$(database)
-SQL_DUMP_DROP_DATABASE:=$(drop)
-SQL_DUMP_INITIALIZE:=$(initialize)
 
 up:
 	$(MAKE) -C $(DOCKER_DIRECTORY) local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
@@ -13,7 +13,7 @@ down:
 	$(MAKE) -C $(DOCKER_DIRECTORY) down-local PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
 
 db:
-	$(MAKE) -C $(DOCKER_DIRECTORY) db-init-local SQL_DUMP_FILE=$(SQL_DUMP_FILE) SQL_DUMP_DATABASE=$(SQL_DUMP_DATABASE) SQL_DUMP_DROP_DATABASE=$(SQL_DUMP_DROP_DATABASE) SQL_DUMP_INITIALIZE=$(SQL_DUMP_INITIALIZE) PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
+	$(MAKE) -C $(DOCKER_DIRECTORY) db-init-local SQL_DUMP_FILE=$(SQL_DUMP_FILE) PROJECT_DIRECTORY=$(ROOT_DIRECTORY)
 
 phpstan:
 	$(MAKE) -C $(DOCKER_DIRECTORY) phpstan PROJECT_DIRECTORY=$(ROOT_DIRECTORY) PHPSTAN_CMD=$(or $(cmd),report)

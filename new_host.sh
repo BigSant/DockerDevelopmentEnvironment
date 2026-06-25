@@ -119,9 +119,10 @@ if [[ ! -e "$domain_dir" ]]; then
     mkdir -p "$app_docker_dir/config/$svc/local"
   done
   
+  # Makefile.local resolves the central docker dir dynamically (sibling setup/),
+  # so no {docker_dir} path substitution is needed here.
   cp "$docker_dir/Makefile.local" "$app_docker_dir/Makefile"
-  update_config "{docker_dir}" "$docker_dir" "$app_docker_dir/Makefile"
-  
+
   echo "PROJECT_NAME=$domain
 " | tee "$app_docker_dir/.env" > /dev/null
 

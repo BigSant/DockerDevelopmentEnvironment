@@ -163,7 +163,12 @@ to the project bind mounts — only php-fpm/cron do — so they create no root-o
   `BUILDX_METADATA_PROVENANCE=disabled` (skips "resolving provenance for metadata file").
   Both are needed: that provenance/attestation work is slow and can hang on
   `docker compose build`, and adds no value for local images.
-- **`db-init`** loads a SQL dump as the app user and runs `config/sql/init.sql` +
+- **`db-init`** (project: `make db [file=dump.sql]`) generates the env + compose files, then hands
+  off to **`docker/db-init.sh`**, which **interactively prompts** (Enter accepts the default) for the
+  target database (default: `DATABASE_NAME` from `.env`), whether to drop & recreate it
+  (default: **yes**), and whether to run init SQL (default: **yes**) — rather than taking
+  `database=`/`drop=`/`initialize=` make parameters (removed). It imports the
+  optional `file=` dump (through `pv` when available) as the app user and runs `config/sql/init.sql` +
   `init.${env}.sql` via `envsubst`. The central `config/sql/` ships defaults: `init.local.sql`
   (disables SSL, points mail at the local catcher) and `init.prod.sql` (enforces `PS_SSL_ENABLED*`,
   leaves the dump's real mail config intact). ⚠️ These templates use a `%{DOMAIN}` placeholder that
@@ -290,8 +295,11 @@ tools use `--no-deps` (no DB/php-fpm needed). Override the inner command with `c
 First run of a tool builds its (shared) image once. Putting these in `COMPOSE_PROFILES` still
 works but leaves them idling — prefer the ephemeral targets.
 > The `make phpstan`/`phpcs`/`e2e` **wrappers** live in `Makefile.local`, so only projects
-> (re)provisioned after this change get them; existing projects can re-copy `Makefile.local`
-> or call the central target directly (`make -C <central> phpstan PROJECT_DIRECTORY=…`).
+> (re)provisioned after this change get them. `Makefile.local` now resolves the central docker dir
+> **dynamically** (`DOCKER_DIRECTORY ?= $(abspath $(ROOT_DIRECTORY)/../setup/docker)` — projects are
+> siblings of `setup/`; override `DOCKER_DIRECTORY=…` if not), so `new_host.sh` no longer does the
+> `{docker_dir}` path substitution and **existing projects update with a plain
+> `cp setup/docker/Makefile.local app/docker/Makefile`** (or call the central target directly).
 
 ## 11. MySQL initialisation
 
