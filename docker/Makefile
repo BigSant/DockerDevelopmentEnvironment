@@ -187,6 +187,7 @@ endif
 
 load-qt:
 ifeq ("$(wildcard $(ROOT_DIRECTORY)/qt)","")
-	curl -L https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 -o $(ROOT_DIRECTORY)/qt
+	curl -fL https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 -o $(ROOT_DIRECTORY)/qt
+	echo "a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7  $(ROOT_DIRECTORY)/qt" | sha256sum -c - || { rm -f $(ROOT_DIRECTORY)/qt; exit 1; }
 	chmod +x $(ROOT_DIRECTORY)/qt
 endif

@@ -109,7 +109,11 @@ layers belong here**, not in the base.
 
 ### Process user & file ownership
 `php-fpm`, `cron`, and `mysql` run as the **host user** — `user: "${HOST_UID:-1000}:${HOST_GID:-1000}"`
-in compose, with `HOST_UID`/`HOST_GID` injected by the Makefile from `id -u`/`id -g`. So files
+in compose, with `HOST_UID`/`HOST_GID` injected by the Makefile from `id -u`/`id -g`. (`mysql` uses
+`user: "${DATABASE_UID:-${HOST_UID:-1000}}:${DATABASE_GID:-${HOST_GID:-1000}}"` — the same host-user
+default, but a prod/stage deploy can pin a fixed DB service account by setting `DATABASE_UID`/`DATABASE_GID`
+in the project `.env.${ENV}`; those are project vars, so they win over the Makefile-injected
+`HOST_UID`/`HOST_GID`.) So files
 php-fpm/cron write to the bind-mounted web dir (cache, logs, uploads, generated files) are
 owned by the host user, **not root**. The php-fpm base image therefore carries **no** pool
 `user`/`group` directive (php-fpm runs workers as the launching uid) and no `usermod -u 0`
@@ -128,6 +132,30 @@ to the project bind mounts — only php-fpm/cron do — so they create no root-o
   if present. `qt` is yq v4 (auto-downloaded by `load-qt`).
 - **`build-docker-compose`**: builds `php-fpm-base` first (`COMPOSE_PROFILES=build_only`),
   then `docker compose build` for the selected runtime profiles.
+- **Build hygiene & hardening defaults:** each per-version php-fpm `Dockerfile` installs apt packages
+  in a single `RUN apt-get update && apt-get install -y --no-install-recommends … && rm -rf /var/lib/apt/lists/*`
+  layer (smaller image, better cache), and every fetched binary is checksum-verified — supercronic
+  (`sha1sum -c`), nvm `install.sh` (`sha256sum -c`, pinned tag), and `qt`/yq in the Makefile (`sha256sum -c`).
+  Keep this when adding packages or bumping versions. (5.6 keeps apt commented out, and 8.2 still carries
+  a malformed yarn `RUN` — both pre-existing, left untouched.) `nginx-proxy`/`nginx` set `server_tokens off`
+  so the version is not leaked in the `Server` header.
+- **Version pinning (reproducible rebuilds):** base images and baked tools are pinned to exact versions
+  via `docker/.env`, not floating tags. Pinned to the currently-installed versions: `APCU_VERSION`
+  (`pecl install apcu-${APCU_VERSION}`, 8.x only), `NODE_VERSION` (exact patch via `nvm install`),
+  `PHPSTAN_PHAR_VERSION` (the `phpstan.phar` baked into every php-fpm image — was the floating `:1` tag),
+  and `PHP_PHPSTAN_VERSION`/`PHP_CS_VERSION` (exact, were `2-php8.1`/`3-php8.1`). `APCU_VERSION` and
+  `PHPSTAN_PHAR_VERSION` are declared as `ARG` in **every** per-version php-fpm Dockerfile (consumed by the
+  8.x apcu install / the pre-`FROM` phpstan COPY stage) and passed through the `php-fpm-base` compose
+  `args:`. Known gaps, intentionally left:
+  1. `php:${PHP_VERSION}-fpm` stays a **minor** tag on purpose — it keeps receiving PHP/Debian security
+     patches on rebuild; pin the exact patch (or a `@sha256` digest) only if bit-for-bit reproducibility is
+     required (it would also freeze security fixes).
+  2. `npm install -g webpack webpack-cli` does **not** persist under the build's `/bin/sh` (it works under
+     `bash`), so webpack is effectively absent from the image — pre-existing; fix the RUN shell before
+     relying on webpack, then pin it.
+  3. the baked `phpstan.phar` is 1.x while the `php-phpstan` service is 2.x — unify when convenient.
+  4. `php-doctrine-migrations` (disabled service) still uses `^${DOCTRINE_MIGRATIONS_VERSION}` + an
+     unconstrained `doctrine/dbal` — pin when the service is activated.
 - **`run-docker-compose`** resolves `COMPOSE_PROFILES`: uses the `profile=` make-var when set
   (e.g. `build_only`, or `ALL_PROFILES` for the config snapshot), otherwise reads
   `COMPOSE_PROFILES` from the merged `/tmp/.env` (the project's selection). It also exports
@@ -136,7 +164,11 @@ to the project bind mounts — only php-fpm/cron do — so they create no root-o
   Both are needed: that provenance/attestation work is slow and can hang on
   `docker compose build`, and adds no value for local images.
 - **`db-init`** loads a SQL dump as the app user and runs `config/sql/init.sql` +
-  `init.${env}.sql` via `envsubst`.
+  `init.${env}.sql` via `envsubst`. The central `config/sql/` ships defaults: `init.local.sql`
+  (disables SSL, points mail at the local catcher) and `init.prod.sql` (enforces `PS_SSL_ENABLED*`,
+  leaves the dump's real mail config intact). ⚠️ These templates use a `%{DOMAIN}` placeholder that
+  `envsubst` (which expands `${VAR}`) does **not** substitute — a pre-existing convention; a project's
+  own `app/config/sql/` files must use `${DOMAIN}` if they rely on the envsubst pass.
 - **Startup ordering:** `database` (probe: `mysqladmin ping -h 127.0.0.1`) and `php-fpm`
   (probe: `php` opening the FastCGI port) have healthchecks; dependents (`webserver`, `cron`,
   `pma`, `php-phpstan`, `php-cs`) gate on them via `depends_on: condition: service_healthy`.
@@ -252,10 +284,11 @@ via env at that point; do not commit a password.)
 6. The mysql/php-fpm/apache compose files already pass `PROFILE`/`ENV` build-args; the
    Dockerfiles must declare the matching `ARG`.
 7. `php-fpm`/`cron`/`mysql` run as the host user via compose `user:` (`HOST_UID`/`HOST_GID`
-   from the Makefile). Keep the php-fpm pool free of a `user`/`group` directive and do **not**
+   from the Makefile; `mysql` allows a `DATABASE_UID`/`DATABASE_GID` override for a fixed prod/stage
+   service account — see §5). Keep the php-fpm pool free of a `user`/`group` directive and do **not**
    reintroduce `usermod -u 0 -o www-data` or pool `user=root` — they cause root-owned files.
-   (The per-version php-fpm `Dockerfile`/`php-fpm.conf` de-root change is applied to **all**
-   versions: 5.6 / 7.1 / 7.2 / 7.3 / 7.4 / 8.1 / 8.2.)
+   (The per-version php-fpm `Dockerfile`/`php-fpm.conf` de-root change is applied to **all twelve**
+   versions: 5.6, 7.0–7.4, 8.0–8.5.)
 8. `pma` DB credentials (`PMA_USER`/`PMA_PASSWORD`) are passed at **runtime** via compose
    `environment:`, never as build-args or `ENV` in the image — the pma image is shared, so
    per-project secrets must not be baked into it.
@@ -268,6 +301,10 @@ via env at that point; do not commit a password.)
 10. Keep Xdebug at `start_with_request=trigger` / `remote_autostart=0`. Do **not** set it back
     to `yes`/`1` — that makes every build-time `php`/`composer` invocation on the `env-local`
     base hang on `host.docker.internal` (unreachable during build).
+11. The php-fpm **status page is intentionally disabled** in every version Dockerfile (FPM has no
+    per-path ACL of its own). Do not re-add the `pm.status_path = /fpm_stub_status` sed. If a project
+    needs `pm.status` monitoring, enable it there behind a webserver route restricted to the internal
+    network (the inactive `nginx/default.conf` shows the pattern: `allow 172.16.0.0/12; deny all;`).
 
 ## 13. Verification notes (how changes were validated)
 

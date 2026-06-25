@@ -3,7 +3,10 @@ services:
     image: mysql-${ENV}-${MYSQL_VERSION}
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
     restart: unless-stopped
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # Defaults to the host user (files in data/mysql stay host-owned for local dev). For
+    # prod/stage, pin a fixed service account by setting DATABASE_UID/DATABASE_GID in the
+    # project's .env.${ENV} — those win over the Makefile-injected HOST_UID/HOST_GID.
+    user: "${DATABASE_UID:-${HOST_UID:-1000}}:${DATABASE_GID:-${HOST_GID:-1000}}"
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile

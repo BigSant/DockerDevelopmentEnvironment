@@ -1,29 +1,33 @@
 ARG PHP_VERSION=""
 ARG COMPOSER_VERSION=""
+ARG PHPSTAN_PHAR_VERSION=1.12.33
 FROM composer:${COMPOSER_VERSION} AS composer
-FROM ghcr.io/phpstan/phpstan:1 AS phpstan
+FROM ghcr.io/phpstan/phpstan:${PHPSTAN_PHAR_VERSION} AS phpstan
 
 FROM php:${PHP_VERSION}-fpm AS base
 
 ARG PHP_VERSION=""
+ARG APCU_VERSION=5.1.28
 
-RUN apt-get update
-RUN apt-get install -y libmcrypt-dev
-RUN apt-get install -y libjpeg62-turbo-dev
-RUN apt-get install -y libpng-dev
-RUN apt-get install -y libwebp-dev
-RUN apt-get install -y libfreetype6-dev
-RUN apt-get install -y libxml2-dev
-RUN apt-get install -y libicu-dev
-RUN apt-get install -y libzip-dev
-RUN apt-get install -y default-mysql-client
-RUN apt-get install -y wget
-RUN apt-get install -y unzip
-RUN apt-get install -y libonig-dev
-RUN apt-get install -y pv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libmcrypt-dev \
+        libjpeg62-turbo-dev \
+        libpng-dev \
+        libwebp-dev \
+        libfreetype6-dev \
+        libxml2-dev \
+        libicu-dev \
+        libzip-dev \
+        default-mysql-client \
+        wget \
+        unzip \
+        libonig-dev \
+        pv \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install APCu and APC backward compatibility
-RUN pecl install apcu
+RUN pecl install apcu-${APCU_VERSION}
 RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
     && docker-php-ext-enable apcu --ini-name 20-docker-php-ext-apc.ini
 
@@ -40,10 +44,15 @@ RUN curl -fsSLo /usr/local/bin/supercronic \
     && chmod +x /usr/local/bin/supercronic
 
 ARG NODE_VERSION=""
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash && . ~/.nvm/nvm.sh && nvm install ${NODE_VERSION} && npm install -g webpack webpack-cli
+ARG NVM_VERSION=v0.40.4
+ARG NVM_INSTALL_SHA256=4b7412c49960c7d31e8df72da90c1fb5b8cccb419ac99537b737028d497aba4f
+RUN curl -fsSLo /tmp/nvm-install.sh "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" \
+    && echo "${NVM_INSTALL_SHA256}  /tmp/nvm-install.sh" | sha256sum -c - \
+    && bash /tmp/nvm-install.sh \
+    && rm /tmp/nvm-install.sh \
+    && . ~/.nvm/nvm.sh && nvm install ${NODE_VERSION} && npm install -g webpack webpack-cli
 RUN echo 'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /root/.bashrc
 
-RUN rm -rf /var/lib/apt/lists/*
 RUN #docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
 RUN docker-php-ext-install iconv intl pdo_mysql mbstring soap gd zip bcmath exif
 RUN docker-php-ext-enable exif
@@ -71,7 +80,8 @@ COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/p
 # running as non-root and prevents root-owned files on the bind-mounted web dir).
 RUN sed -i "s#^user = www-data#;user = www-data#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/www.conf
-RUN sed -i "s#;pm\.status_path = \/status#pm\.status_path = \/fpm_stub_status#g" /usr/local/etc/php-fpm.d/www.conf
+# php-fpm status page intentionally disabled — FPM has no per-path ACL. Enable per project
+# behind a restricted webserver route if pm.status monitoring is ever needed.
 
 RUN mkdir -p /var/www/html
 #COPY /app /var/www/html

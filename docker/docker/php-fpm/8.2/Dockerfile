@@ -1,14 +1,17 @@
 ARG PHP_VERSION=""
 ARG COMPOSER_VERSION=""
+ARG PHPSTAN_PHAR_VERSION=1.12.33
 FROM composer:${COMPOSER_VERSION} AS composer
-FROM ghcr.io/phpstan/phpstan:1 AS phpstan
+FROM ghcr.io/phpstan/phpstan:${PHPSTAN_PHAR_VERSION} AS phpstan
 
 FROM php:${PHP_VERSION}-fpm AS base
 
 ARG PHP_VERSION=""
+ARG APCU_VERSION=5.1.28
 
 RUN apt-get update \
-    && apt-get install -y libmcrypt-dev \
+    && apt-get install -y --no-install-recommends \
+        libmcrypt-dev \
         libjpeg62-turbo-dev \
         libpcre3-dev \
         libpng-dev \
@@ -20,9 +23,9 @@ RUN apt-get update \
         default-mysql-client \
         wget \
         unzip \
-        libonig-dev
+        libonig-dev \
+        pv
 
-RUN apt-get install -y pv
 
 RUN apt-get install -y gnupg \
     curl -fsSL https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add \
@@ -30,7 +33,7 @@ RUN apt-get install -y gnupg \
     apt-get update && apt-get install -y yarn
 
 # Install APCu and APC backward compatibility
-RUN pecl install apcu
+RUN pecl install apcu-${APCU_VERSION}
 RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
     && docker-php-ext-enable apcu --ini-name 20-docker-php-ext-apc.ini
 
@@ -70,7 +73,8 @@ RUN id ${CONTAINER_USER} || adduser --system --no-create-home --disabled-passwor
 COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/php-fpm.conf
 RUN sed -i "s#^user = www-data#;user = www-data#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/www.conf
-RUN sed -i "s#;pm\.status_path = \/status#pm\.status_path = \/fpm_stub_status#g" /usr/local/etc/php-fpm.d/www.conf
+# php-fpm status page intentionally disabled — FPM has no per-path ACL. Enable per project
+# behind a restricted webserver route if pm.status monitoring is ever needed.
 
 RUN mkdir -p /var/www/html
 #COPY /app /var/www/html
