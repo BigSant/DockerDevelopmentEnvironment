@@ -227,11 +227,22 @@ Optional services carry a compose `profiles:` tag (`phpcs`, `phpstan`, `mailpit`
 `cron`, `playwright`). Core services (`nginx-proxy`, `webserver`/apache, `php-fpm`,
 `database`/mysql) have **no** profile → always run.
 
-- Default in `docker/.env`: `COMPOSE_PROFILES=mailpit,pma,cron`.
-- A project overrides it in `app/docker/.env.local`, e.g. `COMPOSE_PROFILES=phpcs,playwright`
-  (or empty for core-only). The env merge makes the project value win.
+- **Per-environment defaults in `docker/.env`** so dev/QA tooling runs only where it belongs:
+  `COMPOSE_PROFILES_LOCAL=mailpit,pma,cron`, `COMPOSE_PROFILES_STAGE=mailpit,cron`,
+  `COMPOSE_PROFILES_PROD=cron`. (mailpit = local+stage only; phpMyAdmin = local only; cron =
+  every env; phpcs/phpstan/playwright stay opt-in everywhere.) There is **no** bare
+  `COMPOSE_PROFILES=` default anymore — prod no longer silently runs mailpit/pma.
+- **Resolution order** (`run-docker-compose`): an explicit `profile=` make-var
+  (`build_only`, `ALL_PROFILES`) wins; else a project's explicit `COMPOSE_PROFILES` (from
+  `app/docker/.env` or `.env.<env>`, via the env merge); else the central
+  `COMPOSE_PROFILES_<ENV>` default. So a project can still force any set — including empty
+  (core-only) — per environment.
 - `ALL_PROFILES` (in the Makefile) lists every profile and is used only when rendering the
   full project compose snapshot (`config-docker-compose`), so the snapshot stays complete.
+- This is the **service-selection** half of per-env separation; the other env-gated mechanisms
+  are: Xdebug (build-time `env-local` target only, §7), the `init.<env>.sql` DB seeds (§6/§11),
+  and TLS certs — `new_host.sh`/mkcert generates `*.local` certs for **local only**; prod/stage
+  must supply a real cert into `data/ssl/domain.{crt,key}` (mkcert is never invoked outside local).
 
 ## 10. Services catalog
 
@@ -260,6 +271,27 @@ matter of which include is active. MariaDB uses `IDENTIFIED BY` (mysql_native_pa
 and `docker/config/php-cs/.php-cs-fixer.php`) into `/opt/…`. Their entrypoint copies it into
 the project's mounted config dir on first run **only if absent**, so the project then owns and
 may edit it.
+
+### Running QA / test tools (no idle containers)
+`php-phpstan`, `php-cs` and `playwright` are **never** in a `COMPOSE_PROFILES` default, so
+`make up` never starts them. Run them **ephemerally** rather than as idle (`tail -f /dev/null`)
+containers — RAM is then used only while a check actually runs, and the container is removed
+afterwards:
+
+| Project wrapper | Central target → command |
+|---|---|
+| `make phpstan` | `docker compose run --rm --no-deps --entrypoint make php-phpstan $(PHPSTAN_CMD)` |
+| `make phpcs`   | `docker compose run --rm --no-deps --entrypoint make php-cs $(PHPCS_CMD)` |
+| `make e2e`     | `docker compose run --rm --entrypoint sh playwright -c "$(E2E_CMD)"` |
+
+`run` enables the service on demand even though its profile is inactive (verified); the static
+tools use `--no-deps` (no DB/php-fpm needed). Override the inner command with `cmd=`
+(e.g. `make phpstan cmd=git-analysis`, `make phpcs cmd=fix`) and the env with `QA_ENV=stage`.
+First run of a tool builds its (shared) image once. Putting these in `COMPOSE_PROFILES` still
+works but leaves them idling — prefer the ephemeral targets.
+> The `make phpstan`/`phpcs`/`e2e` **wrappers** live in `Makefile.local`, so only projects
+> (re)provisioned after this change get them; existing projects can re-copy `Makefile.local`
+> or call the central target directly (`make -C <central> phpstan PROJECT_DIRECTORY=…`).
 
 ## 11. MySQL initialisation
 

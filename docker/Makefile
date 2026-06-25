@@ -146,7 +146,40 @@ run-docker-compose:
 	export ENV_FILE=/tmp/.env BUILDX_NO_DEFAULT_ATTESTATIONS=1 BUILDX_METADATA_PROVENANCE=disabled && \
 	PROFILES="${profile}" && \
 	if [ -z "$$PROFILES" ]; then PROFILES="$$(grep '^COMPOSE_PROFILES=' /tmp/.env | tail -n1 | cut -d= -f2-)"; fi && \
+	if [ -z "$$PROFILES" ]; then PROFILES="$$(grep "^COMPOSE_PROFILES_$$(echo '${env}' | tr a-z A-Z)=" /tmp/.env | tail -n1 | cut -d= -f2-)"; fi && \
 	COMPOSE_PROFILES="$$PROFILES" docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env ${action}
+
+# -----------------------------------------------------------------
+# QA / test tools — run EPHEMERALLY (docker compose run --rm) so they use RAM only
+# during the run and never linger as idle containers. They are in NO COMPOSE_PROFILES
+# default, so `make up` never starts them; `run` enables the service on demand even
+# though its profile is inactive. Override the inner command via *_CMD
+# (e.g. PHPSTAN_CMD=git-analysis); QA_ENV selects which env config to use.
+QA_ENV      ?= local
+PHPSTAN_CMD ?= report
+PHPCS_CMD   ?= check
+E2E_CMD     ?= npx playwright test
+
+phpstan:
+	make generate-env-file env=$(QA_ENV)
+	make generate-compose-yml env=$(QA_ENV)
+	export ENV_FILE=/tmp/.env BUILDX_NO_DEFAULT_ATTESTATIONS=1 BUILDX_METADATA_PROVENANCE=disabled && \
+	COMPOSE_PROFILES=phpstan docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
+	run --rm --no-deps --entrypoint make php-phpstan $(PHPSTAN_CMD)
+
+phpcs:
+	make generate-env-file env=$(QA_ENV)
+	make generate-compose-yml env=$(QA_ENV)
+	export ENV_FILE=/tmp/.env BUILDX_NO_DEFAULT_ATTESTATIONS=1 BUILDX_METADATA_PROVENANCE=disabled && \
+	COMPOSE_PROFILES=phpcs docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
+	run --rm --no-deps --entrypoint make php-cs $(PHPCS_CMD)
+
+e2e:
+	make generate-env-file env=$(QA_ENV)
+	make generate-compose-yml env=$(QA_ENV)
+	export ENV_FILE=/tmp/.env BUILDX_NO_DEFAULT_ATTESTATIONS=1 BUILDX_METADATA_PROVENANCE=disabled && \
+	COMPOSE_PROFILES=playwright docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env \
+	run --rm --entrypoint sh playwright -c "$(E2E_CMD)"
 
 # -----------------------------------------------------------------
 generate-env-file:
