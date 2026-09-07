@@ -46,12 +46,26 @@ RUN curl -fsSLo /usr/local/bin/supercronic \
 ARG NODE_VERSION=""
 ARG NVM_VERSION=v0.40.4
 ARG NVM_INSTALL_SHA256=4b7412c49960c7d31e8df72da90c1fb5b8cccb419ac99537b737028d497aba4f
-RUN curl -fsSLo /tmp/nvm-install.sh "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" \
+# nvm lives in /usr/local/nvm, NOT /root/.nvm: the php-fpm pool runs as the host
+# user (compose `user:`), and /root is 0700 — a non-root uid cannot even traverse
+# it, so `npm run build` inside the container died with "command not found".
+# The node/npm/npx binaries are symlinked into /usr/local/bin so they resolve on
+# the default PATH for every user and every shell kind (sh -c included), not just
+# an interactive root bash that happened to source .bashrc.
+ENV NVM_DIR=/usr/local/nvm
+RUN mkdir -p "${NVM_DIR}" \
+    && curl -fsSLo /tmp/nvm-install.sh "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" \
     && echo "${NVM_INSTALL_SHA256}  /tmp/nvm-install.sh" | sha256sum -c - \
     && bash /tmp/nvm-install.sh \
     && rm /tmp/nvm-install.sh \
-    && . ~/.nvm/nvm.sh && nvm install ${NODE_VERSION} && npm install -g webpack webpack-cli
-RUN echo 'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /root/.bashrc
+    && . "${NVM_DIR}/nvm.sh" && nvm install ${NODE_VERSION} && npm install -g webpack webpack-cli \
+    && NODE_BIN="$(ls -d ${NVM_DIR}/versions/node/*/bin | head -n1)" \
+    && for b in node npm npx corepack webpack webpack-cli; do \
+           if [ -e "$NODE_BIN/$b" ]; then ln -sf "$NODE_BIN/$b" "/usr/local/bin/$b"; fi; \
+       done \
+    && chmod -R a+rX "${NVM_DIR}" \
+    && npm --version && node --version
+RUN printf '%s\n' 'export NVM_DIR="/usr/local/nvm"' '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' > /etc/profile.d/nvm.sh
 
 RUN #docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ --with-webp=/usr/include
 RUN docker-php-ext-install iconv intl pdo_mysql mbstring soap gd zip bcmath exif
