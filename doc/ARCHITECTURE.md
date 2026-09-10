@@ -19,6 +19,65 @@ optimised for **PrestaShop** and **Akeneo** projects. One central `setup/` repos
 DB, TLS, cron, mail catcher, QA tooling), wired up by a thin per-project `Makefile` that
 points back here.
 
+## Reusable source workflow
+
+`prepare_project.py` distributes `templates/project/` into `<project>/docker`
+(or `app/docker` with `--layout legacy`). It can preflight and prepare multiple
+projects, writes only missing files, refuses incompatible bootstrap files and
+preserves existing project settings. `--from-legacy` copies private environment
+files and container config, but never promotes an expanded `docker-compose.yml`
+to an original source. Custom Dockerfiles and old environment overlays require
+review instead of silently copying incomplete build contexts or stale paths.
+
+The identical project Makefile includes `docker/project.mk` from the one shared
+`setup` checkout. All target logic stays in `project.mk` / `project.py`; the
+project's `compose.yaml` includes the shared `docker/docker-compose.yml`.
+`PROJECT_DOCKER_DIRECTORY` identifies the current config checkout, while app,
+data and tooling paths retain their established layout. The same bootstrap
+works from both supported Docker locations. Explicit `SETUP_DIRECTORY` and
+`PROJECT_DIRECTORY` arguments handle nonstandard checkout locations.
+
+`project.py` invokes Docker Compose directly, layering the shared `.env`, the
+public project `.env`, and its private `.env.<environment>`. Compose parses
+quoting, interpolation and multiline values. A small `project-settings.yaml`
+model resolves the project name and profile selection as JSON. Declared env
+keys are removed from the inherited process environment before parsing, and
+runner-owned paths and Compose identity are passed explicitly, so shell exports
+from another project cannot silently override configured values. Project
+settings should be changed in their files or through documented runner flags.
+
+Profile precedence is explicit `PROFILES` / `--profiles`, then a project's
+`COMPOSE_PROFILES` (including empty), then `COMPOSE_PROFILES_<ENV>`. Validation
+and rendering include all profiles; runtime uses the selected set. Optional
+`compose.override.yaml` and `compose.<env>.override.yaml` customize included
+services using native Compose merging. [Docker include/override semantics](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/).
+
+Runtime always reads these original files. `make config` writes a mode-0600
+snapshot to `.generated/compose.<env>.yaml` using an invocation-owned temporary
+file and atomic replacement. It never overwrites a source or consumes an old
+snapshot. Different projects do not share generated inputs; simultaneous
+renders of the same project cannot expose partial files. `check` creates no
+snapshot. `build` builds images explicitly; `up` uses `--no-build --pull never`.
+QA targets are ephemeral. This wrapper does not expose the legacy DB importer.
+
+`project_ports.py`, called by `new_host.sh` before host mutations, scans both
+layouts, reuses an existing pair and rejects conflicting duplicate layouts.
+Matching old/new pairs are allowed while migration is being prepared. It
+checks configured reservations, not arbitrary host listeners; host provisioning
+should remain sequential. `new_host.sh` still generates the legacy wrapper for
+unprepared new hosts. Preparation and host provisioning are separate operations.
+
+The older `docker/Makefile` / `Makefile.local` entry points remain available to
+existing projects. The historical build-flow sections below describe those
+entry points; their shared `/tmp` generation has not been converted. Projects
+using that older path must continue to serialize generation/build operations.
+The service, image and container configuration rules apply to both runners.
+
+See [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) for distribution and migration.
+Run `python3 -m unittest discover -s tests -v` for real Compose config tests
+(no Docker Engine mutations): both layouts, native overrides, dotenv semantics,
+empty profiles, parallel rendering, idempotent preparation and port allocation.
+
 ## 2. Two-repository model
 
 | Location | Role |

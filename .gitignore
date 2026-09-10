@@ -2,3 +2,5 @@
 index_counter
 .env.*
 .asana-memory-session
+__pycache__/
+.test-work/

@@ -4,7 +4,27 @@ Provisions and orchestrates an isolated multi-container stack (nginx-proxy, apac
 mysql, + optional cron/pma/mailpit/phpstan/php-cs/playwright) for each PHP project
 (PrestaShop / Akeneo) under `~/Projects/`.
 
-## Quick start
+## Reusable project sources
+
+Keep one shared `setup` checkout on each machine. Prepare identical original
+Makefile/Compose sources for any number of projects; only project settings differ:
+
+```bash
+python3 prepare_project.py --check ../shop-one ../shop-two
+python3 prepare_project.py ../shop-one ../shop-two
+# Existing projects: copy their app/docker settings without switching containers.
+python3 prepare_project.py --from-legacy ../forsena
+make -C ../forsena/docker check
+make -C ../forsena/docker config
+```
+
+For a new project, fill `.env.local` from its example before checking. The
+preparer writes missing files only, keeps existing project settings and refuses
+conflicting bootstrap files. It does not provision the host or start Docker.
+`make build` explicitly builds images; `make up` uses existing local images.
+See [reusable sources](doc/PROJECT_TEMPLATES.md) for setup and migration.
+
+## Legacy host provisioning
 
 ```bash
 ./new_host.sh <domain>                 # provision a project host

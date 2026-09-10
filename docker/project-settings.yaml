@@ -1,0 +1,11 @@
+# Resolve scalar project settings with Compose's dotenv parser, not a shell.
+services:
+  settings:
+    image: scratch
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME}
+      PROFILES_DEFINED: ${COMPOSE_PROFILES+yes}
+      PROFILES: ${COMPOSE_PROFILES-}
+      LOCAL_PROFILES: ${COMPOSE_PROFILES_LOCAL-}
+      STAGE_PROFILES: ${COMPOSE_PROFILES_STAGE-}
+      PROD_PROFILES: ${COMPOSE_PROFILES_PROD-}

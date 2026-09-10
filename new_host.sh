@@ -69,6 +69,11 @@ fi
 
 domain_dir="$projects_dir/$domain"
 
+# Resolve both layouts before performing any host changes. Prepared copies may
+# coexist during migration if they retain the same port pair.
+port_pair="$(python3 "$current_dir/project_ports.py" "$domain_dir")" || exit 1
+read -r port port_ssl <<< "$port_pair"
+
 if [[ ! -f /etc/nginx/conf.d/connection_upgrade.conf ]]; then
   echo 'map $http_upgrade $connection_upgrade {
   default upgrade;
@@ -80,24 +85,6 @@ fi
 
 # Install CA
 mkcert -install
-
-# Allocate the localhost port pair. Reuse the project's existing pair if it was already
-# created; otherwise pick the lowest free pair. Used ports are read from every project's
-# .env.local (HTTP + SSL), so ports freed by removed projects are reclaimed instead of a
-# counter climbing forever.
-existing_env="$domain_dir/app/docker/.env.local"
-if [[ -f "$existing_env" ]]; then
-  port="$(grep '^LOCALHOST_PORT=' "$existing_env" | cut -d= -f2)"
-  port_ssl="$(grep '^LOCALHOST_PORT_SSL=' "$existing_env" | cut -d= -f2)"
-else
-  used_ports="$(grep -rhoE '^LOCALHOST_PORT(_SSL)?=[0-9]+' "$projects_dir"/*/app/docker/.env.local 2>/dev/null | cut -d= -f2)"
-  offset=1
-  while grep -qx "$((base_port + offset))" <<< "$used_ports" || grep -qx "$((base_port + offset + 1))" <<< "$used_ports"; do
-    offset=$((offset + 2))
-  done
-  port=$((base_port + offset))
-  port_ssl=$((base_port + offset + 1))
-fi
 
 # Create directory for project
 if [[ ! -e "$domain_dir" ]]; then

@@ -10,11 +10,15 @@ project under `~/Projects/`.
 |---|---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the system works & where everything lives — structure, image model, build flow, profile system, config cascade, services, invariants. | LLM / maintainer |
 | [USAGE.md](USAGE.md) | Practical how-to: create a host, start/stop, import DB, select containers, override config per project, profiles, QA tools. | Developer |
+| [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) | Original project sources, batch preparation, private settings and migration from app/docker. | Developer / maintainer |
 
 ## Quick orientation
 
-- **Create a project:** `./new_host.sh <domain>` (from repo root).
-- **Run it:** `make up` in `~/Projects/<domain>/app/docker/`.
+- **Prepare reusable sources:** `python3 prepare_project.py ../project-one ../project-two`.
+- **Provision a host:** `./new_host.sh <domain>` (from repo root).
+- **Validate prepared sources:** `make check` in `~/Projects/<domain>/docker/`.
+- **Run prepared sources:** explicit `make build`, then `make up`; the legacy
+  `app/docker/Makefile` still combines those actions in `make up`.
 - **Pick containers:** `COMPOSE_PROFILES` in the project `.env.local` (default `mailpit,pma,cron`).
 - **Override container config:** drop files in `~/Projects/<domain>/app/docker/config/<service>/`
   (and `…/<env>/` for env-specific). Config cascade, low → high:
