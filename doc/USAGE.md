@@ -21,6 +21,8 @@ also supports the old location via `--layout legacy` when preparing a new
 project there. Existing custom Makefiles are never overwritten automatically.
 
 See [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) for the complete workflow.
+That guide also describes grouped `env/` and `compose/` sources, project
+Dockerfiles and explicit additional Compose files such as a Redis service.
 This wrapper offers `make check`, `make config`, explicit `make build`, then
 `make up` using existing images. It uses shared original Compose sources and
 native dotenv parsing; a private `.generated/compose.<env>.yaml` is output
@@ -41,7 +43,8 @@ From the `setup/` repo root (run as a normal user, NOT root — it uses `sudo` w
 
 This:
 - allocates an HTTP + HTTPS port pair by scanning both `docker/.env.local`
-  and `app/docker/.env.local` (starting at 3001; `index_counter` is unused),
+  and `app/docker/.env.local`, plus their `env/local.env` equivalents
+  (starting at 3001; `index_counter` is unused),
 - creates `~/Projects/<domain>/{app/{public,docs,config,docker/config/...},data,backup}`,
 - generates an mkcert certificate for `<domain>.local` and `*.<domain>.local`,
 - writes a host nginx vhost and `/etc/hosts` entries for `<domain>.local`,

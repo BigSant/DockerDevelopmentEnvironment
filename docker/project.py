@@ -25,12 +25,27 @@ class Project:
         self.directory = Path(directory).resolve()
         self.root = Path(root).resolve() if root else project_root(self.directory)
         self.environment = environment
-        if not (self.directory / ".env").is_file():
-            raise ValueError(f"Missing {self.directory / '.env'}; run prepare_project.py first")
-        if not (self.directory / f".env.{environment}").is_file():
-            raise ValueError(f"Create {self.directory / f'.env.{environment}'} from its example")
-        self.env_files = [DOCKER_ROOT / ".env", self.directory / ".env",
-                          self.directory / f".env.{environment}"]
+        grouped = (self.directory / "env/common.env").exists() or (self.directory / "compose/base.yaml").exists()
+        if grouped:
+            if (self.directory / ".env").exists() or (self.directory / "compose.yaml").exists():
+                raise ValueError("Use one source layout: env/ + compose/, or the root-level files")
+            common_env = self.directory / "env/common.env"
+            private_env = self.directory / f"env/{environment}.env"
+            source = self.directory / "compose/base.yaml"
+            overrides = [self.directory / "compose/common.yaml", self.directory / f"compose/{environment}.yaml"]
+            if not source.is_file():
+                raise ValueError(f"Missing {source}")
+        else:
+            common_env = self.directory / ".env"
+            private_env = self.directory / f".env.{environment}"
+            source = self.directory / "compose.yaml"
+            source = source if source.is_file() else DOCKER_ROOT / "docker-compose.yml"
+            overrides = [self.directory / "compose.override.yaml", self.directory / f"compose.{environment}.override.yaml"]
+        if not common_env.is_file():
+            raise ValueError(f"Missing {common_env}; run prepare_project.py first")
+        if not private_env.is_file():
+            raise ValueError(f"Create {private_env} from its example")
+        self.env_files = [DOCKER_ROOT / ".env", common_env, private_env]
         # Do not let a previous project's shell exports silently select this stack.
         self.process_env = os.environ.copy()
         for env_file in self.env_files:
@@ -62,15 +77,20 @@ class Project:
         settings = json.loads(self.capture(["config", "--format", "json"]))["services"]["settings"]["environment"]
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
-            raise ValueError("Set a valid lowercase PROJECT_NAME in the project's .env")
+            raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
         self.name = f"{name}-{environment}"
         self.profiles = profiles if profiles is not None else (
             settings["PROFILES"] if settings["PROFILES_DEFINED"] else settings[f"{environment.upper()}_PROFILES"])
         self.command = base_command + ["--project-name", self.name]
-        source = self.directory / "compose.yaml"
-        self.command += ["-f", str(source if source.is_file() else DOCKER_ROOT / "docker-compose.yml")]
-        for name in ("compose.override.yaml", f"compose.{environment}.override.yaml"):
-            override = self.directory / name
+        self.command += ["-f", str(source)]
+        extras = []
+        for entry in shlex.split(settings["EXTRA_COMPOSE_FILES"]):
+            extra = (self.directory / entry).resolve()
+            if not extra.is_relative_to(self.directory) or not extra.is_file():
+                raise ValueError(f"PROJECT_COMPOSE_FILES must reference existing files inside {self.directory}")
+            extras.append(extra)
+        # Explicit component files (e.g. Redis) load before environment overrides.
+        for override in [overrides[0], *extras, overrides[1]]:
             if override.is_file():
                 self.command += ["-f", str(override)]
 

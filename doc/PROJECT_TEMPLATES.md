@@ -87,9 +87,41 @@ independent stacks against the same DB directory.
 
 ## Commands and validation
 
+For projects with more configuration, the runner supports this grouped layout
+without changing the shared Makefile:
+
+```text
+docker/
+  Dockerfile                   # optional project-specific image extension
+  Makefile
+  env/common.env               # public settings, e.g. PHP_VERSION
+  env/local.env                # private local settings
+  env/prod.env                 # private production settings
+  compose/base.yaml            # includes shared setup
+  compose/common.yaml          # optional common project overrides
+  compose/redis.yaml           # example extra service
+  compose/local.yaml           # optional local-only overrides
+  compose/prod.yaml            # optional prod-only overrides
+```
+
+Set `PROJECT_COMPOSE_FILES=compose/redis.yaml` in `common.env` to load the
+extra service. Multiple paths are separated by spaces (quote paths containing
+spaces). Paths are relative to the project Docker directory and must stay
+within it. Merge order: base → common → listed components → selected
+environment. Local and prod overrides are never loaded together automatically.
+Env order: shared defaults → common.env → selected environment env.
+
+`make ENV=local check` and `make ENV=prod check` validate each variant.
+Generated snapshots remain under `.generated/`. Keep real local/prod env files
+out of Git, with fictional `.env.example` equivalents for distribution.
+Root-level `.env` and `compose.yaml` must be removed from the active config
+directory when adopting grouped sources; the runner rejects ambiguous mixes.
+`prepare_project.py` continues to create the existing root-level template.
+
 `make check`, `config`, `build`, `up`, `down`, `ps`, `logs`, `phpstan`, `phpcs`
 and `e2e` are defined once in the shared project.mk. `ENV=local|stage|prod`
-selects `.env.<env>`. `PROFILES=` explicitly means core-only, while absent
+selects `.env.<env>` or `env/<env>.env` according to the source layout.
+`PROFILES=` explicitly means core-only, while absent
 `PROFILES` uses the project's setting or the shared environment default.
 `check` validates all declared profiles. Use `cmd='...'` to override a QA
 command; it is parsed as arguments rather than executed by a host shell.

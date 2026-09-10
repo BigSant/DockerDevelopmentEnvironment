@@ -78,6 +78,32 @@ Run `python3 -m unittest discover -s tests -v` for real Compose config tests
 (no Docker Engine mutations): both layouts, native overrides, dotenv semantics,
 empty profiles, parallel rendering, idempotent preparation and port allocation.
 
+### Grouped project sources
+
+The shared runner also accepts `env/common.env`, `env/<environment>.env` and
+`compose/base.yaml`. In this layout it loads `compose/common.yaml`, explicit
+component files and `compose/<environment>.yaml` after the base. Root-level
+`.env` / `compose.yaml` and grouped sources cannot coexist in one config
+directory; ambiguous layouts fail before Compose operations. The existing
+preparer still emits the root-level template, so existing projects are not
+migrated implicitly.
+
+`PROJECT_COMPOSE_FILES` is an optional whitespace-separated list of project
+Compose paths, such as `compose/redis.yaml`, parsed with shell-style quoting
+without executing a shell. Each path must be an existing file within the
+project Docker directory. Files load in the specified order after common
+overrides and before the single selected environment override. This setting
+works in both source layouts. `project-settings.yaml` resolves it through
+Compose's native dotenv parser along with project identity and profiles.
+
+A project `Dockerfile` stays at the Docker directory root. Shared service
+definitions already use it as the project build context when present. The
+project's common Compose override can provide `BASE_IMAGE` and select
+`env-local` / `env-prod` stages. Secrets remain runtime environment values;
+project Dockerfiles must not copy private env files into the build context.
+The port allocator recognizes `docker/env/local.env` and
+`app/docker/env/local.env` in addition to the older locations.
+
 ## 2. Two-repository model
 
 | Location | Role |

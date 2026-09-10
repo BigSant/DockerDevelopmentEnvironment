@@ -21,7 +21,9 @@ def read_ports(env_file):
 
 def allocate(project):
     project = Path(project).resolve()
-    existing = [project / suffix for suffix in ("docker/.env.local", "app/docker/.env.local")
+    suffixes = ("docker/.env.local", "app/docker/.env.local",
+                "docker/env/local.env", "app/docker/env/local.env")
+    existing = [project / suffix for suffix in suffixes
                 if (project / suffix).is_file()]
     if existing:
         pairs = [read_ports(env_file) for env_file in existing]
@@ -29,8 +31,8 @@ def allocate(project):
             raise ValueError(f"Conflicting legacy and root Docker ports in {project}")
         return pairs[0]
     used = set()
-    for pattern in ("*/docker/.env.local", "*/app/docker/.env.local"):
-        for env_file in project.parent.glob(pattern):
+    for suffix in suffixes:
+        for env_file in project.parent.glob(f"*/{suffix}"):
             used.update(read_ports(env_file))
     for port in range(3001, 65535, 2):
         if port not in used and port + 1 not in used:

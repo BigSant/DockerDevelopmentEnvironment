@@ -184,6 +184,70 @@ class ProjectTemplatesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conflicting"):
             allocate(root)
 
+    def prepare_grouped(self):
+        root, directory = self.prepare()
+        (directory / "env").mkdir()
+        (directory / "compose").mkdir()
+        (directory / ".env").rename(directory / "env/common.env")
+        (directory / ".env.local").rename(directory / "env/local.env")
+        (directory / "compose.yaml").rename(directory / "compose/base.yaml")
+        return root, directory
+
+    def test_grouped_files_select_only_one_environment_and_explicit_component(self):
+        _, directory = self.prepare_grouped()
+        with (directory / "env/common.env").open("a") as handle:
+            handle.write("PHP_VERSION=8.1\nPROJECT_COMPOSE_FILES=compose/redis.yaml\n")
+        (directory / "env/prod.env").write_text(
+            "DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\nCOMPOSE_PROFILES=\n")
+        (directory / "compose/redis.yaml").write_text(
+            "services:\n  redis:\n    image: redis:7.4-alpine\n    networks: [network_app]\n")
+        (directory / "compose/local.yaml").write_text(
+            "services:\n  redis:\n    ports: ['127.0.0.1:6389:6379']\n"
+            "  php-fpm:\n    environment:\n      PHP_MEMORY_LIMIT: 1024M\n")
+        (directory / "compose/prod.yaml").write_text(
+            "services:\n  php-fpm:\n    environment:\n      PHP_MEMORY_LIMIT: 512M\n")
+        local = Project(directory).model()["services"]
+        prod = Project(directory, environment="prod").model()["services"]
+        self.assertEqual(local["redis"]["ports"][0]["published"], "6389")
+        self.assertNotIn("ports", prod["redis"])
+        self.assertEqual(prod["database"]["environment"]["MYSQL_PASSWORD"], "prod-demo")
+        self.assertNotEqual(local["database"]["environment"]["MYSQL_PASSWORD"], "prod-demo")
+        self.assertEqual(local["php-fpm"]["environment"]["PHP_MEMORY_LIMIT"], "1024M")
+        self.assertEqual(prod["php-fpm"]["environment"]["PHP_MEMORY_LIMIT"], "512M")
+        self.assertEqual(local["php-fpm"]["build"]["args"]["PHP_VERSION"], "8.1")
+        self.assertEqual(prod["php-fpm"]["build"]["args"]["PHP_VERSION"], "8.1")
+
+    def test_grouped_custom_dockerfile_uses_project_context_and_selected_target(self):
+        _, directory = self.prepare_grouped()
+        (directory / "Dockerfile").write_text("FROM scratch AS env-local\nFROM scratch AS env-prod\n")
+        (directory / "env/prod.env").write_text("DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\n")
+        (directory / "compose/common.yaml").write_text(
+            "services:\n  php-fpm:\n    build:\n      args:\n        BASE_IMAGE: custom-${ENV}-${PHP_VERSION}\n")
+        for env in ("local", "prod"):
+            build = Project(directory, environment=env).model()["services"]["php-fpm"]["build"]
+            self.assertEqual(Path(build["context"]), directory)
+            self.assertEqual(Path(build["dockerfile"]), directory / "Dockerfile")
+            self.assertEqual(build["target"], f"env-{env}")
+            self.assertTrue(build["args"]["BASE_IMAGE"].startswith(f"custom-{env}-"))
+
+    def test_mixed_source_layouts_and_missing_component_fail_closed(self):
+        _, directory = self.prepare_grouped()
+        (directory / ".env").write_text("PROJECT_NAME=wrong\n")
+        with self.assertRaisesRegex(ValueError, "one source layout"):
+            Project(directory)
+        (directory / ".env").unlink()
+        with (directory / "env/common.env").open("a") as handle:
+            handle.write("PROJECT_COMPOSE_FILES=compose/missing.yaml\n")
+        with self.assertRaisesRegex(ValueError, "existing files inside"):
+            Project(directory)
+
+    def test_port_allocator_recognizes_grouped_env_directory(self):
+        root, _ = self.prepare_grouped()
+        self.assertEqual(allocate(root), (3301, 3302))
+        candidate = self.projects / "next"
+        (root / "docker/env/local.env").write_text("LOCALHOST_PORT=3001\nLOCALHOST_PORT_SSL=3002\n")
+        self.assertEqual(allocate(candidate), (3003, 3004))
+
 
 if __name__ == "__main__":
     unittest.main()
