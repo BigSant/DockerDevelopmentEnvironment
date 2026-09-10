@@ -118,13 +118,73 @@ Root-level `.env` and `compose.yaml` must be removed from the active config
 directory when adopting grouped sources; the runner rejects ambiguous mixes.
 `prepare_project.py` continues to create the existing root-level template.
 
-`make check`, `config`, `build`, `up`, `down`, `ps`, `logs`, `phpstan`, `phpcs`
-and `e2e` are defined once in the shared project.mk. `ENV=local|stage|prod`
+`make check`, `config`, `build`, `up`, `down`, `ps`, `logs`, `phpstan`, `phpcs`,
+`phpstan-baseline`, `e2e`, `doctrine`, `db-import-plan` and `db-import` are
+defined once in the shared project.mk. `ENV=local|stage|prod`
 selects `.env.<env>` or `env/<env>.env` according to the source layout.
 `PROFILES=` explicitly means core-only, while absent
 `PROFILES` uses the project's setting or the shared environment default.
 `check` validates all declared profiles. Use `cmd='...'` to override a QA
 command; it is parsed as arguments rather than executed by a host shell.
+
+## Larger projects: application, QA and schema sources
+
+The shared paths can be overridden in project Compose files to group sources:
+
+```text
+app/public/                      # application checkout mounted at /var/www/html
+docker/config/php/               # common .ini and local/prod .ini subdirectories
+docker/config/redis/              # Redis config and environment includes
+qa/baselines/                    # reviewed, versioned analysis baselines
+qa/phpstan/                      # phpstan.neon including ../baselines/phpstan.neon
+qa/php-cs/                       # .php-cs-fixer.php
+qa/playwright/tests/             # test sources; config in qa/playwright/
+database/doctrine/versions/      # versioned schema migrations
+database/sql/after-import/       # common/, local/, prod/ SQL hooks
+data/<environment>/              # ignored caches, reports and persistent data
+```
+
+This grouping is opt-in; preparation retains existing default mount paths.
+Override volumes by container target: `/tmp/phpstan/config`,
+`/tmp/phpstan/baselines`, `/tmp/phpstan/cache`, `/tmp/php-cs-fixer/config`,
+`/tmp/php-cs-fixer/cache`, `/e2e/config`, `/e2e/tests` and `/e2e/data`.
+Precreate writable host cache directories as the user running QA containers.
+PHP settings already load from `docker/config/php` plus its selected environment
+subdirectory. Redis is project-defined and must explicitly mount its config.
+
+Set `PHPSTAN_BASELINE_FILE=/tmp/phpstan/baselines/phpstan.neon` to enable
+`make phpstan-baseline`; mount that folder writable and version its reviewed
+output. Set `PLAYWRIGHT_COMMAND=npx playwright test --config=/e2e/config/playwright.config.cjs`
+to select a mounted Playwright config. Cache/report files are not baselines.
+See [PHPStan baselines](https://phpstan.org/user-guide/baseline) and
+[Playwright configuration](https://playwright.dev/docs/test-configuration).
+
+An explicit `compose/doctrine.yaml` can extend the shared
+`docker/php-doctrine-migrations/docker-compose.yml` service. Add the `doctrine`
+profile, the `doctrine-migrations` entrypoint with `--configuration` and
+`--db-configuration`, and mount `database/doctrine` at the configured CLI paths.
+`make doctrine cmd=status` reads migration state; `cmd=migrate` applies schema
+changes. Build its image explicitly first and start the DB separately.
+The base Compose does not enable this optional service. ORM `diff` additionally
+needs an application-specific schema provider; migrations alone do not provide
+ORM mappings. See [Doctrine Migrations configuration](https://www.doctrine-project.org/projects/doctrine-migrations/en/3.9/reference/configuration.html).
+
+Set `POST_IMPORT_SQL_DIRECTORY=database/sql/after-import` to use:
+
+```bash
+make ENV=local db-import-plan file=../data/dumps/shop.sql
+make ENV=local db-import file=../data/dumps/shop.sql
+```
+
+The second command streams the dump into the running `database` service, then
+sorted `common/*.sql`, then sorted `local/*.sql` (or the selected environment).
+Any failure stops later files; already executed SQL is not rolled back.
+Only explicit `db-import` invokes these hooks, not container startup or other
+import tools. The command does not create/drop the DB itself or run Doctrine
+migrations. Dump files should stay outside Git. Only plain `.sql` is supported.
+Hooks may run again on a later import, so prefer statements safe to repeat.
+
+## Automated validation
 
 Real Compose validation tests run without starting/building any container:
 

@@ -58,7 +58,31 @@ file and atomic replacement. It never overwrites a source or consumes an old
 snapshot. Different projects do not share generated inputs; simultaneous
 renders of the same project cannot expose partial files. `check` creates no
 snapshot. `build` builds images explicitly; `up` uses `--no-build --pull never`.
-QA targets are ephemeral. This wrapper does not expose the legacy DB importer.
+QA targets are ephemeral. The wrapper has a separate explicit SQL importer;
+it does not call the legacy interactive DB importer.
+
+`database_import.py` implements `db-import-plan` and `db-import`. Both require
+an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
+`POST_IMPORT_SQL_DIRECTORY`. It preflights all inputs, selects `common/*.sql`
+followed by `<environment>/*.sql` in filename order, and rejects hooks escaping
+the configured directory. Planning prints paths without touching the DB.
+Import holds a nonblocking project/environment lock under `.generated/` and
+opens all inputs before streaming to `docker compose exec -T database`.
+The MySQL client uses credentials already present in that running container,
+and rejects a database-name mismatch. A dump or hook failure stops subsequent
+files. There is no implicit drop/create, transaction rollback, migration run,
+compressed-dump support or retry. Arbitrary dump/SQL content executes with the
+DB user's privileges; the caller must choose a dump for the configured DB.
+
+Projects can relocate QA and schema inputs using ordinary Compose volume
+overrides. `PHPSTAN_BASELINE_FILE` selects a mounted container path for the
+explicit `phpstan-baseline` target; regular analysis does not rewrite it.
+`PLAYWRIGHT_COMMAND` selects the default E2E invocation (defaults to
+`npx playwright test`); `cmd` overrides it. `doctrine cmd=status` invokes an
+explicitly added `php-doctrine-migrations` service under the `doctrine` profile,
+without starting dependencies. Projects must define the CLI entrypoint and
+connection/migration configuration. None of these commands migrate an existing
+project's source folders implicitly.
 
 `project_ports.py`, called by `new_host.sh` before host mutations, scans both
 layouts, reuses an existing pair and rejects conflicting duplicate layouts.

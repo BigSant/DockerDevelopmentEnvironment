@@ -184,6 +184,27 @@ class ProjectTemplatesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conflicting"):
             allocate(root)
 
+    def test_project_tool_settings_select_baseline_and_playwright_config(self):
+        _, directory = self.prepare(extra=(
+            "PHPSTAN_BASELINE_FILE=/tmp/phpstan/baselines/phpstan.neon\n"
+            "PLAYWRIGHT_COMMAND=npx playwright test --config=/e2e/config/playwright.config.cjs\n"))
+        cases = [
+            ("phpstan-baseline", [], ["run", "--rm", "--no-deps", "--entrypoint", "phpstan", "php-phpstan",
+                                    "analyse", "--configuration=/tmp/phpstan/config/phpstan.neon",
+                                    "--generate-baseline=/tmp/phpstan/baselines/phpstan.neon",
+                                    "--allow-empty-baseline"], "phpstan"),
+            ("e2e", [], ["run", "--rm", "--entrypoint", "npx", "playwright", "playwright", "test",
+                         "--config=/e2e/config/playwright.config.cjs"], "playwright"),
+            ("doctrine", ["--command", "migrate --dry-run"],
+             ["run", "--rm", "--no-deps", "php-doctrine-migrations", "migrate", "--dry-run"], "doctrine"),
+        ]
+        for action, arguments, expected, profile in cases:
+            with self.subTest(action=action), patch.object(Project, "run") as execute, patch.object(sys, "argv", [
+                "project.py", "--docker-directory", str(directory), action, *arguments,
+            ]):
+                self.assertEqual(run_project(), 0)
+                execute.assert_called_once_with(expected, profiles=profile)
+
     def prepare_grouped(self):
         root, directory = self.prepare()
         (directory / "env").mkdir()

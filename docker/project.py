@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 
+from database_import import import_database, plan_import
+
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
@@ -75,6 +77,7 @@ class Project:
         # JSON preserves multiline/special dotenv values without reparsing text.
         self.command += ["--project-name", "setup-settings", "-f", str(DOCKER_ROOT / "project-settings.yaml")]
         settings = json.loads(self.capture(["config", "--format", "json"]))["services"]["settings"]["environment"]
+        self.settings = settings
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
@@ -135,8 +138,10 @@ def main():
     parser.add_argument("--env", choices=["local", "stage", "prod"], default="local")
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
-                                           "phpstan", "phpcs", "e2e"])
+                                           "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
+                                           "db-import", "db-import-plan"])
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
+    parser.add_argument("--dump", help="Plain .sql dump for db-import / db-import-plan")
     args = parser.parse_args()
     try:
         project = Project(args.docker_directory, args.env, args.project_directory, args.profiles)
@@ -152,11 +157,29 @@ def main():
             project.run(["up", "-d", "--no-build", "--pull", "never"])
         elif args.action in ("down", "ps", "logs"):
             project.run([args.action])
+        elif args.action in ("db-import", "db-import-plan"):
+            plan = plan_import(project, args.dump)
+            if args.action == "db-import-plan":
+                print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}")
+                for step in plan:
+                    print(step)
+            else:
+                import_database(project, plan)
+        elif args.action == "phpstan-baseline":
+            baseline = project.settings["PHPSTAN_BASELINE_FILE"]
+            if not baseline or not baseline.startswith("/"):
+                raise ValueError("Set PHPSTAN_BASELINE_FILE to the mounted baseline file's container path")
+            project.run(["run", "--rm", "--no-deps", "--entrypoint", "phpstan", "php-phpstan",
+                         "analyse", "--configuration=/tmp/phpstan/config/phpstan.neon",
+                         f"--generate-baseline={baseline}", "--allow-empty-baseline"], profiles="phpstan")
+        elif args.action == "doctrine":
+            arguments = shlex.split(args.command or "status")
+            project.run(["run", "--rm", "--no-deps", "php-doctrine-migrations"] + arguments, profiles="doctrine")
         else:
             service, profile, entrypoint, default = {
                 "phpstan": ("php-phpstan", "phpstan", "make", "report"),
                 "phpcs": ("php-cs", "phpcs", "make", "check"),
-                "e2e": ("playwright", "playwright", "", "npx playwright test"),
+                "e2e": ("playwright", "playwright", "", project.settings["PLAYWRIGHT_COMMAND"]),
             }[args.action]
             command = ["run", "--rm"]
             arguments = shlex.split(args.command or default)

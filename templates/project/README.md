@@ -43,4 +43,15 @@ The old `app/docker` location is also supported by this same Makefile.
 Private env files and generated snapshots must stay out of Git. Keep `.env`
 public. Migrating configuration does not move the app, import the DB, change
 host ports, or restart containers. The legacy interactive DB import is not
-exposed by this wrapper; handle data migration as a separate operation.
+exposed by this wrapper. For an explicit plain SQL import, configure
+`POST_IMPORT_SQL_DIRECTORY=database/sql/after-import` relative to the project
+root, with `common/` and environment subdirectories. Use
+`make db-import-plan file=/path/to/dump.sql` to preview and
+`make db-import file=/path/to/dump.sql` to import into the running DB, then run
+those SQL files in filename order. Failure stops later files but does not
+roll back earlier changes. This never runs on ordinary container startup.
+
+Optional project Compose files can relocate baseline files to `qa/baselines`,
+Playwright tests to `qa/playwright`, and schema migrations to `database/doctrine`.
+See `setup/doc/PROJECT_TEMPLATES.md` for mounts and the `phpstan-baseline`,
+`doctrine` and configurable E2E commands.
