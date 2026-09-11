@@ -176,7 +176,7 @@ class CreateProjectTest(unittest.TestCase):
                 self.assertEqual(app.parent.name, normalized)
                 project = Project(app)
                 self.assertEqual(project.settings['PROJECT_NAME'], normalized)
-                self.assertEqual(project.settings['PROJECT_DISPLAY_NAME'], entered)
+                self.assertEqual((app / 'env/common.env').read_text(), f'PROJECT_NAME={normalized}\n')
                 self.assertEqual(project.settings['DATABASE_NAME'], normalized.replace('-', '_'))
                 self.assertEqual(project.settings['DOMAIN'], normalized.replace('_', '-') + '.local')
                 self.assertEqual((app / '.idea/.name').read_text(), entered + '\n')
@@ -197,6 +197,20 @@ class CreateProjectTest(unittest.TestCase):
                 (app / 'env/local.env').unlink()
                 with contextlib.redirect_stdout(io.StringIO()): initialize_env(app, 'local')
                 self.assertEqual(Project(app).settings['DOMAIN'], normalized.replace('_', '-') + '.local')
+
+    def test_ide_name_is_optional_and_custom_name_is_preserved(self):
+        from project_ide import ide_plan
+        app = self.create('MelgaMCP')
+        (app / '.idea/.name').write_text('Custom IDE name\n')
+        _, outputs, _ = ide_plan(Project(app), 'Docker')
+        self.assertEqual(outputs['.idea/.name'], b'Custom IDE name\n')
+        (app / '.idea/.name').unlink()
+        _, outputs, _ = ide_plan(Project(app), 'Docker')
+        self.assertEqual(outputs['.idea/.name'], b'melga-mcp\n')
+        with (app / 'env/common.env').open('a') as env:
+            env.write('PROJECT_DISPLAY_NAME=Explicit name\n')
+        _, outputs, _ = ide_plan(Project(app), 'Docker')
+        self.assertEqual(outputs['.idea/.name'], b'Explicit name\n')
 
     def test_acronyms_and_explicit_separators(self):
         for value, expected in [('XMLParser', 'xml-parser'), ('MCP', 'mcp'), ('Shop2API', 'shop2-api'),

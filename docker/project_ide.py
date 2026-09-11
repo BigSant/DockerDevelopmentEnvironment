@@ -118,9 +118,9 @@ def ide_plan(project, server):
     version = ".".join(version.split(".")[:2])
     name = project.settings["PROJECT_NAME"]
     interpreter_name = f"{project.name} PHP"
-    display_name = project.settings.get('PROJECT_DISPLAY_NAME') or name
+    existing_name = (read('.idea/.name') or b'').decode().strip()
+    display_name = project.settings.get('PROJECT_DISPLAY_NAME') or existing_name or name
     outputs[".idea/.name"] = (display_name + "\n").encode()
-    read(".idea/.name")
 
     modules = document(".idea/modules.xml")
     manager = component(modules, "ProjectModuleManager")
@@ -271,7 +271,8 @@ def initialize_ide(project, docker_server=None, config_directory=None):
         replace_file(checked_path(project, name), contents, private=name == ".idea/workspace.xml")
     for name in deletions:
         checked_path(project, name).unlink(missing_ok=True)
-    print(f"Prepared PhpStorm: {project.settings.get('PROJECT_DISPLAY_NAME') or project.settings['PROJECT_NAME']}; interpreter {project.name} PHP; Docker connection {server}.")
+    display_name = outputs['.idea/.name'].decode().strip()
+    print(f"Prepared PhpStorm: {display_name}; interpreter {project.name} PHP; Docker connection {server}.")
     if not detected:
         print("Create the Docker connection named Docker in PhpStorm, or rerun with --docker-server NAME.")
     print("Startup only refreshes IDE settings; services and DB imports run only when explicitly selected.")

@@ -11,7 +11,7 @@ Pavyzdys: visur reikia PHP 8.1, bet DB slaptažodis vietoje ir prod skirtingas.
 ```dotenv
 PROJECT_NAME=demo
 PHP_VERSION=8.1
-PROFILE=ps
+PROFILE=prestashop
 ```
 
 `env/local.env`:
@@ -57,11 +57,11 @@ Lentelių „numatyta“ reiškia dabartinį bendrą setup, jeigu projektas niek
 | Raktas | Numatyta / leidžiama | Ką daro ir kur naudoti |
 | --- | --- | --- |
 | `PROJECT_NAME` | Bendrame faile tuščias; būtinas. Mažosios `a-z`, skaitmenys, `_`, `-`, pirmas simbolis raidė/skaitmuo | Projekto konteinerių, tinklo ir atvaizdų vardų pagrindas. Pvz. `forsena`; laikyk `common.env`. Pakeitus atsiras kitas Compose projektas. |
-| `PROFILE` | Tuščias; bendras PHP | `ps` ir `prestashop` įjungia PS veiksmus. `akeneo` pasirenka Akeneo atvaizdų papildymus. Tuščias – bendras PHP. Kitas vardas savaime nesukuria integracijos. |
+| `PROFILE` | Tuščias; bendras PHP | `prestashop` įjungia PS veiksmus. `akeneo` pasirenka Akeneo atvaizdų papildymus. Tuščias – bendras PHP. Kitas vardas savaime nesukuria integracijos. |
 | `COMPOSE_PROFILES` | Tuščias; pasirenkama Compose galimybė | Kableliais atskirti pasirenkami servisų profiliai: `redis,mailpit`. Gali būti tuščias. Neprideda YAML apraše nesančio serviso. |
 | `PROJECT_COMPOSE_FILES` | Tuščias; grouped šablone `compose/qa.yaml compose/doctrine.yaml compose/redis.yaml` | Papildomų YAML sąrašas per tarpus, skaitomas iš kairės į dešinę. Keliai nuo Makefile katalogo, turi likti jame. |
 
-`PROFILE=ps` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, o `PROFILES=redis` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
+`PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, o `PROFILES=redis` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
 
 ## Adresai, HTTP ir patikros
 
@@ -94,7 +94,7 @@ Bendri pirmojo DB starto scriptai suteikia dev aplikacijos vartotojui plačias t
 
 ## PrestaShop debug
 
-Šie laukai veikia tik su `PROFILE=ps` arba `PROFILE=prestashop`. Bendras PHP servisas juos jau perduoda konteineriui; papildomo Compose aprašo nereikia.
+Šie laukai veikia tik su `PROFILE=prestashop`. Bendras PHP servisas juos jau perduoda konteineriui; papildomo Compose aprašo nereikia.
 
 | Env raktas | Numatytoji reikšmė | Ką rašyti ir kas įvyksta |
 | --- | --- | --- |
@@ -209,9 +209,12 @@ Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 sk
 
 `make bootstrap` automatiškai paruošia kompiuterio Nginx maršrutą iš `http://<DOMAIN>/` ir HTTPS į projekto HTTP portą. Atskiro env jungiklio nėra; pats projekto failų kūrimas host konfigūracijos nekeičia.
 
-`PROJECT_DISPLAY_NAME`: PhpStorm projekto pavadinimas; jei nenustatytas, naudojamas `PROJECT_NAME`. `create-project MelgaMCP` įrašo `PROJECT_NAME=melga-mcp` ir `PROJECT_DISPLAY_NAME=MelgaMCP`. Originali rašyba išsaugoma ir per `make ide-init` / `make bootstrap`; Docker naudoja `melga-mcp`, DB vardas ir vartotojas – `melga_mcp`.
+`PROJECT_DISPLAY_NAME`: neprivalomas PhpStorm vardo pakeitimas per env. Generatorius
+šio lauko nekuria. Be jo `make ide-init` ir `make bootstrap` išsaugo esamą
+`.idea/.name`; jei IDE vardo nėra, naudoja `PROJECT_NAME`.
+`create-project MelgaMCP` į env įrašo `PROJECT_NAME=melga-mcp`, o į `.idea/.name` –
+`MelgaMCP`. Docker naudoja `melga-mcp`, DB vardas ir vartotojas – `melga_mcp`.
 
-Naujai kuriamo projekto `env/common.env` pakanka `PROJECT_NAME`; `PROJECT_DISPLAY_NAME`
-pridedamas tik kai originalus vardas skiriasi. Privačiame env iš pradžių yra tik
+Naujai kuriamo projekto `env/common.env` yra tik `PROJECT_NAME`. Privačiame env iš pradžių yra tik
 `DOMAIN` ir trys DB prisijungimų reikšmės. Portus įrašo `make bootstrap`.
 Atvaizdų žymos pagal build konfigūraciją apskaičiuojamos automatiškai.

@@ -71,7 +71,7 @@ def scaffold(name, parent):
 
     domain = name.replace('_', '-') + '.local'
     ensure_domain_available(root.parent, domain)
-    app, files = minimal_files(root, display_name=display_name)
+    app, files = minimal_files(root)
     # Claim only a new project directory. Never merge a scaffold into someone else's files.
     root.mkdir()
     for path, contents in files.items():

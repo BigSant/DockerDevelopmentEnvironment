@@ -97,8 +97,8 @@ atskiriami brūkšneliais. DB vardui ir vartotojui naudojami pabraukimai, kad b�
 patogiau rašyti SQL. Esami projektų katalogai automatiškai nepervadinami. Jei toks
 adresas jau priklauso kitam projektui, kūrimas sustoja prieš failų rašymą.
 
-Jei originalus ir techninis vardai skiriasi, `env/common.env` saugomi du vardai: `PROJECT_NAME=melga-mcp` ir
-`PROJECT_DISPLAY_NAME=MelgaMCP`. Antrasis naudojamas tik IDE projekto pavadinimui.
+`env/common.env` saugomas tik `PROJECT_NAME=melga-mcp`. Originalus PhpStorm vardas
+`MelgaMCP` įrašomas į `.idea/.name`; atskiro env lauko nereikia.
 Paleidžiant ar kartojant kūrimą su techniniu vardu originali rašyba išlieka:
 
 ```bash
@@ -212,7 +212,7 @@ projekte Redis nepridės. Cache valdymas veikia ir be Redis; žr.
 
 **PrestaShop atvejis:** komanda neįdiegia parduotuvės ir negeneruoja jos tikrų
 raktų. Kai į `public/` perkeliama jau įdiegta PS aplikacija, jos konfigūracija ir DB,
-`env/common.env` nustatyk `PROFILE=ps`. Tada taikyk B dalies DB atkūrimo veiksmus
+`env/common.env` nustatyk `PROFILE=prestashop`. Tada taikyk B dalies DB atkūrimo veiksmus
 ir `make build`, `make up`. Tuščiam bandomajam puslapiui PS profilio nereikia.
 
 ## D. Paruošti daugiau projektų

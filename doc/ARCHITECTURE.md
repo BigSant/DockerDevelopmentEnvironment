@@ -21,14 +21,14 @@ points back here.
 
 ## Runtime workflow and release boundary
 
-The runner defaults to generic PHP, with explicit `PROFILE=ps` / `prestashop`
+The runner defaults to generic PHP, with explicit `PROFILE=prestashop`
 for PrestaShop integration. Image fingerprints are automatic; no project API or
 image-version switches are needed. Optional Compose profiles have no environment
 defaults. Project YAML determines which services are present; services without a
 `profiles:` restriction start normally. Native profile selection is still supported.
 
-The minimal creator writes identity, optional distinct IDE display name, domain
-and DB credentials only. It performs no port allocation or host provisioning.
+The minimal creator writes only identity, domain and DB credentials to env files.
+The original IDE name is stored separately in `.idea/.name`. It performs no port allocation or host provisioning.
 Local/test bootstrap assigns ports and prepares DNS, TLS and host Nginx routes.
 `project_health.py` performs Compose `up --wait` without application HTTP probes.
 `doctor` includes PS configuration/DB checks only for explicit PS profiles.

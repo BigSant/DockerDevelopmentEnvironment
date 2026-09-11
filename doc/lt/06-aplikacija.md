@@ -7,7 +7,7 @@
 ```text
 Konteineris gauna env
     ↓
-Jei PROFILE=ps / prestashop: atpažįstamas ir atnaujinamas PS config
+Jei PROFILE=prestashop: atpažįstamas ir atnaujinamas PS config
     ↓
 Vykdomi projekto config/startup/*.sh abėcėlės tvarka
     ↓
@@ -20,7 +20,7 @@ Paleidžiamas PHP-FPM
 
 | Situacija | `env/common.env` | Kas bus automatiškai daroma |
 | --- | --- | --- |
-| PrestaShop | `PROFILE=ps` | PS konfigūracijos paruošimas ir PS DB patikra. |
+| PrestaShop | `PROFILE=prestashop` | PS konfigūracijos paruošimas ir PS DB patikra. |
 | Tas pats senu vardu | `PROFILE=prestashop` | Toks pats PS veikimas. |
 | Akeneo | `PROFILE=akeneo` | Bendri Akeneo atvaizdo papildymai; PS failai neliečiami. Pilnas Akeneo įdiegimas nėra automatinis. |
 | Symfony, Laravel, savas PHP | `PROFILE=` | PS veiksmų nėra. Aplikacija pati skaito env arba naudoja projekto hook. |
@@ -32,7 +32,7 @@ Paleidžiamas PHP-FPM
 Situacija: atkuriama esama parduotuvė, kurios konfigūracija yra `public/app/config/parameters.php`.
 
 1. Turėk originalų tos parduotuvės `parameters.php`, įskaitant jos `secret`, cookie raktus, lentelių prefiksą ir kitus reikalingus laukus.
-2. Pasirink `PROFILE=ps`.
+2. Pasirink `PROFILE=prestashop`.
 3. Aplinkos env užpildyk `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`. Bendras PHP prisijungimo adresas – `database:3306`.
 4. Paleisk `make up` po DB paruošimo/importo.
 
@@ -194,14 +194,14 @@ Vykdyk `make check`, `make up` ir patikrink aplikacijos funkciją. Tuščias PS 
 
 Debug režimas parodo daugiau klaidų informacijos. Jį valdo PS konstanta `_PS_MODE_DEV_`, esanti aplikacijos `config/defines.inc.php`. Mūsų `app/` struktūroje visas kelias yra **`public/config/defines.inc.php`**. Tai kitas katalogas nei aplinkos `config/php/`, kuriame laikomi PHP `.ini` failai.
 
-Tas pats bendras updater veikia PS 1.6 ir naujesniems PS projektams su palaikoma DB konfigūracija. Pasirink `PROFILE=ps` arba `PROFILE=prestashop`, turėk originalų tos parduotuvės `defines.inc.php` ir jos prisijungimų failą. Kitų profilių failai neliečiami.
+Tas pats bendras updater veikia PS 1.6 ir naujesniems PS projektams su palaikoma DB konfigūracija. Pasirink `PROFILE=prestashop`, turėk originalų tos parduotuvės `defines.inc.php` ir jos prisijungimų failą. Kitų profilių failai neliečiami.
 
 ### Situacija 1: vietoje kuri modulį ir nori matyti klaidas
 
 `env/common.env` bendrą saugų pasirinkimą palik:
 
 ```dotenv
-PROFILE=ps
+PROFILE=prestashop
 PS_DEBUG_MODE=off
 PS_DEBUG_IPS=
 ```

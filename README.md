@@ -34,9 +34,8 @@ Repeating creation preserves the project's files and credentials and still does
 not start it. An unrelated existing directory is rejected. Names may use ASCII letters in either case, digits and single underscores or
 hyphens. CamelCase, acronyms and underscores are normalized for folders and Docker:
 `Melga` → `melga`, `MelgaMCP` → `melga-mcp`, `GameroomAkeneo` → `gameroom-akeneo`.
-When it differs from the technical name, the original is stored in
-`PROJECT_DISPLAY_NAME` and used by PhpStorm, including
-after bootstrap/ide-init. The normalized name must start with a letter and have
+The original spelling is stored in `.idea/.name` and preserved by bootstrap/ide-init.
+No display-name env field is generated. The normalized name must start with a letter and have
 at most 32 characters. Hostnames use the same spelling (`melga-mcp.local`).
 Database names and users use underscores (`melga_mcp`) for SQL convenience.
 Existing project directories are not renamed automatically.
@@ -61,7 +60,7 @@ Put your application in `../demo/app/public`. The shared setup remains one
 checkout, without a Git submodule. This creates a generic PHP environment,
 not a PrestaShop installation.
 
-Generated env files contain only the project identity (plus a distinct IDE name),
+Generated env files contain only the project identity,
 domain and database credentials. Generic PHP is the shared default. Define extra
 services in project YAML; services without `profiles:` start with that YAML.
 `make bootstrap` assigns missing ports and prepares DNS, TLS and host Nginx;

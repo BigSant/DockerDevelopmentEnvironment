@@ -12,7 +12,7 @@
 | `CACHE_MODE` env faile | Bendri PHP, web serverio ir palaikomo PS cache nustatymai. | `CACHE_MODE=on` veikia ir `local`. |
 | `PROFILES` Make komandoje arba `COMPOSE_PROFILES` env faile | Pasirenkami servisai, kurių aprašai jau prijungti projekte. | `PROFILES=redis`. |
 
-`PROFILE=ps` yra dar kitas dalykas: **aplikacijos rūšis**, pagal kurią parenkamas PS konfigūracijos adapteris. Symfony/Laravel/savas PHP gali naudoti tuščią profilį ir projekto hook.
+`PROFILE=prestashop` yra dar kitas dalykas: **aplikacijos rūšis**, pagal kurią parenkamas PS konfigūracijos adapteris. Symfony/Laravel/savas PHP gali naudoti tuščią profilį ir projekto hook.
 
 ## Kas veikia be papildomų nustatymų
 

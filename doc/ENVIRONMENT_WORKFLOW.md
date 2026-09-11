@@ -1,8 +1,9 @@
 # Runtime readiness, application preparation and isolated tests
 
-The project `PROFILE` selects application behavior. `ps` is an alias for
-`prestashop`. Other values (including empty) never run PrestaShop configuration
-or DB probes. Generic PHP is the shared default. Choose `PROFILE=ps` explicitly
+The project `PROFILE` selects application behavior. Use `PROFILE=prestashop`
+for PrestaShop integration. Other application profiles (including empty) never
+run PrestaShop configuration or DB probes. The old `ps` spelling remains accepted
+for existing configurations. Generic PHP is the shared default. Choose `PROFILE=prestashop` explicitly
 for a PrestaShop project.
 
 ## Startup and health

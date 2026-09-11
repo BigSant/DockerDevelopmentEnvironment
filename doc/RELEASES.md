@@ -15,7 +15,7 @@ This internal mechanism does not version application code or rebuild on PHP edit
 When adopting this change, remove obsolete `SETUP_REQUIRED_API`, `VERSIONED_IMAGES`,
 `HOST_PROXY`, `SMOKE_URL`, `SMOKE_EXPECT` and `COMPOSE_PROFILES_<ENV>` settings.
 They no longer control the runner. Run `make build` before `make up` to prepare
-current image tags. Existing PrestaShop projects must explicitly set `PROFILE=ps`.
+current image tags. Existing PrestaShop projects must explicitly set `PROFILE=prestashop`.
 Generic PHP and no optional profiles are now the shared defaults. Native Compose
 profiles remain available explicitly, but new projects have no selection variable.
 Bootstrap now prepares local/test Nginx routing automatically; unmanaged existing
