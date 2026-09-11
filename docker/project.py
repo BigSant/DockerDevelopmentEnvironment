@@ -19,6 +19,7 @@ from project_ide import initialize_ide, refresh_ide
 from project_health import smoke, start_project
 from database_backup import backup_database
 from setup_release import API_VERSION, image_suffix, setup_info
+from project_policy import DEFAULTS, resolve_policy, validate_configuration
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -72,6 +73,8 @@ class Project:
         for key in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "COMPOSE_PROFILES",
                     "COMPOSE_ENV_FILES", "ENV_FILE"):
             self.process_env.pop(key, None)
+        for key in DEFAULTS:
+            self.process_env.pop(key, None)
         self.process_env.update({
             "ROOT_DIRECTORY": str(DOCKER_ROOT),
             "PROJECT_DIRECTORY": str(self.root),
@@ -101,6 +104,9 @@ class Project:
         if profile == 'ps': profile = 'prestashop'
         settings['PROFILE'] = profile
         self.process_env['PROFILE'] = profile
+        policy = resolve_policy(settings, environment)
+        settings.update(policy)
+        self.process_env.update(policy)
         self.process_env['SETUP_IMAGE_SUFFIX'] = ''
         for key, attribute in [('DATA_DIRECTORY', 'data_directory'), ('APP_SOURCE_DIRECTORY', 'web_directory')]:
             if settings[key]:
@@ -129,6 +135,9 @@ class Project:
         for override in [overrides[0], *extras, overrides[1]]:
             if override.is_file():
                 self.command += ["-f", str(override)]
+        active = json.loads(self.capture(['config', '--format', 'json']))['services']
+        self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
+                                SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0')
         if settings['VERSIONED_IMAGES'] == '1':
             arguments = {name: service['build'].get('args', {})
                          for name, service in self.model()['services'].items() if service.get('build')}
@@ -185,6 +194,7 @@ def main():
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
+                                           "restart", "composer", "cache-clear", "db-backup-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "smoke", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
@@ -196,9 +206,14 @@ def main():
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Readiness/HTTP timeout in seconds')
+    parser.add_argument('--service', help='One enabled service for logs/restart')
+    parser.add_argument('--follow', action='store_true')
+    parser.add_argument('--tail', type=int, default=100)
+    parser.add_argument('--apply', action='store_true', help='Apply the backup pruning plan')
     args = parser.parse_args()
     if args.timeout < 1:
         parser.error('--timeout must be positive')
+    if args.tail < 0: parser.error('--tail must not be negative')
     if args.action == 'setup-info':
         setup_info()
         return 0
@@ -206,7 +221,21 @@ def main():
         if args.action in ("init", "ide-init", "bootstrap"):
             initialize_env(args.docker_directory, args.env)
         project = Project(args.docker_directory, args.env, args.project_directory, args.profiles)
-        if args.action == 'test-init':
+        if args.action == 'runtime-info':
+            from project_policy import DEFAULTS
+            print(f'Environment: {project.environment}; project: {project.name}; profile: {project.settings["PROFILE"] or "generic"}')
+            for key in DEFAULTS:
+                print(f'{key}={project.settings[key]}')
+        elif args.action == 'db-backup-prune':
+            from project_storage import prune_backups
+            prune_backups(project, args.apply)
+        elif args.action in ('restart', 'logs', 'composer', 'cache-clear'):
+            from project_commands import restart, logs, composer, cache_clear
+            if args.action == 'restart': restart(project, args.service, args.timeout)
+            elif args.action == 'logs': logs(project, args.service, args.follow, args.tail)
+            elif args.action == 'composer': composer(project, args.command)
+            else: cache_clear(project)
+        elif args.action == 'test-init':
             from project_bootstrap import initialize_test
             initialize_test(project, refresh=args.refresh_test)
         elif args.action == 'bootstrap':
@@ -232,6 +261,7 @@ def main():
             project.run(["exec", "php-fpm", "sh"])
         elif args.action == "check":
             project.capture(["config", "--quiet"], profiles="*")
+            validate_configuration(project)
             print(f"Valid: {project.name}; sources: {project.directory}")
         elif args.action == "config":
             print(project.render())
@@ -240,7 +270,7 @@ def main():
             project.run(["build"])
         elif args.action == "up":
             start_project(project, args.timeout)
-        elif args.action in ("down", "ps", "logs"):
+        elif args.action in ("down", "ps"):
             project.run([args.action])
         elif args.action in ("schema-export", "schema-check", "schema-hook-install"):
             {"schema-export": export_schema, "schema-check": check_schema,

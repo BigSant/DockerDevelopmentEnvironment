@@ -4,6 +4,13 @@ services:
     container_name: ${PROJECT_NAME}-${ENV}-mailpit-${MAILPIT_VERSION}
     profiles:
       - mailpit
+    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}

@@ -69,6 +69,14 @@ def plan_import(project, dump):
 
 def import_database(project, plan, backup=False):
     execute_sql(project, plan, first_is_dump=True, backup=backup)
+    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+        running = project.capture(['ps', '--status', 'running', '--services']).split()
+        if 'php-fpm' in running:
+            # A restored dump may bring back cache/mail settings from production.
+            # If PHP is stopped, its next startup performs this preparation instead.
+            project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'policy'])
+            project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
+            project.run(['restart', 'php-fpm'])
     print("Dump and after-import SQL completed.")
 
 
@@ -76,6 +84,15 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False):
     """Pre-open all inputs and serialize imports/fixtures with the same DB lock."""
     output = project.directory / ".generated"
     output.mkdir(mode=0o700, exist_ok=True)
+    if first_is_dump:
+        from project_storage import require_space
+        size = plan[0].stat().st_size
+        if plan[0].name.lower().endswith('.gz'):
+            size = 0
+            with gzip.open(plan[0], 'rb') as stream:
+                while block := stream.read(1024 * 1024): size += len(block)
+            require_space(project, output, size)
+        require_space(project, getattr(project, 'data_directory', output), 2 * size)
     lock_path = output / f"db-import.{project.environment}.lock"
     with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600), "r+") as lock:
         try:

@@ -2,6 +2,13 @@ services:
   webserver:
     image: webserver-nginx-${IMAGE_ENV:-${ENV}}-${NGINX_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-webserver-nginx-${NGINX_VERSION}
+    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
@@ -15,5 +22,7 @@ services:
       - php-fpm
     networks:
       - network_app
+    environment:
+      CACHE_MODE: ${CACHE_MODE:-off}
     volumes:
       - ${PROJECT_DIRECTORY}/app/:/var/www/html/

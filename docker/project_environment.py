@@ -79,6 +79,10 @@ def pull_images(project):
 
 
 def doctor(project):
+    from project_storage import require_space
+    from project_policy import validate_configuration
+    require_space(project, project.data_directory)
+    validate_configuration(project)
     engine = docker("info", "--format", "{{.ServerVersion}}")
     if engine.returncode:
         raise ValueError("Docker Engine is not available; start Docker first")

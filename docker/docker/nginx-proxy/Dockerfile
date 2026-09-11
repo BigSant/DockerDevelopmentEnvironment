@@ -6,7 +6,8 @@ ARG ENV=""
 COPY /docker/nginx-proxy/conf/nginx.conf      /etc/nginx/nginx.conf
 COPY /docker/nginx-proxy/conf/proxy_params    /etc/nginx/proxy_params
 COPY /docker/nginx-proxy/conf/sites.conf      /etc/nginx/conf.d/sites.conf
-COPY /docker/nginx-proxy/conf/sites.${ENV}.conf /etc/nginx/conf.d/sites_env.conf
+COPY /docker/nginx-proxy/conf/sites.pma.conf /etc/nginx/templates/setup-pma.conf
+COPY /docker/nginx-proxy/conf/sites.mailpit.conf /etc/nginx/templates/setup-mailpit.conf
 
 COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh
 RUN chmod +x /usr/local/bin/init.sh

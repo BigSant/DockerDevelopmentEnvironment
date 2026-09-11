@@ -22,6 +22,13 @@ services:
   php-fpm:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
+    mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     # Run as the host user so files written to the bind-mounted web dir are host-owned, not root.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
@@ -41,6 +48,16 @@ services:
     command: ["php-fpm", "-R"]
     environment:
       PROFILE: ${PROFILE-}
+      CACHE_MODE: ${CACHE_MODE-}
+      PHP_OPCACHE: ${PHP_OPCACHE-}
+      PHP_APCU: ${PHP_APCU-}
+      PHP_OPCACHE_VALIDATE_TIMESTAMPS: ${PHP_OPCACHE_VALIDATE_TIMESTAMPS-}
+      PHP_OPCACHE_REVALIDATE_FREQ: ${PHP_OPCACHE_REVALIDATE_FREQ-}
+      PS_SMARTY_CACHE: ${PS_SMARTY_CACHE-}
+      PS_SMARTY_COMPILE: ${PS_SMARTY_COMPILE-}
+      PS_ASSET_CACHE: ${PS_ASSET_CACHE-}
+      PS_OBJECT_CACHE: ${PS_OBJECT_CACHE-}
+      MAIL_MODE: ${MAIL_MODE-}
       PS_DEBUG_MODE: ${PS_DEBUG_MODE-}
       PS_DEBUG_IPS: ${PS_DEBUG_IPS-}
       DATABASE_HOST: ${APP_DATABASE_HOST:-database}
@@ -54,7 +71,7 @@ services:
       PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE:-20M}
       # Per-project PHP overrides: default conf.d first, then project.d (always),
       # then project.d.env (ENV-match) — last wins.
-      PHP_INI_SCAN_DIR: ":/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
+      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
     networks:
       - network_app
     extra_hosts:
@@ -72,4 +89,4 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 90s

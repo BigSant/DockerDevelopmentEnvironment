@@ -144,6 +144,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
                      "volumes": [{"type": "bind", "source": str(certificates),
                                   "target": "/etc/ssl/certs", "read_only": True}]}}}
             project = SimpleNamespace(name="example-local", env_files=[private],
+                                      directory=self.directory, data_directory=self.root / 'data', settings={},
                                       capture=lambda args: json.dumps(model))
             def available(*arguments):
                 output = "5.0.2" if arguments[:2] == ("compose", "version") else "29.2.1"

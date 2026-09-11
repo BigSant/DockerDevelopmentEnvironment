@@ -276,3 +276,7 @@ Elgsenos šaltiniai: [PS 1.6 debug konstantos ir klaidų valdymas](https://githu
 - Nuorodos į symlink hook failus atmetamos. PS updater taip pat saugo valdomus konfigūracijos/cache kelius nuo symlink.
 - Pakeitęs tik hook turinį, perkrauk PHP: paprastas nepakeisto Compose `up` nebūtinai sukelia naują startą.
 - Jei projekte perrašytas PHP `entrypoint`, įsitikink, kad jis iškviečia bendrą `/opt/setup/runtime/start.sh` arba sąmoningai turi visą reikalingą savo paruošimą.
+
+## Cache ir laiškų politika
+
+Dabartinis setup taip pat tvarko PS objektų cache parametrą bei pasirinktus Smarty/CSS/JS ir laiškų DB nustatymus. Visos taisyklės ir jų pirmenybė aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#kas-tiksliai-keičiama-prestashop). Kito framework aplikacijos cache išjungimą turi įgyvendinti projekto adapteris.

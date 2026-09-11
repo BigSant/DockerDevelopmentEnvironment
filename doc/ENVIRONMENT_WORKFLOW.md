@@ -130,3 +130,7 @@ from the test URL. Put test-specific after-import fixes in
 Fixtures do not erase previous data automatically. Use repeatable SQL or a known
 dump to reset test state. `make down ENV=test` removes test containers, preserving
 its data. No automatic command deletes the local database or shared application.
+
+## Independent cache and runtime policies
+
+`CACHE_MODE=auto|off|on` is independent of environment identity and optional service profiles. Local/test default to cache off; stage/prod default to on. `MAIL_MODE=auto` disables standard PS mail outside prod and preserves existing prod settings. Other frameworks need their project adapter for application cache/mail. See the [complete runtime guide](lt/12-cache-ir-hibridines-aplinkos.md) for overrides, Redis, preflight, resource limits and new daily commands.

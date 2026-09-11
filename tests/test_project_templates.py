@@ -145,6 +145,9 @@ class ProjectTemplatesTest(unittest.TestCase):
     def test_identical_makefile_supports_both_layouts(self):
         for name, layout in (("old", "legacy"), ("new", "root")):
             root, directory = self.prepare(name, layout)
+            parameters = root / 'app/public/app/config/parameters.php'
+            parameters.parent.mkdir(parents=True)
+            parameters.write_text("<?php return array('parameters' => array());")
             result = subprocess.run(["make", "-s", "-C", str(directory), "check",
                                      f"SETUP_DIRECTORY={ROOT}"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)

@@ -46,11 +46,11 @@ make db-import ENV=test file=/kelias/testams.sql.gz db-fixtures=test
 
 Testinę aplinką tikrink **po** jos HTTP konfigūracijos pritaikymo žemiau. Tuščia DB gali būti sveika kaip MySQL servisas, bet neturėti parduotuvės lentelių, todėl PS HTTP dar neveiks.
 
-### Dabartinio Apache testinės aplinkos HTTP išimtis
+### Testinės aplinkos HTTP ir ankstesnių šablonų suderinamumas
 
-`test-init` sukuria HTTP `SMOKE_URL` su testiniu portu. Bendro Apache šablonas visoms aplinkoms, kurių vardas ne `local`, įjungia HTTPS peradresavimo taisyklę. Todėl vien `ENV=test` gali duoti netinkamą peradresavimą – testinio HTTP adresas ir Apache elgesys turi sutapti.
+`test-init` sukuria HTTP `SMOKE_URL` su testiniu portu. Dabartinis setup su `ENV=test` parenka `HTTP_FORCE_HTTPS=off`, todėl papildomos Apache išimties nebereikia. Senesnėje v1.0.0 versijoje ne-local aplinkos būdavo automatiškai peradresuojamos į HTTPS.
 
-Paprastam vietiniam testavimui `compose/test.yaml` nurodyk, kad **Apache inicializatoriaus** režimas būtų vietinis:
+Tik jei vis dar naudoji seną Apache šabloną, ankstesnis suderinamumo variantas `compose/test.yaml` yra:
 
 ```yaml
 services:
@@ -64,7 +64,7 @@ services:
 
 Tai nekeičia runner `ENV=test`, jo DB, failų, tinklo ar portų. Pakeičiamas tik Apache elgesys, kad nebūtų automatinio prod tipo HTTP peradresavimo. PS DB domenas su portu sutvarkomas testiniu after-import SQL.
 
-Pilno grouped šablono Nginx vietinis atvaizdas taip pat turi Mailpit/phpMyAdmin virtualius hostus, nors `test-init` išjungia papildomus profilius. Tokiam projektui prie to paties `test.yaml` pridėk minimalaus Nginx starto bloką iš [pirmo paleidimo](02-pradzia.md). Forsenoje jis jau yra `common.yaml`, todėl jo kartoti nereikia.
+Dabartinis Nginx inicializatorius optional virtualius hostus parenka pagal tikrai įjungtus servisus. Kai Mailpit/phpMyAdmin išjungti, papildomo minimalaus starto bloko nebereikia.
 
 ```bash
 make check ENV=test
@@ -156,7 +156,7 @@ make doctor ENV=prod
 
 ### V1.0.0 grouped šablono papildomas /prod
 
-Runner jau nustato `${PROJECT_DATA_DIRECTORY}` į `<projektas>/data/prod`. Dabartinis `templates/grouped/compose/prod.yaml` kai kuriems servisams dar prideda `/prod`, todėl MySQL galutinis kelias tampa `data/prod/prod/mysql`.
+Runner nustato `${PROJECT_DATA_DIRECTORY}` į `<projektas>/data/prod`. Dabartinis `templates/grouped/compose/prod.yaml` to kelio nebedubliuoja. Senasis v1.0.0 šablonas pridėdavo dar `/prod`, todėl esamuose projektuose gali likti `data/prod/prod/mysql`.
 
 Naujam projektui, kuriame pakanka runner atskyrimo, savo `compose/prod.yaml` gali pakeisti į:
 
@@ -170,7 +170,7 @@ Arba palik tik reikalingus prod nustatymus ir keliuose naudok `${PROJECT_DATA_DI
 
 ### HTTPS peradresavimas, kai TLS užbaigia Nginx
 
-Dabartiniame bendro Apache `sites.conf` ne-local taisyklė nukreipia į HTTPS nepatikrinusi `X-Forwarded-Proto`. Jei Nginx jau priėmė HTTPS ir perdavė užklausą Apache per HTTP, gali susidaryti peradresavimo ciklas. Todėl vien `ENV=prod` nelaikyk baigtu HTTP paruošimu.
+Dabartinis bendras Apache tikrina `HTTP_FORCE_HTTPS` ir `X-Forwarded-Proto`, todėl Nginx jau priimto HTTPS iš naujo neperadresuoja. Senasis v1.0.0 šablonas galėjo sudaryti ciklą. Žemiau pateiktas atskiro projekto override vis dar tinka senam šablonui ar savarankiškai valdomam maršrutizavimui.
 
 Situacija: vieši portai yra standartiniai 80/443, TLS užbaigia šio setup Nginx, norime išvengti ciklo. Paruošk savo `config/apache/sites.conf.template`:
 

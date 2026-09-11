@@ -181,3 +181,7 @@ Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonu
 | Aplikacija po prod kelio pataisymo mato tuščią DB | Ar nepasikeitė tikras mount? | Grąžinti peržiūrėtą ankstesnį kelią, sustabdyti konkuruojančius procesus ir suplanuoti perkėlimą. |
 
 Jei kyla neaiškumas, pradėk nuo `make setup-info`, `make check`, `make ps` ir konkretaus serviso logų. `make config` naudok lokaliai tikriems keliams patikrinti. Nepradėk nuo DB katalogų trynimo ar visų Docker atvaizdų valymo – daugumai konfigūracijos klaidų to nereikia.
+
+## Papildomos kasdienės komandos
+
+`make restart`, `make logs service=php-fpm follow=1 tail=100`, `make composer`, `make cache-clear`, `make runtime-info` ir `make db-backup-prune` su pilnais pavyzdžiais aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#kasdienės-komandos-ir-preflight).

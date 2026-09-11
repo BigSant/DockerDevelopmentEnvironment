@@ -2,6 +2,13 @@ services:
   webserver:
     image: webserver-apache-${IMAGE_ENV:-${ENV}}-${APACHE_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-webserver-apache-${APACHE_VERSION}
+    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
@@ -11,6 +18,9 @@ services:
         PROFILE: ${PROFILE}
         APACHE_VERSION: ${APACHE_VERSION}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${ENV}'
+    environment:
+      HTTP_FORCE_HTTPS: ${HTTP_FORCE_HTTPS:-off}
+      CACHE_MODE: ${CACHE_MODE:-off}
     depends_on:
       php-fpm:
         condition: service_healthy

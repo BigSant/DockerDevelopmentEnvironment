@@ -7,6 +7,9 @@ try {
     if ($profile !== 'ps' && $profile !== 'prestashop') { echo "PrestaShop checks skipped for this profile.\n"; exit(0); }
     $root = isset($argv[2]) ? rtrim($argv[2], '/') : '/var/www/html';
     if (isset($argv[1]) && $argv[1] === 'check') checkPrestashop($root);
+    elseif (isset($argv[1]) && $argv[1] === 'validate') validatePrestashop($root, isset($argv[3]) ? $argv[3] : '/opt/setup/project');
+    elseif (isset($argv[1]) && $argv[1] === 'policy') applyPrestashopPolicy($root);
+    elseif (isset($argv[1]) && $argv[1] === 'cache-clear') clearPrestashopCache($root);
     else preparePrestashop($root, isset($argv[3]) ? $argv[3] : '/opt/setup/project');
 } catch (Exception $error) {
     fwrite(STDERR, 'PrestaShop setup: ' . ($error instanceof PrestashopSetupException ? $error->getMessage() : 'Configuration or database check failed; verify shop files and credentials.') . "\n");

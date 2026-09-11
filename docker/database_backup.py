@@ -22,6 +22,8 @@ def backup_database(project, destination=None):
     if target.exists() or target.is_symlink():
         raise ValueError('Backup destination already exists; choose a new file')
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    from project_storage import require_space
+    require_space(project, target.parent)
     command = project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', database]
     temporary = None
     try:

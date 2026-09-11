@@ -148,9 +148,15 @@ def initialize_test(project, refresh=False):
         if refresh:
             test = Project(project.directory, 'test', project.root)
             test.run(['stop'])
-        destination.mkdir(exist_ok=True)
         command = ['rsync', '-a', '--safe-links', '--delete', '--exclude=.git', '--exclude=node_modules',
                    '--exclude=/var/cache', '--exclude=/var/logs', '--exclude=/cache', str(source)+'/', str(destination)+'/']
+        from project_storage import require_space
+        preview = subprocess.run(command[:1] + ['--dry-run', '--stats'] + command[1:],
+                                 env={**os.environ, 'LC_ALL': 'C'}, capture_output=True, text=True, check=True)
+        size = re.search(r'^Total transferred file size: ([\d,]+) bytes', preview.stdout, re.M)
+        if not size: raise ValueError('Cannot estimate test checkout disk requirements from rsync')
+        require_space(project, destination, int(size[1].replace(',', '')))
+        destination.mkdir(exist_ok=True)
         try:
             subprocess.run(command, check=True)
         except BaseException:

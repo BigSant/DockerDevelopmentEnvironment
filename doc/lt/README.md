@@ -17,6 +17,7 @@
 | 9 | [Local, test, stage ir prod](09-aplinkos.md) | Atskirti kodą, DB, portus ir nustatymus; išvengti neteisingų kelių. |
 | 10 | [Kasdienis darbas, IDE ir atnaujinimai](10-kasdienis-darbas.md) | PhpStorm, Git/Bitbucket, bendro setup atnaujinimas ir grįžimas į ankstesnę versiją. |
 | 11 | [Komandos ir klaidų sprendimai](11-komandos-ir-klaidos.md) | Visos runner komandos, jų argumentai ir dažniausių klaidų sprendimai. |
+| 12 | [Cache ir hibridinės aplinkos](12-cache-ir-hibridines-aplinkos.md) | Cache, laiškai, Redis, konteinerių ribos ir papildomos komandos. |
 
 ## Kaip skaityti pavyzdžius
 
@@ -53,4 +54,4 @@ Katalogų pavadinimų skaičius nėra ribotas: gali pridėti savo `config/rabbit
 
 Forsenos keturių servisų aplinka jau pritaikyta minimaliai konfigūracijai. Bendras generatorius sukuria platesnį šabloną. Vadove aiškiai nurodyta, kuriuo variantu remiasi pavyzdys. Kopijuodamas pasirenkamus įrankius, jų neprivalai įjungti visiems projektams.
 
-Patikrintos vietinės nuorodos, shell/PHP/JavaScript/YAML/INI pavyzdžių sintaksė, Apache ir Nginx konfigūracijų sintaksė bei aprašytų minimalaus projekto, Redis, MariaDB, QA, testinės, prod ir papildomų UI servisų Compose variantų surinkimas. Aprašyti visi 71 bendrų env/interpoliavimo šaltinių raktai ir 30 runner veiksmų. Šios dokumentacijos patikros neįdiegė naujų aplikacijų, nevykdė verslo SQL tikrose DB ir neatstoja tavo aplikacijos priėmimo testų.
+Patikrintos vietinės nuorodos, shell/PHP/JavaScript/YAML/INI pavyzdžių sintaksė, Apache ir Nginx konfigūracijų sintaksė bei aprašytų minimalaus projekto, Redis, MariaDB, QA, testinės, prod ir papildomų UI servisų Compose variantų surinkimas. Aprašyti visi 94 bendrų env/interpoliavimo šaltinių raktai ir 35 runner veiksmų. Šios dokumentacijos patikros neįdiegė naujų aplikacijų, nevykdė verslo SQL tikrose DB ir neatstoja tavo aplikacijos priėmimo testų.

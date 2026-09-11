@@ -5,6 +5,7 @@
 class PrestashopSetupException extends RuntimeException
 {
 }
+require_once __DIR__ . '/prestashop-policy.php';
 
 function removePrestashopCache($path)
 {
@@ -69,6 +70,8 @@ function updatePrestashopParameters($root, $overrideFile = null)
         }
     }
     $values = array_merge($values, psEscapeParameters($overrides));
+    $objectCache = psObjectCacheValue();
+    if ($objectCache !== null) $values['ps_cache_enable'] = $objectCache;
     $changed = false;
     foreach ($values as $key => $value) {
         if (!array_key_exists($key, $config['parameters']) || $config['parameters'][$key] !== $value) {
@@ -302,7 +305,10 @@ function updateLegacyPrestashop($root, $overrideFile)
         if (array_key_exists($key, $overrides)) throw new PrestashopSetupException('Put database connection overrides in env, not settings.override.php.');
     }
     $source = file_get_contents($file);
-    $updated = psPatchDefines($source, array_merge($values, $overrides));
+    $values = array_merge($values, $overrides);
+    $objectCache = psObjectCacheValue();
+    if ($objectCache !== null) $values['_PS_CACHE_ENABLED_'] = $objectCache;
+    $updated = psPatchDefines($source, $values);
     if ($updated === $source) { echo "PrestaShop 1.6 settings already match.\n"; return; }
     $temporary = tempnam(dirname($file), '.setup-settings-');
     if ($temporary === false || dirname($temporary) !== dirname($file)) throw new PrestashopSetupException('Cannot write beside settings.inc.php.');
@@ -334,9 +340,70 @@ function preparePrestashop($root, $config)
     if ($profile !== 'ps' && $profile !== 'prestashop') return;
     // Reject an invalid debug policy before changing the shop's DB config.
     $debug = psDebugPlan($root);
+    psPolicyValues();
+    psObjectCacheValue();
     if (psLayout($root) === 'legacy') updateLegacyPrestashop($root, "$config/prestashop/settings.override.php");
     else updatePrestashopParameters($root, "$config/prestashop/parameters.override.php");
     updatePrestashopDebug($debug);
+    applyPrestashopPolicy($root);
+}
+
+function validatePrestashop($root, $config)
+{
+    psConnectionValues();
+    psDebugPlan($root);
+    psPolicyValues();
+    psObjectCacheValue();
+    $layout = psLayout($root);
+    $file = $layout === 'legacy' ? "$root/config/settings.inc.php" : "$root/app/config/parameters.php";
+    foreach (array($root, dirname(dirname($file)), dirname($file), $file) as $path) {
+        if (is_link($path)) throw new PrestashopSetupException('Refusing a symlink in a managed PrestaShop path.');
+    }
+    if ($layout === 'modern') {
+        $parameters = require $file;
+        if (!is_array($parameters) || !isset($parameters['parameters']) || !is_array($parameters['parameters'])) {
+            throw new PrestashopSetupException('Expected a parameters array in app/config/parameters.php.');
+        }
+        $extra = psOverrides("$config/prestashop/parameters.override.php");
+        foreach (array('host', 'port', 'name', 'user', 'password') as $key) {
+            if (array_key_exists('database_' . $key, $extra)) throw new PrestashopSetupException('Put database connection overrides in env.');
+        }
+    } else {
+        $extra = psOverrides("$config/prestashop/settings.override.php");
+        foreach ($extra as $key => $value) {
+            if (is_array($value) || in_array($key, array('_DB_SERVER_', '_DB_NAME_', '_DB_USER_', '_DB_PASSWD_'), true)) {
+                throw new PrestashopSetupException('Legacy overrides must be scalar and cannot override database connection constants.');
+            }
+        }
+        psPatchDefines(file_get_contents($file), array('_DB_SERVER_' => '', '_DB_NAME_' => '', '_DB_USER_' => '', '_DB_PASSWD_' => ''));
+    }
+    echo "PrestaShop configuration preflight: OK (no writes).\n";
+}
+
+function clearPrestashopCache($root)
+{
+    foreach (array($root, "$root/var", "$root/var/cache", "$root/cache", "$root/cache/smarty") as $path) {
+        if (is_link($path)) throw new PrestashopSetupException('Refusing a symlink in a managed PrestaShop cache path.');
+    }
+    if (psLayout($root) === 'modern') {
+        removePrestashopCache("$root/var/cache/dev");
+        removePrestashopCache("$root/var/cache/prod");
+    } else {
+        foreach (array('cache/smarty/cache', 'cache/smarty/compile', 'cache/cachefs') as $relative) {
+            $path = "$root/$relative";
+            if (is_link($path)) throw new PrestashopSetupException('Refusing a symlinked legacy cache root.');
+            if (!is_dir($path)) continue;
+            $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+            foreach ($entries as $entry) {
+                if (in_array($entry->getFilename(), array('index.php', '.htaccess'), true)) continue;
+                if ($entry->isDir() && !$entry->isLink()) { @rmdir($entry->getPathname()); }
+                elseif (!unlink($entry->getPathname())) throw new PrestashopSetupException('Cannot clear legacy cache.');
+            }
+        }
+        $index = "$root/cache/class_index.php";
+        if ((file_exists($index) || is_link($index)) && !unlink($index)) throw new PrestashopSetupException('Cannot clear class cache.');
+    }
+    echo "PrestaShop application cache cleared.\n";
 }
 
 function checkPrestashop($root)

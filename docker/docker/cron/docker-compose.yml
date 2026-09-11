@@ -23,11 +23,25 @@ services:
         condition: service_healthy
     networks:
       - network_app
+    mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     environment:
       # Match php-fpm so cron jobs run PHP with the same per-project overrides.
-      PHP_INI_SCAN_DIR: ":/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
+      CACHE_MODE: ${CACHE_MODE-}
+      PHP_OPCACHE: ${PHP_OPCACHE-}
+      PHP_APCU: ${PHP_APCU-}
+      PHP_OPCACHE_VALIDATE_TIMESTAMPS: ${PHP_OPCACHE_VALIDATE_TIMESTAMPS-}
+      PHP_OPCACHE_REVALIDATE_FREQ: ${PHP_OPCACHE_REVALIDATE_FREQ-}
+      MAIL_MODE: ${MAIL_MODE-}
+      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
     volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
       - ${PROJECT_WEB_DIRECTORY}:/var/www/html
       - ${PROJECT_CONFIG_DIRECTORY}/cron:/etc/cron.d:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/php/:/usr/local/etc/php/project.d/:ro

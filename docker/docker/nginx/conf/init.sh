@@ -1,4 +1,8 @@
 #!/bin/bash
+if [ "${CACHE_MODE:-off}" = off ]; then
+    sed -i -E 's/^[[:space:]]*open_file_cache[[:space:]].*/    open_file_cache off;/' /etc/nginx/nginx.conf
+    sed -i 's/expires 30d;/expires off; add_header Cache-Control "no-store" always;/' /etc/nginx/conf.d/sites.conf
+fi
 
 domain="$1"
 document_root="$2"

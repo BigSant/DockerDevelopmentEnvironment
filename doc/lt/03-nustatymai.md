@@ -216,3 +216,7 @@ services:
 4. Vykdyk `make check` ir `make up`.
 
 Vien env eilutė nėra automatinis perdavimas PHP. Šis aiškus prijungimas leidžia vienam projektui turėti savą konfigūraciją nekeičiant bendro setup.
+
+## Cache, resursų ir hibridinių aplinkų nustatymai
+
+Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#visi-šio-sluoksnio-nustatymai). Aplinkos vardas ir cache režimas parenkami nepriklausomai.

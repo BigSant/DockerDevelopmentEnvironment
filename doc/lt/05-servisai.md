@@ -225,13 +225,15 @@ services:
 
 ```conf
 bind 0.0.0.0
-protected-mode yes
+protected-mode no
 port 6379
 daemonize no
 logfile ""
 dir /data
 include /usr/local/etc/redis/environment/redis.conf
 ```
+
+Šiame pavyzdyje Redis prieinamas projekto `network_app` konteineriams, o `ports` nėra publikuojami į host. `protected-mode no` leidžia PHP konteineriui prisijungti be slaptažodžio, kaip [oficialaus Docker Redis atvaizdo numatytoje konfigūracijoje](https://hub.docker.com/_/redis). Tai nėra autentifikacija: prieš suteikdamas prieigą platesniam tinklui, prod/stage konfigūracijoje paruošk projekto ACL/slaptažodžius ir atitinkamus aplikacijos bei healthcheck prisijungimus. Žr. [Redis prieigos valdymą](https://redis.io/docs/latest/operate/oss_and_stack/management/security/).
 
 `config/redis/local/redis.conf`, kai Redis yra atkuriamas cache:
 
@@ -263,7 +265,7 @@ make up
 
 `make pull` atsisiunčia Redis. Aplikacijoje atskirai nustatyk `redis:6379`, pavyzdžiui perdavęs jai `REDIS_HOST=redis` per Compose environment. Patikrink `redis-cli ping` Redis konteineryje; atsakymas turi būti `PONG`.
 
-Jei naudoji nepakeistą grouped Redis šabloną, jo kelias yra `${PROJECT_DATA_DIRECTORY}/${ENV}/redis`, taigi vietoje `data/local/redis`. Aukščiau pateiktas savas variantas naudoja tiesiog `data/redis`. Vieno veikiančio projekto kelio nekeisk neperskaitęs jame esančių duomenų paskirties.
+Grouped Redis šablonas ir aukščiau pateiktas variantas naudoja `${PROJECT_DATA_DIRECTORY}/redis`: vietoje tai `data/redis`, kitoms aplinkoms runner jau parenka atskirą duomenų katalogą. Jei tavo senesnėje kopijoje yra papildomas `${ENV}`, prieš keisdamas kelią patikrink, kur saugomi esami duomenys.
 
 `ENV=test` reikės ir `config/redis/test/redis.conf`; vien `local` failo neužtenka, nes `include` ieško pasirinktos aplinkos failo.
 

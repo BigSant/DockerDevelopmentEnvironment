@@ -6,6 +6,8 @@ document_root="${2:-}"
 env="${3:-}"
 ssl_dir="/etc/ssl/certs"
 sites_conf="/usr/local/apache2/conf/sites.conf"
+export HTTP_FORCE_HTTPS="${HTTP_FORCE_HTTPS:-off}"
+case "$HTTP_FORCE_HTTPS" in on|off) ;; *) echo 'HTTP_FORCE_HTTPS must be on or off' >&2; exit 1 ;; esac
 
 # ── Validate required args ────────────────────────────────────────────────────
 if [[ -z "$domain" ]]; then

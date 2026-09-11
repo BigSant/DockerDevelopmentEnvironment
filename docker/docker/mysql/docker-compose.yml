@@ -2,6 +2,13 @@ services:
   database:
     image: mysql-${IMAGE_ENV:-${ENV}}-${MYSQL_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
+    mem_limit: ${DB_CONTAINER_MEMORY:-2g}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     # Defaults to the host user (files in data/mysql stay host-owned for local dev). For
     # prod/stage, pin a fixed service account by setting DATABASE_UID/DATABASE_GID in the

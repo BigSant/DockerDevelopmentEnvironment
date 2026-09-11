@@ -13,6 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: python3 -m unittest discover -s tests -v
+      - run: docker pull redis:7.4-alpine
+      - run: python3 -m unittest discover -s tests -p 'test_redis_integration.py' -v
+        env:
+          SETUP_REDIS_TEST_IMAGE: redis:7.4-alpine
   php-config:
     runs-on: ubuntu-24.04
     strategy:
@@ -38,8 +42,10 @@ jobs:
       - run: docker pull "$SETUP_DB_TEST_IMAGE"
         env:
           SETUP_DB_TEST_IMAGE: '${{ matrix.image }}'
+      - run: docker build -t setup-php-policy-test -f tests/fixtures/php-policy.Dockerfile .
       - run: python3 -m unittest discover -s tests -p 'test_database_*integration.py' -v
         env:
           SETUP_DB_TEST_IMAGE: '${{ matrix.image }}'
           SETUP_MYSQL_FIXTURES_INTEGRATION: '1'
           SETUP_MYSQL_SCHEMA_INTEGRATION: '1'
+          SETUP_PHP_DB_TEST_IMAGE: setup-php-policy-test
