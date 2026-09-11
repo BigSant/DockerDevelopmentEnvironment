@@ -3,6 +3,11 @@
 Practical guide for working with the local Docker environment. For *how it works
 internally*, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+For the current consolidated `env/` + `compose/` workflow, start with the
+[complete Lithuanian guide](lt/README.md). This older reference also covers
+`new_host.sh`, host-level Nginx and legacy Make commands; those steps are not
+required by every prepared project. The current runner requires Compose 2.24.4+.
+
 ## Prerequisites
 
 - Docker Compose with `include` support (2.20.3+; source workflow verified with 5.0.2)

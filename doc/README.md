@@ -1,6 +1,6 @@
 # Documentation
 
-Local Docker environment generator for per-project PHP (PrestaShop / Akeneo) stacks.
+Local Docker environment generator for per-project PHP (including PrestaShop and Akeneo) stacks.
 One central `setup/` repo provisions and orchestrates an isolated container stack for every
 project under `~/Projects/`.
 
@@ -8,6 +8,7 @@ project under `~/Projects/`.
 
 | File | Purpose | Audience |
 |---|---|---|
+| [Lietuviškas vadovas](lt/README.md) | Nuoseklus katalogų, visų setup nustatymų, komandų ir praktinių situacijų vadovas su paruošimo pavyzdžiais. | Pradedantysis / projekto kūrėjas |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the system works & where everything lives — structure, image model, build flow, profile system, config cascade, services, invariants. | LLM / maintainer |
 | [USAGE.md](USAGE.md) | Practical how-to: create a host, start/stop, import DB, select containers, override config per project, profiles, QA tools. | Developer |
 | [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) | Original project sources, batch preparation, private settings and migration from app/docker. | Developer / maintainer |
@@ -20,15 +21,13 @@ project under `~/Projects/`.
 
 ## Quick orientation
 
-- **Prepare reusable sources:** `python3 prepare_project.py ../project-one ../project-two`.
-- **Provision a host:** `./new_host.sh <domain>` (from repo root).
-- **Validate prepared sources:** `make check` in `~/Projects/<domain>/docker/`.
-- **Run prepared sources:** explicit `make build`, then `make up`; the legacy
-  `app/docker/Makefile` still combines those actions in `make up`.
-- **Pick containers:** `COMPOSE_PROFILES` in the project `.env.local` (default `mailpit,pma,cron`).
-- **Override container config:** drop files in `~/Projects/<domain>/app/docker/config/<service>/`
-  (and `…/<env>/` for env-specific). Config cascade, low → high:
-  `image base < profile < profile-env < project base < project-env`.
+- **Start with the current walkthrough:** [Lietuviškas vadovas](lt/README.md).
+- **Prepare sources beside application code:** `python3 prepare_project.py --layout app ../project-one`.
+- **Provision local settings:** `make bootstrap` from that project's `app/` directory.
+- **Validate / build / run:** `make check`, explicit `make build`, then `make up`.
+- **Pick optional services:** `COMPOSE_PROFILES` in `env/local.env`; the new grouped example explicitly selects core services with an empty value.
+- **Override container config:** `config/<service>/` and `config/<service>/<ENV>/` under the project's source directory; see service-specific include contexts in [the guide](lt/05-servisai.md).
+- **Historical host workflow:** `new_host.sh` and the old Makefiles remain separate; their `up` and DB commands are not interchangeable with `project.mk`.
 
 ## ⚠️ Maintenance rule
 

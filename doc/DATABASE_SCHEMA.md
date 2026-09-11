@@ -1,10 +1,10 @@
 # Table schema snapshots and a pre-commit check
 
 These commands belong to the reusable `docker/project.mk` runner. They support
-MySQL 8.0/8.4 and do not require Doctrine ORM mappings, so tables created by
-PrestaShop installation/upgrade SQL are included too. MySQL 8.4 is covered by
-the disposable-container integration test. MariaDB and other MySQL versions
-have not been verified.
+MySQL/MariaDB and do not require Doctrine ORM mappings, so tables created by
+PrestaShop installation/upgrade SQL are included too. The compatibility CI covers
+MySQL 5.7/8.4 and MariaDB 11.4 with disposable containers. See the
+[Lithuanian walkthrough](lt/07-duomenu-baze.md) for sequential examples.
 
 ## Configuration and first use
 

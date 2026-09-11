@@ -41,6 +41,10 @@ make up                                # build + start (local)
 
 ## Documentation
 
+**[Pilnas vadovas lietuviškai](doc/lt/README.md)** — nuo pirmo paleidimo iki katalogų,
+env ir servisų konfigūracijos, PS versijų, DB, fixtures, QA, testinių aplinkų ir IDE.
+Kiekviename praktiniame skyriuje pateikti failai, komandos ir rezultato patikra.
+
 See [`doc/`](doc/README.md):
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — how it works & structure (LLM / maintainer reference)
 - [doc/USAGE.md](doc/USAGE.md) — practical usage guide
