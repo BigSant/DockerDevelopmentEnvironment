@@ -4,10 +4,10 @@ Put numbered SQL files in `common/`, `local/` and `test/`. These directories are
 initially empty; add synthetic records appropriate to this application's schema.
 
 ```sh
-make fixtures-plan set=local
-make fixtures-load set=local
-make fixtures-load set=test ENV=local
-make db-import file=/path/to/dump.sql fixtures=local
+make db-fixtures-plan set=local
+make db-fixtures-load set=local
+make db-fixtures-load set=test ENV=local
+make db-import file=/path/to/dump.sql db-fixtures=local
 ```
 
 Common files run first, then the selected set, in filename order within each

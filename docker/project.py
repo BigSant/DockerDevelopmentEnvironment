@@ -143,13 +143,13 @@ def main():
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
-                                           "db-import", "db-import-plan", "fixtures-load", "fixtures-plan", "schema-export", "schema-check",
+                                           "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
     parser.add_argument("--dump", help="Plain .sql dump for db-import / db-import-plan")
-    parser.add_argument("--fixtures", help="Fixture set for fixtures-* or optional SQL after db-import hooks")
+    parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     args = parser.parse_args()
     try:
         if args.action in ("init", "ide-init"):
@@ -184,18 +184,18 @@ def main():
              "schema-hook-install": install_schema_hook}[args.action](project)
         elif args.action in ("db-import", "db-import-plan"):
             plan = plan_import(project, args.dump)
-            if args.fixtures is not None:
-                plan += plan_fixtures(project, args.fixtures)
+            if args.db_fixtures is not None:
+                plan += plan_fixtures(project, args.db_fixtures)
             if args.action == "db-import-plan":
                 print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}")
                 for step in plan:
                     print(step)
             else:
                 import_database(project, plan)
-        elif args.action in ("fixtures-load", "fixtures-plan"):
-            plan = plan_fixtures(project, args.fixtures)
-            print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.fixtures}")
-            if args.action == "fixtures-plan":
+        elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
+            plan = plan_fixtures(project, args.db_fixtures)
+            print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")
+            if args.action == "db-fixtures-plan":
                 for step in plan:
                     print(step)
                 if not plan:

@@ -109,7 +109,7 @@ including compiled containers and legacy parameter caches. Unchanged restarts
 preserve the warmed cache. Invalid settings fail startup before PHP-FPM runs.
 See [PrestaShop runtime parameters](PRESTASHOP_PARAMETERS.md).
 
-`database_fixtures.py` implements `fixtures-plan` and `fixtures-load`. The project
+`database_fixtures.py` implements `db-fixtures-plan` and `db-fixtures-load`. The project
 sets `FIXTURES_DIRECTORY` relative to its root and explicitly selects a data set
 (`set=local`, `set=test`, or another directory name), independently of Docker
 `ENV`. The plan is ordered `common/*.sql` followed by `<set>/*.sql`; absent sets
@@ -126,7 +126,7 @@ an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
 `POST_IMPORT_SQL_DIRECTORY`. It preflights all inputs, selects `common/*.sql`
 followed by `<environment>/*.sql` in filename order, and rejects hooks escaping
 the configured directory. Planning prints paths without touching the DB.
-An optional `fixtures=<set>` appends the fixture plan after these hooks, validates
+An optional `db-fixtures=<set>` appends the fixture plan after these hooks, validates
 it before starting the dump, and executes everything under one lock. Without that
 explicit option, imports retain their existing behavior.
 Import holds a nonblocking project/environment lock under `.generated/` and

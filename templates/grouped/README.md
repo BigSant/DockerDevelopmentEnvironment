@@ -26,8 +26,8 @@ mounts/SCHEMA_DIRECTORY accordingly. Hooks are never enabled by preparation.
 
 After-import hooks live in database/sql/after-import/{common,local,prod}/.
 Fixture data lives separately in database/fixtures/{common,local,test}/.
-Use `make fixtures-plan set=local` and `make fixtures-load set=local`, or append
-`fixtures=local` to `make db-import file=...`. The set selects data independently
+Use `make db-fixtures-plan set=local` and `make db-fixtures-load set=local`, or append
+`db-fixtures=local` to `make db-import file=...`. The set selects data independently
 of Docker `ENV`; it does not create an isolated test database.
 make db-import-plan file=/path/dump.sql previews; make db-import imports explicitly.
 Hook SQL may use the validated ${DOMAIN} placeholder. Schema snapshots do not

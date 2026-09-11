@@ -30,14 +30,18 @@ Additional sets can be introduced by creating a directory such as `demo/`.
 is allowed. If both groups have no SQL files, loading is a no-op.
 
 ```sh
-make fixtures-plan set=local
-make fixtures-load set=local
-make fixtures-load set=test ENV=local
+make db-fixtures-plan set=local
+make db-fixtures-load set=local
+make db-fixtures-load set=test ENV=local
 
 # Optional fixtures after dump + normal after-import SQL:
-make db-import-plan file=/path/to/dump.sql fixtures=local
-make db-import file=/path/to/dump.sql fixtures=local
+make db-import-plan file=/path/to/dump.sql db-fixtures=local
+make db-import file=/path/to/dump.sql db-fixtures=local
 ```
+
+The previous `fixtures-plan` / `fixtures-load` names have been replaced with
+`db-fixtures-plan` / `db-fixtures-load`. Imports reject the old `fixtures=...`
+option before running SQL; use `db-fixtures=...`.
 
 `set` chooses data; `ENV` chooses the existing Docker stack/database. `set=test`
 does not create a test database, change DB credentials, or isolate data from the
