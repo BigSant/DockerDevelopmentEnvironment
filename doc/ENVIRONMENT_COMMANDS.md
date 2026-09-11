@@ -16,6 +16,8 @@ and `PROFILES=...` select the same environment and services as `make up`.
 | `make test-init` | Creates independent test env, code and data paths. |
 | `make db-prepare ENV=test` | Starts only the test DB before its initial import. |
 | `make db-backup` | Creates a private `.generated/backups/*.sql.gz` logical backup. |
+| `make doctrine-build` | Builds only the optional Doctrine tool with its own PHP version. |
+| `make doctrine-diff [ref=HEAD]` | Generates a reviewable Doctrine migration from committed schema to the local DB using an isolated comparison database. |
 | `make setup-info` | Reports shared setup version, API and Git revision. |
 
 `init` preserves existing files, never creates an application checkout, and does
@@ -60,3 +62,5 @@ Production examples separate data directories but do not establish deployment
 policy, database durability/grants, secret delivery or immutable app images.
 
 See [the complete runtime workflow](ENVIRONMENT_WORKFLOW.md) for bootstrap, test isolation and per-project startup/configuration hooks.
+
+For initial baseline, migration review and deployment, see [automatic Doctrine generation](DATABASE_MIGRATIONS.md).

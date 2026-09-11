@@ -123,3 +123,6 @@ readiness without making application HTTP requests. `make db-backup` and compres
 imports support DB workflows; `make test-init` prepares independent test app/data
 paths. See [runtime workflow](doc/ENVIRONMENT_WORKFLOW.md) and
 [setup releases](doc/RELEASES.md) before adopting changed stage/prod paths.
+
+`make doctrine-diff` optionally generates a Doctrine migration from the committed
+schema and the current local DB without ORM mappings. See [setup, review and deployment](doc/DATABASE_MIGRATIONS.md).

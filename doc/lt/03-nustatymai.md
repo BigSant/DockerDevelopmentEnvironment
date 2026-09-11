@@ -218,3 +218,5 @@ Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 sk
 Naujai kuriamo projekto `env/common.env` yra tik `PROJECT_NAME`. Privačiame env iš pradžių yra tik
 `DOMAIN` ir trys DB prisijungimų reikšmės. Portus įrašo `make bootstrap`.
 Atvaizdų žymos pagal build konfigūraciją apskaičiuojamos automatiškai.
+
+`DOCTRINE_PHP_VERSION`: pasirinktinio Doctrine įrankio PHP versija, numatyta `8.3`. Ji nepriklauso nuo aplikacijos `PHP_VERSION`; DBAL 4 reikia PHP 8.2 arba naujesnio. Keičiant įrankio versiją perstatyk `make doctrine-build`.

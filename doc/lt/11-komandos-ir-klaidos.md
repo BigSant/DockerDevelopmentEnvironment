@@ -40,6 +40,8 @@ Komandas vykdyk kataloge su projekto Makefile. Numatyta aplinka `local`. `make h
 | `make phpstan-baseline` | Sugeneruoja baseline į nurodytą konteinerio kelią | Reikia writable mount ir vėlesnės Git peržiūros. |
 | `make phpcs` | Pagal nutylėjimą tikrina formatavimą | `cmd=fix` ir `dir-fix` keičia aplikacijos failus. |
 | `make e2e` | Vienkartiniame Playwright konteineryje vykdo testus | Reikia veikiančios/paruoštos aplikacijos ir, kai būtina, fixtures. |
+| `make doctrine-build` | Sukuria tik Doctrine įrankio atvaizdą | Neperstato aplikacijos PHP ir DB. |
+| `make doctrine-diff` | Sugeneruoja migraciją iš Git schemos ir vietinės DB skirtumo | Tik ENV=local; `ref=HEAD` pagal nutylėjimą. Projekto DB nekeičia. |
 | `make doctrine` | Pagal nutylėjimą rodo migracijų statusą | Reikia pasirinktinio Doctrine prijungimo; `cmd=migrate` keičia DB. |
 
 ## Make argumentai
@@ -99,6 +101,7 @@ Visos CLI parinktys:
 | `--backup` | Kopija prieš importą. |
 | `--output` | Naujas backup failas. |
 | `--refresh-test` | Sustabdyti ir atnaujinti testinę aplikacijos kopiją. |
+| `--ref` | `doctrine-diff` schemos Git taškas; numatyta `HEAD`. Make: `ref=v1.2.0`. |
 | `--timeout` | Teigiamas sekundžių skaičius; numatyta 90. Naudojamas up/db-prepare/restart. |
 | `--docker-server` | IDE Docker ryšio vardas. |
 | `--ide-config-directory` | IDE config paieškos vieta. |

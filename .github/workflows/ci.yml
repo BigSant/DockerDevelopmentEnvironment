@@ -43,9 +43,11 @@ jobs:
         env:
           SETUP_DB_TEST_IMAGE: '${{ matrix.image }}'
       - run: docker build -t setup-php-policy-test -f tests/fixtures/php-policy.Dockerfile .
+      - run: docker build -t setup-doctrine-diff-test --build-arg PHP_VERSION=8.3 --build-arg COMPOSER_VERSION=2.7.6 --build-arg DOCTRINE_MIGRATIONS_VERSION=3.8 -f docker/docker/php-doctrine-migrations/Dockerfile docker
       - run: python3 -m unittest discover -s tests -p 'test_database_*integration.py' -v
         env:
           SETUP_DB_TEST_IMAGE: '${{ matrix.image }}'
           SETUP_MYSQL_FIXTURES_INTEGRATION: '1'
           SETUP_MYSQL_SCHEMA_INTEGRATION: '1'
           SETUP_PHP_DB_TEST_IMAGE: setup-php-policy-test
+          SETUP_DOCTRINE_TEST_IMAGE: setup-doctrine-diff-test

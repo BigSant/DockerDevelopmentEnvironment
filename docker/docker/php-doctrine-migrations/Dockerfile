@@ -20,12 +20,13 @@ RUN docker-php-ext-install pdo_mysql
 
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 
+ENV COMPOSER_HOME=/opt/doctrine
+ENV PATH="/opt/doctrine/vendor/bin:${PATH}"
+
 RUN composer global require \
     doctrine/migrations:^${DOCTRINE_MIGRATIONS_VERSION} \
-    doctrine/dbal \
+    'doctrine/dbal:^4.3' \
     && composer clear-cache
-
-ENV PATH="/root/.composer/vendor/bin:${PATH}"
 
 # Store doctrine-migrations.php template outside the mount path
 RUN mkdir -p /opt/doctrine-migrations /tmp/doctrine-migrations/config/ /tmp/doctrine-migrations/cache/ \
@@ -69,6 +70,7 @@ COPY /docker/php-doctrine-migrations/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 COPY /docker/php-doctrine-migrations/Makefile /doctrine-migrations/Makefile
+COPY /docker/php-doctrine-migrations/schema-diff.php /opt/doctrine/schema-diff.php
 WORKDIR /doctrine-migrations
 
 FROM base AS env-local

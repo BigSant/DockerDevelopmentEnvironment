@@ -6,7 +6,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh db-backup db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
-.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine db-import db-import-plan schema-export schema-check schema-hook-install restart composer cache-clear db-backup-prune runtime-info
+.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
 quote = '$(subst ','"'"',$(1))'
@@ -24,6 +24,8 @@ help:
 	@echo 'composer [cmd="install"]: run Composer; db-backup-prune [apply=1]: preview / prune old backups'
 	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|test|stage|prod; PROFILES= selects core only'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
+	@echo 'doctrine-build: build only the optional migration tool, independently of application PHP'
+	@echo 'doctrine-diff [ref=HEAD]: generate a migration from committed schema to the local DB'
 	@echo 'db-import-plan file=dump.sql: preview; db-import file=dump.sql: import then run SQL hooks'
 	@echo 'db-fixtures-plan / db-fixtures-load set=local|test: preview / load common + selected SQL fixtures'
 	@echo 'db-import file=dump.sql db-fixtures=local: append fixtures after the import hooks'
@@ -32,7 +34,7 @@ help:
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: enable pre-commit schema-check in the schema repository'
 
-init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install bootstrap setup-info db-prepare cache-clear runtime-info:
+init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install bootstrap setup-info db-prepare cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:
@@ -52,6 +54,9 @@ ide-init:
 
 phpstan phpcs e2e doctrine:
 	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),)
+
+doctrine-diff:
+	@$(RUN_PROJECT) $@ $(if $(ref),--ref $(call quote,$(ref)),)
 
 db-import db-import-plan:
 	$(if $(filter undefined,$(origin fixtures)),,$(error Use db-fixtures=SET instead of fixtures=SET))

@@ -251,7 +251,7 @@ return array(
 
 ```bash
 make init
-make build PROFILES=doctrine
+make doctrine-build
 make db-prepare
 make doctrine cmd=status
 make doctrine cmd=generate
@@ -274,6 +274,123 @@ git add -A database/schema database/doctrine
 make schema-check
 ```
 
-`generate` sukuria karkasą, o ne perskaito PS ir išgalvoja visas migracijas. `diff` reikia tavo aplikacijos ORM mapping ir schema provider. Įprastas PS, kurio moduliai patys vykdo SQL, to automatiškai neturi. Schema-export leidžia užfiksuoti esamą rezultatą net be Doctrine.
+`generate` sukuria karkasą, o ne perskaito PS ir išgalvoja visas migracijas. `diff` reikia tavo aplikacijos ORM mapping ir schema provider. Įprastas PS, kurio moduliai patys vykdo SQL, to automatiškai neturi. Schema-export leidžia užfiksuoti esamą rezultatą net be Doctrine. Automatinį skirtumo surinkimą be ORM suteikia žemiau aprašyta `make doctrine-diff` komanda.
 
 Doctrine įrankis gali sukurti root savininko failus, priklausomai nuo jo vartotojo. Sugeneruotų failų savininką patikrink prieš commitą. Testinėje aplinkoje writable migracijų katalogą reikia laikyti jos atskiroje vietoje; shared `database/doctrine` mount turi būti read-only, jei tik vykdai jau parašytas migracijas.
+
+## H. Automatiškai surinkti DB pakeitimus be ORM
+
+Situacija: vietoje modulis pridėjo lauką arba pats pakeitei lentelę. Nori gauti
+Doctrine migraciją, kuri tą patį pakeitimą vėliau pritaikys STAGE ir LIVE.
+`make doctrine-diff` palygina **Git commitą** su **dabartine vietine DB**. Atskirų
+STAGE ir LIVE schemos medžių nereikia: schema ir migracijos keliauja su kodo versija.
+
+Įrankis pasirenkamas vienam projektui. Naujo projekto generatorius jo neprideda.
+Iš projekto `app` katalogo pasiruošk:
+
+```bash
+mkdir -p compose database/doctrine/versions
+cp ../../setup/templates/grouped/compose/doctrine.yaml compose/doctrine.yaml
+cp ../../setup/templates/grouped/database/doctrine/connection.php database/doctrine/
+cp ../../setup/templates/grouped/database/doctrine/migrations.php database/doctrine/
+```
+
+Į `env/common.env` įrašyk šias reikšmes. Jei papildomų YAML jau yra, papildyk esamą
+sąrašą, jo neperrašyk:
+
+```dotenv
+SCHEMA_DIRECTORY=app/database/schema
+PROJECT_COMPOSE_FILES=compose/doctrine.yaml
+```
+
+Schema ir Doctrine failai turi priklausyti tai pačiai Git repozitorijai. Jei kodas
+yra atskiroje `app/public` repozitorijoje, perkelk abu katalogus į ją ir atitinkamai
+pakeisk `SCHEMA_DIRECTORY` bei Doctrine YAML konfigūracijos prijungimo šaltinį.
+Doctrine katalogas aptinkamas pagal serviso mount, todėl naujo env kelio nereikia.
+`migrations.php` turi nurodyti vieną namespace ir migracijų katalogą savo viduje.
+Šis failas turi veikti savarankiškai: palyginimo konteineriui perduodamas tik jis,
+be `connection.php` ar kitų projekto failų.
+
+**Pirmą kartą, dar prieš DB pakeitimus:**
+
+```bash
+make doctrine-build
+make doctrine cmd=sync-metadata-storage
+make schema-export
+git add database/schema database/doctrine compose/doctrine.yaml env/common.env
+git commit -m "Record initial schema and Doctrine configuration"
+```
+
+`sync-metadata-storage` paruošia Doctrine įvykdytų migracijų lentelę vietinėje DB.
+Įrankis naudoja atskirą PHP 8.3, todėl aplikacija gali toliau naudoti savo PHP versiją,
+įskaitant seną PrestaShop. Neįrašius pradinės schemos į Git, ankstesnės būsenos
+įrankis negali atspėti ir migracijos negeneruos.
+
+**Kai vietinė DB jau pakeista:**
+
+```bash
+make doctrine-diff
+```
+
+Numatyta pradinė schema imama iš `HEAD`, net jei schema jau eksportuota į darbo
+katalogą ar pridėta per `git add`. Jei sąmoningai reikia kito Git taško:
+
+```bash
+make doctrine-diff ref=v1.2.0
+```
+
+Rezultatas – `database/doctrine/versions/Version<laikas>.php`. Pavyzdžiui, pridėjus
+`supplier_code`, jo `up()` turės atitinkamą `ALTER TABLE ... ADD ...`.
+Komanda projekto DB nekeičia, schemos neeksportuoja ir failų į Git neprideda.
+Pakartojus su tais pačiais duomenimis grąžinamas jau sukurtas failas. Jei yra kita
+necommitinta migracija, naujas persidengiantis pakeitimas negeneruojamas: pirmą
+migraciją commitink su jos schema arba sąmoningai pašalink keičiamą juodraštį ir
+sugeneruok bendrą pakeitimą iš naujo. Tas pats galioja pasirinkus senesnį Git tašką,
+nuo kurio jau pridėta kitų migracijų.
+
+**Peržiūra ir commitas:**
+
+Vietinė DB jau turi tavo rankomis ar modulio atliktą pakeitimą. Todėl tos pačios
+migracijos ten dar kartą nevykdyk. Peržiūrėjęs SQL, pažymėk tik šią migraciją kaip
+įvykdytą lokaliai. Pavyzdyje klasę pakeisk į tikrą sugeneruoto failo klasę:
+
+```bash
+make doctrine cmd='version "DoctrineMigrations\Version20260911203000000000" --add --no-interaction'
+make schema-export
+git add database/schema database/doctrine/versions
+# Toje pačioje repozitorijoje pridėk ir susijusius aplikacijos kodo failus.
+make schema-check
+git commit -m "Add supplier code and its migration"
+```
+
+**STAGE ir LIVE:** įdiek tą patį patikrintą kodą, schemą ir migraciją. Šiose DB
+migracijos nežymėk kaip jau įvykdytos – ją reikia realiai įvykdyti:
+
+```bash
+make doctrine ENV=stage cmd='migrate --dry-run'
+make doctrine ENV=stage cmd='migrate --no-interaction'
+# Po testavimo ir įprastos LIVE atsarginės kopijos bei diegimo procedūros:
+make doctrine ENV=prod cmd='migrate --dry-run'
+make doctrine ENV=prod cmd='migrate --no-interaction'
+```
+
+`ENV=prod` parenka šio Docker konteksto Compose aplinką; tai savaime neprisijungia
+prie nuotolinio LIVE serverio. Komandas vykdyk teisingame diegimo kontekste.
+Doctrine kiekvienoje DB seka įvykdytas migracijas. Jei lentelę jau keičia PrestaShop
+modulio upgrade skriptas, pasirink vieną pakeitimo vykdytoją – to paties ALTER
+nedubliuok ir modulyje, ir Doctrine migracijoje.
+
+Generavimas patikrinamas laikinoje DB: į ją atkuriamos abi schemos, Doctrine DBAL
+sugeneruoja SQL, SQL įvykdomas senos schemos kopijoje ir rezultatas palyginamas su
+norima struktūra. Nepalaikomi ar nepilnai atkurti skirtumai baigiasi klaida, o ne
+nepilna migracija. Laikini konteineriai pašalinami; jie nenaudoja projekto duomenų,
+prisijungimų, tinklo ar init skriptų. Kiekvienam skiriama iki 512 MiB atminties.
+
+Ši patikra naudoja tuščias lenteles. Ji nepatvirtina, kad LIVE duomenys atitiks naują
+UNIQUE, NOT NULL ar siauresnį tipą. Migraciją išbandyk su senos DB kopija ir duomenimis.
+Stulpelių pervadinimus, trynimus bei duomenų perkėlimą peržiūrėk pats. `down()`
+automatiškai nenaikina duomenų – atšaukimą reikia parašyti ir išbandyti atskirai.
+
+Apimamos bazinės lentelės, kaip ir `schema-export`. Views, triggers, procedures,
+functions, events ir duomenų eilutės į šį palyginimą nepatenka. Doctrine migracijų
+istorijos lentelė ignoruojama. [Techninė eiga ir apribojimai](../DATABASE_MIGRATIONS.md).

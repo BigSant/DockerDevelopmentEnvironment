@@ -189,19 +189,20 @@ def main():
     parser.add_argument("--env", choices=["local", "stage", "prod", "test"], default="local")
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
-                                           "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
+                                           "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "cache-clear", "db-backup-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
+    parser.add_argument("--ref", default="HEAD", help="Committed schema baseline for doctrine-diff (default: HEAD)")
     parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     parser.add_argument('--backup', action='store_true', help='Create a private backup before importing')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
-    parser.add_argument('--timeout', type=int, default=90, help='Readiness/HTTP timeout in seconds')
+    parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
     parser.add_argument('--service', help='One enabled service for logs/restart')
     parser.add_argument('--follow', action='store_true')
     parser.add_argument('--tail', type=int, default=100)
@@ -296,6 +297,11 @@ def main():
             project.run(["run", "--rm", "--no-deps", "--entrypoint", "phpstan", "php-phpstan",
                          "analyse", "--configuration=/tmp/phpstan/config/phpstan.neon",
                          f"--generate-baseline={baseline}", "--allow-empty-baseline"], profiles="phpstan")
+        elif args.action == "doctrine-build":
+            project.run(["build", "php-doctrine-migrations"], profiles="doctrine")
+        elif args.action == "doctrine-diff":
+            from database_migrations import generate_migration
+            generate_migration(project, args.ref)
         elif args.action == "doctrine":
             arguments = shlex.split(args.command or "status")
             project.run(["run", "--rm", "--no-deps", "php-doctrine-migrations"] + arguments, profiles="doctrine")

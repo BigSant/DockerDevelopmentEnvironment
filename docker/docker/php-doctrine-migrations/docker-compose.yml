@@ -1,7 +1,7 @@
 services:
   php-doctrine-migrations:
-    image: php-doctrine-migrations-${PHP_VERSION}-${DOCTRINE_MIGRATIONS_VERSION}${SETUP_IMAGE_SUFFIX:-}
-    container_name: ${PROJECT_NAME}-${ENV}-php-doctrine-migrations-${PHP_VERSION}-${DOCTRINE_MIGRATIONS_VERSION}
+    image: php-doctrine-migrations-${DOCTRINE_PHP_VERSION:-8.3}-${DOCTRINE_MIGRATIONS_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    container_name: ${PROJECT_NAME}-${ENV}-php-doctrine-migrations-${DOCTRINE_PHP_VERSION:-8.3}-${DOCTRINE_MIGRATIONS_VERSION}
     restart: no
     entrypoint: ["tail", "-f", "/dev/null"]
     mem_limit: 512m
@@ -10,7 +10,7 @@ services:
       dockerfile: ${ROOT_DIRECTORY}/docker/php-doctrine-migrations/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
       args:
-        PHP_VERSION: ${PHP_VERSION}
+        PHP_VERSION: ${DOCTRINE_PHP_VERSION:-8.3}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
         DOCTRINE_MIGRATIONS_VERSION: ${DOCTRINE_MIGRATIONS_VERSION}
     depends_on:

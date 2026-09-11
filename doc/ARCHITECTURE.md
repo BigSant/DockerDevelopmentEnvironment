@@ -588,3 +588,23 @@ via env at that point; do not commit a password.)
 
 The host port allocator also scans `app/env/local.env` and `app/.env.local`,
 so consolidated projects reserve their ports for host provisioning and new projects.
+
+## Doctrine diff from committed schema
+
+`database_migrations.py` implements opt-in `make doctrine-diff [ref=HEAD]` for local
+DBs. It resolves the snapshot repository's immutable commit, validates the manifest,
+and reads live table DDL. `schema-diff.php` in the Doctrine image compares two
+restored schemas using DBAL 4 and verifies generated SQL in a disposable database.
+The DB uses the running database image ID, no network/project mounts/init scripts,
+and temporary storage. Only the worker shares its network namespace. The worker
+receives exported DDL and a read-only `migrations.php` mount, not a connection file
+or live DB credentials. This config must be self-contained.
+Neither the canonical schema nor the Git index is changed. Only a reviewed-by-user
+migration file is to be committed afterward; generation does not constitute review.
+Uncommitted/divergent migration files block overlap; identical input reuses its file.
+Both schema and migrations must be in one Git repository. The Doctrine metadata
+table is excluded. Failed DDL roundtrip verification refuses to produce a migration.
+The optional tool uses `DOCTRINE_PHP_VERSION` (default 8.3), independently of app PHP,
+and its Composer home is `/opt/doctrine`. Minimal project creation adds nothing.
+See [the operational workflow](DATABASE_MIGRATIONS.md), including local version
+registration after a manual DDL change and the limitation to base tables.

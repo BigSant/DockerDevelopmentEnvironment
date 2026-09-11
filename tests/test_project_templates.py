@@ -192,6 +192,7 @@ class ProjectTemplatesTest(unittest.TestCase):
             "PHPSTAN_BASELINE_FILE=/tmp/phpstan/baselines/phpstan.neon\n"
             "PLAYWRIGHT_COMMAND=npx playwright test --config=/e2e/config/playwright.config.cjs\n"))
         cases = [
+            ("doctrine-build", [], ["build", "php-doctrine-migrations"], "doctrine"),
             ("phpstan-baseline", [], ["run", "--rm", "--no-deps", "--entrypoint", "phpstan", "php-phpstan",
                                     "analyse", "--configuration=/tmp/phpstan/config/phpstan.neon",
                                     "--generate-baseline=/tmp/phpstan/baselines/phpstan.neon",
