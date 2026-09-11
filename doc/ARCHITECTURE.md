@@ -74,6 +74,14 @@ files. There is no implicit drop/create, transaction rollback, migration run,
 compressed-dump support or retry. Arbitrary dump/SQL content executes with the
 DB user's privileges; the caller must choose a dump for the configured DB.
 
+After-import hook SQL may contain the literal `${DOMAIN}` marker. It is
+replaced using the Compose-resolved `DOMAIN`, validated as a hostname
+with an optional port. This preserves legacy project domain resets without
+shell evaluation or general dotenv interpolation. Validation/rendering happens
+before the first DB write. Rendered hook inputs use private temporary file
+descriptors under `.generated/`, closed/removed when the import ends. Dump
+bytes and on-disk hook sources are unchanged.
+
 Projects can relocate QA and schema inputs using ordinary Compose volume
 overrides. `PHPSTAN_BASELINE_FILE` selects a mounted container path for the
 explicit `phpstan-baseline` target; regular analysis does not rewrite it.

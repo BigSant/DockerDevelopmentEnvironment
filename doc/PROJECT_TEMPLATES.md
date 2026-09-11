@@ -183,6 +183,9 @@ Only explicit `db-import` invokes these hooks, not container startup or other
 import tools. The command does not create/drop the DB itself or run Doctrine
 migrations. Dump files should stay outside Git. Only plain `.sql` is supported.
 Hooks may run again on a later import, so prefer statements safe to repeat.
+Hook SQL can use `${DOMAIN}` for a domain reset after importing a production
+dump. The runner substitutes a validated hostname from the selected env file
+in private temporary inputs; it does not evaluate shell expressions or interpolate the dump.
 
 ## Automated validation
 

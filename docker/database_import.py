@@ -4,7 +4,9 @@ from contextlib import ExitStack
 import fcntl
 import os
 from pathlib import Path
+import re
 import subprocess
+import tempfile
 
 
 MYSQL_IMPORT = '''
@@ -15,6 +17,17 @@ if [ "$MYSQL_DATABASE" != "$1" ]; then
 fi
 MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --binary-mode --get-server-public-key --user="$MYSQL_USER" --database="$1"
 '''
+
+
+def render_hook(project, path):
+    contents = path.read_bytes()
+    if b"${DOMAIN}" in contents:
+        domain = project.settings.get("DOMAIN", "")
+        # Only a domain/optional port is accepted, never shell or SQL syntax.
+        if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", domain):
+            raise ValueError("SQL hooks using ${DOMAIN} require a valid DOMAIN hostname")
+        contents = contents.replace(b"${DOMAIN}", domain.encode("ascii"))
+    return contents
 
 
 def plan_import(project, dump):
@@ -43,6 +56,8 @@ def plan_import(project, dump):
     for path in plan:
         with path.open("rb"):
             pass
+    for path in hooks:
+        render_hook(project, path)
     return plan
 
 
@@ -56,7 +71,17 @@ def import_database(project, plan):
         except BlockingIOError as error:
             raise ValueError("An import for this project/environment is already running") from error
         with ExitStack() as stack:
-            inputs = [(path, stack.enter_context(path.open("rb"))) for path in plan]
+            inputs = []
+            for index, path in enumerate(plan):
+                if index == 0:
+                    handle = stack.enter_context(path.open("rb"))
+                else:
+                    # subprocess stdin requires a real file descriptor. Keep rendered SQL
+                    # in a private temporary file inside this repository, never in sources.
+                    handle = stack.enter_context(tempfile.TemporaryFile(dir=output))
+                    handle.write(render_hook(project, path))
+                    handle.seek(0)
+                inputs.append((path, handle))
             command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_IMPORT,
                                          "database-import", project.settings["DATABASE_NAME"]]
             for index, (path, handle) in enumerate(inputs):

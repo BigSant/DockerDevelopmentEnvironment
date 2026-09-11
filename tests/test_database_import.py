@@ -102,6 +102,34 @@ class DatabaseImportTest(unittest.TestCase):
         self.assertEqual(result.returncode, 64)
         self.assertIn("differs", result.stderr)
 
+    def test_domain_substitution_is_only_for_hooks_and_does_not_rewrite_sources(self):
+        self.project.settings["DOMAIN"] = "forsena.local"
+        self.dump.write_text("SELECT '${DOMAIN}';\n")
+        hook = self.sql / "local/010-local.sql"
+        hook.write_text("UPDATE shop SET domain = '${DOMAIN}';\n")
+        plan = plan_import(self.project, str(self.dump))
+        inputs = []
+        run_process = subprocess.run
+
+        def consume_stdin(*args, **kwargs):
+            result = run_process([sys.executable, "-c", "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+                                 stdin=kwargs["stdin"], capture_output=True, check=True)
+            inputs.append(result.stdout)
+
+        with patch("database_import.subprocess.run", side_effect=consume_stdin), contextlib.redirect_stdout(io.StringIO()):
+            import_database(self.project, plan)
+        self.assertIn(b"${DOMAIN}", inputs[0])
+        self.assertEqual(inputs[-1], b"UPDATE shop SET domain = 'forsena.local';\n")
+        self.assertIn("${DOMAIN}", hook.read_text())
+
+    def test_invalid_hook_domain_fails_preflight_before_database_writes(self):
+        hook = self.sql / "local/010-local.sql"
+        hook.write_text("UPDATE shop SET domain = '${DOMAIN}';\n")
+        for domain in ("", "bad'; DROP TABLE shop; --", "$(whoami)"):
+            self.project.settings["DOMAIN"] = domain
+            with self.subTest(domain=domain), self.assertRaisesRegex(ValueError, "valid DOMAIN"):
+                plan_import(self.project, str(self.dump))
+
 
 if __name__ == "__main__":
     unittest.main()
