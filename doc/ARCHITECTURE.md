@@ -123,7 +123,12 @@ See [SQL fixtures](DATABASE_FIXTURES.md).
 
 `database_import.py` implements `db-import-plan` and `db-import`. Both require
 an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
-`POST_IMPORT_SQL_DIRECTORY`. It preflights all inputs, selects `common/*.sql`
+`POST_IMPORT_SQL_DIRECTORY`. New grouped templates use `database/after-import/`
+beside `database/schema/` and `database/fixtures/`, without an intermediate SQL
+directory. Existing projects' explicit paths remain supported; preparation does
+not migrate them automatically. Database server settings still belong to
+`config/mysql/` or `config/mariadb/`, with environment overrides in subdirectories.
+The importer preflights all inputs, selects `common/*.sql`
 followed by `<environment>/*.sql` in filename order, and rejects hooks escaping
 the configured directory. Planning prints paths without touching the DB.
 An optional `db-fixtures=<set>` appends the fixture plan after these hooks, validates

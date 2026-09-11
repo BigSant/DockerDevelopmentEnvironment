@@ -74,7 +74,7 @@ New projects without any source markers still default to `<project>/docker`.
 The consolidated tree contains `app/{Makefile,Dockerfile,env,compose,config,qa,database}`.
 The app checkout remains `app/public`, and persistent data remains `data`.
 `SCHEMA_DIRECTORY=app/database/schema` and
-`POST_IMPORT_SQL_DIRECTORY=app/database/sql/after-import` are relative to the
+`POST_IMPORT_SQL_DIRECTORY=app/database/after-import` are relative to the
 project root. Run Make from `app/`. Host port allocation scans app env files too.
 
 Preparation does not move an existing Git repository. When consolidating an
@@ -170,7 +170,7 @@ docker/qa/phpstan/                      # phpstan.neon including ../baselines/ph
 docker/qa/php-cs/                       # .php-cs-fixer.php
 docker/qa/playwright/tests/             # test sources; config in docker/qa/playwright/
 docker/database/doctrine/versions/      # versioned schema migrations
-docker/database/sql/after-import/       # common/, local/, prod/ SQL hooks
+docker/database/after-import/       # common/, local/, prod/ SQL hooks
 data/<environment>/                     # ignored caches, reports and persistent data
 ```
 
@@ -201,7 +201,7 @@ The base Compose does not enable this optional service. ORM `diff` additionally
 needs an application-specific schema provider; migrations alone do not provide
 ORM mappings. See [Doctrine Migrations configuration](https://www.doctrine-project.org/projects/doctrine-migrations/en/3.9/reference/configuration.html).
 
-Set `POST_IMPORT_SQL_DIRECTORY=docker/database/sql/after-import` to use:
+Set `POST_IMPORT_SQL_DIRECTORY=docker/database/after-import` to use:
 
 ```bash
 make ENV=local db-import-plan file=../data/dumps/shop.sql

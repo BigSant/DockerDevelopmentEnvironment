@@ -74,7 +74,7 @@ targets `local` / `down-local` with `PROJECT_DIRECTORY` set.)
 ## 3. Import a database dump
 
 For the reusable `docker/project.mk` runner, set
-`POST_IMPORT_SQL_DIRECTORY=database/sql/after-import` in the project's common
+`POST_IMPORT_SQL_DIRECTORY=database/after-import` in the project's common
 env file and add `common/` and environment SQL folders under that path.
 From the project's Docker directory, `make db-import-plan file=/path/to/dump.sql`
 previews the sequence; `make ENV=local db-import file=/path/to/dump.sql` imports

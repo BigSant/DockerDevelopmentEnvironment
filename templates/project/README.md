@@ -44,7 +44,7 @@ Private env files and generated snapshots must stay out of Git. Keep `.env`
 public. Migrating configuration does not move the app, import the DB, change
 host ports, or restart containers. The legacy interactive DB import is not
 exposed by this wrapper. For an explicit plain SQL import, configure
-`POST_IMPORT_SQL_DIRECTORY=database/sql/after-import` relative to the project
+`POST_IMPORT_SQL_DIRECTORY=database/after-import` relative to the project
 root, with `common/` and environment subdirectories. Use
 `make db-import-plan file=/path/to/dump.sql` to preview and
 `make db-import file=/path/to/dump.sql` to import into the running DB, then run

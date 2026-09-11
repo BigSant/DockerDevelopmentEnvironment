@@ -71,7 +71,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         model = project.model()
         self.assertEqual(project.root, root)
         self.assertEqual(project.settings["SCHEMA_DIRECTORY"], "app/database/schema")
-        self.assertEqual(project.settings["POST_IMPORT_SQL_DIRECTORY"], "app/database/sql/after-import")
+        self.assertEqual(project.settings["POST_IMPORT_SQL_DIRECTORY"], "app/database/after-import")
         self.assertEqual(model["services"]["php-fpm"]["build"]["context"], str(app))
         mounts = {v["target"]: v["source"] for v in model["services"]["php-fpm"]["volumes"]}
         self.assertEqual(Path(mounts["/var/www/html"]), app / "public")
@@ -108,7 +108,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Mixed"):
             prepare(self.root)
         (self.directory / ".env").unlink()
-        target = self.directory / "database/sql/after-import/prod/.gitkeep"
+        target = self.directory / "database/after-import/prod/.gitkeep"
         target.unlink()
         target.parent.rmdir()
         outside = Path(self.temporary.name) / "outside"

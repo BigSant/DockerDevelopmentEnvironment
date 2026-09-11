@@ -23,7 +23,7 @@ class DatabaseImportTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.sql = self.root / "database/sql/after-import"
+        self.sql = self.root / "database/after-import"
         for group in ("common", "local", "prod"):
             (self.sql / group).mkdir(parents=True)
         self.dump = self.root / "dump with spaces.sql"
@@ -32,7 +32,7 @@ class DatabaseImportTest(unittest.TestCase):
             (self.sql / name).write_text(f"SELECT '{name}';\n")
         self.project = SimpleNamespace(
             root=self.root, directory=self.root / "docker", environment="local",
-            settings={"DATABASE_NAME": "example", "POST_IMPORT_SQL_DIRECTORY": "database/sql/after-import"},
+            settings={"DATABASE_NAME": "example", "POST_IMPORT_SQL_DIRECTORY": "database/after-import"},
             command=["docker", "compose", "--project-name", "example-local"],
             child_env=lambda: {},
         )

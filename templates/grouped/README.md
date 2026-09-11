@@ -24,7 +24,7 @@ QA and schema files live in this configuration repository by default. To couple
 them to application commits, put them in the application repository and override
 mounts/SCHEMA_DIRECTORY accordingly. Hooks are never enabled by preparation.
 
-After-import hooks live in database/sql/after-import/{common,local,prod}/.
+After-import hooks live in database/after-import/{common,local,prod}/.
 Fixture data lives separately in database/fixtures/{common,local,test}/.
 Use `make db-fixtures-plan set=local` and `make db-fixtures-load set=local`, or append
 `db-fixtures=local` to `make db-import file=...`. The set selects data independently
