@@ -96,6 +96,19 @@ Neither IDE initialization nor refresh starts services or imports data. Only
 curated portable `.idea` files are shared; workspace, expanded Compose values
 and backups remain local. See [PhpStorm setup](PHPSTORM.md).
 
+PrestaShop projects can explicitly opt into runtime connection synchronization:
+mount `docker/config/prestashop/update-parameters.php` read-only and invoke it in
+the PHP entrypoint before `docker-php-entrypoint`, passing DB values as runtime
+environment variables. This is not enabled for every project/profile and does
+not require rebuilding an image. The updater requires the shop's existing
+`app/config/parameters.php`, preserves non-connection parameters (including
+encryption keys and table prefix), and atomically writes a private file only
+when one of the five DB connection values changes. It applies Symfony percent
+escaping and clears `var/cache/dev` and `var/cache/prod` before replacement,
+including compiled containers and legacy parameter caches. Unchanged restarts
+preserve the warmed cache. Invalid settings fail startup before PHP-FPM runs.
+See [PrestaShop runtime parameters](PRESTASHOP_PARAMETERS.md).
+
 `database_import.py` implements `db-import-plan` and `db-import`. Both require
 an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
 `POST_IMPORT_SQL_DIRECTORY`. It preflights all inputs, selects `common/*.sql`
