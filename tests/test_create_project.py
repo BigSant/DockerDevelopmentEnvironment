@@ -40,7 +40,7 @@ class CreateProjectTest(unittest.TestCase):
         app = self.create()
         self.assertEqual({p.relative_to(app).as_posix() for p in app.rglob('*') if p.is_file()}, {
             'Makefile', '.gitignore', 'compose/base.yaml', 'env/common.env',
-            'env/local.env', 'env/local.env.example', 'public/index.php', '.generated/create-project.json', '.idea/.name',
+            'env/local.env', 'public/index.php', '.generated/create-project.json', '.idea/.name',
         })
         self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'compose', 'env', 'public', '.generated', '.idea'})
         project = Project(app)
@@ -72,9 +72,11 @@ class CreateProjectTest(unittest.TestCase):
             initialize_directories(project)
         self.assertEqual({p.name for p in (app / 'config').iterdir()}, {'php', 'mysql', 'apache', 'nginx-proxy'})
 
-    def test_private_env_can_be_restored_after_cloning_sources(self):
+    def test_private_env_can_be_restored_from_a_user_supplied_template(self):
         app = self.create()
         (app / 'env/local.env').unlink()
+        (app / 'env/local.env.example').write_text(
+            'DOMAIN=new-shop.local\nDATABASE_USER=example\nDATABASE_NAME=example\nDATABASE_PASSWORD=example\n')
         with contextlib.redirect_stdout(io.StringIO()):
             initialize_env(app, 'local')
         project = Project(app)
@@ -194,9 +196,9 @@ class CreateProjectTest(unittest.TestCase):
                 self.assertEqual(self.create(normalized.replace('-', '_')), app)
                 self.assertEqual((app / '.idea/.name').read_text(), entered + '\n')
                 self.assertEqual((app / 'env/local.env').read_bytes(), before)
-                (app / 'env/local.env').unlink()
                 with contextlib.redirect_stdout(io.StringIO()): initialize_env(app, 'local')
                 self.assertEqual(Project(app).settings['DOMAIN'], normalized.replace('_', '-') + '.local')
+                self.assertEqual((app / 'env/local.env').read_bytes(), before)
 
     def test_ide_name_is_optional_and_custom_name_is_preserved(self):
         from project_ide import ide_plan

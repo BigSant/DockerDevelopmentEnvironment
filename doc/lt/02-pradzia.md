@@ -122,7 +122,6 @@ app/
 │   └── base.yaml
 ├── env/
 │   ├── common.env
-│   ├── local.env.example
 │   └── local.env
 └── public/
     └── index.php
@@ -135,8 +134,21 @@ kūrimo metu nepridedama. Jei projektą jau buvai atidaręs be šio failo, pakar
 pasirinktas pavadinimas neperrašomas.
 
 Taip pat sukuriama ignoruojama techninė žyma `.generated/create-project.json`, kad
-pakartotinė komanda atpažintų savo projektą. `local.env.example` reikalingas kolegai
-po Git klonavimo atkurti privatų env; tikras `local.env` į Git nepatenka.
+pakartotinė komanda atpažintų savo projektą. `local.env.example` nekuriamas;
+tikras `local.env` į Git nepatenka.
+
+Po Git klonavimo susikurk `env/local.env`. Pavyzdžiui, projektui `demo`:
+
+```dotenv
+DOMAIN=demo.local
+DATABASE_USER=demo
+DATABASE_NAME=demo
+DATABASE_PASSWORD=cia-irasyk-savo-lokalu-slaptazodi
+```
+
+Slaptažodį pakeisk savu, o failo teises apribok komanda `chmod 600 env/local.env`.
+Jei naudoji jau sukurtą DB, įrašyk jos prisijungimus. Naujai DB šie prisijungimai
+bus nustatyti pirmą kartą ją paleidžiant. Portus paruoš `make bootstrap`.
 
 Redis, QA, Doctrine, fixtures, schemos ir prod pavyzdžių nei failai, nei katalogai
 nekuriami. Projekto Dockerfile kopijos taip pat nėra. Paleidžiant paruošiami tik

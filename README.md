@@ -42,7 +42,7 @@ Existing project directories are not renamed automatically.
 A conflicting local domain is rejected before creating the new project. The previous `--no-start` option remains accepted, but is unnecessary.
 
 The new project is minimal: `Makefile`, `.gitignore`, `compose/base.yaml`,
-`env/common.env`, `env/local.env.example`, private `env/local.env` and
+`env/common.env`, private `env/local.env` and
 `public/index.php`, `.idea/.name` for the PhpStorm display name, plus an ignored
 internal creation marker. It uses the shared
 Dockerfile and exactly four runtime services. No Redis, QA, Doctrine, fixtures,
@@ -53,8 +53,11 @@ existing custom name. If the project was already open, close and reopen it to
 reload the metadata. At startup, only the empty configuration directories
 mounted by the core services and their runtime data/full IDE settings are created.
 
-The env example lets a colleague restore private settings after cloning the
-project; real credentials never belong in Git. Optional component templates
+No `local.env.example` is generated. After cloning the project, create a private
+`env/local.env` with `DOMAIN`, `DATABASE_USER`, `DATABASE_NAME` and
+`DATABASE_PASSWORD`, then run `chmod 600 env/local.env`. Use credentials matching
+your local database, or choose new ones for a new database. Real credentials
+never belong in Git. Optional component templates
 remain in the shared setup and are copied only when you choose to add one.
 Put your application in `../demo/app/public`. The shared setup remains one
 checkout, without a Git submodule. This creates a generic PHP environment,
