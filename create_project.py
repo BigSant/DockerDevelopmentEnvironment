@@ -1,4 +1,4 @@
-"""Create and start a new local project through the public create-project command."""
+"""Prepare a new local project; start it only with an explicit --start."""
 import argparse
 import json
 from pathlib import Path
@@ -49,12 +49,12 @@ def scaffold(name, parent):
         "echo 'PHP: ' . PHP_VERSION . \"\\n\";\n"
         "echo 'Cache: ' . getenv('CACHE_MODE') . \"\\n\";\n")
     import secrets
-    domain = name + '.localhost'
+    domain = name + '.local'
     set_env_values(app / 'env/local.env', {
         'DOMAIN': domain, 'LOCALHOST_PORT': ports[0], 'LOCALHOST_PORT_SSL': ports[1],
         'DATABASE_USER': name.replace('-', '_'), 'DATABASE_NAME': name.replace('-', '_'),
         'DATABASE_PASSWORD': secrets.token_hex(24), 'COMPOSE_PROFILES': '',
-        'SMOKE_URL': f'http://{domain}:{ports[0]}/', 'SMOKE_EXPECT': name,
+        'SMOKE_URL': f'http://{domain}/', 'SMOKE_EXPECT': name, 'HOST_PROXY': 'nginx',
     })
     # The marker is written last: retries may resume a complete scaffold, never guess
     # whether a pre-existing directory (or an interrupted file copy) belongs to us.
@@ -66,7 +66,7 @@ def scaffold(name, parent):
 def prerequisites():
     missing = [name for name in ('make', 'docker', 'openssl', 'mkcert') if not shutil.which(name)]
     if missing:
-        raise ValueError('Trūksta programų: ' + ', '.join(missing) + '. Įdiek jas ir pakartok komandą. Tik failams sukurti naudok --no-start.')
+        raise ValueError('Trūksta programų: ' + ', '.join(missing) + '. Įdiek jas ir pakartok paleidimą.')
     result = subprocess.run(['docker', 'info', '--format', '{{.ServerVersion}}'], capture_output=True, timeout=20)
     if result.returncode:
         raise ValueError('Docker neveikia. Paleisk Docker ir pakartok komandą.')
@@ -89,18 +89,21 @@ def start(app):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='create-project', description='Sukuria naują projektą šalia bendro setup ir paleidžia vietinę aplinką.')
+    parser = argparse.ArgumentParser(prog='create-project', description='Paruošia naują projektą šalia bendro setup. Aplinkos automatiškai nepaleidžia.')
     parser.add_argument('name', metavar='pavadinimas', help='Pvz. demo arba mano-projektas')
-    parser.add_argument('--no-start', action='store_true', help='Tik sukurti failus; Docker, TLS ir IDE ruošti vėliau')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--start', action='store_true', help='Aiškiai paruošti host/TLS/IDE, sukurti atvaizdus ir paleisti aplinką')
+    mode.add_argument('--no-start', action='store_true', help=argparse.SUPPRESS)  # Previous spelling remains harmless.
     args = parser.parse_args(argv)
     try:
-        if not args.no_start:
+        if args.start:
             prerequisites()
         app = scaffold(args.name, SETUP.parent)
-        if args.no_start:
-            print(f'Failai paruošti. Paleidimui pakartok: {SETUP / "create-project"} {args.name}')
-        else:
+        if args.start:
             start(app)
+        else:
+            print(f'Failai paruošti; aplinka nepaleista.\nPhpStorm atidaryk: {app}\n'
+                  f'Paleidimui: {SETUP / "create-project"} {args.name} --start')
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(f'Klaida: {error}\nPašalinęs priežastį pakartok tą pačią create-project komandą; paruošti failai išsaugomi.', file=sys.stderr)
         return 1

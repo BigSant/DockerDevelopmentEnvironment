@@ -12,25 +12,33 @@ From this shared setup checkout, run one command:
 ./create-project demo
 ```
 
-This creates the sibling `../demo/app` with configuration and a PHP page in
-`public/`, chooses free local ports, generates a private database password,
-prepares local TLS and PhpStorm, builds images and starts the four core services.
-The command checks the page and prints its URL. No manual env editing or Python
-command is needed. Docker must be running; Make, Python 3.10+, Compose 2.24.4+,
-OpenSSL and mkcert must be installed. A first-time local CA/host permission step
-may be necessary; the command prints the exact action and can be rerun afterward.
+This only creates the sibling `../demo/app`: project configuration, a PHP page
+in `public/`, free internal Docker ports and a private database password. It does
+not require a running Docker daemon, build images or start containers.
+The application URL is `http://demo.local/`, without a port in the browser.
 
-Repeating `./create-project demo` preserves the generated project's files and
-credentials and retries startup. An unrelated existing directory is rejected.
-Project names use lowercase letters, digits and single hyphens, start with a
-letter and contain at most 32 characters.
+When you want to start the project, explicitly run:
 
-Use `./create-project demo --no-start` to create files without Docker or host
-provisioning; run the same command without that flag when ready. This creates a
-generic PHP environment, not a PrestaShop installation. Additional service files
-are provided but their profiles are disabled by default. Put your application
-in `../demo/app/public`; keep project-specific changes in `env/`, `compose/` and
-`config/`. The shared setup remains a single checkout, without a Git submodule.
+```bash
+./create-project demo --start
+```
+
+Startup prepares local DNS, TLS, a host Nginx route and PhpStorm, builds images,
+starts the four core services and checks the page. Docker must be running; Make,
+Python 3.10+, Compose 2.24.4+, OpenSSL, mkcert and host Nginx must be installed.
+Host provisioning may require sudo/local CA approval once; an actionable command
+is printed if privileges are unavailable. The host Nginx listens on 80/443 and
+routes `demo.local` to the project's private port pair, matching the legacy URLs.
+
+Repeating creation preserves the project's files and credentials and still does
+not start it. An unrelated existing directory is rejected. Names use lowercase
+letters, digits and single hyphens, start with a letter and have at most 32
+characters. The previous `--no-start` option remains accepted, but is unnecessary.
+
+This creates a generic PHP environment, not a PrestaShop installation. Optional
+service files are provided but their profiles are disabled by default. Put your
+application in `../demo/app/public`; keep changes in `env/`, `compose/` and
+`config/`. The shared setup remains one checkout, without a Git submodule.
 
 See the [Lithuanian quick start](doc/lt/02-pradzia.md#c-naujas-projektas-viena-komanda).
 

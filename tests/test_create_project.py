@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from create_project import scaffold, start
+from create_project import scaffold, start, main
 from project import Project
 
 
@@ -37,8 +37,9 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(project.settings['MAIL_MODE'], 'off')
         self.assertEqual(project.web_directory, app / 'public')
         self.assertEqual(project.data_directory, app.parent / 'data')
-        self.assertEqual(project.settings['SMOKE_URL'],
-                         f"http://new-shop.localhost:{project.settings['LOCALHOST_PORT']}/")
+        self.assertEqual(project.settings['DOMAIN'], 'new-shop.local')
+        self.assertEqual(project.settings['SMOKE_URL'], 'http://new-shop.local/')
+        self.assertEqual(project.settings['HOST_PROXY'], 'nginx')
         self.assertIn('Projektas new-shop veikia.', (app / 'public/index.php').read_text())
         self.assertRegex(active['database']['environment']['MYSQL_PASSWORD'], r'^[0-9a-f]{48}$')
         self.assertEqual((app / 'env/local.env').stat().st_mode & 0o777, 0o600)
@@ -102,3 +103,15 @@ class CreateProjectTest(unittest.TestCase):
                                 capture_output=True, text=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Pavadinimas', result.stderr)
+
+    def test_default_creation_does_not_require_docker_or_start_services(self):
+        app = self.parent / 'demo/app'
+        with patch('create_project.scaffold', return_value=app), \
+                patch('create_project.prerequisites') as prerequisites, \
+                patch('create_project.start') as start_project, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(['demo']), 0)
+            prerequisites.assert_not_called()
+            start_project.assert_not_called()
+            self.assertEqual(main(['demo', '--start']), 0)
+            prerequisites.assert_called_once_with()
+            start_project.assert_called_once_with(app)

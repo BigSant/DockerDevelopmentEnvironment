@@ -48,7 +48,20 @@ def set_env_values(path, values):
     replace_file(path, contents.encode(), private=True)
 
 
+def certificate_is_valid(certificate, domain):
+    expiry = subprocess.run(['openssl', 'x509', '-noout', '-in', str(certificate), '-checkend', '2592000'],
+                            capture_output=True)
+    hostname = subprocess.run(['openssl', 'x509', '-noout', '-in', str(certificate), '-checkhost', domain],
+                              capture_output=True, text=True, env={**os.environ, 'LC_ALL': 'C'})
+    # OpenSSL can exit successfully even when -checkhost reports a mismatch.
+    return (expiry.returncode == 0 and hostname.returncode == 0 and
+            hostname.stdout.strip() == f'Hostname {domain} does match certificate')
+
+
 def prepare_host(project):
+    proxy = project.settings.get('HOST_PROXY', 'none')
+    if proxy not in ('none', 'nginx'):
+        raise ValueError('HOST_PROXY must be none or nginx')
     domain = project.settings.get('DOMAIN', '')
     if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain):
         raise ValueError('Set DOMAIN to a hostname without a port')
@@ -68,9 +81,7 @@ def prepare_host(project):
     certificate, key = ssl/'domain.crt', ssl/'domain.key'
     valid = False
     if certificate.is_file() and key.is_file():
-        checks = [subprocess.run(['openssl', 'x509', '-noout', '-in', str(certificate), *args], capture_output=True)
-                  for args in (['-checkend', '2592000'], ['-checkhost', domain])]
-        valid = all(r.returncode == 0 for r in checks)
+        valid = certificate_is_valid(certificate, domain)
     if not valid:
         if not shutil.which('mkcert'):
             raise ValueError('Install mkcert, then rerun make bootstrap to create local TLS certificates')
@@ -84,6 +95,23 @@ def prepare_host(project):
             replace_file(certificate, crt.read_bytes())
             replace_file(key, private.read_bytes(), private=True)
     print(f'Local hostname and TLS prepared: {domain}')
+    if proxy == 'nginx':
+        host_helper = Path(__file__).with_name('host_entry.py')
+        for host in ('pma.' + domain, 'mailpit.' + domain):
+            command = ['sudo', '-n', sys.executable, str(host_helper), host]
+            result = subprocess.run(command, capture_output=True, text=True)
+            if result.returncode:
+                import shlex
+                raise ValueError('Local service hostname could not be prepared. Run: ' +
+                                 shlex.join(['sudo', sys.executable, str(host_helper), host]))
+        helper = Path(__file__).with_name('host_proxy.py')
+        args = [sys.executable, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
+        result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
+        if result.returncode:
+            import shlex
+            raise ValueError('Local Nginx route could not be prepared. ' + result.stderr.strip() +
+                             '\nRun: ' + shlex.join(['sudo', *args]))
+        print(f'Local Nginx route prepared: http://{domain}/')
 
 
 def bootstrap(project):

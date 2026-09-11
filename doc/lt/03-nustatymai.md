@@ -220,3 +220,5 @@ Vien env eilutė nėra automatinis perdavimas PHP. Šis aiškus prijungimas leid
 ## Cache, resursų ir hibridinių aplinkų nustatymai
 
 Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#visi-šio-sluoksnio-nustatymai). Aplinkos vardas ir cache režimas parenkami nepriklausomai.
+
+`HOST_PROXY`: `none` (numatyta esamiems projektams) arba `nginx`. Naujas `create-project` įrašo `nginx`: `make bootstrap` paruošia kompiuterio Nginx maršrutą iš `http://<DOMAIN>/` ir HTTPS į projekto HTTP portą, todėl naršyklėje nereikia rašyti Docker porto. Pats projekto failų kūrimas host konfigūracijos nekeičia.

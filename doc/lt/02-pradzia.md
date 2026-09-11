@@ -69,58 +69,65 @@ Esami tikri nustatymai išsaugomi. Ši komanda neatsisiunčia nežinomo aplikaci
 
 ## C. Naujas projektas viena komanda
 
-Situacija: nori naujo projekto `demo`, kad iš karto galėtum atidaryti veikiantį puslapį.
+Situacija: nori paruošti naują projektą `demo`, o paleisti jį vėliau.
 
 ```bash
 cd ~/Projects/setup
 ./create-project demo
 ```
 
-Tai visa projekto sukūrimo ir pirmo paleidimo komanda. `demo` pakeisk savo pavadinimu,
-pavyzdžiui `parduotuve-a`. Naudok mažąsias raides, skaičius ir pavienius brūkšnelius;
-pavadinimas turi prasidėti raide ir būti iki 32 simbolių.
+`demo` pakeisk savo pavadinimu, pavyzdžiui `melga`. Naudok mažąsias raides,
+skaičius ir pavienius brūkšnelius; pradėk raide, iki 32 simbolių.
 
-Komanda pati:
+Komanda tik sukuria failus:
 
-1. Sukuria `~/Projects/demo/app` su `Makefile`, projekto `Dockerfile`, `env/`, `compose/`, `config/`, `database/` ir `qa/`.
-2. Sukuria `public/index.php` – bandomąjį puslapį su projekto vardu, PHP versija ir cache režimu.
-3. Parenka laisvus vietinius HTTP/HTTPS portus, domeną `demo.localhost`, DB vardą ir atsitiktinį slaptažodį. Prisijungimai lieka privačiame `env/local.env` su `600` teisėmis.
-4. Paruošia vietinį TLS ir PhpStorm projekto nustatymus.
-5. Patikrina konfigūraciją, sukuria Docker atvaizdus ir paleidžia Nginx, Apache, PHP bei MySQL.
-6. Palaukia servisų, patikrina bandomąjį puslapį ir išspausdina jo adresą.
+1. Paruošia `~/Projects/demo/app` su `Makefile`, `Dockerfile`, `env/`, `compose/`, `config/`, `database/` ir `qa/`.
+2. Sukuria `public/index.php` su bandomuoju puslapiu.
+3. Sugeneruoja privatų DB slaptažodį ir parenka laisvus Docker portus.
+4. Įrašo `DOMAIN=demo.local`, `SMOKE_URL=http://demo.local/` ir `HOST_PROXY=nginx` į `env/local.env`.
 
-Pabaigoje pamatysi, pavyzdžiui:
+**Konteineriai nepaleidžiami, atvaizdai nekuriami, sistemos Nginx, DNS ir TLS tuo
+metu nekeičiami.** Failų sukūrimui pakanka Python 3.10+; jo komandos pačiam rašyti
+nereikia. PhpStorm gali atidaryti sukurtą `app` katalogą iš karto.
 
-```text
-Projektas veikia: http://demo.localhost:31820/
-PhpStorm atidaryk: /home/tomas/Projects/demo/app
-Aplikacijos kodas: /home/tomas/Projects/demo/app/public
-```
-
-Naudok komandos parodytą adresą: portą ji parenka automatiškai. Pirmas build gali
-užtrukti, kol Docker atsisiunčia ir sukuria atvaizdus.
-
-**Vienkartinis kompiuterio paruošimas.** Turi būti įdiegti šio skyriaus B dalyje
-nurodyti Make, Python, Docker/Compose, OpenSSL ir mkcert. Docker turi veikti.
-Jei trūksta pasitikėjimo vietiniu sertifikatu ar teisių domeno įrašui, komanda
-parodys konkretų veiksmą. Jį atlikęs pakartok `./create-project demo` – jau paruošti
-failai, aplikacija ir slaptažodis neperrašomi. Esamas svetimas katalogas neperimamas.
-
-Nereikia pačiam paleisti `.py`, kopijuoti env ar kurti bandomojo PHP failo.
-Bendras `setup` lieka vienas ir nepridedamas į projekto Git kaip submodulis.
-
-### Jei nori tik failų
+### Kai nori paleisti
 
 ```bash
-./create-project demo --no-start
+./create-project demo --start
 ```
 
-Tai sukuria struktūrą, bandomąjį puslapį ir vietinius nustatymus, bet Docker,
-TLS ir PhpStorm paruošimą atideda. Vėliau paleisk:
+Šis aiškus pasirinkimas paruošia DNS, TLS, kompiuterio Nginx maršrutą ir PhpStorm
+Docker nustatymus, sukuria atvaizdus, paleidžia keturis pagrindinius servisus ir
+patikrina puslapį. Naršyklės adresas išlieka **http://demo.local/**.
+
+Pavadinus projektą `melga`, adresas bus **http://melga.local/**. Kiekvienas
+projektas gauna atskirus Docker portus, bet jų naršyklėje rašyti nereikia:
+kompiuterio Nginx pagal domeną nukreipia į reikiamą projektą. Taip išsaugomas senas
+adresų formatas ir keli projektai gali veikti kartu.
+
+Kompiuteryje turi būti įdiegti Make, Docker/Compose, OpenSSL, mkcert ir Nginx su
+`sites-available` / `sites-enabled`; Docker bei host Nginx turi veikti. Sistemos
+failų paruošimui gali reikėti `sudo`, o pirmą kartą – `mkcert -install`.
+Jei teisės nepakankamos, komanda parodo konkretų veiksmą; jį atlikęs kartok su
+`--start`. Tai vienkartinis kompiuterio paruošimas, ne rankinis kiekvieno projekto
+Compose ar env kūrimas.
+
+Host maršrutą taip pat paruošia `make bootstrap`. Nginx konfigūracija patikrinama
+su `nginx -t` prieš `reload`; svetimas esamas to domeno config neperrašomas.
+`HOST_PROXY=none` palieka host Nginx nevaldomą – tai tinka jau turint rankomis
+paruoštą domeno maršrutą. Tokiu atveju už adreso nukreipimą atsakai pats.
+
+### Pakartojimas
 
 ```bash
 ./create-project demo
 ```
+
+Esami failai, kodas ir prisijungimai išsaugomi. Pakartojimas irgi nieko nepaleidžia.
+Ankstesnis `--no-start` vis dar priimamas, tačiau jo nebereikia. Esamas svetimas
+katalogas neperimamas. Jei anksčiau sugeneruotas projektas turi `.localhost` adresą,
+generatorius jo savavališkai neperrašo: pakeisk `DOMAIN` į `<vardas>.local`,
+`SMOKE_URL` į `http://<vardas>.local/`, pridėk `HOST_PROXY=nginx` ir atlik `make bootstrap`.
 
 ### Kur tęsti darbą
 
@@ -170,7 +177,7 @@ Komandą galima iškviesti ir absoliučiu keliu iš bet kurio katalogo:
 Projekto vietą lemia `setup` vieta, ne dabartinis terminalo katalogas.
 Esamų repozitorijų paruošimui ir senos struktūros perkėlimui skirtas atskiras
 [šaltinių generatorius](../PROJECT_TEMPLATES.md); `create-project` kuria tik naujus
-projektus arba tęsia savo anksčiau sukurtų projektų paleidimą.
+projektus. Paleidimui visada reikia aiškaus `--start` pasirinkimo.
 
 ## Kada ką kartoti
 
