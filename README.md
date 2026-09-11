@@ -28,6 +28,9 @@ conflicting bootstrap files. It does not provision the host or start Docker.
 `make build` explicitly builds images; `make up` uses existing local images.
 See [reusable sources](doc/PROJECT_TEMPLATES.md) for setup and migration.
 
+`make ide-init` prepares PhpStorm project settings, a Docker PHP interpreter and
+shared run/startup configurations. See [PhpStorm setup](doc/PHPSTORM.md).
+
 ## Legacy host provisioning
 
 ```bash

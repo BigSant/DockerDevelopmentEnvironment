@@ -64,7 +64,7 @@ and rendering include all profiles; runtime uses the selected set. Optional
 `compose.override.yaml` and `compose.<env>.override.yaml` customize included
 services using native Compose merging. [Docker include/override semantics](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/).
 
-Runtime always reads these original files. `make config` writes a mode-0600
+Make runtime commands always read these original files. `make config` writes a mode-0600
 snapshot to `.generated/compose.<env>.yaml` using an invocation-owned temporary
 file and atomic replacement. It never overwrites a source or consumes an old
 snapshot. Different projects do not share generated inputs; simultaneous
@@ -77,6 +77,24 @@ service (including PHP image reuse by cron), then uses `--ignore-buildable`;
 `shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never`.
 QA targets are ephemeral. The wrapper has a separate explicit SQL importer;
 it does not call the legacy interactive DB importer.
+
+`project_ide.py` adds `ide-init` and `ide-refresh`. Initialization merges PhpStorm
+project/module metadata, PHP language level and a project-local Compose interpreter,
+Git mappings and managed Shell Script run configurations. Existing personal
+components are retained; changed files are backed up privately under `.generated/`.
+It reads existing Linux PhpStorm Docker connections without changing global IDE
+settings. A shared startup task runs only `ide-init`, after project trust.
+The native interpreter uses `EXEC` against an already running `php-fpm` service.
+
+PhpStorm is the explicit exception to the original-source invocation rule: its
+native Compose integration consumes `.generated/phpstorm-compose.<env>.yaml`,
+an atomic mode-0600 rendering of the selected runtime model. The interpreter
+passes the same project name and profiles and disables implicit `.env` loading.
+Initialization/startup refresh this private file; normal Make targets never use
+it. After editing env/Compose sources, refresh before invoking native IDE tools.
+Neither IDE initialization nor refresh starts services or imports data. Only
+curated portable `.idea` files are shared; workspace, expanded Compose values
+and backups remain local. See [PhpStorm setup](PHPSTORM.md).
 
 `database_import.py` implements `db-import-plan` and `db-import`. Both require
 an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
