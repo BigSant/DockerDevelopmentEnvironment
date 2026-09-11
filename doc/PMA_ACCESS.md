@@ -4,33 +4,38 @@ PMA is optional. A new project still contains only the four core services. Add
 the following to `compose/common.yaml` when PMA is needed in every environment:
 
 ```yaml
+include:
+  - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
+
 services:
-  pma:
-    extends:
-      file: ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
-      service: pma
-    profiles: !override []
   nginx-proxy:
     environment:
-      PMA_ALLOWED_IPS: "203.0.113.10 198.51.100.0/24 2001:db8::10"
-      PMA_TRUSTED_PROXIES: ""
+      PMA_ALLOWED_IPS: ${PMA_ALLOWED_IPS:-}
+      PMA_TRUSTED_PROXIES: ${PMA_TRUSTED_PROXIES:-}
 ```
 
-Replace the documentation addresses with your office/VPN/public client IPs.
-`extends` reuses the shared service; `!override []` removes its optional profile.
-Including the shared PMA YAML alone leaves PMA inactive until its profile is
-selected. Do not also include that same service when using this `extends` example.
+Set the shared client list in `env/common.env`, replacing these documentation
+addresses with your office/VPN/public client IPs:
+
+```dotenv
+PMA_ALLOWED_IPS="203.0.113.10 198.51.100.0/24 2001:db8::10"
+```
+
+Set `PMA_TRUSTED_PROXIES` in the env file only if an upstream proxy is used.
+Missing values default to empty. Nothing is added to newly generated projects.
+
+PMA and Mailpit have no Compose profiles. Including a service's YAML makes it
+part of the active environment; no profile selection or reset is needed.
+If an existing project uses the full shared `docker/docker-compose.yml`, that
+file already includes both services, so both are active. Use explicit component
+includes as shown here to select them by environment; do not include a service twice.
 
 The runner loads `base.yaml`, `common.yaml`, explicitly selected extra files,
 then `<ENV>.yaml`. For Mailpit only on local machines, add to `compose/local.yaml`:
 
 ```yaml
-services:
-  mailpit:
-    extends:
-      file: ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
-      service: mailpit
-    profiles: !override []
+include:
+  - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
 ```
 
 | Setting | Meaning |
@@ -39,9 +44,11 @@ services:
 | `PMA_TRUSTED_PROXIES` | Optional addresses/CIDRs of your upstream proxies. Empty or absent means forwarded headers cannot change the client IP used for access checks. |
 | `SETUP_ENVIRONMENT` | Supplied automatically by shared Compose from `ENV`. Keep it unchanged: local/test are unrestricted; stage/prod are restricted. Image build target and cache mode do not determine PMA access. |
 
-These are **container environment fields under `nginx-proxy`**, not PMA service
-settings. No new project dotenv fields are required. Override the same fields in
-`compose/stage.yaml` or `compose/prod.yaml` if the lists should differ.
+The YAML forwards dotenv values into **`nginx-proxy`**, not the PMA service.
+Use `env/common.env` for shared values. If the lists should differ, set the same
+keys in `env/stage.env` or `env/prod.env`: environment-specific values replace
+the common values. An explicit `PMA_ALLOWED_IPS=` clears an inherited allowlist;
+omitting the key inherits it. This grouped layout does not read a root `.env`.
 LIVE uses this setup's `ENV=prod`, `env/prod.env` and `compose/prod.yaml`.
 
 The rules protect both HTTP and HTTPS for `pma.<DOMAIN>` and
@@ -53,8 +60,8 @@ Local/test ignore the shared list so development access stays unchanged.
 ## If another Nginx or load balancer is in front
 
 For example, the public proxy is `10.20.0.5` and your office public IP is
-`203.0.113.10`. Set `PMA_TRUSTED_PROXIES: "10.20.0.5"` and
-`PMA_ALLOWED_IPS: "203.0.113.10"`. The proxy must send the actual client address
+`203.0.113.10`. Set `PMA_TRUSTED_PROXIES=10.20.0.5` and
+`PMA_ALLOWED_IPS=203.0.113.10` in the selected env file. The proxy must send the actual client address
 in `X-Forwarded-For`, replacing it or appending the verified connecting address.
 Use the proxy source IP **as seen by the container**; Docker/NAT can change it.
 Use trusted addresses only, never `0.0.0.0/0`, `::/0` or a network shared with
@@ -86,7 +93,7 @@ make up ENV=stage
 Use `ENV=prod` for LIVE. Stage/prod env files, code, database and certificates
 must already be prepared for that environment. Local usage is `make check`,
 `make build`, `make up`; its PMA URL is `http://pma.<DOMAIN>/`.
-Later changes only to the YAML IP list need `make up ENV=stage` to recreate
+Later changes only to the IP list in an env file need `make up ENV=stage` to recreate
 the proxy with the changed container environment; no image rebuild is needed.
 
 If PMA is served publicly over HTTPS, set its canonical URI in the corresponding

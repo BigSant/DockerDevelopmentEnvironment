@@ -67,9 +67,10 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual(Path(mount['source']),self.root/'data/prod/mysql')
         redis=next(v for v in model['services']['redis']['volumes'] if v['target']=='/data')
         self.assertEqual(Path(redis['source']),self.root/'data/prod/redis')
-        for selected,expected in [('',('0','0')),('pma',('1','0')),('mailpit',('0','1'))]:
+        # The full legacy source includes both services; neither needs a profile.
+        for selected in ('', 'cron'):
             values=Project(self.app,profiles=selected).model()['services']['nginx-proxy']['environment']
-            self.assertEqual((values['SETUP_ENABLE_PMA'],values['SETUP_ENABLE_MAILPIT']),expected)
+            self.assertEqual((values['SETUP_ENABLE_PMA'],values['SETUP_ENABLE_MAILPIT']),('1','1'))
         self.assertEqual(db['logging']['options'],{'max-size':'10m','max-file':'3'})
         self.assertEqual(int(db['mem_limit']),2*1024**3)
 

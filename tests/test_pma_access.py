@@ -55,22 +55,16 @@ class PmaAccessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=scratch) as temporary:
             with contextlib.redirect_stdout(io.StringIO()):
                 app = scaffold('pma-demo', temporary)
-            (app / 'compose/common.yaml').write_text('''services:
-  pma:
-    extends:
-      file: ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
-      service: pma
-    profiles: !override []
+            (app / 'compose/common.yaml').write_text('''include:
+  - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
+services:
   nginx-proxy:
     environment:
-      PMA_ALLOWED_IPS: "203.0.113.10"
+      PMA_ALLOWED_IPS: ${PMA_ALLOWED_IPS:-}
+      PMA_TRUSTED_PROXIES: ${PMA_TRUSTED_PROXIES:-}
 ''')
-            (app / 'compose/local.yaml').write_text('''services:
-  mailpit:
-    extends:
-      file: ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
-      service: mailpit
-    profiles: !override []
+            (app / 'compose/local.yaml').write_text('''include:
+  - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
 ''')
             for environment in ('local', 'stage', 'prod'):
                 if environment != 'local':
@@ -80,8 +74,27 @@ class PmaAccessTest(unittest.TestCase):
                 services = json.loads(project.capture(['config', '--format', 'json']))['services']
                 self.assertIn('pma', services)
                 self.assertEqual('mailpit' in services, environment == 'local')
+                for name in ('pma', 'mailpit'):
+                    if name in services:
+                        self.assertNotIn('profiles', services[name])
                 self.assertNotIn('ports', services['pma'])
                 proxy_env = services['nginx-proxy']['environment']
                 self.assertEqual(proxy_env['SETUP_ENABLE_PMA'], '1')
                 self.assertEqual(proxy_env['SETUP_ENVIRONMENT'], environment)
-                self.assertEqual(proxy_env['PMA_ALLOWED_IPS'], '203.0.113.10')
+                self.assertEqual(proxy_env['PMA_ALLOWED_IPS'], '')
+                self.assertEqual(proxy_env['PMA_TRUSTED_PROXIES'], '')
+
+            with (app / 'env/common.env').open('a') as env:
+                env.write('PMA_ALLOWED_IPS="203.0.113.10 2001:db8::10"\nPMA_TRUSTED_PROXIES=10.20.0.5\n')
+            with (app / 'env/stage.env').open('a') as env:
+                env.write('PMA_ALLOWED_IPS=198.51.100.0/24\nPMA_TRUSTED_PROXIES=10.20.0.6\n')
+            with (app / 'env/prod.env').open('a') as env:
+                env.write('PMA_ALLOWED_IPS=\nPMA_TRUSTED_PROXIES=\n')
+            for environment, allowed, trusted in (
+                    ('local', '203.0.113.10 2001:db8::10', '10.20.0.5'),
+                    ('stage', '198.51.100.0/24', '10.20.0.6'), ('prod', '', '')):
+                project = Project(app, environment)
+                services = json.loads(project.capture(['config', '--format', 'json']))['services']
+                proxy_env = services['nginx-proxy']['environment']
+                self.assertEqual(proxy_env['PMA_ALLOWED_IPS'], allowed)
+                self.assertEqual(proxy_env['PMA_TRUSTED_PROXIES'], trusted)

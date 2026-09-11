@@ -275,38 +275,40 @@ Situacija: PMA reikia visose aplinkose, o laiškus gaudantis Mailpit reikalingas
 Į `compose/common.yaml` pridėk:
 
 ```yaml
+include:
+  - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
+
 services:
-  pma:
-    extends:
-      file: ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
-      service: pma
-    profiles: !override []
   nginx-proxy:
     environment:
-      PMA_ALLOWED_IPS: "203.0.113.10 198.51.100.0/24 2001:db8::10"
-      PMA_TRUSTED_PROXIES: ""
+      PMA_ALLOWED_IPS: ${PMA_ALLOWED_IPS:-}
+      PMA_TRUSTED_PROXIES: ${PMA_TRUSTED_PROXIES:-}
 ```
 
-Pavyzdinius IP pakeisk savo biuro, namų arba VPN išoriniais IP. Jei dar nežinai, įrašyk `PMA_ALLOWED_IPS: ""` – STAGE ir LIVE prieigos neturės niekas, o lokaliai PMA veiks.
+IP reikšmes rašyk į `env/common.env`, jei jos bendros visoms aplinkoms:
 
-`extends` paima bendrą serviso aprašą. `profiles: !override []` pašalina jo profilio reikalavimą, kad servisas įsijungtų kartu su šiuo YAML. Vien bendro failo įtraukimas per `include` jo neįjungia, nes bendrame faile PMA turi pasirenkamą profilį. Naudojant šį `extends` pavyzdį, to paties PMA serviso papildomai per `include` nebedėk.
+```dotenv
+PMA_ALLOWED_IPS="203.0.113.10 198.51.100.0/24 2001:db8::10"
+```
+
+Pavyzdinius IP pakeisk savo biuro, namų arba VPN išoriniais IP. Jei dar nežinai, įrašyk `PMA_ALLOWED_IPS=` – STAGE ir LIVE prieigos neturės niekas, o lokaliai PMA veiks. `PMA_TRUSTED_PROXIES` į env pridėk tik jei naudoji tarpinį proxy. YAML `${PMA_ALLOWED_IPS:-}` reiškia „paimk reikšmę iš env, o jei jos nėra – perduok tuščią“. Naujai kuriamiems projektams PMA laukai nepridedami.
+
+PMA ir Mailpit bendruose aprašuose `profiles` nėra. Įtraukei serviso YAML – jis įjungtas toje aplinkoje. Papildomų profilio pasirinkimo ar `!override` eilučių nereikia.
+
+Jei senesnis projektas įtraukia visą bendrą `docker/docker-compose.yml`, jame jau yra PMA ir Mailpit, todėl abu bus aktyvūs. Norėdamas juos atskirti pagal aplinkas, naudok atskirų servisų `include`, kaip šiame pavyzdyje. To paties serviso antrą kartą neįtrauk.
 
 Į `compose/local.yaml` pridėk:
 
 ```yaml
-services:
-  mailpit:
-    extends:
-      file: ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
-      service: mailpit
-    profiles: !override []
+include:
+  - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
 ```
 
 Rezultatas: lokaliai veiks abu servisai; STAGE ir LIVE veiks tik PMA. Bendras Nginx pagal įjungtus servisus paruošia `pma.<DOMAIN>` ir `mailpit.<DOMAIN>` adresus. Lokaliam projektui `melga` tai `http://pma.melga.local/` ir `http://mailpit.melga.local/`. Domenus bei sertifikatą paruošia `make bootstrap`.
 
 ### PMA IP taisyklės
 
-| Parametras po `nginx-proxy.environment` | Kam skirtas |
+| Parametras | Kam skirtas |
 | --- | --- |
 | `PMA_ALLOWED_IPS` | Leidžiami klientų IP arba CIDR tinklai. Tarpai, kableliai ir naujos eilutės atskiria įrašus. Galima naudoti IPv4 ir IPv6. STAGE/LIVE tuščia arba nepateikta reikšmė uždraudžia visus klientus. |
 | `PMA_TRUSTED_PROXIES` | Tik tavo patikimų tarpinių proxy IP arba tinklai. Be šio nustatymo kliento atsiųsta `X-Forwarded-For` antraštė nesuteikia prieigos. |
@@ -314,22 +316,27 @@ Rezultatas: lokaliai veiks abu servisai; STAGE ir LIVE veiks tik PMA. Bendras Ng
 
 LIVE šiame setup vadinasi `prod`: naudojami `ENV=prod`, `env/prod.env` ir `compose/prod.yaml`.
 
-IP sąrašas iš `common.yaml` lokaliai ignoruojamas. Taigi dirbdamas lokaliai gali testuoti cache ir Redis su kitokiais runtime nustatymais – tai savaime neįjungs PMA IP ribojimo. Sprendžia tik aplinka, ne cache režimas ar atvaizdo build etapas.
+IP sąrašas iš env failo lokaliai ignoruojamas. Taigi dirbdamas lokaliai gali testuoti cache ir Redis su kitokiais runtime nustatymais – tai savaime neįjungs PMA IP ribojimo. Sprendžia tik aplinka, ne cache režimas ar atvaizdo build etapas.
 
 Taisyklės galioja **HTTP ir HTTPS**, adresams `pma.<DOMAIN>` ir `www.pma.<DOMAIN>`. Pats projekto puslapis dėl jų neužblokuojamas. Neįtrauktas klientas gauna `403 Forbidden`. Neteisingas IP ar CIDR sustabdo Nginx paleidimą, užuot atvėręs prieigą.
 
-Jei STAGE ir LIVE sąrašai skiriasi, atitinkamame `compose/stage.yaml` ar `compose/prod.yaml` perrašyk tą patį `nginx-proxy.environment.PMA_ALLOWED_IPS` lauką. Papildomų env failo laukų kurti nereikia.
+Jei STAGE ir LIVE sąrašai skiriasi, reikšmes rašyk į `env/stage.env` ir `env/prod.env`. Konkrečios aplinkos reikšmė pakeičia `env/common.env` reikšmę. Pavyzdžiui, `env/stage.env`:
+
+```dotenv
+PMA_ALLOWED_IPS="198.51.100.25 2001:db8::20"
+```
+
+`PMA_ALLOWED_IPS=` aplinkos faile išvalo paveldėtą sąrašą ir uždraudžia prieigą. Jei eilutės nėra, paveldimas bendras sąrašas. Tavo projekte naudojami failai kataloge `env/`; papildomo `.env` projekto šaknyje kurti nereikia.
 
 ### Kai prieš konteinerį yra dar vienas Nginx
 
 Situacija: išorinis proxy yra `10.20.0.5`, o tavo biuro išorinis IP – `203.0.113.10`:
 
-```yaml
-services:
-  nginx-proxy:
-    environment:
-      PMA_ALLOWED_IPS: "203.0.113.10"
-      PMA_TRUSTED_PROXIES: "10.20.0.5"
+Į atitinkamą env failą įrašyk:
+
+```dotenv
+PMA_ALLOWED_IPS=203.0.113.10
+PMA_TRUSTED_PROXIES=10.20.0.5
 ```
 
 Išorinis proxy turi į `X-Forwarded-For` įrašyti tikrą besijungiančio kliento IP arba jį pridėti grandinės gale. Nurodyk proxy IP tokį, kokį mato konteineris: dėl Docker/NAT jis gali skirtis nuo serverio viešo IP. Nginx pasitikės šia antrašte tik iš nurodyto proxy ir grandinėje parinks paskutinį nepatikimą adresą.
@@ -348,7 +355,7 @@ make build
 make up
 ```
 
-STAGE naudok tas pačias komandas su `ENV=stage`, LIVE – su `ENV=prod`, pagal įprastą to serverio diegimo tvarką. Aplinkos env, aplikacijos kodas, DB ir sertifikatas jau turi būti paruošti. Vėliau pakeitus vien IP sąrašą YAML faile pakaks `make up ENV=stage` (ar `prod`): Compose perkurs proxy su naujomis reikšmėmis.
+STAGE naudok tas pačias komandas su `ENV=stage`, LIVE – su `ENV=prod`, pagal įprastą to serverio diegimo tvarką. Aplinkos env, aplikacijos kodas, DB ir sertifikatas jau turi būti paruošti. Vėliau pakeitus vien IP sąrašą env faile pakaks `make up ENV=stage` (ar `prod`): Compose perkurs proxy su naujomis reikšmėmis.
 
 Jei PMA viešas adresas naudoja HTTPS, aplinkos YAML nurodyk jo adresą:
 

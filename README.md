@@ -72,7 +72,7 @@ automatic and do not need a project-level version flag.
 
 See the [Lithuanian quick start](doc/lt/02-pradzia.md#c-naujas-projektas-viena-komanda).
 For optional PMA and Mailpit, see [PMA access by environment](doc/PMA_ACCESS.md).
-PMA on stage/prod requires a client IP allowlist in project YAML; local/test stay unrestricted.
+PMA on stage/prod requires a client IP allowlist in project env files, forwarded by YAML; local/test stay unrestricted.
 
 ## Reusable project sources
 

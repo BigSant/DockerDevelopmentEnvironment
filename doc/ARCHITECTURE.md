@@ -464,9 +464,11 @@ image base config  <  profile  <  profile-env  <  project base  <  project-env
 
 ## 9. Service selection (`COMPOSE_PROFILES`)
 
-Optional services carry a compose `profiles:` tag (`phpcs`, `phpstan`, `mailpit`, `pma`,
-`cron`, `playwright`). Core services (`nginx-proxy`, `webserver`/apache, `php-fpm`,
-`database`/mysql) have **no** profile → always run.
+QA tools and cron retain Compose profiles (`phpcs`, `phpstan`, `cron`, `playwright`).
+PMA and Mailpit have no profiles: their inclusion in project YAML determines whether
+and in which environment they run. The full legacy shared Compose source includes
+both. Core services (`nginx-proxy`, `webserver`/apache, `php-fpm`, `database`/mysql)
+also have no profile. New minimal projects include only these four core services.
 
 - Shared defaults enable no optional profiles. The current runner uses explicit
   `PROFILES=...` first, then an optional native `COMPOSE_PROFILES` value from env.
@@ -489,8 +491,8 @@ Optional services carry a compose `profiles:` tag (`phpcs`, `phpstan`, `mailpit`
 | `database` (mysql) | MySQL 8.4, data in `data/mysql` | shared | core | `config/mysql/` |
 | `php-fpm` | app runtime (+Xdebug in local) | **per-project** | core | `config/php/` |
 | `cron` | supercronic over project crontab | reuses php-fpm image | `cron` | `config/php/` + `app/config/cron` |
-| `pma` | phpMyAdmin | shared | `pma` | env vars |
-| `mailpit` | mail catcher | shared | `mailpit` | env vars |
+| `pma` | phpMyAdmin | shared | none; selected by YAML include | env vars |
+| `mailpit` | mail catcher | shared | none; selected by YAML include | env vars |
 | `php-phpstan` | static analysis (idle, exec on demand) | shared | `phpstan` | `app/config/phpstan` (seeded default) |
 | `php-cs` | PHP-CS-Fixer (idle) | shared | `phpcs` | `app/config/php-cs` (seeded default) |
 | `playwright` | E2E tests (idle) | shared | `playwright` | `app/config/playwright` |

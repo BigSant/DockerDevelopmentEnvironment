@@ -2,8 +2,6 @@ services:
   pma:
     image: pma-${IMAGE_ENV:-${ENV}}-${PMA_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
-    profiles:
-      - pma
     mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
     cpus: ${CONTAINER_CPUS:-2}
     logging:

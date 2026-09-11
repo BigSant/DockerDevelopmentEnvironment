@@ -2,8 +2,6 @@ services:
   mailpit:
     image: mailpit-${IMAGE_ENV:-${ENV}}-${MAILPIT_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-mailpit-${MAILPIT_VERSION}
-    profiles:
-      - mailpit
     mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
     cpus: ${CONTAINER_CPUS:-2}
     logging:
