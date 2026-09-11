@@ -28,7 +28,7 @@ class PrestashopParametersTest(unittest.TestCase):
                              "'cookie_key' => 'keep-key', 'secret' => 'keep-secret', "
                              "'custom' => ['nested' => true]], 'extra' => false];\n")
         self.env = os.environ.copy()
-        self.env.update(DATABASE_HOST="database", DATABASE_PORT="3306", DATABASE_NAME="shop",
+        self.env.update(PROFILE="prestashop", DATABASE_HOST="database", DATABASE_PORT="3306", DATABASE_NAME="shop",
                         DATABASE_USER="shop-user", DATABASE_PASSWORD="quote' dollar$ slash\\ percent% double%%\nline")
         for environment in ("dev", "prod"):
             cache = self.root / "var/cache" / environment

@@ -1,4 +1,7 @@
 #!/bin/bash
+# The official entrypoint may source a non-executable bind-mounted hook.
+# Keep our shell options local in either invocation mode.
+(
 set -euo pipefail
 
 : "${MYSQL_USER:?MYSQL_USER is required}"
@@ -9,10 +12,14 @@ set -euo pipefail
 # the @'localhost' variant and elevate the app user to full privileges so it can create /
 # drop databases, run migrations, etc. (dev environment). SQL is executed directly against
 # the init server — no self-modifying init files.
-mysql --protocol=socket -uroot -p"${MYSQL_ROOT_PASSWORD}" <<EOSQL
-CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED WITH caching_sha2_password BY '${MYSQL_PASSWORD}';
-CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED WITH caching_sha2_password BY '${MYSQL_PASSWORD}';
-GRANT ALL PRIVILEGES ON *.* TO '${MYSQL_USER}'@'localhost' WITH GRANT OPTION;
-GRANT ALL PRIVILEGES ON *.* TO '${MYSQL_USER}'@'%' WITH GRANT OPTION;
+sql_user=${MYSQL_USER//\'/\'\'}
+sql_password=${MYSQL_PASSWORD//\'/\'\'}
+MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket --host=localhost --user=root <<EOSQL
+SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
+CREATE USER IF NOT EXISTS '${sql_user}'@'localhost' IDENTIFIED BY '${sql_password}';
+CREATE USER IF NOT EXISTS '${sql_user}'@'%' IDENTIFIED BY '${sql_password}';
+GRANT ALL PRIVILEGES ON *.* TO '${sql_user}'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON *.* TO '${sql_user}'@'%' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 EOSQL
+)

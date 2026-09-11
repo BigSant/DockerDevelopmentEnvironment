@@ -1,12 +1,12 @@
 services:
   webserver:
-    image: webserver-apache-${ENV}-${APACHE_VERSION}
+    image: webserver-apache-${IMAGE_ENV:-${ENV}}-${APACHE_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-webserver-apache-${APACHE_VERSION}
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/apache/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         PROFILE: ${PROFILE}
         APACHE_VERSION: ${APACHE_VERSION}

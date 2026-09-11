@@ -1,0 +1,45 @@
+name: Setup compatibility
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 -m unittest discover -s tests -v
+  php-config:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['5.6', '7.4', '8.1', '8.5']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: docker pull "php:${PHP_VERSION}-cli"
+        env:
+          PHP_VERSION: '${{ matrix.php }}'
+      - run: python3 -m unittest discover -s tests -p test_runtime_features.py -v
+        env:
+          PHP_TEST_IMAGE: 'php:${{ matrix.php }}-cli'
+  database:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['mysql:5.7', 'mysql:8.4', 'mariadb:11.4']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: docker pull "$SETUP_DB_TEST_IMAGE"
+        env:
+          SETUP_DB_TEST_IMAGE: '${{ matrix.image }}'
+      - run: python3 -m unittest discover -s tests -p 'test_database_*integration.py' -v
+        env:
+          SETUP_DB_TEST_IMAGE: '${{ matrix.image }}'
+          SETUP_MYSQL_FIXTURES_INTEGRATION: '1'
+          SETUP_MYSQL_SCHEMA_INTEGRATION: '1'

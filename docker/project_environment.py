@@ -25,7 +25,7 @@ def initialize_env(directory, environment):
 
 def initialize_directories(project):
     created = []
-    permitted = (project.root / "data", project.root / "app/config", project.directory / "config")
+    permitted = (project.root / "data", project.root / "app/config", project.directory / "config", project.directory / ".generated/test/data")
     for service in project.model()["services"].values():
         for mount in service.get("volumes", []):
             if mount["type"] != "bind":
@@ -137,3 +137,10 @@ def doctor(project):
         raise ValueError("Environment is not ready:\n  " + "\n  ".join(sorted(issues)))
     print(f"Ready: {project.name}; Docker {engine.stdout.strip()}, Compose {version.stdout.strip()}.")
     print("Active service sources, local images, host ports, mount directories and TLS files checked.")
+    if getattr(project, 'settings', {}).get('PROFILE') in ('ps', 'prestashop'):
+        running = project.capture(['ps', '--status', 'running', '--services']).split()
+        if 'php-fpm' in running:
+            from project_health import smoke
+            smoke(project)
+        else:
+            print('PrestaShop runtime checks pending: start the environment with make up.')

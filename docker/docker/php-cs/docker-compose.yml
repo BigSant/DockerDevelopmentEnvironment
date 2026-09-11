@@ -1,6 +1,6 @@
 services:
   php-cs:
-    image: php-cs-${PHP_CS_VERSION}
+    image: php-cs-${PHP_CS_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm-cs-${PHP_CS_VERSION}
     profiles:
       - phpcs
@@ -10,7 +10,7 @@ services:
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/php-cs/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         PHP_CS_VERSION: ${PHP_CS_VERSION}
     depends_on:

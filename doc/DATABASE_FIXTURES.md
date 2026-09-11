@@ -45,7 +45,7 @@ option before running SQL; use `db-fixtures=...`.
 
 `set` chooses data; `ENV` chooses the existing Docker stack/database. `set=test`
 does not create a test database, change DB credentials, or isolate data from the
-local shop. Use a separately configured project/stack for isolated tests. Loading
+local shop. Use `make test-init` and `ENV=test` for an isolated application/DB stack. Loading
 one set does not remove rows previously loaded from another set. Fixture SQL
 must implement any intended replacement or cleanup explicitly.
 

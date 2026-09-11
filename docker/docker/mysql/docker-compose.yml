@@ -1,6 +1,6 @@
 services:
   database:
-    image: mysql-${ENV}-${MYSQL_VERSION}
+    image: mysql-${IMAGE_ENV:-${ENV}}-${MYSQL_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
     restart: unless-stopped
     # Defaults to the host user (files in data/mysql stay host-owned for local dev). For
@@ -10,9 +10,9 @@ services:
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
-        ENV: ${ENV}
+        ENV: ${BUILD_ENV:-${ENV}}
         PROFILE: ${PROFILE}
         MYSQL_VERSION: ${MYSQL_VERSION}
     environment:

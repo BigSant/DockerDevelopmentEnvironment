@@ -31,7 +31,7 @@ class SchemaIntegrationTest(unittest.TestCase):
             # No published ports, no host DB bind mount, no access to other project networks.
             (directory / "compose.yaml").write_text("""services:
   database:
-    image: mysql-local-8.4.0:latest
+    image: __DB_TEST_IMAGE__
     network_mode: none
     tmpfs:
       - /var/lib/mysql
@@ -40,7 +40,7 @@ class SchemaIntegrationTest(unittest.TestCase):
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_ROOT_PASSWORD: schema-root-test-only
-""")
+""".replace("__DB_TEST_IMAGE__", os.environ.get("SETUP_DB_TEST_IMAGE", "mysql-local-8.4.0:latest")))
             git(root, "init", "-q")
             git(root, "config", "user.name", "Schema Test")
             git(root, "config", "user.email", "schema-test@example.invalid")

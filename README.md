@@ -48,3 +48,9 @@ See [`doc/`](doc/README.md):
 > ⚠️ When changing the Docker logic (Dockerfiles, compose, Makefile, profiles, config cascade,
 > `new_host.sh`), update `doc/` in the same change — see the maintenance rule in
 > [doc/README.md](doc/README.md).
+
+`make bootstrap` prepares local host/TLS/IDE settings. `make up` waits for service
+readiness and runs profile-aware smoke checks. `make db-backup` and compressed
+imports support DB workflows; `make test-init` prepares independent test app/data
+paths. See [runtime workflow](doc/ENVIRONMENT_WORKFLOW.md) and
+[setup releases](doc/RELEASES.md) before adopting changed stage/prod paths.

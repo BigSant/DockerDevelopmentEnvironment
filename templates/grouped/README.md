@@ -34,3 +34,9 @@ Hook SQL may use the validated ${DOMAIN} placeholder. Schema snapshots do not
 prove migration replay; a disposable CI database should check that separately.
 
 See setup/doc/PROJECT_TEMPLATES.md and setup/doc/ENVIRONMENT_COMMANDS.md.
+
+`make bootstrap` prepares local TLS/host/IDE settings. `make test-init` prepares
+a separate app/data copy for ENV=test; start its DB with `make db-prepare ENV=test`,
+import suitable data, then `make up ENV=test`. Set PROFILE explicitly: only ps /
+prestashop enables PS-specific configuration and DB checks. `make db-backup`
+creates a private compressed dump; db-import accepts .sql.gz and backup=1.

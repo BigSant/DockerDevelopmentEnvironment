@@ -1,15 +1,15 @@
 services:
   nginx-proxy:
-    image: nginx-proxy-${ENV}-${NGINX_VERSION}
+    image: nginx-proxy-${IMAGE_ENV:-${ENV}}-${NGINX_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-nginx-proxy-${NGINX_VERSION}
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/nginx-proxy/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         NGINX_VERSION: ${NGINX_VERSION}
-        ENV: ${ENV}
+        ENV: ${BUILD_ENV:-${ENV}}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${WEBSERVICE_TIMEOUT}'
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro

@@ -19,6 +19,40 @@ optimised for **PrestaShop** and **Akeneo** projects. One central `setup/` repos
 DB, TLS, cron, mail catcher, QA tooling), wired up by a thin per-project `Makefile` that
 points back here.
 
+## Runtime workflow and release boundary
+
+The runner now resolves an explicit application profile (`ps` aliases
+`prestashop`), setup API compatibility, optional content-based shared image tags,
+HTTP smoke settings and separate environment paths. New grouped projects default
+to no application profile and enable versioned image names. Legacy defaults remain
+available for existing projects; profiles should be explicit when migrating.
+
+`project_health.py` combines Compose `up --wait` with PS-only configuration/DB
+probes and configured HTTP checks. `doctor` includes PS runtime checks when PHP
+is running. Generic profiles never require PS files. `docker/runtime/start.sh`
+prepares PS 1.6 defines or newer PHP parameters, merges per-project overrides,
+then runs `config/startup/*.sh` and execs PHP-FPM. Unchanged configuration leaves
+caches intact. All scripts are read-only runtime mounts; no secrets enter builds.
+
+`project_bootstrap.py` provides local/test onboarding, private placeholder setup,
+port allocation, TLS/hostname checks and IDE initialization. `test-init` makes a
+separate app copy and env; optional refresh stops only that test stack. Test app,
+DB and TLS paths stay under `.generated/test`, while test containers/networks use
+ENV=test and reuse local images via IMAGE_ENV/BUILD_ENV. Stage/prod defaults now
+use their own app/<env>/public and data/<env> paths. Explicit existing deployment
+paths need review; local paths are preserved. Successful runner commands refresh
+an existing IDE Compose bridge automatically.
+
+`database_client.py` selects MySQL or MariaDB tools. `database_backup.py` writes
+exclusive, private, atomic .sql/.sql.gz logical backups. Import validates gzip
+before execution and can back up under its existing operation lock before loading
+a dump. `SQL_DOMAIN` supports a test canonical hostname/port separately from the
+container's DOMAIN. `db-prepare` starts only the selected DB for initial seeding.
+
+VERSION/API reporting and source/profile fingerprints are in `setup_release.py`;
+CI covers PHP 5.6/7.4/8.1/8.5 and disposable MySQL/MariaDB. See
+[environment workflow](ENVIRONMENT_WORKFLOW.md) and [release process](RELEASES.md).
+
 ## Reusable source workflow
 
 `prepare_project.py` distributes `templates/grouped/` and the shared
@@ -74,7 +108,7 @@ env creation and missing writable data/config directories) and `doctor`
 (Engine/Compose availability, selected images, ports, mounts, private settings
 and TLS file presence). `pull` selects external images, excluding every image built by any declared
 service (including PHP image reuse by cron), then uses `--ignore-buildable`;
-`shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never`.
+`shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never --wait` followed by smoke checks.
 QA targets are ephemeral. The wrapper has a separate explicit SQL importer;
 it does not call the legacy interactive DB importer.
 
@@ -122,7 +156,7 @@ provide empty common/local/test directories and the resolved fixture path.
 See [SQL fixtures](DATABASE_FIXTURES.md).
 
 `database_import.py` implements `db-import-plan` and `db-import`. Both require
-an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
+an explicit nonempty `.sql` or validated `.sql.gz` dump, `DATABASE_NAME`, and a project-relative
 `POST_IMPORT_SQL_DIRECTORY`. New grouped templates use `database/after-import/`
 beside `database/schema/` and `database/fixtures/`, without an intermediate SQL
 directory. Existing projects' explicit paths remain supported; preparation does

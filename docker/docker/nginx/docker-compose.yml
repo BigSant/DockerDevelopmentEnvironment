@@ -1,12 +1,12 @@
 services:
   webserver:
-    image: webserver-nginx-${ENV}-${NGINX_VERSION}
+    image: webserver-nginx-${IMAGE_ENV:-${ENV}}-${NGINX_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-webserver-nginx-${NGINX_VERSION}
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/nginx/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         PROFILE: ${PROFILE}
         NGINX_VERSION: ${NGINX_VERSION}

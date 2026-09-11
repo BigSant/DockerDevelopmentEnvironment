@@ -14,17 +14,7 @@ from urllib.parse import quote
 
 MANIFEST = "schema.manifest.json"
 HOOK_MARKER = "# Shared setup schema pre-commit hook v1"
-MYSQL_READ = '''
-set -eu
-if [ "$MYSQL_DATABASE" != "$1" ]; then
-    echo 'Configured database differs from the running container.' >&2
-    exit 64
-fi
-MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --connect-timeout=5 --get-server-public-key \
-    --protocol=TCP --host=127.0.0.1 \
-    --default-character-set=utf8mb4 --batch --skip-column-names --binary-mode \
-    --user="$MYSQL_USER" --database="$1"
-'''
+from database_client import READ as MYSQL_READ
 TABLES_SQL = "SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY BINARY TABLE_NAME;\n"
 
 

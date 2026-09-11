@@ -4,7 +4,7 @@ services:
       context: ${PROJECT_DOCKER_DIRECTORY}
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+        BASE_IMAGE: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX:-}
       additional_contexts:
         profiles: ${ROOT_DIRECTORY}/profile
 

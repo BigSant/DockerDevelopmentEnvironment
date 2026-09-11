@@ -1,6 +1,6 @@
 services:
   playwright:
-    image: playwright-${PLAYWRIGHT_VERSION}
+    image: playwright-${PLAYWRIGHT_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-playwright
     profiles:
       - playwright
@@ -10,7 +10,7 @@ services:
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/playwright/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION}
     depends_on:

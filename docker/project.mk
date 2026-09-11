@@ -4,7 +4,7 @@ PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_
 PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
-.PHONY: init doctor pull shell ide-init ide-refresh
+.PHONY: init doctor pull shell ide-init ide-refresh smoke db-backup db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine db-import db-import-plan schema-export schema-check schema-hook-install
 
@@ -13,19 +13,23 @@ quote = '$(subst ','"'"',$(1))'
 RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(call quote,$(PROJECT_DOCKER_DIRECTORY)) --project-directory $(call quote,$(PROJECT_DIRECTORY)) --env $(call quote,$(ENV)) $(if $(filter undefined,$(origin PROFILES)),,--profiles $(call quote,$(PROFILES)))
 
 help:
+	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
+	@echo 'smoke: runtime/application probes; db-backup [file=backup.sql.gz]; setup-info: shared version'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
 	@echo 'check / config: validate / render shared sources without starting containers'
 	@echo 'build: explicitly build images; up: start using existing images; down / ps / logs'
-	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|stage|prod; PROFILES= selects core only'
+	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|test|stage|prod; PROFILES= selects core only'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
 	@echo 'db-import-plan file=dump.sql: preview; db-import file=dump.sql: import then run SQL hooks'
 	@echo 'db-fixtures-plan / db-fixtures-load set=local|test: preview / load common + selected SQL fixtures'
 	@echo 'db-import file=dump.sql db-fixtures=local: append fixtures after the import hooks'
+	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
+	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: enable pre-commit schema-check in the schema repository'
 
-init doctor pull shell ide-refresh check config up build down ps logs phpstan-baseline schema-export schema-check schema-hook-install:
+init doctor pull shell ide-refresh check config up build down ps logs phpstan-baseline schema-export schema-check schema-hook-install bootstrap setup-info db-prepare:
 	@$(RUN_PROJECT) $@
 
 ide-init:
@@ -36,7 +40,16 @@ phpstan phpcs e2e doctrine:
 
 db-import db-import-plan:
 	$(if $(filter undefined,$(origin fixtures)),,$(error Use db-fixtures=SET instead of fixtures=SET))
-	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
+	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))
+
+smoke:
+	@$(RUN_PROJECT) $@ $(if $(timeout),--timeout $(call quote,$(timeout)),)
+
+db-backup:
+	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),)
+
+test-init:
+	@$(RUN_PROJECT) $@ $(if $(filter 1,$(refresh)),--refresh-test,)

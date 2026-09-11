@@ -3,12 +3,14 @@ ARG PHP_VERSION=''
 ARG XDEBUG_VERSION=''
 ARG COMPOSER_VERSION=''
 ARG PROFILE=''
+ARG SETUP_IMAGE_SUFFIX=''
 
-FROM php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION} AS base
+FROM php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX} AS base
 
 # Re-declare ARGs needed inside this stage (ARGs before the first FROM are only visible to FROM).
 ARG ENV=''
 ARG PROFILE=''
+ARG SETUP_IMAGE_SUFFIX=''
 
 # Profile-specific PHP overlay (PROFILE=prestashop|akeneo|""). conf.d / php-fpm.d are read
 # alphabetically, so the zz-/zzz- prefixes override the base php.ini / pool config. The base

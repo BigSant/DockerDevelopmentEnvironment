@@ -29,7 +29,7 @@ class FixturesIntegrationTest(unittest.TestCase):
             (directory / "Makefile").write_text(f"PROJECT_DOCKER_DIRECTORY := $(CURDIR)\nSETUP_DIRECTORY := {ROOT}\ninclude $(SETUP_DIRECTORY)/docker/project.mk\n")
             (directory / "compose.yaml").write_text("""services:
   database:
-    image: mysql-local-8.4.0:latest
+    image: __DB_TEST_IMAGE__
     network_mode: none
     tmpfs:
       - /var/lib/mysql
@@ -38,7 +38,13 @@ class FixturesIntegrationTest(unittest.TestCase):
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_ROOT_PASSWORD: fixture-root-test-only
-""")
+""".replace("__DB_TEST_IMAGE__", os.environ.get("SETUP_DB_TEST_IMAGE", "mysql-local-8.4.0:latest")))
+            # Exercise the shared first-start hook even with an official CI image.
+            # MYSQL_HOST previously broke its explicit socket connection.
+            engine = 'mariadb' if 'mariadb' in os.environ.get('SETUP_DB_TEST_IMAGE', '') else 'mysql'
+            with (directory / 'compose.yaml').open('a') as compose:
+                compose.write('      MYSQL_HOST: 127.0.0.1\n')
+                compose.write(f'    volumes:\n      - {ROOT}/docker/docker/{engine}/conf/init.sh:/docker-entrypoint-initdb.d/01-init-app-user.sh:ro\n')
             fixtures = root / "database/fixtures"
             for group, identifier in (("common", 1), ("local", 2), ("test", 3)):
                 (fixtures / group).mkdir(parents=True)
@@ -67,6 +73,8 @@ class FixturesIntegrationTest(unittest.TestCase):
                             raise
                         time.sleep(0.5)
                 mysql_query(project, "CREATE TABLE seed (id int PRIMARY KEY, value varchar(64));")
+                grants = mysql_query(project, 'SHOW GRANTS;')
+                self.assertIn('ON *.*', grants)
                 result = make("db-fixtures-plan", "set=local")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(rows(), "")
@@ -90,6 +98,22 @@ class FixturesIntegrationTest(unittest.TestCase):
                 result = make("db-import", f"file={dump}", "db-fixtures=local")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(rows(), "1\tcommon\n2\tlocal")
+                backup = root / 'roundtrip.sql.gz'
+                result = make('db-backup', f'file={backup}')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+                broken = root/'truncated.sql.gz'
+                broken.write_bytes(backup.read_bytes()[:25])
+                result = make('db-import', f'file={broken}', 'backup=1')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(rows(), '1\tcommon\n2\tlocal')
+                result = make('db-backup', f'file={backup}')
+                self.assertNotEqual(result.returncode, 0)
+                mysql_query(project, 'DELETE FROM seed;')
+                result = make('db-import', f'file={backup}', 'backup=1')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(rows(), '1\thook\n2\tlocal')
+                self.assertEqual(len(list((directory/'.generated/backups').glob('*.sql.gz'))), 1)
                 (fixtures / "test/020-fail.sql").write_text("INSERT INTO missing_table VALUES (1);\n")
                 (fixtures / "test/030-never.sql").write_text("INSERT INTO seed VALUES (99, 'must not run');\n")
                 result = make("db-fixtures-load", "set=test")

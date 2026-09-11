@@ -1,12 +1,12 @@
 services:
   php-fpm-base:
-    image: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+    image: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
     restart: unless-stopped
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/php-fpm/${PHP_VERSION}/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
@@ -20,7 +20,7 @@ services:
       - network_app
 
   php-fpm:
-    image: ${PROJECT_NAME}-php-fpm-${ENV}
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
     restart: unless-stopped
     # Run as the host user so files written to the bind-mounted web dir are host-owned, not root.
@@ -28,15 +28,24 @@ services:
     build:
       context: ${DOCKERFILE_DIRECTORY}
       dockerfile: ${DOCKERFILE_DIRECTORY}/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
-        ENV: ${ENV}
+        ENV: ${BUILD_ENV:-${ENV}}
+        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX:-}
         PROFILE: ${PROFILE}
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
         NODE_VERSION: ${NODE_VERSION}
+    entrypoint: ["/bin/sh", "/opt/setup/runtime/start.sh"]
+    command: ["php-fpm", "-R"]
     environment:
+      PROFILE: ${PROFILE-}
+      DATABASE_HOST: ${APP_DATABASE_HOST:-database}
+      DATABASE_PORT: ${APP_DATABASE_PORT:-3306}
+      DATABASE_NAME: ${DATABASE_NAME-}
+      DATABASE_USER: ${DATABASE_USER-}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD-}
       PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-512M}
       PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME:-30}
       PHP_UPLOAD_MAX_FILESIZE: ${PHP_UPLOAD_MAX_FILESIZE:-20M}
@@ -49,6 +58,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/config/:/opt/setup/project/:ro
       - ${PROJECT_WEB_DIRECTORY}:/var/www/html/
       - ${PROJECT_DATA_DIRECTORY}/profiling/:/tmp/profiling/
       - ${PROJECT_DOCKER_DIRECTORY}/config/php/:/usr/local/etc/php/project.d/:ro

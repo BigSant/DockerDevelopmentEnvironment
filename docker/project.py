@@ -16,6 +16,9 @@ from database_fixtures import load_fixtures, plan_fixtures
 from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
 from project_ide import initialize_ide, refresh_ide
+from project_health import smoke, start_project
+from database_backup import backup_database
+from setup_release import API_VERSION, image_suffix, setup_info
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -31,6 +34,15 @@ class Project:
         self.directory = Path(directory).resolve()
         self.root = Path(root).resolve() if root else project_root(self.directory)
         self.environment = environment
+        build_environment = 'local' if environment == 'test' else environment
+        self.web_directory = self.root / 'app/public'
+        self.data_directory = self.root / 'data'
+        if environment == 'test':
+            self.web_directory = self.directory / '.generated/test/app'
+            self.data_directory = self.directory / '.generated/test/data'
+        elif environment != 'local':
+            self.web_directory = self.root / 'app' / environment / 'public'
+            self.data_directory = self.root / 'data' / environment
         grouped = (self.directory / "env/common.env").exists() or (self.directory / "compose/base.yaml").exists()
         if grouped:
             if (self.directory / ".env").exists() or (self.directory / "compose.yaml").exists():
@@ -64,12 +76,13 @@ class Project:
             "ROOT_DIRECTORY": str(DOCKER_ROOT),
             "PROJECT_DIRECTORY": str(self.root),
             "PROJECT_APP_DIRECTORY": str(self.root / "app"),
-            "PROJECT_WEB_DIRECTORY": str(self.root / "app/public"),
+            "PROJECT_WEB_DIRECTORY": str(self.web_directory),
             "PROJECT_CONFIG_DIRECTORY": str(self.root / "app/config"),
-            "PROJECT_DATA_DIRECTORY": str(self.root / "data"),
+            "PROJECT_DATA_DIRECTORY": str(self.data_directory),
             "PROJECT_DOCKER_DIRECTORY": str(self.directory),
             "DOCKERFILE_DIRECTORY": str(self.directory if (self.directory / "Dockerfile").is_file()
                                         else DOCKER_ROOT),
+            "BUILD_ENV": build_environment, "IMAGE_ENV": build_environment,
             "ENV": environment, "HOST_UID": str(os.getuid()), "HOST_GID": str(os.getgid()),
             "COMPOSE_DISABLE_ENV_FILE": "true",
             "BUILDX_NO_DEFAULT_ATTESTATIONS": "1", "BUILDX_METADATA_PROVENANCE": "disabled",
@@ -82,6 +95,22 @@ class Project:
         self.command += ["--project-name", "setup-settings", "-f", str(DOCKER_ROOT / "project-settings.yaml")]
         settings = json.loads(self.capture(["config", "--format", "json"]))["services"]["settings"]["environment"]
         self.settings = settings
+        if str(settings['SETUP_REQUIRED_API']) != API_VERSION:
+            raise ValueError('Project requires a different setup API; use a compatible setup release')
+        profile = settings['PROFILE']
+        if profile == 'ps': profile = 'prestashop'
+        settings['PROFILE'] = profile
+        self.process_env['PROFILE'] = profile
+        self.process_env['SETUP_IMAGE_SUFFIX'] = ''
+        for key, attribute in [('DATA_DIRECTORY', 'data_directory'), ('APP_SOURCE_DIRECTORY', 'web_directory')]:
+            if settings[key]:
+                path = (self.root / settings[key]).resolve()
+                if not path.is_relative_to(self.root):
+                    raise ValueError(f'{key} must stay inside the project')
+                if environment == 'test' and not path.is_relative_to(self.directory / '.generated/test'):
+                    raise ValueError('Test data and code must stay inside .generated/test')
+                setattr(self, attribute, path)
+        self.process_env.update(PROJECT_DATA_DIRECTORY=str(self.data_directory), PROJECT_WEB_DIRECTORY=str(self.web_directory))
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
@@ -100,6 +129,17 @@ class Project:
         for override in [overrides[0], *extras, overrides[1]]:
             if override.is_file():
                 self.command += ["-f", str(override)]
+        if settings['VERSIONED_IMAGES'] == '1':
+            arguments = {name: service['build'].get('args', {})
+                         for name, service in self.model()['services'].items() if service.get('build')}
+            self.process_env['SETUP_IMAGE_SUFFIX'] = image_suffix(profile, arguments)
+        if environment == 'test':
+            self.validate_test_isolation()
+
+    def validate_test_isolation(self, profiles=None):
+        from project_isolation import validate_test_model
+        model = json.loads(self.capture(['config', '--format', 'json'], profiles=profiles))
+        validate_test_model(self, model)
 
     def child_env(self, profiles=None):
         selected = getattr(self, "profiles", None) if profiles is None else profiles
@@ -114,6 +154,8 @@ class Project:
         return result.stdout
 
     def run(self, args, profiles=None):
+        if self.environment == 'test' and profiles is not None:
+            self.validate_test_isolation(profiles)
         subprocess.run(self.command + args, env=self.child_env(profiles), check=True)
 
     def model(self):
@@ -139,23 +181,44 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker-directory", required=True)
     parser.add_argument("--project-directory")
-    parser.add_argument("--env", choices=["local", "stage", "prod"], default="local")
+    parser.add_argument("--env", choices=["local", "stage", "prod", "test"], default="local")
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
                                            "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh"])
+                                           "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "smoke", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
-    parser.add_argument("--dump", help="Plain .sql dump for db-import / db-import-plan")
+    parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
+    parser.add_argument('--backup', action='store_true', help='Create a private backup before importing')
+    parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
+    parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
+    parser.add_argument('--timeout', type=int, default=90, help='Readiness/HTTP timeout in seconds')
     args = parser.parse_args()
+    if args.timeout < 1:
+        parser.error('--timeout must be positive')
+    if args.action == 'setup-info':
+        setup_info()
+        return 0
     try:
-        if args.action in ("init", "ide-init"):
+        if args.action in ("init", "ide-init", "bootstrap"):
             initialize_env(args.docker_directory, args.env)
         project = Project(args.docker_directory, args.env, args.project_directory, args.profiles)
-        if args.action == "ide-init":
+        if args.action == 'test-init':
+            from project_bootstrap import initialize_test
+            initialize_test(project, refresh=args.refresh_test)
+        elif args.action == 'bootstrap':
+            from project_bootstrap import bootstrap
+            project = bootstrap(project)
+        elif args.action == 'db-prepare':
+            project.run(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', str(args.timeout), 'database'])
+        elif args.action == 'db-backup':
+            backup_database(project, args.output)
+        elif args.action == 'smoke':
+            smoke(project, args.timeout)
+        elif args.action == "ide-init":
             initialize_ide(project, args.docker_server, args.ide_config_directory)
         elif args.action == "ide-refresh":
             refresh_ide(project)
@@ -176,7 +239,7 @@ def main():
             project.run(["build", "php-fpm-base"], profiles="build_only")
             project.run(["build"])
         elif args.action == "up":
-            project.run(["up", "-d", "--no-build", "--pull", "never"])
+            start_project(project, args.timeout)
         elif args.action in ("down", "ps", "logs"):
             project.run([args.action])
         elif args.action in ("schema-export", "schema-check", "schema-hook-install"):
@@ -191,7 +254,7 @@ def main():
                 for step in plan:
                     print(step)
             else:
-                import_database(project, plan)
+                import_database(project, plan, backup=args.backup)
         elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
             plan = plan_fixtures(project, args.db_fixtures)
             print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")
@@ -228,8 +291,10 @@ def main():
                 # The shared Playwright service otherwise starts `tail -f /dev/null`.
                 command += ["--entrypoint", arguments.pop(0)]
             project.run(command + [service] + arguments, profiles=profile)
+        if args.action not in ('ide-init', 'ide-refresh', 'test-init', 'setup-info') and (project.directory / '.idea/php.xml').is_file():
+            refresh_ide(project)
         return 0
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+    except (ValueError, OSError, EOFError, subprocess.CalledProcessError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 

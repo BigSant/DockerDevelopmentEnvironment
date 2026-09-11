@@ -62,3 +62,9 @@ after review and `git add`, `make schema-check` compares the DB to the Git index
 `make schema-hook-install` explicitly enables that check before commits.
 It preserves existing hooks and requires a reachable DB for checks. See
 `setup/doc/DATABASE_SCHEMA.md` for repository paths and supported schema objects.
+
+`make bootstrap` prepares local TLS/host/IDE settings. `make test-init` prepares
+a separate app/data copy for ENV=test; start its DB with `make db-prepare ENV=test`,
+import suitable data, then `make up ENV=test`. Set PROFILE explicitly: only ps /
+prestashop enables PS-specific configuration and DB checks. `make db-backup`
+creates a private compressed dump; db-import accepts .sql.gz and backup=1.

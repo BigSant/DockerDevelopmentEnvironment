@@ -1,6 +1,6 @@
 services:
   pma:
-    image: pma-${ENV}-${PMA_VERSION}
+    image: pma-${IMAGE_ENV:-${ENV}}-${PMA_VERSION}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
     profiles:
       - pma
@@ -8,7 +8,7 @@ services:
     build:
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/pma/Dockerfile
-      target: env-${ENV}
+      target: env-${BUILD_ENV:-${ENV}}
       args:
         PMA_VERSION: ${PMA_VERSION}
     environment:

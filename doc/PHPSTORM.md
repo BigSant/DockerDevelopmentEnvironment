@@ -59,7 +59,7 @@ mode-0600 file contains resolved machine paths and environment values, including
 credentials; keep `.generated/` ignored. It is refreshed at initialization and
 project startup. After changing env/Compose files during an open IDE session, run
 **Prepare IDE** again, or `make ide-refresh` to refresh only the Compose file.
-Regular Make commands always use the original project/shared sources.
+Successful Make runner commands also refresh an existing IDE bridge, including after env/Compose changes. Regular Make commands always use the original project/shared sources.
 
 Existing unrelated IDE components and custom run files are preserved. Files
 changed by initialization are backed up under `.generated/phpstorm-backups/`.

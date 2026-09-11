@@ -1,6 +1,6 @@
 services:
   cron:
-    image: ${PROJECT_NAME}-php-fpm-${ENV}
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX:-}
     container_name: ${PROJECT_NAME}-${ENV}-cron
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     profiles:
