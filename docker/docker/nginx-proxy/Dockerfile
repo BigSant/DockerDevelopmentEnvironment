@@ -10,7 +10,8 @@ COPY /docker/nginx-proxy/conf/sites.pma.conf /etc/nginx/templates/setup-pma.conf
 COPY /docker/nginx-proxy/conf/sites.mailpit.conf /etc/nginx/templates/setup-mailpit.conf
 
 COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh
-RUN chmod +x /usr/local/bin/init.sh
+COPY /docker/nginx-proxy/conf/pma-access.sh /usr/local/bin/pma-access.sh
+RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/pma-access.sh
 
 # Per-project config override dirs (bind-mounted at runtime). Included after conf.d in
 # nginx.conf so project *.conf win. project.d = always, project.d.env = ENV-match.

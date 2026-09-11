@@ -270,42 +270,100 @@ Grouped Redis šablonas ir aukščiau pateiktas variantas naudoja `${PROJECT_DAT
 
 ## Mailpit ir phpMyAdmin: papildyti minimalų projektą
 
-Situacija: nori pagauti laiškus ir DB naršyti per UI.
+Situacija: PMA reikia visose aplinkose, o laiškus gaudantis Mailpit reikalingas tik lokaliai.
 
-Minimalus Forsenos `base.yaml` šių servisų neturi. Į jo esamą `include` sąrašą pridėk:
+Į `compose/common.yaml` pridėk:
 
 ```yaml
-  - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
+services:
+  pma:
+    extends:
+      file: ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
+      service: pma
+    profiles: !override []
+  nginx-proxy:
+    environment:
+      PMA_ALLOWED_IPS: "203.0.113.10 198.51.100.0/24 2001:db8::10"
+      PMA_TRUSTED_PROXIES: ""
 ```
 
-Į `compose/local.yaml` įrašyk `profiles: !reset []`, kad šie įtraukti servisai būtų įjungti lokaliai be env jungiklio. Jų UI galima parodyti tiesioginiais portais:
+Pavyzdinius IP pakeisk savo biuro, namų arba VPN išoriniais IP. Jei dar nežinai, įrašyk `PMA_ALLOWED_IPS: ""` – STAGE ir LIVE prieigos neturės niekas, o lokaliai PMA veiks.
+
+`extends` paima bendrą serviso aprašą. `profiles: !override []` pašalina jo profilio reikalavimą, kad servisas įsijungtų kartu su šiuo YAML. Vien bendro failo įtraukimas per `include` jo neįjungia, nes bendrame faile PMA turi pasirenkamą profilį. Naudojant šį `extends` pavyzdį, to paties PMA serviso papildomai per `include` nebedėk.
+
+Į `compose/local.yaml` pridėk:
 
 ```yaml
 services:
   mailpit:
-    profiles: !reset []
-    ports:
-      - "127.0.0.1:31825:8025"
-    environment:
-      MP_MAX_MESSAGES: "1000"
-  pma:
-    profiles: !reset []
-    ports:
-      - "127.0.0.1:31826:80"
-    environment:
-      PMA_ABSOLUTE_URI: http://127.0.0.1:31826/
+    extends:
+      file: ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
+      service: mailpit
+    profiles: !override []
 ```
 
-Vykdyk `make init`, `make build`, `make up`. Mailpit atverk `http://127.0.0.1:31825`, phpMyAdmin – `http://127.0.0.1:31826`.
+Rezultatas: lokaliai veiks abu servisai; STAGE ir LIVE veiks tik PMA. Bendras Nginx pagal įjungtus servisus paruošia `pma.<DOMAIN>` ir `mailpit.<DOMAIN>` adresus. Lokaliam projektui `melga` tai `http://pma.melga.local/` ir `http://mailpit.melga.local/`. Domenus bei sertifikatą paruošia `make bootstrap`.
 
-Aplikacijos SMTP nustatyk `mailpit`, portą `1025`, be TLS ir be būtinos autentifikacijos. Forsenos after-import SQL **išjungia** laiškų siuntimą; norėdamas juos matyti Mailpit, papildomai parink aplikacijoje SMTP režimą. SMTP UI portas `8025` nėra siuntimo portas `1025`.
+### PMA IP taisyklės
 
-Pilno šablono Nginx jau turi `mailpit.<DOMAIN>` ir `pma.<DOMAIN>` virtualius hostus. Jiems reikia veikiančių servisų ir atitinkamų domenų rezoliucijos. Minimalios Forsenos komanda šiuos virtualius hostus išvalo, todėl vien profilio įjungimas jos subdomenų neatkurs.
+| Parametras po `nginx-proxy.environment` | Kam skirtas |
+| --- | --- |
+| `PMA_ALLOWED_IPS` | Leidžiami klientų IP arba CIDR tinklai. Tarpai, kableliai ir naujos eilutės atskiria įrašus. Galima naudoti IPv4 ir IPv6. STAGE/LIVE tuščia arba nepateikta reikšmė uždraudžia visus klientus. |
+| `PMA_TRUSTED_PROXIES` | Tik tavo patikimų tarpinių proxy IP arba tinklai. Be šio nustatymo kliento atsiųsta `X-Forwarded-For` antraštė nesuteikia prieigos. |
+| `SETUP_ENVIRONMENT` | Automatiškai perduoda bendras setup pagal `ENV`. Jo projekto YAML nekeisk. `local` ir `test` neribojami; `stage` ir `prod` ribojami. |
 
-Mailpit duomenys laikomi `${PROJECT_DATA_DIRECTORY}/mailpit`, jo `MP_DATABASE` numatytai `/data/mailpit.db`, `TZ=Europe/Vilnius`, `MP_MAX_MESSAGES=5000`. phpMyAdmin naudoja `PMA_HOST=database`, `PMA_USER` ir `PMA_PASSWORD` iš runtime DB nustatymų. Šias servisų `environment` reikšmes galima keisti projekto Compose; vien tokio paties vardo nauja env eilutė jų nepakeičia, kol nėra `${...}` prijungimo.
+LIVE šiame setup vadinasi `prod`: naudojami `ENV=prod`, `env/prod.env` ir `compose/prod.yaml`.
 
-Vietiniame Mailpit taip pat nustatyta `MP_SMTP_AUTH_ACCEPT_ANY=1` ir `MP_SMTP_AUTH_ALLOW_INSECURE=1`. Tai testinio laiškų gaudymo parinktys. phpMyAdmin `PMA_ABSOLUTE_URI` turi atitikti pasirinktą UI adresą, kaip tiesioginio porto pavyzdyje.
+IP sąrašas iš `common.yaml` lokaliai ignoruojamas. Taigi dirbdamas lokaliai gali testuoti cache ir Redis su kitokiais runtime nustatymais – tai savaime neįjungs PMA IP ribojimo. Sprendžia tik aplinka, ne cache režimas ar atvaizdo build etapas.
+
+Taisyklės galioja **HTTP ir HTTPS**, adresams `pma.<DOMAIN>` ir `www.pma.<DOMAIN>`. Pats projekto puslapis dėl jų neužblokuojamas. Neįtrauktas klientas gauna `403 Forbidden`. Neteisingas IP ar CIDR sustabdo Nginx paleidimą, užuot atvėręs prieigą.
+
+Jei STAGE ir LIVE sąrašai skiriasi, atitinkamame `compose/stage.yaml` ar `compose/prod.yaml` perrašyk tą patį `nginx-proxy.environment.PMA_ALLOWED_IPS` lauką. Papildomų env failo laukų kurti nereikia.
+
+### Kai prieš konteinerį yra dar vienas Nginx
+
+Situacija: išorinis proxy yra `10.20.0.5`, o tavo biuro išorinis IP – `203.0.113.10`:
+
+```yaml
+services:
+  nginx-proxy:
+    environment:
+      PMA_ALLOWED_IPS: "203.0.113.10"
+      PMA_TRUSTED_PROXIES: "10.20.0.5"
+```
+
+Išorinis proxy turi į `X-Forwarded-For` įrašyti tikrą besijungiančio kliento IP arba jį pridėti grandinės gale. Nurodyk proxy IP tokį, kokį mato konteineris: dėl Docker/NAT jis gali skirtis nuo serverio viešo IP. Nginx pasitikės šia antrašte tik iš nurodyto proxy ir grandinėje parinks paskutinį nepatikimą adresą.
+
+Į patikimų proxy sąrašą nedėk viso interneto (`0.0.0.0/0`, `::/0`) ar tinklo su nepatikimais klientais. Proxy IP nedėk į leidžiamų **klientų** sąrašą vien tam, kad dingtų `403`: taip įleistum visus už jo esančius lankytojus. Plačiau: [Nginx real-IP](https://nginx.org/en/docs/http/ngx_http_realip_module.html) ir [IP prieigos taisyklės](https://nginx.org/en/docs/http/ngx_http_access_module.html).
+
+PMA serviso `ports` STAGE/LIVE aplinkose neviešink ir išorinio proxy nenukreipk tiesiai į PMA: toks kelias apeitų Nginx IP taisykles. Bendras PMA servisas host porto nepublikuoja. Jis gauna DB vartotoją ir slaptažodį iš runtime konfigūracijos, todėl ribojame prieigą prie pačios DB administravimo sąsajos.
+
+### Pritaikyti pakeitimus
+
+Atnaujinus bendrą setup pirmą kartą reikia naujo Nginx atvaizdo. Projekto kataloge:
+
+```bash
+make check
+make build
+make up
+```
+
+STAGE naudok tas pačias komandas su `ENV=stage`, LIVE – su `ENV=prod`, pagal įprastą to serverio diegimo tvarką. Aplinkos env, aplikacijos kodas, DB ir sertifikatas jau turi būti paruošti. Vėliau pakeitus vien IP sąrašą YAML faile pakaks `make up ENV=stage` (ar `prod`): Compose perkurs proxy su naujomis reikšmėmis.
+
+Jei PMA viešas adresas naudoja HTTPS, aplinkos YAML nurodyk jo adresą:
+
+```yaml
+services:
+  pma:
+    environment:
+      PMA_ABSOLUTE_URI: https://pma.${DOMAIN}/
+```
+
+Atverk PMA iš leidžiamo tinklo ir iš kito tinklo. Pastarasis per HTTP ir HTTPS turi gauti `403`. Jei uždrausti visi klientai, tikrink Nginx loguose matomą IP ir patikimo proxy nustatymą.
+
+Aplikacijos SMTP nustatyk `mailpit`, portą `1025`, be TLS ir be būtinos autentifikacijos. Forsenos after-import SQL išjungia laiškų siuntimą; norėdamas matyti laiškus Mailpit, aplikacijoje taip pat parink SMTP režimą. UI portas `8025` nėra SMTP portas `1025`.
+
+Mailpit duomenys laikomi `${PROJECT_DATA_DIRECTORY}/mailpit`, jo `MP_DATABASE` numatytai `/data/mailpit.db`, `TZ=Europe/Vilnius`, `MP_MAX_MESSAGES=5000`. Vietiniame Mailpit nustatyta `MP_SMTP_AUTH_ACCEPT_ANY=1` ir `MP_SMTP_AUTH_ALLOW_INSECURE=1`. phpMyAdmin naudoja `PMA_HOST=database`, `PMA_USER` ir `PMA_PASSWORD` iš runtime DB nustatymų.
 
 ## Cron: periodiškai importuoti kainas
 

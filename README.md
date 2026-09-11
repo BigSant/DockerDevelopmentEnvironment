@@ -71,6 +71,8 @@ no host-proxy toggle or HTTP smoke settings are needed. Image fingerprints are
 automatic and do not need a project-level version flag.
 
 See the [Lithuanian quick start](doc/lt/02-pradzia.md#c-naujas-projektas-viena-komanda).
+For optional PMA and Mailpit, see [PMA access by environment](doc/PMA_ACCESS.md).
+PMA on stage/prod requires a client IP allowlist in project YAML; local/test stay unrestricted.
 
 ## Reusable project sources
 

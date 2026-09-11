@@ -19,6 +19,7 @@ services:
         ENV: ${BUILD_ENV:-${ENV}}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${WEBSERVICE_TIMEOUT}'
     environment:
+      SETUP_ENVIRONMENT: ${ENV}
       CACHE_MODE: ${CACHE_MODE:-off}
       SETUP_ENABLE_PMA: ${SETUP_ENABLE_PMA:-0}
       SETUP_ENABLE_MAILPIT: ${SETUP_ENABLE_MAILPIT:-0}
