@@ -11,6 +11,7 @@ project under `~/Projects/`.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the system works & where everything lives — structure, image model, build flow, profile system, config cascade, services, invariants. | LLM / maintainer |
 | [USAGE.md](USAGE.md) | Practical how-to: create a host, start/stop, import DB, select containers, override config per project, profiles, QA tools. | Developer |
 | [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) | Original project sources, batch preparation, private settings and migration from app/docker. | Developer / maintainer |
+| [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) | MySQL table snapshots, exact staged-file checks and opt-in Git hooks. | Developer / maintainer |
 
 ## Quick orientation
 

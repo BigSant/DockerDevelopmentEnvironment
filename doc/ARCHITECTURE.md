@@ -84,6 +84,18 @@ without starting dependencies. Projects must define the CLI entrypoint and
 connection/migration configuration. None of these commands migrate an existing
 project's source folders implicitly.
 
+`database_schema.py` adds `schema-export`, `schema-check` and explicit
+`schema-hook-install`. `SCHEMA_DIRECTORY` selects a project subdirectory in the
+source repository. The reader uses the running DB container's MySQL client and
+credentials for metadata queries, collecting `SHOW CREATE TABLE` for base
+tables only. It omits the mutable table AUTO_INCREMENT counter, writes one SQL
+file per table plus a manifest, and never queries row data. The check compares
+with Git index blobs, preserving alternate indexes used by Git commits, and
+fails on drift or unavailable DBs. It does not rewrite/stage files or run
+migrations. The local hook installer preserves existing hooks/managers and
+never edits global Git configuration. See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
+for activation, repository ownership, normalization and limitations.
+
 `project_ports.py`, called by `new_host.sh` before host mutations, scans both
 layouts, reuses an existing pair and rejects conflicting duplicate layouts.
 Matching old/new pairs are allowed while migration is being prepared. It

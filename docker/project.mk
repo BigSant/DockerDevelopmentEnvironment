@@ -4,7 +4,7 @@ PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_
 PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
-.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine db-import db-import-plan
+.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine db-import db-import-plan schema-export schema-check schema-hook-install
 
 # Quote each value as one shell argument, including paths with whitespace.
 quote = '$(subst ','"'"',$(1))'
@@ -16,8 +16,10 @@ help:
 	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|stage|prod; PROFILES= selects core only'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
 	@echo 'db-import-plan file=dump.sql: preview; db-import file=dump.sql: import then run SQL hooks'
+	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
+	@echo 'schema-hook-install: enable pre-commit schema-check in the schema repository'
 
-check config up build down ps logs phpstan-baseline:
+check config up build down ps logs phpstan-baseline schema-export schema-check schema-hook-install:
 	@$(RUN_PROJECT) $@
 
 phpstan phpcs e2e doctrine:

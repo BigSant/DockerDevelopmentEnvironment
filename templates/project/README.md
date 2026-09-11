@@ -55,3 +55,10 @@ Optional project Compose files can relocate baseline files to `qa/baselines`,
 Playwright tests to `qa/playwright`, and schema migrations to `database/doctrine`.
 See `setup/doc/PROJECT_TEMPLATES.md` for mounts and the `phpstan-baseline`,
 `doctrine` and configurable E2E commands.
+
+To track MySQL table structure, configure a project-relative `SCHEMA_DIRECTORY`
+inside the application repository. `make schema-export` writes snapshots;
+after review and `git add`, `make schema-check` compares the DB to the Git index.
+`make schema-hook-install` explicitly enables that check before commits.
+It preserves existing hooks and requires a reachable DB for checks. See
+`setup/doc/DATABASE_SCHEMA.md` for repository paths and supported schema objects.

@@ -186,6 +186,12 @@ Hooks may run again on a later import, so prefer statements safe to repeat.
 
 ## Automated validation
 
+MySQL snapshots and an opt-in pre-commit check are available through
+`schema-export`, `schema-check` and `schema-hook-install`. Set
+`SCHEMA_DIRECTORY` to a project-relative directory inside the application
+repository. See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) for installation;
+preparation never enables hooks implicitly.
+
 Real Compose validation tests run without starting/building any container:
 
 ```bash

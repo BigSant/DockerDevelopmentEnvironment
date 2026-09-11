@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 from database_import import import_database, plan_import
+from database_schema import check_schema, export_schema, install_schema_hook
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -139,7 +140,8 @@ def main():
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
-                                           "db-import", "db-import-plan"])
+                                           "db-import", "db-import-plan", "schema-export", "schema-check",
+                                           "schema-hook-install"])
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
     parser.add_argument("--dump", help="Plain .sql dump for db-import / db-import-plan")
     args = parser.parse_args()
@@ -157,6 +159,9 @@ def main():
             project.run(["up", "-d", "--no-build", "--pull", "never"])
         elif args.action in ("down", "ps", "logs"):
             project.run([args.action])
+        elif args.action in ("schema-export", "schema-check", "schema-hook-install"):
+            {"schema-export": export_schema, "schema-check": check_schema,
+             "schema-hook-install": install_schema_hook}[args.action](project)
         elif args.action in ("db-import", "db-import-plan"):
             plan = plan_import(project, args.dump)
             if args.action == "db-import-plan":
