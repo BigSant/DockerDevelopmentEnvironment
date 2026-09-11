@@ -140,20 +140,20 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_original_display_name_and_normalized_identity_survive_ide_init(self):
         from project_ide import ide_plan
-        for entered, normalized in [('Melga', 'melga'), ('MelgaMCP', 'melga_mcp'),
-                                    ('GameroomAkeneo', 'gameroom_akeneo')]:
+        for entered, normalized in [('Melga', 'melga'), ('MelgaMCP', 'melga-mcp'),
+                                    ('GameroomAkeneo', 'gameroom-akeneo')]:
             with self.subTest(entered=entered):
                 app = self.create(entered)
                 self.assertEqual(app.parent.name, normalized)
                 project = Project(app)
                 self.assertEqual(project.settings['PROJECT_NAME'], normalized)
                 self.assertEqual(project.settings['PROJECT_DISPLAY_NAME'], entered)
-                self.assertEqual(project.settings['DATABASE_NAME'], normalized)
+                self.assertEqual(project.settings['DATABASE_NAME'], normalized.replace('-', '_'))
                 self.assertEqual(project.settings['DOMAIN'], normalized.replace('_', '-') + '.local')
                 self.assertEqual((app / '.idea/.name').read_text(), entered + '\n')
                 model = project.model()
                 self.assertEqual(model['name'], normalized + '-local')
-                self.assertEqual(model['services']['database']['environment']['MYSQL_USER'], normalized)
+                self.assertEqual(model['services']['database']['environment']['MYSQL_USER'], normalized.replace('-', '_'))
                 self.assertTrue(all(service.get('container_name', normalized).startswith(normalized)
                                     for key, service in model['services'].items() if key != 'php-fpm-base'))
                 _, outputs, _ = ide_plan(project, 'Docker')
@@ -162,6 +162,7 @@ class CreateProjectTest(unittest.TestCase):
                 before = (app / 'env/local.env').read_bytes()
                 (app / '.idea/.name').unlink()
                 self.assertEqual(self.create(normalized), app)
+                self.assertEqual(self.create(normalized.replace('-', '_')), app)
                 self.assertEqual((app / '.idea/.name').read_text(), entered + '\n')
                 self.assertEqual((app / 'env/local.env').read_bytes(), before)
                 (app / 'env/local.env').unlink()
@@ -169,16 +170,19 @@ class CreateProjectTest(unittest.TestCase):
                 self.assertEqual(Project(app).settings['DOMAIN'], normalized.replace('_', '-') + '.local')
 
     def test_acronyms_and_explicit_separators(self):
-        for value, expected in [('XMLParser', 'xml_parser'), ('MCP', 'mcp'), ('Shop2API', 'shop2_api'),
-                                ('melga_mcp', 'melga_mcp'), ('old-shop', 'old-shop')]:
+        for value, expected in [('XMLParser', 'xml-parser'), ('MCP', 'mcp'), ('Shop2API', 'shop2-api'),
+                                ('melga_mcp', 'melga-mcp'), ('old-shop', 'old-shop')]:
             with self.subTest(value=value): self.assertEqual(normalize_name(value), expected)
 
     def test_domain_alias_collision_is_rejected_before_creating_files(self):
-        app = self.create('melga-mcp')
+        # Projects created with the previous underscore naming retain their files.
+        app = self.parent / 'melga_mcp/app'
+        (app / 'env').mkdir(parents=True)
+        (app / 'env/local.env').write_text('DOMAIN=melga-mcp.local\n')
         private = (app / 'env/local.env').read_bytes()
         with self.assertRaisesRegex(ValueError, 'Domenas .* jau naudojamas'):
             self.create('MelgaMCP')
-        self.assertFalse((self.parent / 'melga_mcp').exists())
+        self.assertFalse((self.parent / 'melga-mcp').exists())
         self.assertEqual((app / 'env/local.env').read_bytes(), private)
 
     def test_failed_start_preserves_scaffold_and_retry_is_possible(self):

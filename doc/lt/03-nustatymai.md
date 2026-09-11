@@ -223,4 +223,4 @@ Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 sk
 
 `HOST_PROXY`: `none` (numatyta esamiems projektams) arba `nginx`. Naujas `create-project` įrašo `nginx`: `make bootstrap` paruošia kompiuterio Nginx maršrutą iš `http://<DOMAIN>/` ir HTTPS į projekto HTTP portą, todėl naršyklėje nereikia rašyti Docker porto. Pats projekto failų kūrimas host konfigūracijos nekeičia.
 
-`PROJECT_DISPLAY_NAME`: PhpStorm projekto pavadinimas; jei nenustatytas, naudojamas `PROJECT_NAME`. `create-project MelgaMCP` įrašo `PROJECT_NAME=melga_mcp` ir `PROJECT_DISPLAY_NAME=MelgaMCP`. Originali rašyba išsaugoma ir per `make ide-init` / `make bootstrap`; Docker ir DB toliau naudoja techninį vardą.
+`PROJECT_DISPLAY_NAME`: PhpStorm projekto pavadinimas; jei nenustatytas, naudojamas `PROJECT_NAME`. `create-project MelgaMCP` įrašo `PROJECT_NAME=melga-mcp` ir `PROJECT_DISPLAY_NAME=MelgaMCP`. Originali rašyba išsaugoma ir per `make ide-init` / `make bootstrap`; Docker naudoja `melga-mcp`, DB vardas ir vartotojas – `melga_mcp`.

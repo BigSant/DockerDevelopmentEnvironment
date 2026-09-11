@@ -80,28 +80,29 @@ cd ~/Projects/setup
 raidėmis: sistema atskiria žodžius, išlaiko santrumpas viename žodyje ir techninius
 vardus paverčia mažosiomis raidėmis.
 
-| Įvedi | Katalogas, `PROJECT_NAME`, DB | PhpStorm pavadinimas | Adresas |
-| --- | --- | --- | --- |
-| `Melga` | `melga` | `Melga` | `http://melga.local` |
-| `MelgaMCP` | `melga_mcp` | `MelgaMCP` | `http://melga-mcp.local` |
-| `GameroomAkeneo` | `gameroom_akeneo` | `GameroomAkeneo` | `http://gameroom-akeneo.local` |
+| Įvedi | Katalogas, `PROJECT_NAME` | DB vardas ir vartotojas | PhpStorm pavadinimas | Adresas |
+| --- | --- | --- | --- | --- |
+| `Melga` | `melga` | `melga` | `Melga` | `http://melga.local` |
+| `MelgaMCP` | `melga-mcp` | `melga_mcp` | `MelgaMCP` | `http://melga-mcp.local` |
+| `GameroomAkeneo` | `gameroom-akeneo` | `gameroom_akeneo` | `GameroomAkeneo` | `http://gameroom-akeneo.local` |
 
 ```bash
 ./create-project MelgaMCP
-# Sukuria ../melga_mcp/app; PhpStorm vardas – MelgaMCP.
+# Sukuria ../melga-mcp/app; PhpStorm vardas – MelgaMCP.
 ```
 
 Normalizuotas vardas turi prasidėti raide ir būti iki 32 simbolių. Leidžiami
-skaičiai ir pavieniai `_` arba `-`; aiškiai įvesti brūkšneliai išsaugomi senų
-pavadinimų suderinamumui. Domenams pabraukimai pakeičiami brūkšneliais. Jei toks
+skaičiai ir pavieniai `_` arba `-`; žodžiai katalogo, Docker ir domeno varduose
+atskiriami brūkšneliais. DB vardui ir vartotojui naudojami pabraukimai, kad būtų
+patogiau rašyti SQL. Esami projektų katalogai automatiškai nepervadinami. Jei toks
 adresas jau priklauso kitam projektui, kūrimas sustoja prieš failų rašymą.
 
-`env/common.env` saugomi du vardai: `PROJECT_NAME=melga_mcp` ir
+`env/common.env` saugomi du vardai: `PROJECT_NAME=melga-mcp` ir
 `PROJECT_DISPLAY_NAME=MelgaMCP`. Antrasis naudojamas tik IDE projekto pavadinimui.
 Paleidžiant ar kartojant kūrimą su techniniu vardu originali rašyba išlieka:
 
 ```bash
-./create-project melga_mcp --start
+./create-project melga-mcp --start
 ```
 
 Komanda tik sukuria failus:

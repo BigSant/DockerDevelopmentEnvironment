@@ -32,12 +32,13 @@ routes `demo.local` to the project's private port pair, matching the legacy URLs
 
 Repeating creation preserves the project's files and credentials and still does
 not start it. An unrelated existing directory is rejected. Names may use ASCII letters in either case, digits and single underscores or
-hyphens. CamelCase and acronyms are normalized for folders, Docker and DB:
-`Melga` → `melga`, `MelgaMCP` → `melga_mcp`, `GameroomAkeneo` → `gameroom_akeneo`.
+hyphens. CamelCase, acronyms and underscores are normalized for folders and Docker:
+`Melga` → `melga`, `MelgaMCP` → `melga-mcp`, `GameroomAkeneo` → `gameroom-akeneo`.
 The original is stored in `PROJECT_DISPLAY_NAME` and used by PhpStorm, including
 after bootstrap/ide-init. The normalized name must start with a letter and have
-at most 32 characters. Existing explicit hyphens remain supported. Hostnames use
-hyphens instead of underscores (`melga-mcp.local`) for DNS/TLS compatibility.
+at most 32 characters. Hostnames use the same spelling (`melga-mcp.local`).
+Database names and users use underscores (`melga_mcp`) for SQL convenience.
+Existing project directories are not renamed automatically.
 A conflicting local domain is rejected before creating the new project. The previous `--no-start` option remains accepted, but is unnecessary.
 
 The new project is minimal: `Makefile`, `.gitignore`, `compose/base.yaml`,

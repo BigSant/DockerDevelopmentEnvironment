@@ -2,9 +2,10 @@
 
 `./create-project <name>` prepares only `.idea/.name` immediately, so opening
 `<normalized-name>/app` uses the intended project name without starting Docker.
-For example, `create-project MelgaMCP` uses `melga_mcp/app` on disk and `MelgaMCP`
+For example, `create-project MelgaMCP` uses `melga-mcp/app` on disk and `MelgaMCP`
 in PhpStorm. `PROJECT_DISPLAY_NAME` persists the original spelling across
-bootstrap and ide-init, while `PROJECT_NAME` remains the Docker/DB identity. Rerunning
+bootstrap and ide-init, while `PROJECT_NAME` remains the Docker identity
+(`melga-mcp`; the database name and user are `melga_mcp`). Rerunning
 creation restores a missing name file and preserves an existing custom name.
 Full interpreter/run settings are still prepared by `make ide-init` / bootstrap.
 For an already open project, close and reopen it after restoring the name file;

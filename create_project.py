@@ -21,8 +21,8 @@ MARKER = 'app/.generated/create-project.json'
 def normalize_name(value):
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*', value):
         raise ValueError('Pavadinimas turi prasidėti raide; naudok A-Z, a-z, 0-9, pavienius _ arba -.')
-    name = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', value)
-    name = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', name).lower()
+    name = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1-\2', value)
+    name = re.sub(r'([a-z0-9])([A-Z])', r'\1-\2', name).lower().replace('_', '-')
     if len(name) > 32:
         raise ValueError('Normalizuotas projekto pavadinimas turi būti iki 32 simbolių.')
     return name
