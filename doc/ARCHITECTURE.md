@@ -21,8 +21,11 @@ points back here.
 
 ## Reusable source workflow
 
-`prepare_project.py` distributes `templates/project/` into `<project>/docker`
-(or `app/docker` with `--layout legacy`). It can preflight and prepare multiple
+`prepare_project.py` distributes `templates/grouped/` and the shared
+`templates/project/Makefile` into new `<project>/docker` directories. Existing
+source layouts are preserved; `--layout legacy` defaults to the flat
+`templates/project/` sources. `--sources flat|grouped` explicitly selects the
+layout of a new target, never converts existing sources in place. It can preflight and prepare multiple
 projects, writes only missing files, refuses incompatible bootstrap files and
 preserves existing project settings. `--from-legacy` copies private environment
 files and container config, but never promotes an expanded `docker-compose.yml`
@@ -31,14 +34,15 @@ review instead of silently copying incomplete build contexts or stale paths.
 
 The identical project Makefile includes `docker/project.mk` from the one shared
 `setup` checkout. All target logic stays in `project.mk` / `project.py`; the
-project's `compose.yaml` includes the shared `docker/docker-compose.yml`.
+project's `compose/base.yaml` (flat: `compose.yaml`) includes the shared `docker/docker-compose.yml`.
 `PROJECT_DOCKER_DIRECTORY` identifies the current config checkout, while app,
 data and tooling paths retain their established layout. The same bootstrap
 works from both supported Docker locations. Explicit `SETUP_DIRECTORY` and
 `PROJECT_DIRECTORY` arguments handle nonstandard checkout locations.
 
 `project.py` invokes Docker Compose directly, layering the shared `.env`, the
-public project `.env`, and its private `.env.<environment>`. Compose parses
+public project `env/common.env`, and its private `env/<environment>.env`
+(flat compatibility: `.env` and `.env.<environment>`). Compose parses
 quoting, interpolation and multiline values. A small `project-settings.yaml`
 model resolves the project name and profile selection as JSON. Declared env
 keys are removed from the inherited process environment before parsing, and
@@ -57,7 +61,12 @@ snapshot to `.generated/compose.<env>.yaml` using an invocation-owned temporary
 file and atomic replacement. It never overwrites a source or consumes an old
 snapshot. Different projects do not share generated inputs; simultaneous
 renders of the same project cannot expose partial files. `check` creates no
-snapshot. `build` builds images explicitly; `up` uses `--no-build --pull never`.
+snapshot. `project_environment.py` implements `init` (exclusive mode-0600 private
+env creation and missing writable data/config directories) and `doctor`
+(Engine/Compose availability, selected images, ports, mounts, private settings
+and TLS file presence). `pull` selects external images, excluding every image built by any declared
+service (including PHP image reuse by cron), then uses `--ignore-buildable`;
+`shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never`.
 QA targets are ephemeral. The wrapper has a separate explicit SQL importer;
 it does not call the legacy interactive DB importer.
 
@@ -326,7 +335,9 @@ to the project bind mounts — only php-fpm/cron do — so they create no root-o
   so they override the base config. `PROFILE=""` and missing files are no-ops.
   - mysql: `profile/<p>/mysql/conf/my.cnf` → `conf.d/zz-profile.cnf`; `my.${ENV}.cnf` → `zzz-profile-env.cnf`
   - apache: `profile/<p>/apache/conf/httpd.custom.conf` → `conf/profile/` (via `IncludeOptional`)
-  - php-fpm: `profile/<p>/php-fpm/conf/php.ini` → `conf.d/zz-profile.ini`; `php.${ENV}.ini` → `zzz-profile-env.ini`; optional `pool.conf` → `php-fpm.d/zz-profile.conf`
+  - php-fpm: the shared `profile/apply-php-profile.sh` is called by both the standard
+    Dockerfile and project Dockerfiles through a named `profiles` context. It applies
+    `profile/<p>/php-fpm/conf/php.ini` → `conf.d/zz-profile.ini`; `php.${ENV}.ini` → `zzz-profile-env.ini`; optional `pool.conf` → `php-fpm.d/zz-profile.conf`
   - Profile content is currently documented/commented (zero behaviour change until enabled).
   - `nginx` (the commented-out alternative webserver) uses the older `config/nginx/${PROFILE}/`
     location; the active stack uses apache.

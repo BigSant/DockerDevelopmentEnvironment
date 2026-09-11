@@ -1,0 +1,11 @@
+.env.*
+!.env.*.example
+!.env.example
+.generated/
+docker-compose.yml
+.asana-memory-session
+.idea/
+__pycache__/
+/env/*.env
+!/env/common.env
+/qa/playwright/node_modules/

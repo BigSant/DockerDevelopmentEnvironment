@@ -1,0 +1,5 @@
+# Preserve existing local PHP limits, ports and data paths.
+services:
+  playwright:
+    environment:
+      PLAYWRIGHT_IGNORE_HTTPS_ERRORS: "true"

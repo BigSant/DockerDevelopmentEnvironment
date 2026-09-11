@@ -1,0 +1,3 @@
+# Original source; ROOT_DIRECTORY is supplied by the shared project runner.
+include:
+  - ${ROOT_DIRECTORY}/docker-compose.yml

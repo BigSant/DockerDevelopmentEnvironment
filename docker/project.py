@@ -13,6 +13,7 @@ import tempfile
 
 from database_import import import_database, plan_import
 from database_schema import check_schema, export_schema, install_schema_hook
+from project_environment import doctor, initialize_directories, initialize_env, pull_images
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -141,13 +142,23 @@ def main():
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
                                            "db-import", "db-import-plan", "schema-export", "schema-check",
-                                           "schema-hook-install"])
+                                           "schema-hook-install", "init", "doctor", "pull", "shell"])
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
     parser.add_argument("--dump", help="Plain .sql dump for db-import / db-import-plan")
     args = parser.parse_args()
     try:
+        if args.action == "init":
+            initialize_env(args.docker_directory, args.env)
         project = Project(args.docker_directory, args.env, args.project_directory, args.profiles)
-        if args.action == "check":
+        if args.action == "init":
+            initialize_directories(project)
+        elif args.action == "doctor":
+            doctor(project)
+        elif args.action == "pull":
+            pull_images(project)
+        elif args.action == "shell":
+            project.run(["exec", "php-fpm", "sh"])
+        elif args.action == "check":
             project.capture(["config", "--quiet"], profiles="*")
             print(f"Valid: {project.name}; sources: {project.directory}")
         elif args.action == "config":

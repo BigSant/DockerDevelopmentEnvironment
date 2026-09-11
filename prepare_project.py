@@ -8,10 +8,23 @@ import sys
 
 
 TEMPLATE = Path(__file__).resolve().parent / "templates/project"
+GROUPED_TEMPLATE = TEMPLATE.parent / "grouped"
 SERVICES = ("mysql", "mariadb", "php", "apache", "nginx-proxy")
 
 
-def planned_files(root, from_legacy=False, layout="root"):
+def source_layout(target, layout, sources):
+    grouped = (target / "env/common.env").exists() or (target / "compose/base.yaml").exists()
+    flat = (target / ".env").exists() or (target / "compose.yaml").exists()
+    if grouped and flat:
+        raise ValueError(f"Mixed flat and grouped sources in {target}; choose one layout first")
+    detected = "grouped" if grouped else "flat" if flat else None
+    if sources != "auto" and detected and sources != detected:
+        raise ValueError(f"Existing {detected} sources in {target}; preparation does not convert source layouts")
+    return detected if sources == "auto" and detected else (
+        ("flat" if layout == "legacy" else "grouped") if sources == "auto" else sources)
+
+
+def planned_files(root, from_legacy=False, layout="root", sources="auto"):
     root = Path(root).resolve()
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", root.name):
         raise ValueError(f"Project directory must have a lowercase project name: {root}")
@@ -19,15 +32,27 @@ def planned_files(root, from_legacy=False, layout="root"):
     legacy = root / "app/docker"
     if from_legacy and (layout == "legacy" or not (legacy / ".env").is_file()):
         raise ValueError(f"--from-legacy requires an existing {legacy / '.env'} and the root layout")
-    files = {target / p.name: p.read_bytes() for p in TEMPLATE.iterdir() if p.is_file()}
-    files[target / ".env"] = (legacy / ".env").read_bytes() if from_legacy else (
-        f"# Public project identity; shared defaults live in setup/docker/.env\nPROJECT_NAME={root.name}\n"
-    ).encode()
+    selected = source_layout(target, layout, sources)
+    if selected == "grouped":
+        files = {target / p.relative_to(GROUPED_TEMPLATE): p.read_bytes()
+                 for p in GROUPED_TEMPLATE.rglob("*") if p.is_file()}
+        files[target / "Makefile"] = (TEMPLATE / "Makefile").read_bytes()
+        public = target / "env/common.env"
+        files[public] = files[public].replace(b"__PROJECT_NAME__", root.name.encode()).replace(
+            b"__DOCKER_RELATIVE__", target.relative_to(root).as_posix().encode())
+        if from_legacy:
+            files[public] += b"\n# Preserved legacy public settings\n" + (legacy / ".env").read_bytes()
+    else:
+        files = {target / p.name: p.read_bytes() for p in TEMPLATE.iterdir() if p.is_file()}
+        files[target / ".env"] = (legacy / ".env").read_bytes() if from_legacy else (
+            f"# Public project identity; shared defaults live in setup/docker/.env\nPROJECT_NAME={root.name}\n"
+        ).encode()
     if from_legacy:
         for name in (".env.local", ".env.stage", ".env.prod", "Dockerfile"):
             source = legacy / name
             if source.is_file():
-                files[target / name] = source.read_bytes()
+                destination = f"env/{name.removeprefix('.env.')}.env" if selected == "grouped" and name.startswith(".env.") else name
+                files[target / destination] = source.read_bytes()
         if (legacy / "Dockerfile").is_file():
             raise ValueError("A legacy project Dockerfile needs its full build context reviewed before migration")
         for source in (legacy / "config").rglob("*"):
@@ -44,15 +69,21 @@ def planned_files(root, from_legacy=False, layout="root"):
         files.setdefault(target / "config" / service / "local/.gitkeep", b"")
     # Existing settings and custom README/overrides belong to the project owner.
     # Existing incompatible bootstrap files are an error rather than a silent skip.
-    for name in ("Makefile", "compose.yaml", ".gitignore"):
+    bootstrap = ("Makefile",) if selected == "grouped" else ("Makefile", "compose.yaml", ".gitignore")
+    for name in bootstrap:
         output = target / name
         if output.is_symlink() or (output.exists() and output.read_bytes() != files[output]):
             raise ValueError(f"Existing {output} differs from the template; review before updating")
+    for output in files:
+        if output.is_symlink() or not output.resolve().is_relative_to(target.resolve()):
+            raise ValueError(f"Review source symlink before preparation: {output}")
+        if output.exists() and not output.is_file():
+            raise ValueError(f"Expected a file at {output}")
     return target, files
 
 
-def prepare(root, from_legacy=False, layout="root", check=False):
-    target, files = planned_files(root, from_legacy, layout)
+def prepare(root, from_legacy=False, layout="root", check=False, sources="auto"):
+    target, files = planned_files(root, from_legacy, layout, sources)
     pending = [p for p in files if not p.exists()]
     if check:
         print(f"{target}: {len(pending)} files to create")
@@ -61,7 +92,7 @@ def prepare(root, from_legacy=False, layout="root", check=False):
         output.parent.mkdir(parents=True, exist_ok=True)
         # Exclusive creation prevents a retry from replacing another writer's file.
         with output.open("xb") as handle:
-            if output.name in (".env.local", ".env.stage", ".env.prod"):
+            if output.name in (".env.local", ".env.stage", ".env.prod", "local.env", "stage.env", "prod.env"):
                 output.chmod(0o600)
             handle.write(files[output])
     print(f"Prepared {target}: {len(pending)} new files; existing project settings preserved")
@@ -73,14 +104,16 @@ def main():
     parser.add_argument("projects", nargs="+", type=Path, help="Project roots, e.g. ~/Projects/forsena")
     parser.add_argument("--from-legacy", action="store_true", help="Copy existing app/docker settings into docker")
     parser.add_argument("--layout", choices=("root", "legacy"), default="root")
+    parser.add_argument("--sources", choices=("auto", "grouped", "flat"), default="auto",
+                        help="Preserve existing layout; new root projects default to grouped sources")
     parser.add_argument("--check", action="store_true", help="Preview missing files without writing")
     args = parser.parse_args()
     try:
         # Preflight every project before starting a batch.
         for root in args.projects:
-            planned_files(root, args.from_legacy, args.layout)
+            planned_files(root, args.from_legacy, args.layout, args.sources)
         for root in args.projects:
-            prepare(root, args.from_legacy, args.layout, args.check)
+            prepare(root, args.from_legacy, args.layout, args.check, args.sources)
     except (ValueError, OSError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

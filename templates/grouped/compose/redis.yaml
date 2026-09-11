@@ -1,0 +1,17 @@
+# Optional: add redis to PROFILES when the application is configured to use it.
+services:
+  redis:
+    image: redis:${REDIS_VERSION}-alpine
+    profiles: [redis]
+    restart: unless-stopped
+    command: [redis-server, /usr/local/etc/redis/redis.conf]
+    networks: [network_app]
+    volumes:
+      - ${PROJECT_DATA_DIRECTORY}/${ENV}/redis:/data
+      - ${PROJECT_DOCKER_DIRECTORY}/config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/config/redis/${ENV}:/usr/local/etc/redis/environment:ro
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 5

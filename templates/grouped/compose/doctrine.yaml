@@ -1,0 +1,13 @@
+services:
+  php-doctrine-migrations:
+    extends:
+      file: ${ROOT_DIRECTORY}/docker/php-doctrine-migrations/docker-compose.yml
+      service: php-doctrine-migrations
+    profiles: [doctrine]
+    entrypoint:
+      - doctrine-migrations
+      - --configuration=/tmp/doctrine-migrations/config/migrations.php
+      - --db-configuration=/tmp/doctrine-migrations/config/connection.php
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/database/doctrine:/tmp/doctrine-migrations/config
+      - ${PROJECT_DATA_DIRECTORY}/doctrine-migrations:/tmp/doctrine-migrations/cache

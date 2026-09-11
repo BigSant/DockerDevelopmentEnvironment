@@ -1,0 +1,24 @@
+services:
+  php-phpstan:
+    user: "${HOST_UID}:${HOST_GID}"
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/qa/phpstan:/tmp/phpstan/config:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/qa/baselines:/tmp/phpstan/baselines
+      - ${PROJECT_DATA_DIRECTORY}/phpstan:/tmp/phpstan/cache
+
+  php-cs:
+    user: "${HOST_UID}:${HOST_GID}"
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/qa/php-cs:/tmp/php-cs-fixer/config:ro
+      - ${PROJECT_DATA_DIRECTORY}/php-cs:/tmp/php-cs-fixer/cache
+
+  playwright:
+    depends_on:
+      - nginx-proxy
+    environment:
+      PLAYWRIGHT_TEST_DIR: /e2e/tests
+      PLAYWRIGHT_DATA_DIR: /e2e/data
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/qa/playwright:/e2e/config:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/qa/playwright/tests:/e2e/tests:ro
+      - ${PROJECT_DATA_DIRECTORY}/playwright:/e2e/data

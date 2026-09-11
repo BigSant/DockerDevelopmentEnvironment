@@ -31,7 +31,7 @@ class ProjectTemplatesTest(unittest.TestCase):
     def prepare(self, name="example", layout="root", extra=""):
         root = self.projects / name
         with contextlib.redirect_stdout(io.StringIO()):
-            prepare(root, layout=layout)
+            prepare(root, layout=layout, sources="flat")
         directory = root / ("app/docker" if layout == "legacy" else "docker")
         (directory / ".env.local").write_text(
             f"DOMAIN={name}.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
@@ -76,7 +76,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         (legacy / "config/php/local/custom.ini").write_text("memory_limit=768M\n")
         before = {p.relative_to(legacy): p.read_bytes() for p in legacy.rglob("*") if p.is_file()}
         with contextlib.redirect_stdout(io.StringIO()):
-            prepare(root, from_legacy=True)
+            prepare(root, from_legacy=True, sources="flat")
         directory = root / "docker"
         self.assertFalse((directory / "docker-compose.yml").exists())
         self.assertEqual((directory / ".env.local").read_bytes(), (legacy / ".env.local").read_bytes())
@@ -178,7 +178,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         self.assertEqual(allocate(self.projects / "next"), (3005, 3006))
         self.assertEqual(allocate(root), (3001, 3002))
         with contextlib.redirect_stdout(io.StringIO()):
-            prepare(root, from_legacy=True)
+            prepare(root, from_legacy=True, sources="flat")
         self.assertEqual(allocate(root), (3001, 3002))
         (root / "docker/.env.local").write_text("LOCALHOST_PORT=4001\nLOCALHOST_PORT_SSL=4002\n")
         with self.assertRaisesRegex(ValueError, "Conflicting"):

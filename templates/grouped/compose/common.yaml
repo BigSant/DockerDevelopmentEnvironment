@@ -1,0 +1,16 @@
+services:
+  php-fpm:
+    build:
+      context: ${PROJECT_DOCKER_DIRECTORY}
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
+      additional_contexts:
+        profiles: ${ROOT_DIRECTORY}/profile
+
+  # Resolve the shop domain inside the project network for browser tests.
+  nginx-proxy:
+    networks:
+      network_app:
+        aliases:
+          - ${DOMAIN}

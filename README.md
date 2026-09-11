@@ -18,7 +18,9 @@ make -C ../forsena/docker check
 make -C ../forsena/docker config
 ```
 
-For a new project, fill `.env.local` from its example before checking. The
+For a new project, run `make init` and fill `env/local.env` before checking. Use
+`make doctor` to check readiness; `make pull` fetches external images and
+`make shell` opens the running PHP container. The
 preparer writes missing files only, keeps existing project settings and refuses
 conflicting bootstrap files. It does not provision the host or start Docker.
 `make build` explicitly builds images; `make up` uses existing local images.

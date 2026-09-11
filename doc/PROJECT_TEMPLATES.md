@@ -13,11 +13,11 @@ recreated. Test shared changes on one project before broader use.
 | --- | --- |
 | `setup/docker/docker/*`, `Dockerfile`, `.env` | Shared versioned service definitions/defaults |
 | `setup/docker/project.py`, `project.mk` | Shared versioned commands |
-| `setup/templates/project/*` | Authoritative original project templates |
-| `<project>/docker/Makefile`, `compose.yaml` | Identical versioned bootstrap in every project |
-| `<project>/docker/.env` | Versioned public project name and optional overrides |
-| `<project>/docker/.env.<env>` | Private per-machine/environment values; ignored |
-| `<project>/docker/compose*.override.yaml`, `config/` | Optional versioned project-specific source configuration |
+| `setup/templates/grouped/*`, `templates/project/Makefile` | New grouped sources and shared bootstrap; `templates/project/` retains flat compatibility |
+| `<project>/docker/Makefile`, `compose/base.yaml` | Shared bootstrap and versioned Compose include |
+| `<project>/docker/env/common.env` | Versioned public project name and optional overrides |
+| `<project>/docker/env/<env>.env` | Private per-machine/environment values; ignored |
+| `<project>/docker/compose/`, `config/`, `qa/`, `database/` | Optional versioned project-specific source configuration |
 | `<project>/docker/.generated/` | Private rendered output; ignored, never an input |
 
 ## Preparing one or many projects
@@ -31,23 +31,28 @@ python3 prepare_project.py ../shop-one ../shop-two
 
 The tool preflights all targets, then writes missing files. Repeating it
 preserves project settings and is safe after a partially completed run. It
-refuses an existing different Makefile, compose.yaml or .gitignore for manual
-review. It does not init Git, set remotes, provision hosts or run Docker.
+refuses an existing different Makefile for review. Grouped project Dockerfiles,
+Compose overrides, README and .gitignore remain project-owned. New root projects
+use grouped sources; existing layouts are preserved. `--sources flat|grouped`
+selects a new layout explicitly; it never converts an existing one in place.
+Legacy flat sources also retain strict compose.yaml/.gitignore bootstrap checks.
+It does not init Git, set remotes, provision hosts or run Docker.
 Create or use a separate Bitbucket repo in each `<project>/docker` as needed.
 
 For each new project:
 
-1. Review `.env` (the project name is derived from its root directory).
-2. Copy `.env.local.example` to `.env.local`; set actual unused ports, domain
+1. Review `env/common.env` (the project name is derived from its root directory).
+2. Run `make init`, then edit `env/local.env`; set actual unused ports, domain
    and local DB credentials. `python3 project_ports.py ../shop-one` can suggest
-   a configured-free pair **before** `.env.local` exists. Prepare host port
+   a configured-free pair **before** `env/local.env` exists. Prepare host port
    assignments sequentially. Example ports of `0` must be replaced.
 3. Supply `app/public` and `app/config`, then provision the host/TLS using
    `./new_host.sh shop-one`. Because the directory already exists, the host
    script preserves the prepared files rather than creating the legacy tree.
 4. Run `make -C ../shop-one/docker check` and `make -C ../shop-one/docker config`.
-5. Review the snapshot locally. Build images explicitly with `make build` when
-   needed, then use `make up` to start with local images. Building shared image
+5. Review the snapshot locally. Build images explicitly with `make build` and
+   fetch external images with `make pull` when needed. Run `make doctor`, then
+   `make up` to start with local images. Building shared image
    tags can affect other projects at their next recreation; `up` itself never
    builds or pulls.
 
@@ -69,7 +74,7 @@ make -C ../forsena/docker config
 This copies existing environment settings and config files without removing
 `app/docker`. Private environment copies get mode 0600. Old generated
 `docker-compose.yml` is not copied. Review that snapshot for any manual changes
-and encode actual exceptions as original `compose*.override.yaml` sources.
+and encode actual exceptions as original `compose/*.yaml` sources.
 Legacy custom Dockerfiles and environment overlays stop preparation for a
 review of the full build context/paths. No application files or DB data move.
 
@@ -116,9 +121,10 @@ Generated snapshots remain under `.generated/`. Keep real local/prod env files
 out of Git, with fictional `.env.example` equivalents for distribution.
 Root-level `.env` and `compose.yaml` must be removed from the active config
 directory when adopting grouped sources; the runner rejects ambiguous mixes.
-`prepare_project.py` continues to create the existing root-level template.
+`prepare_project.py` now creates these grouped sources for new root projects.
+Existing flat projects stay flat, and `--layout legacy` defaults to flat sources.
 
-`make check`, `config`, `build`, `up`, `down`, `ps`, `logs`, `phpstan`, `phpcs`,
+`make init`, `doctor`, `pull`, `shell`, `check`, `config`, `build`, `up`, `down`, `ps`, `logs`, `phpstan`, `phpcs`,
 `phpstan-baseline`, `e2e`, `doctrine`, `db-import-plan` and `db-import` are
 defined once in the shared project.mk. `ENV=local|stage|prod`
 selects `.env.<env>` or `env/<env>.env` according to the source layout.
@@ -132,19 +138,21 @@ command; it is parsed as arguments rather than executed by a host shell.
 The shared paths can be overridden in project Compose files to group sources:
 
 ```text
-app/public/                      # application checkout mounted at /var/www/html
-docker/config/php/               # common .ini and local/prod .ini subdirectories
-docker/config/redis/              # Redis config and environment includes
-qa/baselines/                    # reviewed, versioned analysis baselines
-qa/phpstan/                      # phpstan.neon including ../baselines/phpstan.neon
-qa/php-cs/                       # .php-cs-fixer.php
-qa/playwright/tests/             # test sources; config in qa/playwright/
-database/doctrine/versions/      # versioned schema migrations
-database/sql/after-import/       # common/, local/, prod/ SQL hooks
-data/<environment>/              # ignored caches, reports and persistent data
+app/public/                             # application checkout mounted at /var/www/html
+docker/config/php/                      # common .ini and local/prod .ini subdirectories
+docker/config/redis/                    # Redis config and environment includes
+docker/qa/baselines/                    # reviewed, versioned analysis baselines
+docker/qa/phpstan/                      # phpstan.neon including ../baselines/phpstan.neon
+docker/qa/php-cs/                       # .php-cs-fixer.php
+docker/qa/playwright/tests/             # test sources; config in docker/qa/playwright/
+docker/database/doctrine/versions/      # versioned schema migrations
+docker/database/sql/after-import/       # common/, local/, prod/ SQL hooks
+data/<environment>/                     # ignored caches, reports and persistent data
 ```
 
-This grouping is opt-in; preparation retains existing default mount paths.
+This grouping is the default for new root projects. Existing project sources
+are preserved. QA and schema sources may instead live in the application Git
+repository when they should evolve in the same commit as application changes.
 Override volumes by container target: `/tmp/phpstan/config`,
 `/tmp/phpstan/baselines`, `/tmp/phpstan/cache`, `/tmp/php-cs-fixer/config`,
 `/tmp/php-cs-fixer/cache`, `/e2e/config`, `/e2e/tests` and `/e2e/data`.
@@ -169,7 +177,7 @@ The base Compose does not enable this optional service. ORM `diff` additionally
 needs an application-specific schema provider; migrations alone do not provide
 ORM mappings. See [Doctrine Migrations configuration](https://www.doctrine-project.org/projects/doctrine-migrations/en/3.9/reference/configuration.html).
 
-Set `POST_IMPORT_SQL_DIRECTORY=database/sql/after-import` to use:
+Set `POST_IMPORT_SQL_DIRECTORY=docker/database/sql/after-import` to use:
 
 ```bash
 make ENV=local db-import-plan file=../data/dumps/shop.sql
@@ -206,3 +214,5 @@ overrides, explicit empty profiles, concurrent project/same-project renders,
 unchanged original files, retry behavior and port reservations across layouts.
 The new runner does not use the shared `/tmp` files employed by the legacy
 Makefile. Legacy commands and host provisioning still need sequential use.
+
+See [environment preparation and readiness](ENVIRONMENT_COMMANDS.md) for the new commands.
