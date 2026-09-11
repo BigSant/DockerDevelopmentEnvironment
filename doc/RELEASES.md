@@ -2,18 +2,25 @@
 
 `VERSION` identifies the setup release. `make setup-info` reports version, API,
 Git revision and whether the checkout has local modifications.
-`SETUP_REQUIRED_API=1` in a project states the supported runner API; mismatches
-fail before Docker mutations. Share one setup checkout; no submodules are needed.
+Projects do not need API or image-version switches in their env files.
+Share one setup checkout; no submodules are needed.
 
-New grouped projects set `VERSIONED_IMAGES=1`. Locally built image names then
-include a fingerprint of shared Docker build sources/defaults, resolved build
-arguments and the application profile. A changed Dockerfile, config, profile or
-build argument (such as Node version) gets a different tag rather than
-replacing another project's existing shared image. Local and test stacks reuse
-the same image identity. Project-specific PHP images retain their project prefix.
-External images such as optional Redis retain their explicit version tags.
-Existing projects without this setting retain their old image names until they
-opt in and build the corresponding namespaced images.
+Locally built image names automatically include a fingerprint of shared Docker
+build sources/defaults, resolved build arguments and the application profile.
+A changed build recipe gets a different tag, preventing projects with different
+build settings from overwriting a shared image tag. Local and test stacks reuse
+the same image identity. External images retain their explicit version tags.
+This internal mechanism does not version application code or rebuild on PHP edits.
+
+When adopting this change, remove obsolete `SETUP_REQUIRED_API`, `VERSIONED_IMAGES`,
+`HOST_PROXY`, `SMOKE_URL`, `SMOKE_EXPECT` and `COMPOSE_PROFILES_<ENV>` settings.
+They no longer control the runner. Run `make build` before `make up` to prepare
+current image tags. Existing PrestaShop projects must explicitly set `PROFILE=ps`.
+Generic PHP and no optional profiles are now the shared defaults. Native Compose
+profiles remain available explicitly, but new projects have no selection variable.
+Bootstrap now prepares local/test Nginx routing automatically; unmanaged existing
+routes are preserved and reported for manual reconciliation. Existing projects,
+credentials, containers and host routes are not rewritten just by updating setup.
 
 The fingerprint prevents local tag collisions; it does not make upstream base
 tags immutable or establish image provenance. A reproducible production release

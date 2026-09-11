@@ -59,9 +59,6 @@ def certificate_is_valid(certificate, domain):
 
 
 def prepare_host(project):
-    proxy = project.settings.get('HOST_PROXY', 'none')
-    if proxy not in ('none', 'nginx'):
-        raise ValueError('HOST_PROXY must be none or nginx')
     domain = project.settings.get('DOMAIN', '')
     if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain):
         raise ValueError('Set DOMAIN to a hostname without a port')
@@ -95,23 +92,22 @@ def prepare_host(project):
             replace_file(certificate, crt.read_bytes())
             replace_file(key, private.read_bytes(), private=True)
     print(f'Local hostname and TLS prepared: {domain}')
-    if proxy == 'nginx':
-        host_helper = Path(__file__).with_name('host_entry.py')
-        for host in ('pma.' + domain, 'mailpit.' + domain):
-            command = ['sudo', '-n', sys.executable, str(host_helper), host]
-            result = subprocess.run(command, capture_output=True, text=True)
-            if result.returncode:
-                import shlex
-                raise ValueError('Local service hostname could not be prepared. Run: ' +
-                                 shlex.join(['sudo', sys.executable, str(host_helper), host]))
-        helper = Path(__file__).with_name('host_proxy.py')
-        args = [sys.executable, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
-        result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
+    host_helper = Path(__file__).with_name('host_entry.py')
+    for host in ('pma.' + domain, 'mailpit.' + domain):
+        command = ['sudo', '-n', sys.executable, str(host_helper), host]
+        result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
             import shlex
-            raise ValueError('Local Nginx route could not be prepared. ' + result.stderr.strip() +
-                             '\nRun: ' + shlex.join(['sudo', *args]))
-        print(f'Local Nginx route prepared: http://{domain}/')
+            raise ValueError('Local service hostname could not be prepared. Run: ' +
+                             shlex.join(['sudo', sys.executable, str(host_helper), host]))
+    helper = Path(__file__).with_name('host_proxy.py')
+    args = [sys.executable, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
+    result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
+    if result.returncode:
+        import shlex
+        raise ValueError('Local Nginx route could not be prepared. ' + result.stderr.strip() +
+                         '\nRun: ' + shlex.join(['sudo', *args]))
+    print(f'Local Nginx route prepared: http://{domain}/')
 
 
 def bootstrap(project):
@@ -122,7 +118,7 @@ def bootstrap(project):
     private = project.env_files[-1]
     raw = private.read_text()
     if not project.settings['DOMAIN'] or project.settings['DOMAIN'] == 'example.local':
-        values['DOMAIN'] = project.settings['PROJECT_NAME'].replace('_', '-') + ('.test.localhost' if project.environment == 'test' else '.localhost')
+        values['DOMAIN'] = project.settings['PROJECT_NAME'].replace('_', '-') + ('.test.local' if project.environment == 'test' else '.local')
     if any(project.settings[key] in ('', '0') for key in ('LOCALHOST_PORT', 'LOCALHOST_PORT_SSL')):
         ports = available_ports(project)
         for key, port in zip(('LOCALHOST_PORT', 'LOCALHOST_PORT_SSL'), ports):
@@ -165,12 +161,12 @@ def initialize_test(project, refresh=False):
     env_file = project.directory / ('env/test.env' if (project.directory/'env/common.env').exists() else '.env.test')
     if not env_file.exists():
         ports = available_ports(project)
-        domain = project.settings['PROJECT_NAME'].replace('_', '-')+'.test.localhost'
+        domain = project.settings['PROJECT_NAME'].replace('_', '-')+'.test.local'
         set_env_values(env_file, {'DOMAIN':domain, 'LOCALHOST_PORT':str(ports[0]), 'LOCALHOST_PORT_SSL':str(ports[1]),
                                  'DATABASE_NAME':project.settings['DATABASE_NAME']+'_test', 'DATABASE_USER':'test',
-                                 'DATABASE_PASSWORD':secrets.token_hex(24), 'COMPOSE_PROFILES':'',
+                                 'DATABASE_PASSWORD':secrets.token_hex(24),
                                  'APP_SOURCE_DIRECTORY':'', 'DATA_DIRECTORY':'',
-                                 'SMOKE_URL':f'http://{domain}:{ports[0]}/', 'SQL_DOMAIN':f'{domain}:{ports[0]}'})
+                                 'SQL_DOMAIN':domain})
     if not destination.exists() or refresh:
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
         if refresh:

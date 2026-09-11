@@ -16,7 +16,7 @@ make doctor
 
 `check` tikrina Compose struktūrą. `up` paleidžia esamus atvaizdus, laukia servisų ir tikrina aplikaciją. `doctor` patikrina aplinkos paruošimą ir veikiančio PS DB/HTTP.
 
-Patikra: turi matyti sėkmingą PrestaShop DB prisijungimą ir HTTP 200. Forsenos tikras vietinis patikros adresas nustatytas `SMOKE_URL=http://forsena.local/`.
+Patikra: `make doctor` su PS profiliu patikrina DB prisijungimą. Naršyklėje atidaryk `http://forsena.local/`.
 
 Jei trūksta atvaizdų, prieš `up` vykdyk `make build`. Jei tai naujas kompiuteris, atlik kitą skyrių: seno kompiuterio privatūs env, DB ir sertifikatai automatiškai neatkeliauja su Git.
 
@@ -97,7 +97,7 @@ atskiriami brūkšneliais. DB vardui ir vartotojui naudojami pabraukimai, kad b�
 patogiau rašyti SQL. Esami projektų katalogai automatiškai nepervadinami. Jei toks
 adresas jau priklauso kitam projektui, kūrimas sustoja prieš failų rašymą.
 
-`env/common.env` saugomi du vardai: `PROJECT_NAME=melga-mcp` ir
+Jei originalus ir techninis vardai skiriasi, `env/common.env` saugomi du vardai: `PROJECT_NAME=melga-mcp` ir
 `PROJECT_DISPLAY_NAME=MelgaMCP`. Antrasis naudojamas tik IDE projekto pavadinimui.
 Paleidžiant ar kartojant kūrimą su techniniu vardu originali rašyba išlieka:
 
@@ -109,8 +109,8 @@ Komanda tik sukuria failus:
 
 1. Paruošia `~/Projects/demo/app` su `Makefile`, `.gitignore`, `compose/base.yaml` ir env failais. Naudojamas bendras setup Dockerfile.
 2. Sukuria `public/index.php` su bandomuoju puslapiu.
-3. Sugeneruoja privatų DB slaptažodį ir parenka laisvus Docker portus.
-4. Įrašo `DOMAIN=demo.local`, `SMOKE_URL=http://demo.local/` ir `HOST_PROXY=nginx` į `env/local.env`.
+3. Sugeneruoja privatų DB slaptažodį. Portai paskiriami vėliau per `make bootstrap`.
+4. Įrašo `DOMAIN=demo.local` ir DB prisijungimus į `env/local.env`.
 
 Naujo projekto šaltiniai:
 
@@ -156,7 +156,7 @@ nereikia. PhpStorm gali atidaryti sukurtą `app` katalogą iš karto.
 
 Šis aiškus pasirinkimas paruošia DNS, TLS, kompiuterio Nginx maršrutą ir PhpStorm
 Docker nustatymus, sukuria atvaizdus, paleidžia keturis pagrindinius servisus ir
-patikrina puslapį. Naršyklės adresas išlieka **http://demo.local/**.
+sulaukia konteinerių sveikatos patikrų. Naršyklės adresas išlieka **http://demo.local/**.
 
 Pavadinus projektą `melga`, adresas bus **http://melga.local/**. Kiekvienas
 projektas gauna atskirus Docker portus, bet jų naršyklėje rašyti nereikia:
@@ -172,8 +172,7 @@ Compose ar env kūrimas.
 
 Host maršrutą taip pat paruošia `make bootstrap`. Nginx konfigūracija patikrinama
 su `nginx -t` prieš `reload`; svetimas esamas to domeno config neperrašomas.
-`HOST_PROXY=none` palieka host Nginx nevaldomą – tai tinka jau turint rankomis
-paruoštą domeno maršrutą. Tokiu atveju už adreso nukreipimą atsakai pats.
+Atskiro env jungiklio nereikia: domenas ir portai paruošiami kartu per `bootstrap`.
 
 ### Pakartojimas
 
@@ -184,16 +183,15 @@ paruoštą domeno maršrutą. Tokiu atveju už adreso nukreipimą atsakai pats.
 Esami failai, kodas ir prisijungimai išsaugomi. Pakartojimas irgi nieko nepaleidžia.
 Ankstesnis `--no-start` vis dar priimamas, tačiau jo nebereikia. Esamas svetimas
 katalogas neperimamas. Jei anksčiau sugeneruotas projektas turi `.localhost` adresą,
-generatorius jo savavališkai neperrašo: pakeisk `DOMAIN` į `<vardas>.local`,
-`SMOKE_URL` į `http://<vardas>.local/`, pridėk `HOST_PROXY=nginx` ir atlik `make bootstrap`.
+generatorius jo savavališkai neperrašo: pakeisk `DOMAIN` į `<vardas>.local`
+ir atlik `make bootstrap`.
 
 ### Kur tęsti darbą
 
 PhpStorm atidaryk `~/Projects/demo/app`, o savo aplikaciją laikyk `public/`.
 Generatoriaus puslapį gali pakeisti savo kodu. Jei vietoje jo klonuosi atskirą
 Git repozitoriją, pirmiau pašalink arba perkelk tik šį bandomąjį failą, kad klonavimo
-katalogas būtų tuščias. Atnaujink arba išvalyk `SMOKE_EXPECT` savo `env/local.env`,
-kai naujas puslapis neberodys projekto vardo; `SMOKE_URL` turi tikrinti tavo aplikaciją.
+katalogas būtų tuščias. Puslapį tikrink naršyklėje arba aplikacijos testais.
 
 ```bash
 cd ~/Projects/demo/app
@@ -205,7 +203,7 @@ make down
 `make down` sustabdo aplinką ir pašalina jos konteinerius, o DB failai lieka
 `~/Projects/demo/data`. Kitų projektų aplinkos neliečiamos.
 
-Pagal nutylėjimą tai bendras PHP projektas (`PROFILE=`) su Nginx, Apache, PHP ir
+Pagal nutylėjimą tai bendras PHP projektas (be `PROFILE` įrašo) su Nginx, Apache, PHP ir
 MySQL. Papildomi servisai net neįtraukti į Compose. Kai prireiks konkretaus
 papildymo, tik jo failus nukopijuok iš bendro setup šablonų ir įtrauk į projektą
 pagal [servisų vadovą](05-servisai.md). Vien `PROFILES=redis` naujame minimaliame

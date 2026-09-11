@@ -13,7 +13,7 @@ From this shared setup checkout, run one command:
 ```
 
 This only creates the sibling `../demo/app`: project configuration, a PHP page
-in `public/`, free internal Docker ports and a private database password. It does
+in `public/` and a private database password. Ports are assigned later by bootstrap. It does
 not require a running Docker daemon, build images or start containers.
 The application URL is `http://demo.local/`, without a port in the browser.
 
@@ -24,7 +24,7 @@ When you want to start the project, explicitly run:
 ```
 
 Startup prepares local DNS, TLS, a host Nginx route and PhpStorm, builds images,
-starts the four core services and checks the page. Docker must be running; Make,
+starts the four core services and waits for their Docker healthchecks. Docker must be running; Make,
 Python 3.10+, Compose 2.24.4+, OpenSSL, mkcert and host Nginx must be installed.
 Host provisioning may require sudo/local CA approval once; an actionable command
 is printed if privileges are unavailable. The host Nginx listens on 80/443 and
@@ -34,7 +34,8 @@ Repeating creation preserves the project's files and credentials and still does
 not start it. An unrelated existing directory is rejected. Names may use ASCII letters in either case, digits and single underscores or
 hyphens. CamelCase, acronyms and underscores are normalized for folders and Docker:
 `Melga` → `melga`, `MelgaMCP` → `melga-mcp`, `GameroomAkeneo` → `gameroom-akeneo`.
-The original is stored in `PROJECT_DISPLAY_NAME` and used by PhpStorm, including
+When it differs from the technical name, the original is stored in
+`PROJECT_DISPLAY_NAME` and used by PhpStorm, including
 after bootstrap/ide-init. The normalized name must start with a letter and have
 at most 32 characters. Hostnames use the same spelling (`melga-mcp.local`).
 Database names and users use underscores (`melga_mcp`) for SQL convenience.
@@ -59,6 +60,13 @@ remain in the shared setup and are copied only when you choose to add one.
 Put your application in `../demo/app/public`. The shared setup remains one
 checkout, without a Git submodule. This creates a generic PHP environment,
 not a PrestaShop installation.
+
+Generated env files contain only the project identity (plus a distinct IDE name),
+domain and database credentials. Generic PHP is the shared default. Define extra
+services in project YAML; services without `profiles:` start with that YAML.
+`make bootstrap` assigns missing ports and prepares DNS, TLS and host Nginx;
+no host-proxy toggle or HTTP smoke settings are needed. Image fingerprints are
+automatic and do not need a project-level version flag.
 
 See the [Lithuanian quick start](doc/lt/02-pradzia.md#c-naujas-projektas-viena-komanda).
 
@@ -112,7 +120,7 @@ See [`doc/`](doc/README.md):
 > [doc/README.md](doc/README.md).
 
 `make bootstrap` prepares local host/TLS/IDE settings. `make up` waits for service
-readiness and runs profile-aware smoke checks. `make db-backup` and compressed
+readiness without making application HTTP requests. `make db-backup` and compressed
 imports support DB workflows; `make test-init` prepares independent test app/data
 paths. See [runtime workflow](doc/ENVIRONMENT_WORKFLOW.md) and
 [setup releases](doc/RELEASES.md) before adopting changed stage/prod paths.

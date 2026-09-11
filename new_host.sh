@@ -121,8 +121,7 @@ DATABASE_USER=$domain
 DATABASE_PASSWORD=$domain
 DATABASE_NAME=$domain
 
-# Override the optional containers for this project. By default they are chosen per
-# environment (COMPOSE_PROFILES_LOCAL/STAGE/PROD in docker/.env). Set COMPOSE_PROFILES
+# Optional containers are controlled by project Compose configuration. Set COMPOSE_PROFILES
 # here to force a fixed set for this project (empty = core services only).
 # Available: phpcs, phpstan, mailpit, pma, cron, playwright
 #COMPOSE_PROFILES=mailpit,pma,cron

@@ -16,9 +16,9 @@ from database_fixtures import load_fixtures, plan_fixtures
 from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
 from project_ide import initialize_ide, refresh_ide
-from project_health import smoke, start_project
+from project_health import start_project
 from database_backup import backup_database
-from setup_release import API_VERSION, image_suffix, setup_info
+from setup_release import image_suffix, setup_info
 from project_policy import DEFAULTS, resolve_policy, validate_configuration
 
 
@@ -98,8 +98,6 @@ class Project:
         self.command += ["--project-name", "setup-settings", "-f", str(DOCKER_ROOT / "project-settings.yaml")]
         settings = json.loads(self.capture(["config", "--format", "json"]))["services"]["settings"]["environment"]
         self.settings = settings
-        if str(settings['SETUP_REQUIRED_API']) != API_VERSION:
-            raise ValueError('Project requires a different setup API; use a compatible setup release')
         profile = settings['PROFILE']
         if profile == 'ps': profile = 'prestashop'
         settings['PROFILE'] = profile
@@ -121,8 +119,7 @@ class Project:
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
         self.name = f"{name}-{environment}"
-        self.profiles = profiles if profiles is not None else (
-            settings["PROFILES"] if settings["PROFILES_DEFINED"] else settings[f"{environment.upper()}_PROFILES"])
+        self.profiles = profiles if profiles is not None else settings["PROFILES"]
         self.command = base_command + ["--project-name", self.name]
         self.command += ["-f", str(source)]
         extras = []
@@ -138,10 +135,9 @@ class Project:
         active = json.loads(self.capture(['config', '--format', 'json']))['services']
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0')
-        if settings['VERSIONED_IMAGES'] == '1':
-            arguments = {name: service['build'].get('args', {})
-                         for name, service in self.model()['services'].items() if service.get('build')}
-            self.process_env['SETUP_IMAGE_SUFFIX'] = image_suffix(profile, arguments)
+        arguments = {name: service['build'].get('args', {})
+                     for name, service in self.model()['services'].items() if service.get('build')}
+        self.process_env['SETUP_IMAGE_SUFFIX'] = image_suffix(profile, arguments)
         if environment == 'test':
             self.validate_test_isolation()
 
@@ -196,7 +192,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine",
                                            "restart", "composer", "cache-clear", "db-backup-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "smoke", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -245,8 +241,6 @@ def main():
             project.run(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', str(args.timeout), 'database'])
         elif args.action == 'db-backup':
             backup_database(project, args.output)
-        elif args.action == 'smoke':
-            smoke(project, args.timeout)
         elif args.action == "ide-init":
             initialize_ide(project, args.docker_server, args.ide_config_directory)
         elif args.action == "ide-refresh":

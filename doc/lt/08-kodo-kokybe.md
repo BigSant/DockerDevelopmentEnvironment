@@ -217,7 +217,7 @@ Tavo parduotuvėje vietoje „Demo veikia“ gali būti matomas paieškos laukas
 | `testDir` / `PLAYWRIGHT_TEST_DIR` | Kur ieškoti testų. QA prijungimas nustato `/e2e/tests`. |
 | `outputDir` / `PLAYWRIGHT_DATA_DIR` | Kur rašyti rezultatus; QA naudoja `/e2e/data`. |
 | `use.baseURL` / `BASE_URL` | Pradinis naršyklės adresas. |
-| `use.ignoreHTTPSErrors` / `PLAYWRIGHT_IGNORE_HTTPS_ERRORS` | Vietinių nepatikimų TLS klaidų ignoravimas tik sąmoningai pasirinktam bandymui. Tai nekeičia `make smoke` TLS tikrinimo. |
+| `use.ignoreHTTPSErrors` / `PLAYWRIGHT_IGNORE_HTTPS_ERRORS` | Vietinių nepatikimų TLS klaidų ignoravimas tik sąmoningai pasirinktam bandymui. |
 | `timeout` | Vieno testo laiko limitas milisekundėmis. |
 | `retries` | Kiek kartų kartoti nepraėjusį testą; pradžioje geriau matyti klaidą iš karto. |
 | `reporter` | Terminalo ir failinių ataskaitų pasirinkimas. |
@@ -230,7 +230,7 @@ Pilnas konfigūracijos aprašas: [Playwright](https://playwright.dev/docs/test-c
 
 Situacija: PS DB saugo `demo.localhost:31820`. Konteinerio DNS alias veda į proxy, bet proxy **viduje** neklauso 31820 porto.
 
-Tokiam projektui naudok tą patį patikrintą išorinį adresą, kurį turi `SMOKE_URL`, ir priskirk domeną Docker hostui:
+Tokiam projektui naudok tikrą išorinį adresą ir priskirk domeną Docker hostui:
 
 ```yaml
 services:
@@ -238,7 +238,7 @@ services:
     extra_hosts:
       - "${DOMAIN}:host-gateway"
     environment:
-      BASE_URL: ${SMOKE_URL:?Įrašyk tikrą pasirinktos aplinkos URL}
+      BASE_URL: http://${DOMAIN}:${LOCALHOST_PORT}
 ```
 
 Šiame variante naršyklė kreipiasi į kompiuterio paskelbtą portą. Testui tą papildymą dėk į `compose/test.yaml`, naudok būtent testinį URL ir [sutvarkyk testinės HTTP aplinkos paruošimą](09-aplinkos.md).

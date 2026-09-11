@@ -3,13 +3,14 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'docker'))
 from host_proxy import configuration, install, MARKER
-from project_bootstrap import certificate_is_valid
+from project_bootstrap import certificate_is_valid, prepare_host
 
 
 class HostProxyTest(unittest.TestCase):
@@ -36,6 +37,18 @@ class HostProxyTest(unittest.TestCase):
         self.assertIn('listen 443 ssl http2;', config)
         self.assertIn('proxy_set_header Host $http_host;', config)
         self.assertIn('proxy_set_header X-Forwarded-Proto $scheme;', config)
+
+    def test_host_preparation_installs_route_without_env_toggle(self):
+        project = SimpleNamespace(data_directory=self.root, settings={
+            'DOMAIN': 'demo.local', 'LOCALHOST_PORT': '32001'})
+        with patch('project_bootstrap.socket.getaddrinfo', return_value=[(0, 0, 0, '', ('127.0.0.1', 0))]), \
+                patch('project_bootstrap.certificate_is_valid', return_value=True), \
+                patch('project_bootstrap.subprocess.run', return_value=SimpleNamespace(returncode=0)) as run:
+            prepare_host(project)
+        route = run.call_args.args[0]
+        self.assertEqual(route[:2], ['sudo', '-n'])
+        self.assertEqual(Path(route[3]).name, 'host_proxy.py')
+        self.assertEqual(route[4:], ['demo.local', '32001', str(self.ssl)])
 
     def test_install_validates_before_reload_and_preserves_other_sites(self):
         other = self.root / 'sites-available/existing.local.conf'

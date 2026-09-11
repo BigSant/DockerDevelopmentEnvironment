@@ -1,4 +1,4 @@
-"""Profile/version boundaries, isolated test files and real HTTP smoke behavior."""
+"""Profile/version boundaries, isolated test files and container startup."""
 import contextlib
 import io
 import json
@@ -7,18 +7,16 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'docker')]
 from prepare_project import prepare
 from project import Project
 from project_bootstrap import initialize_test
-from project_health import smoke
+from project_health import start_project
 
 
 class RuntimeFeaturesTest(unittest.TestCase):
@@ -146,28 +144,12 @@ define('_DB_PREFIX_', 'custom_');
         with test.env_files[-1].open('a') as file: file.write('APP_SOURCE_DIRECTORY=app/public\n')
         with self.assertRaisesRegex(ValueError,'Test data and code'): Project(app,'test')
 
-    def test_smoke_checks_http_and_gates_ps_database_probe(self):
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200);self.end_headers();self.wfile.write(b'Application ready')
-            def log_message(self,*args): pass
-        server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
-        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-        self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
-        calls=[]
-        def capture(args):
-            calls.append(args)
-            if args[0]=='config': return json.dumps({'services':{'php-fpm':{},'database':{}}})
-            if args[0]=='ps': return 'php-fpm\ndatabase\n'
-            return 'probe ok'
-        project=SimpleNamespace(capture=capture,settings={'PROFILE':'akeneo','SMOKE_URL':f'http://127.0.0.1:{server.server_port}/','SMOKE_EXPECT':'Application ready'})
-        with contextlib.redirect_stdout(io.StringIO()): smoke(project,timeout=1)
-        self.assertFalse(any(args[0]=='exec' for args in calls))
-        project.settings['PROFILE']='ps'
-        with contextlib.redirect_stdout(io.StringIO()): smoke(project,timeout=1)
-        self.assertTrue(any('check' in args and args[0]=='exec' for args in calls))
-        project.settings['SMOKE_EXPECT']='missing response'
-        with contextlib.redirect_stdout(io.StringIO()),self.assertRaises(ValueError): smoke(project,timeout=0.05)
+    def test_start_waits_for_containers_without_application_http_requests(self):
+        project = SimpleNamespace(run=Mock(), capture=Mock(side_effect=AssertionError('No application probe')))
+        with patch('project_policy.preflight_php') as preflight:
+            start_project(project, timeout=12)
+        preflight.assert_called_once_with(project)
+        project.run.assert_called_once_with(['up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '12'])
 
 
 if __name__=='__main__': unittest.main()

@@ -4,7 +4,7 @@ PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_
 PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
-.PHONY: init doctor pull shell ide-init ide-refresh smoke db-backup db-prepare bootstrap test-init setup-info
+.PHONY: init doctor pull shell ide-init ide-refresh db-backup db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine db-import db-import-plan schema-export schema-check schema-hook-install restart composer cache-clear db-backup-prune runtime-info
 
@@ -14,7 +14,7 @@ RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(cal
 
 help:
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
-	@echo 'smoke: runtime/application probes; db-backup [file=backup.sql.gz]; setup-info: shared version'
+	@echo 'db-backup [file=backup.sql.gz]; setup-info: shared version'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
 	@echo 'check / config: validate / render shared sources without starting containers'
@@ -59,9 +59,6 @@ db-import db-import-plan:
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))
-
-smoke:
-	@$(RUN_PROJECT) $@ $(if $(timeout),--timeout $(call quote,$(timeout)),)
 
 db-backup:
 	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),)

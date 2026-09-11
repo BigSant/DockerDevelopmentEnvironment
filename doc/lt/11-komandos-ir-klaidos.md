@@ -18,13 +18,12 @@ Komandas vykdyk kataloge su projekto Makefile. Numatyta aplinka `local`. `make h
 | `make config` | Parašo `.generated/compose.<ENV>.yaml` | Privatus rezultatas; gali turėti prisijungimų. |
 | `make build` | Pirma gamina PHP bazę, paskui pasirinkto modelio build servisus | Keičiasi vietiniai Docker atvaizdai; neveikia kaip DB importas. |
 | `make pull` | Atsisiunčia pasirinktus išorinius atvaizdus | Praleidžia vietinius build atvaizdus ir jų pakartotinį naudojimą, pvz. cron. |
-| `make up` | Paleidžia/perkuria servisus, laukia sveikatos, atlieka smoke | Naudoja esamus atvaizdus: `--no-build --pull never`. |
+| `make up` | Paleidžia/perkuria servisus, laukia Docker sveikatos patikrų | Naudoja esamus atvaizdus: `--no-build --pull never`. |
 | `make down` | Pašalina stack konteinerius/tinklą | Bind mount DB/kodo failai lieka. |
 | `make ps` | Parodo pasirinktus konteinerius | Būsenos patikra. |
 | `make logs` | Parodo Compose logus | Neprideda savo papildomų `--follow` argumentų. |
 | `make shell` | Atidaro `sh` PHP konteineryje | PHP turi veikti; išėjimas `exit`. |
 | `make doctor` | Tikrina Engine/Compose, atvaizdus, portus, mount, env/TLS; veikiančiam PS – DB/HTTP | Randa paruošimo klaidas; failų automatiškai netaiso. |
-| `make smoke` | Veikiančių servisų ir aplikacijos patikra | PS skaito config ir jungiasi PDO; kitoms programoms HTTP pagal `SMOKE_URL`. |
 | `make ide-init` | Sugeneruoja/atnaujina PhpStorm nustatymus | Esami savi komponentai saugomi; reikia IDE Docker ryšio. |
 | `make ide-refresh` | Atnaujina tik privatų IDE Compose failą | Nekeičia IDE bendrų vartotojo parinkčių. |
 | `make test-init` | Paruošia testinę kodo/duomenų vietą ir env | Vykdomas iš local konteksto; DB nekopijuoja. |
@@ -58,7 +57,6 @@ Komandas vykdyk kataloge su projekto Makefile. Numatyta aplinka `local`. `make h
 | `db-fixtures` | `db-import`, `db-import-plan` | `db-fixtures=test` prideda fixture planą po hooks. |
 | `set` | `db-fixtures-plan/load` | `set=local`, `set=test`, `set=pristatymas`. |
 | `refresh` | `test-init` | Tik `refresh=1` sustabdo ir atnaujina esamą testinę kodo kopiją. |
-| `timeout` | Make lygiu tik `smoke` | `make smoke timeout=120`; sveikatos tikrinimo laukimo sekundės. |
 | `cmd` | `phpstan`, `phpcs`, `e2e`, `doctrine` | `make doctrine cmd='migrate --dry-run'`. |
 | `IDE_DOCKER_SERVER` | `ide-init` | Esamo PhpStorm Docker ryšio vardas. |
 | `IDE_CONFIG_DIRECTORY` | `ide-init` | Nestandartinis PhpStorm config katalogas. |
@@ -101,11 +99,11 @@ Visos CLI parinktys:
 | `--backup` | Kopija prieš importą. |
 | `--output` | Naujas backup failas. |
 | `--refresh-test` | Sustabdyti ir atnaujinti testinę aplikacijos kopiją. |
-| `--timeout` | Teigiamas sekundžių skaičius; numatyta 90. Naudojamas up/db-prepare/smoke. |
+| `--timeout` | Teigiamas sekundžių skaičius; numatyta 90. Naudojamas up/db-prepare/restart. |
 | `--docker-server` | IDE Docker ryšio vardas. |
 | `--ide-config-directory` | IDE config paieškos vieta. |
 
-Veiksmų vardai sutampa su Make lentelės runner komandomis; `help` yra Make target, o CLI pagalba gaunama su `--help`. Vidiniam `doctor` PS smoke šiame leidime neperduodamas pasirinktas CLI timeout – atskirai kviesk `smoke`, jei reikia kito laiko.
+Veiksmų vardai sutampa su Make lentelės runner komandomis; `help` yra Make target, o CLI pagalba gaunama su `--help`.
 
 ## Kai reikia Compose komandos, kurios Make neturi
 
@@ -151,9 +149,8 @@ Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonu
 | `Shared setup not found` | Ar setup yra bendrame sutartame kelyje? | Atsisiųsti setup arba perduoti absoliutų `SETUP_DIRECTORY`. |
 | `Create ... env/local.env` | Ar yra privatus env / jo example? | `make init`, užpildyti sukurtą failą. Esant nestandartinei aplinkai sukurti jos privatų failą. |
 | `Use one source layout` | Ar kartu turi `env/common.env` ir root `.env` / `compose.yaml`? | Peržiūrėti ir pasirinkti vieną šaltinių formatą; netaisyti sugeneruoto modelio. |
-| `requires a different setup API` | `SETUP_REQUIRED_API` ir `make setup-info` | Naudoti suderinamą setup versiją; nekeisti API skaičiaus vien tam, kad apeitum klaidą. |
 | Trūksta atvaizdo, `pull never` klaida | Ar pasikeitė versija/build argumentai/hash? | Vietiniam atvaizdui `make build`, išoriniam – `make pull`. |
-| Portas užimtas | Kito projekto `env` ir veikiančių konteinerių portai | Parinkti kitą host portą; aplikacijos/SQL/smoke URL turi jį atitikti. |
+| Portas užimtas | Kito projekto `env` ir veikiančių konteinerių portai | Parinkti kitą host portą; aplikacijos/SQL URL turi jį atitikti. |
 | Domenas neveda į localhost | Host rezoliucija | `make bootstrap`; prireikus vykdyti jo pateiktą vienkartinį helper. |
 | Trūksta TLS failų | `${PROJECT_DATA_DIRECTORY}/ssl/domain.crt`, `domain.key` | Local/test `make bootstrap`; prod pateikti savo tinkamus sertifikatus. |
 | Nginx `host not found in upstream pma/mailpit` | Ar įjungti atitinkami servisai? | Minimalus Nginx command iš 2 skyriaus arba tinkamai įjungti abu virtualių hostų servisai. |
@@ -162,7 +159,6 @@ Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonu
 | `parameters.yml` nepalaikomas | Ankstyvas PS config formatas | Aplikacijos įrankiais konvertuoti arba sukurti savą projekto paruošimą. |
 | DB `Access denied` po env pakeitimo | Ar esama DB dar turi seną vartotojo slaptažodį? | Suderinti env su realiu vartotoju arba sąmoningai pakeisti jį DB kliente. Netrinti DB katalogo. |
 | Sveika DB, bet PS HTTP 500 | Ar įkeltas dump, išsaugoti shop raktai, teisingas config? | Peržiūrėti PHP/Apache logus, atlikti reikiamą atkūrimą. Healthcheck nepatvirtina lentelių turinio. |
-| Smoke peradresuoja kitur | `SMOKE_URL`, PS DB domenas, HTTP/HTTPS/portas | Suderinti tikrą tos aplinkos URL. Testiniam Apache žr. 9 skyrių. |
 | `.ini` pakeitimas nesimato | Ar perkrautas PHP? Ar žiūri CLI ar FPM? | Perkrauti servisą; HTTP keturis limitus keisti ir `PHP_*` env. |
 | Nginx `directive is duplicate` / neteisingas kontekstas | Kur įtraukiamas tavo `.conf`? | Neįrašyti `location` tiesiai `http` lygyje ir nekartoti vienetinės direktyvos tame pačiame kontekste. |
 | `Set SCHEMA_DIRECTORY` | Common env kelias | Forsenai `SCHEMA_DIRECTORY=app/database/schema`, ne vien `database/schema`. |
@@ -175,7 +171,7 @@ Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonu
 | Testo writable mount atmetamas | Galutinis Compose kelias | Duomenis/rezultatus laikyti `.generated/test`, bendrą config/testus montuoti `:ro`. |
 | Testas nemato naujo kodo | Ar atnaujinta kopija? | `make test-init refresh=1`, po to vėl paleisti testinę aplinką. |
 | Redis neranda environment/redis.conf | Ar yra konkrečios `ENV` failas? | Sukurti `config/redis/test/redis.conf` ar atitinkamos aplinkos failą. |
-| Playwright nepasiekia `DOMAIN:host-port` | Ar portas yra konteinerio ar kompiuterio? | Domeną nukreipti į host-gateway ir naudoti tikrą `SMOKE_URL`, kaip 8 skyriuje. |
+| Playwright nepasiekia `DOMAIN:host-port` | Ar portas yra konteinerio ar kompiuterio? | Domeną nukreipti į host-gateway ir naudoti tikrą aplikacijos URL, kaip 8 skyriuje. |
 | Baseline negali būti įrašytas | Ar `/tmp/phpstan/baselines` writable? | Generuoti local arba pasirinkti testinį rašomą rezultatą. |
 | Doctrine `diff` nieko nežino apie modelį | Ar pateiktas ORM/schema provider? | Paruošti aplikacijos ORM integraciją arba rašyti migraciją; snapshot nėra ORM mapping. |
 | Aplikacija po prod kelio pataisymo mato tuščią DB | Ar nepasikeitė tikras mount? | Grąžinti peržiūrėtą ankstesnį kelią, sustabdyti konkuruojančius procesus ir suplanuoti perkėlimą. |

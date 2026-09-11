@@ -86,7 +86,7 @@ class ProjectTemplatesTest(unittest.TestCase):
     def test_native_model_paths_profiles_and_literal_credentials(self):
         root, directory = self.prepare()
         project = Project(directory)
-        self.assertEqual(project.profiles, "mailpit,pma,cron")
+        self.assertEqual(project.profiles, "")
         model = project.model()
         self.assertEqual(model["name"], "example-local")
         database = model["services"]["database"]
@@ -116,7 +116,7 @@ class ProjectTemplatesTest(unittest.TestCase):
             "DATABASE_PASSWORD='line one\nCOMPOSE_PROFILES=cron\nline three'\n")
         project = Project(directory, environment="stage")
         self.assertEqual(project.name, "example-stage")
-        self.assertEqual(project.profiles, "mailpit,cron")
+        self.assertEqual(project.profiles, "")
         self.assertIn("\nCOMPOSE_PROFILES=cron\n", project.model()["services"]["database"]["environment"]["MYSQL_PASSWORD"])
 
     def test_real_compose_overrides_can_customize_included_service(self):

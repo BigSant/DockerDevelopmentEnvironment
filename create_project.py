@@ -12,7 +12,7 @@ SETUP = Path(__file__).resolve().parent
 sys.path.insert(0, str(SETUP / 'docker'))
 
 from prepare_project import minimal_files
-from project_bootstrap import available_ports, set_env_values
+from project_bootstrap import set_env_values
 from project_ide import checked_path, replace_file
 
 MARKER = 'app/.generated/create-project.json'
@@ -20,11 +20,11 @@ MARKER = 'app/.generated/create-project.json'
 
 def normalize_name(value):
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*', value):
-        raise ValueError('Pavadinimas turi prasidėti raide; naudok A-Z, a-z, 0-9, pavienius _ arba -.')
+        raise ValueError('Name must start with a letter; use A-Z, a-z, 0-9, and single underscores or hyphens.')
     name = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1-\2', value)
     name = re.sub(r'([a-z0-9])([A-Z])', r'\1-\2', name).lower().replace('_', '-')
     if len(name) > 32:
-        raise ValueError('Normalizuotas projekto pavadinimas turi būti iki 32 simbolių.')
+        raise ValueError('Normalized project name must be at most 32 characters.')
     return name
 
 
@@ -36,7 +36,7 @@ def ensure_domain_available(parent, domain):
                 continue
             match = re.search(r'^DOMAIN\s*=\s*[\'\"]?([^\s\'\"#]+)', path.read_text(), re.M)
             if match and match[1].lower() == domain:
-                raise ValueError(f'Domenas {domain} jau naudojamas: {path}. Pasirink kitą projekto pavadinimą.')
+                raise ValueError(f'Domain {domain} is already used: {path}. Choose another project name.')
 
 
 def prepare_project_name(app, name):
@@ -54,25 +54,24 @@ def scaffold(name, parent):
     root = Path(parent).resolve() / name
     marker = root / MARKER
     if root.is_symlink():
-        raise ValueError(f'Projekto katalogas negali būti nuoroda: {root}')
+        raise ValueError(f'Project directory must not be a symlink: {root}')
     if root.exists():
         if any(p.is_symlink() for p in (root / 'app', marker.parent, marker)):
-            raise ValueError(f'Esama projekto paruošimo žyma negali būti nuoroda: {root}')
+            raise ValueError(f'Existing project creation marker must not be a symlink: {root}')
         saved = json.loads(marker.read_text()) if marker.is_file() else {}
         if not isinstance(saved, dict) or any(saved.get(k) != v for k, v in
                 {'creator': 'create-project', 'version': 1, 'name': name}.items()):
-            raise ValueError(f'Katalogas jau yra ir nepriklauso šiai komandai: {root}. Pasirink kitą pavadinimą; esami failai išsaugoti.')
+            raise ValueError(f'Directory already exists and is not managed by this command: {root}. Choose another name; existing files were preserved.')
         original = saved.get('display_name', name)
         if not isinstance(original, str) or normalize_name(original) != name:
-            raise ValueError('Projekto žymoje išsaugotas netinkamas pavadinimas; failai išsaugoti.')
+            raise ValueError('Project marker contains an invalid name; files were preserved.')
         prepare_project_name(root / 'app', original)
-        print(f'Projektas jau paruoštas; esami failai ir prisijungimai išsaugoti: {root}', flush=True)
+        print(f'Project is already prepared; existing files and credentials were preserved: {root}', flush=True)
         return root / 'app'
 
     domain = name.replace('_', '-') + '.local'
     ensure_domain_available(root.parent, domain)
     app, files = minimal_files(root, display_name=display_name)
-    ports = available_ports(SimpleNamespace(root=root, name=name + '-local'))
     # Claim only a new project directory. Never merge a scaffold into someone else's files.
     root.mkdir()
     for path, contents in files.items():
@@ -83,55 +82,54 @@ def scaffold(name, parent):
     public.mkdir()
     (public / 'index.php').write_text(
         "<?php\nheader('Content-Type: text/plain; charset=utf-8');\n"
-        f"echo \"Projektas {name} veikia.\\n\";\n"
+        f"echo \"Project {name} is running.\\n\";\n"
         "echo 'PHP: ' . PHP_VERSION . \"\\n\";\n"
         "echo 'Cache: ' . getenv('CACHE_MODE') . \"\\n\";\n")
     import secrets
     set_env_values(app / 'env/local.env', {
-        'DOMAIN': domain, 'LOCALHOST_PORT': ports[0], 'LOCALHOST_PORT_SSL': ports[1],
+        'DOMAIN': domain,
         'DATABASE_USER': name.replace('-', '_'), 'DATABASE_NAME': name.replace('-', '_'),
-        'DATABASE_PASSWORD': secrets.token_hex(24), 'COMPOSE_PROFILES': '',
-        'SMOKE_URL': f'http://{domain}/', 'SMOKE_EXPECT': name, 'HOST_PROXY': 'nginx',
+        'DATABASE_PASSWORD': secrets.token_hex(24),
     })
     prepare_project_name(app, display_name)
     # The marker is written last: retries may resume a complete scaffold, never guess
     # whether a pre-existing directory (or an interrupted file copy) belongs to us.
     replace_file(marker, json.dumps({'creator': 'create-project', 'version': 1, 'name': name,
                                     'display_name': display_name}).encode(), private=True)
-    print(f'Sukurti projekto failai: {app}', flush=True)
+    print(f'Created project files: {app}', flush=True)
     return app
 
 
 def prerequisites():
     missing = [name for name in ('make', 'docker', 'openssl', 'mkcert') if not shutil.which(name)]
     if missing:
-        raise ValueError('Trūksta programų: ' + ', '.join(missing) + '. Įdiek jas ir pakartok paleidimą.')
+        raise ValueError('Missing programs: ' + ', '.join(missing) + '. Install them and retry.')
     result = subprocess.run(['docker', 'info', '--format', '{{.ServerVersion}}'], capture_output=True, timeout=20)
     if result.returncode:
-        raise ValueError('Docker neveikia. Paleisk Docker ir pakartok komandą.')
+        raise ValueError('Docker is not running. Start Docker and retry.')
     result = subprocess.run(['docker', 'compose', 'version', '--short'], capture_output=True, text=True, timeout=20)
     version = re.search(r'(\d+)\.(\d+)\.(\d+)', result.stdout)
     if result.returncode or not version or tuple(map(int, version.groups())) < (2, 24, 4):
-        raise ValueError('Reikia Docker Compose 2.24.4 arba naujesnio.')
+        raise ValueError('Docker Compose 2.24.4 or newer is required.')
 
 
 def start(app):
-    for action, description in (('bootstrap', 'Ruošiami portai, TLS ir PhpStorm'),
-                                ('check', 'Tikrinama konfigūracija'),
-                                ('build', 'Kuriami Docker atvaizdai'),
-                                ('up', 'Paleidžiami servisai ir tikrinamas puslapis')):
+    for action, description in (('bootstrap', 'Preparing ports, local domain, TLS and PhpStorm'),
+                                ('check', 'Checking configuration'),
+                                ('build', 'Building Docker images'),
+                                ('up', 'Starting services and waiting for container healthchecks')):
         print(f'\n{description}…', flush=True)
         subprocess.run(['make', '--no-print-directory', '-C', str(app), f'SETUP_DIRECTORY={SETUP}', action], check=True)
     from project import Project
     project = Project(app)
-    print(f'\nProjektas veikia: {project.settings["SMOKE_URL"]}\nPhpStorm atidaryk: {app}\nAplikacijos kodas: {app / "public"}', flush=True)
+    print(f'\nProject started: http://{project.settings["DOMAIN"]}/\nOpen in PhpStorm: {app}\nApplication code: {app / "public"}', flush=True)
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='create-project', description='Paruošia naują projektą šalia bendro setup. Aplinkos automatiškai nepaleidžia.')
-    parser.add_argument('name', metavar='pavadinimas', help='Pvz. Melga, MelgaMCP arba GameroomAkeneo')
+    parser = argparse.ArgumentParser(prog='create-project', description='Prepare a new project next to the shared setup without starting its environment.')
+    parser.add_argument('name', metavar='name', help='For example: Melga, MelgaMCP or GameroomAkeneo')
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--start', action='store_true', help='Aiškiai paruošti host/TLS/IDE, sukurti atvaizdus ir paleisti aplinką')
+    mode.add_argument('--start', action='store_true', help='Also prepare the host, TLS and IDE, build images and start the environment')
     mode.add_argument('--no-start', action='store_true', help=argparse.SUPPRESS)  # Previous spelling remains harmless.
     args = parser.parse_args(argv)
     try:
@@ -141,13 +139,13 @@ def main(argv=None):
         if args.start:
             start(app)
         else:
-            print(f'Failai paruošti; aplinka nepaleista.\nPhpStorm atidaryk: {app}\n'
-                  f'Paleidimui: {SETUP / "create-project"} {args.name} --start')
+            print(f'Files prepared; environment has not been started.\nOpen in PhpStorm: {app}\n'
+                  f'To start: {SETUP / "create-project"} {args.name} --start')
     except (ValueError, OSError, subprocess.SubprocessError) as error:
-        print(f'Klaida: {error}\nPašalinęs priežastį pakartok tą pačią create-project komandą; paruošti failai išsaugomi.', file=sys.stderr)
+        print(f'Error: {error}\nResolve the error and retry the same create-project command; prepared files are preserved.', file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print('\nNutraukta. Paruošti failai išsaugoti; gali pakartoti tą pačią komandą.', file=sys.stderr)
+        print('\nInterrupted. Prepared files were preserved; you can retry the same command.', file=sys.stderr)
         return 130
     return 0
 

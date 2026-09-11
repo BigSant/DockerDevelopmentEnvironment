@@ -137,7 +137,7 @@ make doctor
 
 Jei `doctor` praneša, kad naujų atvaizdų nėra: `make build`, tada `make up`. Nekeisk versijos tikėdamasis, kad pats `up` atsisiųs ar pagamins trūkstamus atvaizdus – jis naudoja esamus.
 
-`VERSIONED_IMAGES=1` prideda kontrolinę sumą prie vietinių atvaizdų vardų. Skaičiuojami bendri Docker šaltiniai/default, profilis ir išspręsti build argumentai. Keičiantis bendram receptui ar build parinkčiai senas tag neperrašomas tuo pačiu vardu. Vietinė ir testinė aplinka gali naudoti tą patį atvaizdą.
+Setup automatiškai prideda kontrolinę sumą prie vietinių atvaizdų vardų; projekto env jungiklio nereikia. Skaičiuojami bendri Docker šaltiniai/default, profilis ir išspręsti build argumentai. Keičiantis bendram receptui ar build parinkčiai senas tag neperrašomas tuo pačiu vardu. Vietinė ir testinė aplinka gali naudoti tą patį atvaizdą.
 
 Tai nėra visų išorinių tag nekintamumo garantija. Aplikacijos priklausomybių lock failai, bazinių atvaizdų digest ir patikrintas release build lieka atskira atkuriamo diegimo dalis. Projekto savas Dockerfile yra to projekto atsakomybė; vien setup priesaga nėra viso projekto atvaizdo kilmės įrodymas.
 

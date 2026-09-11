@@ -48,7 +48,7 @@ Testinę aplinką tikrink **po** jos HTTP konfigūracijos pritaikymo žemiau. Tu
 
 ### Testinės aplinkos HTTP ir ankstesnių šablonų suderinamumas
 
-`test-init` sukuria HTTP `SMOKE_URL` su testiniu portu. Dabartinis setup su `ENV=test` parenka `HTTP_FORCE_HTTPS=off`, todėl papildomos Apache išimties nebereikia. Senesnėje v1.0.0 versijoje ne-local aplinkos būdavo automatiškai peradresuojamos į HTTPS.
+`test-init` paruošia `<projektas>.test.local` domeną ir jo Nginx maršrutą be porto naršyklėje. Dabartinis setup su `ENV=test` parenka `HTTP_FORCE_HTTPS=off`, todėl papildomos Apache išimties nebereikia. Senesnėje v1.0.0 versijoje ne-local aplinkos būdavo automatiškai peradresuojamos į HTTPS.
 
 Tik jei vis dar naudoji seną Apache šabloną, ankstesnis suderinamumo variantas `compose/test.yaml` yra:
 
@@ -62,19 +62,19 @@ services:
       - local
 ```
 
-Tai nekeičia runner `ENV=test`, jo DB, failų, tinklo ar portų. Pakeičiamas tik Apache elgesys, kad nebūtų automatinio prod tipo HTTP peradresavimo. PS DB domenas su portu sutvarkomas testiniu after-import SQL.
+Tai nekeičia runner `ENV=test`, jo DB, failų, tinklo ar portų. Pakeičiamas tik Apache elgesys, kad nebūtų automatinio prod tipo HTTP peradresavimo. PS DB domenas sutvarkomas testiniu after-import SQL.
 
 Dabartinis Nginx inicializatorius optional virtualius hostus parenka pagal tikrai įjungtus servisus. Kai Mailpit/phpMyAdmin išjungti, papildomo minimalaus starto bloko nebereikia.
 
 ```bash
 make check ENV=test
 make up ENV=test
-make smoke ENV=test
+make doctor ENV=test
 ```
 
-Patikra: matyk testinį domeną/portą ir sėkmingą HTTP. Jei parduotuvė nukreipia į local/prod arba kitą portą, pirmiausia sutvarkyk jos DB/config; nekeisk smoke į svetimos aplinkos adresą vien tam, kad patikra praeitų.
+Patikra: naršyklėje atidaryk testinį domeną. Jei parduotuvė nukreipia į local/prod arba kitą portą, pirmiausia sutvarkyk jos DB/config.
 
-Jei tikslas būtent HTTPS testai, vietoje HTTP pavyzdžio paruošk testinio domeno sertifikatą, tinkamą HTTPS portą, PS SSL ir URL nustatymus bei proxy antraštes. Po to `SMOKE_URL` turi būti tikslus testinis HTTPS adresas. `make smoke` TLS klaidų neignoruoja.
+Jei tikslas būtent HTTPS testai, vietoje HTTP pavyzdžio paruošk testinio domeno sertifikatą, tinkamą HTTPS portą, PS SSL ir URL nustatymus bei proxy antraštes. Po to naršyklėje arba Playwright teste tikrink tikslų testinį HTTPS adresą.
 
 ## C. Testo apsaugos ir pasirenkami QA įrankiai
 

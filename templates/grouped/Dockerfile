@@ -4,7 +4,7 @@ ARG BASE_IMAGE=php-fpm-base-local-8.1-3.1.5-2.7.6
 FROM ${BASE_IMAGE} AS base
 
 ARG ENV=local
-ARG PROFILE=prestashop
+ARG PROFILE=''
 
 # Profile-specific PHP overlay (PROFILE=prestashop|akeneo|""). conf.d / php-fpm.d are read
 # alphabetically, so the zz-/zzz- prefixes override the base php.ini / pool config. The base

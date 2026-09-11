@@ -25,7 +25,7 @@ Paleidžiamas PHP-FPM
 | Akeneo | `PROFILE=akeneo` | Bendri Akeneo atvaizdo papildymai; PS failai neliečiami. Pilnas Akeneo įdiegimas nėra automatinis. |
 | Symfony, Laravel, savas PHP | `PROFILE=` | PS veiksmų nėra. Aplikacija pati skaito env arba naudoja projekto hook. |
 
-`SMOKE_URL` gali veikti visiems profiliams. Tik PS profiliui papildomai perskaitomas jo konfigūracijos failas ir tikrinamas PDO prisijungimas.
+`make doctor` tik PS profiliui papildomai perskaito jo konfigūracijos failą ir tikrina PDO prisijungimą, jei PHP konteineris veikia. HTTP užklausų setup nesiunčia.
 
 ## A. Naujesnis PS ir parameters.php
 
@@ -84,7 +84,7 @@ return array(
 ```bash
 make check
 make up
-make smoke
+make doctor
 ```
 
 Patikra: aplikacijos modulis turi matyti savo aplinkai parinktą adresą ir jungiklį. Setup neprideda modulio, kuris šiuos naujus vardus skaitytų – vardai turi sutapti su tavo aplikacijos logika.
@@ -216,7 +216,7 @@ Iš aplinkos katalogo paleisk:
 
 ```bash
 make up
-make smoke
+make doctor
 ```
 
 `on` reiškia, kad debug galioja **visiems** šios aplinkos lankytojams ir CLI komandoms. IP sąrašas šiame režime neriboja lankytojų. Tai PS klaidų režimas; Xdebug derintuvo ir `_PS_DEBUG_PROFILING_` jis neįjungia.
@@ -249,7 +249,7 @@ PS_DEBUG_IPS=
 
 ```bash
 make up ENV=prod
-make smoke ENV=prod
+make doctor ENV=prod
 ```
 
 Local atveju `ENV=prod` nerašyk. Vien eilutės ištrynimas ne visada išjungia debug: gali būti paveldėtas common pasirinkimas. Jei režimas galiausiai tuščias, updater visai neliečia esamo failo, net jei anksčiau į jį įrašė `true`. Išjungimui visada naudok `off` ir paleisk `make up`.

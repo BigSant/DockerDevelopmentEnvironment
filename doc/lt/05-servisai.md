@@ -144,7 +144,7 @@ Esamam projektui pirmiausia išsaugok MySQL dump ir patikrintą grįžimo varian
 
 Situacija: checkout yra Symfony projektas, jo viešas failas – `public/index.php`.
 
-Į `env/common.env` įrašyk `DOCUMENT_ROOT=public`. Naudok `PROFILE=` savo pasirinktai bendro PHP aplikacijai. Apache viduje bus aptarnaujamas `/var/www/html/public`, nors visas kodas prijungtas į `/var/www/html`.
+Į `env/common.env` įrašyk `DOCUMENT_ROOT=public`. Bendro PHP aplikacijai `PROFILE` įrašo nereikia. Apache viduje bus aptarnaujamas `/var/www/html/public`, nors visas kodas prijungtas į `/var/www/html`.
 
 Papildomos serverio direktyvos gali būti faile `config/apache/local/20-runtime.conf`:
 
@@ -198,7 +198,7 @@ Situacija: aplikacija moka naudoti Redis, bet kitiems projektams jo nereikia.
 1. Turėk `compose/redis.yaml`, `config/redis/redis.conf` ir `config/redis/local/redis.conf`. Galima nukopijuoti juos iš [grouped šablono](../../templates/grouped).
 2. Į `PROJECT_COMPOSE_FILES` sąrašą pridėk `compose/redis.yaml`, išsaugodamas jau reikalingus kitus failus.
 3. Į common env įrašyk `REDIS_VERSION=7.4`.
-4. Į local env įrašyk `COMPOSE_PROFILES=redis` arba papildyk esamą sąrašą.
+4. Nukopijuotame Redis YAML pašalink `profiles: [redis]`, kad servisas įsijungtų kartu su tuo failu. Jei Redis reikia tik lokaliai, jo aprašą dėk į `compose/local.yaml`.
 
 Pilnas savas `compose/redis.yaml` variantas su paprastu duomenų keliu:
 
@@ -206,7 +206,6 @@ Pilnas savas `compose/redis.yaml` variantas su paprastu duomenų keliu:
 services:
   redis:
     image: redis:${REDIS_VERSION}-alpine
-    profiles: [redis]
     restart: unless-stopped
     command: [redis-server, /usr/local/etc/redis/redis.conf]
     networks: [network_app]
@@ -280,16 +279,18 @@ Minimalus Forsenos `base.yaml` šių servisų neturi. Į jo esamą `include` są
   - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
 ```
 
-Į local env pridėk `COMPOSE_PROFILES=mailpit,pma`. Patogiausia minimaliame variante jų UI parodyti tiesioginiais portais `compose/local.yaml`:
+Į `compose/local.yaml` įrašyk `profiles: !reset []`, kad šie įtraukti servisai būtų įjungti lokaliai be env jungiklio. Jų UI galima parodyti tiesioginiais portais:
 
 ```yaml
 services:
   mailpit:
+    profiles: !reset []
     ports:
       - "127.0.0.1:31825:8025"
     environment:
       MP_MAX_MESSAGES: "1000"
   pma:
+    profiles: !reset []
     ports:
       - "127.0.0.1:31826:80"
     environment:
@@ -310,7 +311,13 @@ Vietiniame Mailpit taip pat nustatyta `MP_SMTP_AUTH_ACCEPT_ANY=1` ir `MP_SMTP_AU
 
 Situacija: vietoje kas penkias minutes nori paleisti aplikacijos `bin/import-prices.php`.
 
-Jei cron nėra pagrinde, į esamą `include` pridėk bendrą `docker/cron/docker-compose.yml` ir įjunk `COMPOSE_PROFILES=cron` (ar papildyk sąrašą).
+Jei cron nėra pagrinde, į esamą `include` pridėk bendrą `docker/cron/docker-compose.yml`. Įjunk jį tik norimos aplinkos YAML, pvz. `compose/local.yaml`:
+
+```yaml
+services:
+  cron:
+    profiles: !reset []
+```
 
 Failas `config/cron/crontab.local`:
 

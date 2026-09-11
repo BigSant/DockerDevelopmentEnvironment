@@ -2,26 +2,16 @@
 
 The project `PROFILE` selects application behavior. `ps` is an alias for
 `prestashop`. Other values (including empty) never run PrestaShop configuration
-or DB probes. New grouped templates explicitly use an empty profile; choose
-`PROFILE=ps` only for a PrestaShop project. Legacy projects can still inherit the
-historical profile default from the shared `.env`; set their profile explicitly
-when adopting these commands.
+or DB probes. Generic PHP is the shared default. Choose `PROFILE=ps` explicitly
+for a PrestaShop project.
 
 ## Startup and health
 
-`make up` uses Compose `--wait --wait-timeout 90` and existing images, then runs
-smoke checks. Docker healthchecks are infrastructure checks, not proof that an
-application request works. `make smoke timeout=120` reruns application probes.
-For PS, the probe reads the actual installed configuration and connects using
-its DB credentials, then checks HTTP. `make doctor` adds these PS runtime checks
-when PHP is running, otherwise reports them as pending.
-
-`SMOKE_URL` configures an HTTP(S) URL for any profile; optional `SMOKE_EXPECT`
-is a required literal substring in the first 2 MiB of the response. Without a
-URL, PS derives `http://DOMAIN:LOCALHOST_PORT/`; other profiles only check running
-services. HTTP must return 2xx. Redirects to a different origin fail so a local
-or test check cannot accidentally pass by reaching another shop. No response
-body or credentials are logged. TLS verification stays enabled.
+`make up` uses Compose `--wait --wait-timeout 90` and existing images. It waits for
+Docker healthchecks without making application HTTP requests. Check the website
+in your browser or use the project's own tests. `make doctor` additionally checks
+PrestaShop configuration and DB credentials when that profile is selected and PHP
+is running. There is no shared smoke command or URL/expected-text configuration.
 
 See [Compose startup readiness](https://docs.docker.com/reference/cli/docker/compose/up/).
 
@@ -70,15 +60,15 @@ The format distinction follows [PrestaShop's configuration paths](https://devdoc
 
 `make bootstrap` initializes a missing private env from its example, replaces only
 known example placeholders, selects unused ports, prepares mount directories,
-checks local hostname routing, creates/renews mkcert certificates, and initializes
+prepares local DNS and host Nginx routing, creates/renews mkcert certificates, and initializes
 PhpStorm. Existing credentials, custom settings and shop keys are preserved.
 Generated passwords go only to the private mode-0600 env file. The command does
 not clone an unknown application, start containers, build images or import data.
 Supply the app checkout first, then run `make build` if images are missing and
-`make up` to start and verify it.
+`make up` to start it.
 
 Prerequisites: Python 3.10+, Docker Compose 2.24.4+, OpenSSL, mkcert and rsync
-(for test copies). New default domains use `<project>.localhost`. If a hostname
+(for test copies). New default domains use `<project>.local`. If a hostname
 needs an `/etc/hosts` entry, a small validated helper attempts `sudo -n`; it never
 prompts or rewrites existing entries. If privileges are unavailable it prints
 the exact one-time helper command. mkcert may require `mkcert -install` once to

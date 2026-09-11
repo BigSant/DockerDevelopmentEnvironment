@@ -21,15 +21,18 @@ points back here.
 
 ## Runtime workflow and release boundary
 
-The runner now resolves an explicit application profile (`ps` aliases
-`prestashop`), setup API compatibility, optional content-based shared image tags,
-HTTP smoke settings and separate environment paths. New grouped projects default
-to no application profile and enable versioned image names. Legacy defaults remain
-available for existing projects; profiles should be explicit when migrating.
+The runner defaults to generic PHP, with explicit `PROFILE=ps` / `prestashop`
+for PrestaShop integration. Image fingerprints are automatic; no project API or
+image-version switches are needed. Optional Compose profiles have no environment
+defaults. Project YAML determines which services are present; services without a
+`profiles:` restriction start normally. Native profile selection is still supported.
 
-`project_health.py` combines Compose `up --wait` with PS-only configuration/DB
-probes and configured HTTP checks. `doctor` includes PS runtime checks when PHP
-is running. Generic profiles never require PS files. `docker/runtime/start.sh`
+The minimal creator writes identity, optional distinct IDE display name, domain
+and DB credentials only. It performs no port allocation or host provisioning.
+Local/test bootstrap assigns ports and prepares DNS, TLS and host Nginx routes.
+`project_health.py` performs Compose `up --wait` without application HTTP probes.
+`doctor` includes PS configuration/DB checks only for explicit PS profiles.
+Generic profiles never require PS files. `docker/runtime/start.sh`
 prepares PS 1.6 defines or newer PHP parameters, merges per-project overrides,
 then runs `config/startup/*.sh` and execs PHP-FPM. Unchanged configuration leaves
 caches intact. All scripts are read-only runtime mounts; no secrets enter builds.
@@ -108,7 +111,7 @@ env creation and missing writable data/config directories) and `doctor`
 (Engine/Compose availability, selected images, ports, mounts, private settings
 and TLS file presence). `pull` selects external images, excluding every image built by any declared
 service (including PHP image reuse by cron), then uses `--ignore-buildable`;
-`shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never --wait` followed by smoke checks.
+`shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never --wait` without application HTTP probes.
 QA targets are ephemeral. The wrapper has a separate explicit SQL importer;
 it does not call the legacy interactive DB importer.
 
@@ -465,16 +468,11 @@ Optional services carry a compose `profiles:` tag (`phpcs`, `phpstan`, `mailpit`
 `cron`, `playwright`). Core services (`nginx-proxy`, `webserver`/apache, `php-fpm`,
 `database`/mysql) have **no** profile → always run.
 
-- **Per-environment defaults in `docker/.env`** so dev/QA tooling runs only where it belongs:
-  `COMPOSE_PROFILES_LOCAL=mailpit,pma,cron`, `COMPOSE_PROFILES_STAGE=mailpit,cron`,
-  `COMPOSE_PROFILES_PROD=cron`. (mailpit = local+stage only; phpMyAdmin = local only; cron =
-  every env; phpcs/phpstan/playwright stay opt-in everywhere.) There is **no** bare
-  `COMPOSE_PROFILES=` default anymore — prod no longer silently runs mailpit/pma.
-- **Resolution order** (`run-docker-compose`): an explicit `profile=` make-var
-  (`build_only`, `ALL_PROFILES`) wins; else a project's explicit `COMPOSE_PROFILES` (from
-  `app/docker/.env` or `.env.<env>`, via the env merge); else the central
-  `COMPOSE_PROFILES_<ENV>` default. So a project can still force any set — including empty
-  (core-only) — per environment.
+- Shared defaults enable no optional profiles. The current runner uses explicit
+  `PROFILES=...` first, then an optional native `COMPOSE_PROFILES` value from env.
+  New projects generate neither. Services without `profiles:` run when their YAML
+  is included; use `compose/local.yaml` or `compose/prod.yaml` for environment additions.
+- The following `ALL_PROFILES` details refer to the retained legacy Makefile.
 - `ALL_PROFILES` (in the Makefile) lists every profile and is used only when rendering the
   full project compose snapshot (`config-docker-compose`), so the snapshot stays complete.
 - This is the **service-selection** half of per-env separation; the other env-gated mechanisms

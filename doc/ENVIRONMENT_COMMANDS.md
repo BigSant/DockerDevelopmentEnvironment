@@ -7,13 +7,12 @@ and `PROFILES=...` select the same environment and services as `make up`.
 | --- | --- |
 | `make init` | Creates a missing private env from its example with mode 0600; creates missing bind directories under project data, app/config and docker/config. |
 | `make check` | Validates Compose sources for all profiles, without requiring a running Engine. |
-| `make build` | Builds the shared PHP base, then selected buildable services. With `VERSIONED_IMAGES=1`, changed shared build sources use new image names. |
+| `make build` | Builds the shared PHP base, then selected buildable services. Changed shared build sources automatically use new image names. |
 | `make pull` | Pulls selected external images; skips locally built images, including reuse by cron. |
 | `make doctor` | Checks Docker/Compose, selected local images, explicit available host ports, bind sources, private file permissions/placeholders and expected TLS files. |
-| `make up` | Starts/recreates selected services using existing images, waits for readiness, then runs profile/configured smoke checks. |
+| `make up` | Starts/recreates selected services using existing images, waits for container readiness. |
 | `make shell` | Opens `sh` in the running PHP container. |
 | `make bootstrap` | Prepares local env placeholders, ports, hostname, TLS and PhpStorm. |
-| `make smoke` | Checks running services, PS configuration/DB only for the PS profile, and the configured HTTP URL. |
 | `make test-init` | Creates independent test env, code and data paths. |
 | `make db-prepare ENV=test` | Starts only the test DB before its initial import. |
 | `make db-backup` | Creates a private `.generated/backups/*.sql.gz` logical backup. |
@@ -26,7 +25,7 @@ services too, so later QA runs do not let Docker create root-owned directories.
 New grouped projects use `env/local.env`; existing flat projects retain
 `.env.local`. Edit the newly created example before using `up`.
 
-`doctor` checks prerequisites and, for PS with running PHP, invokes configuration/DB and HTTP smoke checks. Other profiles can use `make smoke` with SMOKE_URL. It checks TLS
+`doctor` checks prerequisites and, for PS with running PHP, invokes configuration/DB checks. No application HTTP requests are made. It checks TLS
 file presence/readability, not trust, expiry or domain coverage. Mount write
 checks use the current host user; deployments using another service UID need
 an additional permissions check. Ports already published by this Compose
@@ -44,7 +43,7 @@ make pull
 make doctor
 make up
 make ps
-# Verify the application URL and run the project's smoke tests.
+# Verify the application URL and run the project's tests.
 ```
 
 Redis is optional: use `PROFILES=mailpit,pma,cron,redis` consistently with

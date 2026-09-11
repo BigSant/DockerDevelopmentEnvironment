@@ -12,8 +12,6 @@ Pavyzdys: visur reikia PHP 8.1, bet DB slaptažodis vietoje ir prod skirtingas.
 PROJECT_NAME=demo
 PHP_VERSION=8.1
 PROFILE=ps
-SETUP_REQUIRED_API=1
-VERSIONED_IMAGES=1
 ```
 
 `env/local.env`:
@@ -25,8 +23,6 @@ LOCALHOST_PORT_SSL=31821
 DATABASE_NAME=demo
 DATABASE_USER=demo
 DATABASE_PASSWORD='vietinis-pavyzdys-pakeisk'
-COMPOSE_PROFILES=
-SMOKE_URL=http://demo.localhost:31820/
 ```
 
 `env/prod.env`:
@@ -38,8 +34,6 @@ LOCALHOST_PORT_SSL=443
 DATABASE_NAME=demo_prod
 DATABASE_USER=demo_prod
 DATABASE_PASSWORD='atskiras-prod-pavyzdys-pakeisk'
-COMPOSE_PROFILES=
-SMOKE_URL=https://parduotuve.example.com/
 ```
 
 Čia pateikta reikšmių atskyrimo iliustracija. Vien `prod.env` neparuošia gamybinio serverio, TLS, DB teisių ir aplikacijos – [prod paruošimas aprašytas atskirai](09-aplinkos.md).
@@ -52,7 +46,7 @@ setup/docker/.env → projekto env/common.env → projekto env/<ENV>.env
 
 Vėlesnė reikšmė pakeičia ankstesnę. Runner išvalo iš shell tuos raktus, kurie deklaruoti skaitomuose env failuose, ir pats nustato techninius kelius. Todėl projekto nustatymus laikyk failuose. `make PHP_VERSION=8.3 up` nėra dokumentuotas PHP versijos keitimo būdas; keisk env ir perstatyk atvaizdą.
 
-Tuščias `COMPOSE_PROFILES=` yra sąmoningas pasirinkimas paleisti tik pagrindinius servisus. Tai skiriasi nuo eilutės nebuvimo, kai gali būti paveldėtos aplinkos numatytosios reikšmės.
+Naujam projektui `COMPOSE_PROFILES` nereikalingas. Servisus aprašyk YAML: servisas be `profiles:` paleidžiamas, kai jo YAML įtrauktas. Aplinkos papildymus laikyk `compose/local.yaml` ar `compose/prod.yaml`.
 
 Env nėra shell scriptas. Nerašyk ten `$(komanda)`, nenaudok `source env/local.env`. Slaptažodžiams su `$` saugiau naudoti viengubas kabutes. Savus sudėtingus simbolius patikrink per `make check`; paslapčių nekopijuok iš išplėsto Compose į pokalbius. Interpoliavimo taisyklės: [Docker dotenv žinynas](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
 
@@ -63,15 +57,9 @@ Lentelių „numatyta“ reiškia dabartinį bendrą setup, jeigu projektas niek
 | Raktas | Numatyta / leidžiama | Ką daro ir kur naudoti |
 | --- | --- | --- |
 | `PROJECT_NAME` | Bendrame faile tuščias; būtinas. Mažosios `a-z`, skaitmenys, `_`, `-`, pirmas simbolis raidė/skaitmuo | Projekto konteinerių, tinklo ir atvaizdų vardų pagrindas. Pvz. `forsena`; laikyk `common.env`. Pakeitus atsiras kitas Compose projektas. |
-| `PROFILE` | Bendras senas default `prestashop`; naujas grouped šablonas aiškiai įrašo tuščią | `ps` ir `prestashop` įjungia PS veiksmus. `akeneo` pasirenka Akeneo atvaizdų papildymus. Tuščias – bendras PHP. Kitas vardas savaime nesukuria integracijos. |
-| `COMPOSE_PROFILES` | Jei neįrašytas, taikomas aplinkos default | Kableliais atskirti pasirenkami servisų profiliai: `redis,mailpit`. Gali būti tuščias. Neprideda YAML apraše nesančio serviso. |
-| `COMPOSE_PROFILES_LOCAL` | `mailpit,pma,cron` | Atsarginis vietinės aplinkos pasirinkimas, kai nėra `COMPOSE_PROFILES` ir Make `PROFILES`. |
-| `COMPOSE_PROFILES_TEST` | Tuščias | Atsarginis testinės aplinkos pasirinkimas. |
-| `COMPOSE_PROFILES_STAGE` | `mailpit,cron` | Atsarginis stage pasirinkimas. |
-| `COMPOSE_PROFILES_PROD` | `cron` | Atsarginis prod pasirinkimas; tinkamas tik jei cron aprašytas projekte. |
+| `PROFILE` | Tuščias; bendras PHP | `ps` ir `prestashop` įjungia PS veiksmus. `akeneo` pasirenka Akeneo atvaizdų papildymus. Tuščias – bendras PHP. Kitas vardas savaime nesukuria integracijos. |
+| `COMPOSE_PROFILES` | Tuščias; pasirenkama Compose galimybė | Kableliais atskirti pasirenkami servisų profiliai: `redis,mailpit`. Gali būti tuščias. Neprideda YAML apraše nesančio serviso. |
 | `PROJECT_COMPOSE_FILES` | Tuščias; grouped šablone `compose/qa.yaml compose/doctrine.yaml compose/redis.yaml` | Papildomų YAML sąrašas per tarpus, skaitomas iš kairės į dešinę. Keliai nuo Makefile katalogo, turi likti jame. |
-| `SETUP_REQUIRED_API` | `1` | Projekto reikalaujama runner API. Kita reikšmė sustabdo darbą dėl nesuderinamumo; tai nėra Git tag pasirinkimas. |
-| `VERSIONED_IMAGES` | Bendras `0`; grouped ir Forsena `1` | Tik `1` įjungia atvaizdų vardų priesagą pagal šaltinius, profilį ir build argumentus. Įjungęs paleisk `make build`. |
 
 `PROFILE=ps` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, o `PROFILES=redis` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
 
@@ -85,11 +73,9 @@ Lentelių „numatyta“ reiškia dabartinį bendrą setup, jeigu projektas niek
 | `DOCUMENT_ROOT` | `/` | Poaplankis **aplikacijos checkout viduje**. `public` reiškia `/var/www/html/public`, o ne kitą host katalogą. |
 | `WEBSERVICE_TIMEOUT` | `90` sekundžių | Nginx proxy užklausos timeout, pvz. `300` ilgam importui per HTTP. Tai ne `make up` laukimo laikas. |
 | `WHITELISTED_IP` | `allow all;` | Perduodamas Nginx inicializatoriui. Esamame proxy pagrindiniame šablone nėra veikiančio bendro IP filtro vietos: vien šios reikšmės nelaikyk prieigos ribojimu. Ribojimą dėk į konkretų Nginx server/location config. |
-| `SMOKE_URL` | Tuščias | Aiškus tikrinamas `http(s)` adresas be prisijungimo URL. PS, jei tuščias, bando `http://DOMAIN:LOCALHOST_PORT/`; kitoms aplikacijoms HTTP patikra nepridedama. |
-| `SMOKE_EXPECT` | Tuščias | Privalomas pažodinis tekstas pirmuose 2 MiB HTTP atsakymo; ne regex. Pvz. `Demo veikia`. |
 | `SQL_DOMAIN` | `DOMAIN`, jei kintamasis nenustatytas | Tik SQL `${DOMAIN}` pakeitimui. Gali būti `demo.test.localhost:31830`, nors `DOMAIN` turi likti be porto. Tuščia reikšmė SQL vykdyme taip pat grįžta prie `DOMAIN`. |
 
-Patikra priima HTTP 2xx. Peradresavimas į kitą schemą, hostą ar portą atmetamas. Tai apsaugo nuo situacijos, kai tikrini testinę parduotuvę, o ji nukreipia į vietinę ar tikrą parduotuvę.
+`make up` laukia Docker sveikatos patikrų, bet HTTP užklausų į aplikaciją nesiunčia.
 
 ## DB prisijungimai ir failų savininkai
 
@@ -194,7 +180,7 @@ Prisimink du skirtingus atskaitos taškus: `SCHEMA_DIRECTORY=app/database/schema
 | `BUILDX_NO_DEFAULT_ATTESTATIONS` | `1`; runner nustatyta build parinktis. |
 | `BUILDX_METADATA_PROVENANCE` | `disabled`; runner nustatyta build parinktis. |
 
-`BASE_IMAGE` yra projekto Dockerfile build argumentas, kurį grouped `compose/common.yaml` surenka iš PHP bazinio atvaizdo vardo. `PROFILES_DEFINED`, `PROFILES`, `EXTRA_COMPOSE_FILES`, `LOCAL_PROFILES`, `TEST_PROFILES`, `STAGE_PROFILES`, `PROD_PROFILES` yra vidiniai `project-settings.yaml` laukai; vartotojas keičia atitinkamus `COMPOSE_PROFILES*` ir `PROJECT_COMPOSE_FILES`.
+`BASE_IMAGE` yra projekto Dockerfile build argumentas, kurį grouped `compose/common.yaml` surenka iš PHP bazinio atvaizdo vardo. `PROFILES` ir `EXTRA_COMPOSE_FILES` yra vidiniai `project-settings.yaml` laukai, atitinkantys pasirenkamus `COMPOSE_PROFILES` ir `PROJECT_COMPOSE_FILES`.
 
 Runner pašalina iš shell `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE`, `COMPOSE_ENV_FILES` ir `ENV_FILE`, kad svetimo projekto eksportai nepasirinktų kitos aplinkos. [Make ir CLI argumentai](11-komandos-ir-klaidos.md) aprašyti atskirai.
 
@@ -221,6 +207,11 @@ Vien env eilutė nėra automatinis perdavimas PHP. Šis aiškus prijungimas leid
 
 Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#visi-šio-sluoksnio-nustatymai). Aplinkos vardas ir cache režimas parenkami nepriklausomai.
 
-`HOST_PROXY`: `none` (numatyta esamiems projektams) arba `nginx`. Naujas `create-project` įrašo `nginx`: `make bootstrap` paruošia kompiuterio Nginx maršrutą iš `http://<DOMAIN>/` ir HTTPS į projekto HTTP portą, todėl naršyklėje nereikia rašyti Docker porto. Pats projekto failų kūrimas host konfigūracijos nekeičia.
+`make bootstrap` automatiškai paruošia kompiuterio Nginx maršrutą iš `http://<DOMAIN>/` ir HTTPS į projekto HTTP portą. Atskiro env jungiklio nėra; pats projekto failų kūrimas host konfigūracijos nekeičia.
 
 `PROJECT_DISPLAY_NAME`: PhpStorm projekto pavadinimas; jei nenustatytas, naudojamas `PROJECT_NAME`. `create-project MelgaMCP` įrašo `PROJECT_NAME=melga-mcp` ir `PROJECT_DISPLAY_NAME=MelgaMCP`. Originali rašyba išsaugoma ir per `make ide-init` / `make bootstrap`; Docker naudoja `melga-mcp`, DB vardas ir vartotojas – `melga_mcp`.
+
+Naujai kuriamo projekto `env/common.env` pakanka `PROJECT_NAME`; `PROJECT_DISPLAY_NAME`
+pridedamas tik kai originalus vardas skiriasi. Privačiame env iš pradžių yra tik
+`DOMAIN` ir trys DB prisijungimų reikšmės. Portus įrašo `make bootstrap`.
+Atvaizdų žymos pagal build konfigūraciją apskaičiuojamos automatiškai.

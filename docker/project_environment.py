@@ -144,7 +144,7 @@ def doctor(project):
     if getattr(project, 'settings', {}).get('PROFILE') in ('ps', 'prestashop'):
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if 'php-fpm' in running:
-            from project_health import smoke
-            smoke(project)
+            project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'check'])
+            print('PrestaShop configuration and database connection: OK')
         else:
             print('PrestaShop runtime checks pending: start the environment with make up.')

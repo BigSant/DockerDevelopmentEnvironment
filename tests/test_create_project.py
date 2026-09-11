@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from create_project import scaffold, start, main, normalize_name
 from project import Project
 from project_environment import initialize_directories, initialize_env
+from project_bootstrap import bootstrap
 
 
 class CreateProjectTest(unittest.TestCase):
@@ -29,7 +30,8 @@ class CreateProjectTest(unittest.TestCase):
             return scaffold(name, self.parent)
 
     def test_phpstorm_name_is_ready_before_first_open_without_docker(self):
-        with patch('create_project.subprocess.run', side_effect=AssertionError('Must not invoke Docker or bootstrap')):
+        with patch('create_project.subprocess.run', side_effect=AssertionError('Must not invoke Docker or bootstrap')), \
+                patch('project_bootstrap.available_ports', side_effect=AssertionError('Ports belong to bootstrap')):
             app = self.create('melga')
         self.assertEqual((app / '.idea/.name').read_text(), 'melga\n')
         self.assertEqual({p.name for p in (app / '.idea').iterdir()}, {'.name'})
@@ -47,6 +49,12 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base'})
         self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/Dockerfile')
         self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
+        self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\n')
+        self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line},
+                         {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD'})
+        self.assertEqual(project.settings['LOCALHOST_PORT'], '0')
+        self.assertEqual(project.profiles, '')
+        self.assertRegex(active['database']['image'], r'-s[0-9a-f]{12}$')
         self.assertNotIn('REDIS_VERSION', (app / 'env/common.env').read_text())
         self.assertEqual(project.settings['PROFILE'], '')
         self.assertEqual(project.settings['CACHE_MODE'], 'off')
@@ -54,9 +62,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(project.web_directory, app / 'public')
         self.assertEqual(project.data_directory, app.parent / 'data')
         self.assertEqual(project.settings['DOMAIN'], 'new-shop.local')
-        self.assertEqual(project.settings['SMOKE_URL'], 'http://new-shop.local/')
-        self.assertEqual(project.settings['HOST_PROXY'], 'nginx')
-        self.assertIn('Projektas new-shop veikia.', (app / 'public/index.php').read_text())
+        self.assertIn('Project new-shop is running.', (app / 'public/index.php').read_text())
         self.assertRegex(active['database']['environment']['MYSQL_PASSWORD'], r'^[0-9a-f]{48}$')
         self.assertEqual((app / 'env/local.env').stat().st_mode & 0o777, 0o600)
         result = subprocess.run(['make', '-s', '-C', str(app), f'SETUP_DIRECTORY={ROOT}', 'check'],
@@ -73,14 +79,37 @@ class CreateProjectTest(unittest.TestCase):
             initialize_env(app, 'local')
         project = Project(app)
         self.assertEqual(project.settings['DOMAIN'], 'new-shop.local')
-        self.assertEqual(project.settings['SMOKE_URL'], 'http://new-shop.local/')
         self.assertEqual((app / 'env/local.env').stat().st_mode & 0o777, 0o600)
 
-    def test_projects_get_distinct_ports_and_passwords(self):
+    def test_project_yaml_adds_service_without_profile_env(self):
+        app = self.create()
+        (app / 'compose/local.yaml').write_text('services:\n  worker:\n    image: alpine:3.20\n    command: ["sleep", "infinity"]\n')
+        project = Project(app)
+        active = json.loads(project.capture(['config', '--format', 'json']))['services']
+        self.assertIn('worker', active)
+        self.assertEqual(project.profiles, '')
+        for environment in ('stage', 'prod', 'test'):
+            (app / f'env/{environment}.env').write_text(
+                f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=example\n')
+            other = Project(app, environment)
+            self.assertEqual(other.settings['PROFILE'], '')
+            self.assertEqual(other.profiles, '')
+            active = json.loads(other.capture(['config', '--format', 'json']))['services']
+            self.assertEqual(set(active), {'nginx-proxy', 'webserver', 'php-fpm', 'database'})
+
+    def test_bootstrap_assigns_distinct_ports_and_preserves_credentials(self):
         first, second = Project(self.create('one')), Project(self.create('two'))
         one_password = first.model()['services']['database']['environment']['MYSQL_PASSWORD']
         two_password = second.model()['services']['database']['environment']['MYSQL_PASSWORD']
         self.assertNotEqual(one_password, two_password)
+        with patch('project_bootstrap.prepare_host') as host, patch('project_bootstrap.initialize_ide'), \
+                contextlib.redirect_stdout(io.StringIO()):
+            first = bootstrap(first)
+            second = bootstrap(second)
+            self.assertEqual(host.call_count, 2)
+            before = first.env_files[-1].read_bytes()
+            bootstrap(first)
+            self.assertEqual(first.env_files[-1].read_bytes(), before)
         one = {first.settings[k] for k in ('LOCALHOST_PORT', 'LOCALHOST_PORT_SSL')}
         two = {second.settings[k] for k in ('LOCALHOST_PORT', 'LOCALHOST_PORT_SSL')}
         self.assertFalse(one & two)
@@ -124,11 +153,11 @@ class CreateProjectTest(unittest.TestCase):
         root.mkdir()
         sentinel = root / 'user-file'
         sentinel.write_text('keep')
-        with self.assertRaisesRegex(ValueError, 'Katalogas jau yra'):
+        with self.assertRaisesRegex(ValueError, 'Directory already exists'):
             self.create()
         self.assertEqual(list(root.iterdir()), [sentinel])
         (self.parent / 'linked').symlink_to(root, target_is_directory=True)
-        with self.assertRaisesRegex(ValueError, 'nuoroda'):
+        with self.assertRaisesRegex(ValueError, 'symlink'):
             self.create('linked')
         self.assertEqual(sentinel.read_text(), 'keep')
 
@@ -180,7 +209,7 @@ class CreateProjectTest(unittest.TestCase):
         (app / 'env').mkdir(parents=True)
         (app / 'env/local.env').write_text('DOMAIN=melga-mcp.local\n')
         private = (app / 'env/local.env').read_bytes()
-        with self.assertRaisesRegex(ValueError, 'Domenas .* jau naudojamas'):
+        with self.assertRaisesRegex(ValueError, 'Domain .* is already used'):
             self.create('MelgaMCP')
         self.assertFalse((self.parent / 'melga-mcp').exists())
         self.assertEqual((app / 'env/local.env').read_bytes(), private)
@@ -198,11 +227,11 @@ class CreateProjectTest(unittest.TestCase):
         help_result = subprocess.run([str(ROOT / 'create-project'), '--help'], cwd=self.parent,
                                      capture_output=True, text=True, timeout=10)
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
-        self.assertIn('pavadinimas', help_result.stdout)
+        self.assertIn('name', help_result.stdout)
         result = subprocess.run([str(ROOT / 'create-project'), '../invalid', '--no-start'],
                                 capture_output=True, text=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('Pavadinimas', result.stderr)
+        self.assertIn('Name', result.stderr)
 
     def test_default_creation_does_not_require_docker_or_start_services(self):
         app = self.parent / 'demo/app'
