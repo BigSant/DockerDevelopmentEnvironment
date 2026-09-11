@@ -16,6 +16,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from prepare_project import prepare
 from project import Project
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
+from project_ports import allocate
 
 
 class ProjectEnvironmentTest(unittest.TestCase):
@@ -52,6 +53,38 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertTrue((self.directory / "qa/playwright/tests/homepage.spec.cjs").is_file())
         for relative in ("compose/local.yaml", "Dockerfile", ".gitignore", "qa/README.md"):
             self.assertEqual((self.directory / relative).read_text(), "custom project source\n")
+
+    def test_app_layout_merges_existing_tree_and_is_detected_on_rerun(self):
+        root = Path(self.temporary.name) / "consolidated"
+        app = root / "app"
+        (app / "public").mkdir(parents=True)
+        (app / "public/index.php").write_text("existing application\n")
+        (app / "config/sql").mkdir(parents=True)
+        (app / "config/sql/existing.sql").write_text("SELECT 1;\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            prepare(root, layout="app")
+            initialize_env(app, "local")
+            self.assertEqual(prepare(root), [])
+        (app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
+                                          "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_PASSWORD=test\n")
+        project = Project(app)
+        model = project.model()
+        self.assertEqual(project.root, root)
+        self.assertEqual(project.settings["SCHEMA_DIRECTORY"], "app/database/schema")
+        self.assertEqual(project.settings["POST_IMPORT_SQL_DIRECTORY"], "app/database/sql/after-import")
+        self.assertEqual(model["services"]["php-fpm"]["build"]["context"], str(app))
+        mounts = {v["target"]: v["source"] for v in model["services"]["php-fpm"]["volumes"]}
+        self.assertEqual(Path(mounts["/var/www/html"]), app / "public")
+        self.assertEqual(Path(mounts["/usr/local/etc/php/project.d"]), app / "config/php")
+        database = {v["target"]: v["source"] for v in model["services"]["database"]["volumes"]}
+        self.assertEqual(Path(database["/var/lib/mysql"]), root / "data/mysql")
+        self.assertEqual((app / "public/index.php").read_text(), "existing application\n")
+        self.assertEqual((app / "config/sql/existing.sql").read_text(), "SELECT 1;\n")
+        self.assertFalse((root / "docker").exists())
+        self.assertEqual(allocate(root), (3301, 3302))
+        # Other projects must reserve ports held by consolidated sources too.
+        (app / "env/local.env").write_text("LOCALHOST_PORT=3001\nLOCALHOST_PORT_SSL=3002\n")
+        self.assertEqual(allocate(root.parent / "next"), (3003, 3004))
 
     def test_grouped_model_and_init_preserve_application_and_data(self):
         self.initialize()

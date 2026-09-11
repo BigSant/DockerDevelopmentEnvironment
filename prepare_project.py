@@ -10,6 +10,20 @@ import sys
 TEMPLATE = Path(__file__).resolve().parent / "templates/project"
 GROUPED_TEMPLATE = TEMPLATE.parent / "grouped"
 SERVICES = ("mysql", "mariadb", "php", "apache", "nginx-proxy")
+LAYOUT_DIRECTORIES = {"root": "docker", "app": "app", "legacy": "app/docker"}
+
+
+def project_layout(root, layout, from_legacy=False):
+    if layout != "auto":
+        return layout
+    if from_legacy:
+        return "root"
+    # Prefer the consolidated sources over a retained legacy entry point.
+    for candidate in ("app", "root", "legacy"):
+        directory = root / LAYOUT_DIRECTORIES[candidate]
+        if any((directory / marker).is_file() for marker in ("env/common.env", "compose/base.yaml", ".env", "compose.yaml")):
+            return candidate
+    return "root"
 
 
 def source_layout(target, layout, sources):
@@ -24,11 +38,12 @@ def source_layout(target, layout, sources):
         ("flat" if layout == "legacy" else "grouped") if sources == "auto" else sources)
 
 
-def planned_files(root, from_legacy=False, layout="root", sources="auto"):
+def planned_files(root, from_legacy=False, layout="auto", sources="auto"):
     root = Path(root).resolve()
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", root.name):
         raise ValueError(f"Project directory must have a lowercase project name: {root}")
-    target = root / ("app/docker" if layout == "legacy" else "docker")
+    layout = project_layout(root, layout, from_legacy)
+    target = root / LAYOUT_DIRECTORIES[layout]
     legacy = root / "app/docker"
     if from_legacy and (layout == "legacy" or not (legacy / ".env").is_file()):
         raise ValueError(f"--from-legacy requires an existing {legacy / '.env'} and the root layout")
@@ -82,7 +97,7 @@ def planned_files(root, from_legacy=False, layout="root", sources="auto"):
     return target, files
 
 
-def prepare(root, from_legacy=False, layout="root", check=False, sources="auto"):
+def prepare(root, from_legacy=False, layout="auto", check=False, sources="auto"):
     target, files = planned_files(root, from_legacy, layout, sources)
     pending = [p for p in files if not p.exists()]
     if check:
@@ -103,7 +118,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("projects", nargs="+", type=Path, help="Project roots, e.g. ~/Projects/forsena")
     parser.add_argument("--from-legacy", action="store_true", help="Copy existing app/docker settings into docker")
-    parser.add_argument("--layout", choices=("root", "legacy"), default="root")
+    parser.add_argument("--layout", choices=("auto", "root", "app", "legacy"), default="auto",
+                        help="Preserve existing location; app places sources beside app/public; new projects default to root")
     parser.add_argument("--sources", choices=("auto", "grouped", "flat"), default="auto",
                         help="Preserve existing layout; new root projects default to grouped sources")
     parser.add_argument("--check", action="store_true", help="Preview missing files without writing")

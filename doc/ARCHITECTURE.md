@@ -22,7 +22,12 @@ points back here.
 ## Reusable source workflow
 
 `prepare_project.py` distributes `templates/grouped/` and the shared
-`templates/project/Makefile` into new `<project>/docker` directories. Existing
+`templates/project/Makefile` into new `<project>/docker` directories by default.
+`--layout app` consolidates sources directly into `<project>/app`, beside the
+application checkout `<project>/app/public`. With the default `--layout auto`,
+existing app/root/legacy source locations are detected (in that order) and
+preserved; an ordinary `public/` directory alone is not a source marker.
+`--from-legacy` still targets root unless a target layout is explicit. Existing
 source layouts are preserved; `--layout legacy` defaults to the flat
 `templates/project/` sources. `--sources flat|grouped` explicitly selects the
 layout of a new target, never converts existing sources in place. It can preflight and prepare multiple
@@ -37,7 +42,10 @@ The identical project Makefile includes `docker/project.mk` from the one shared
 project's `compose/base.yaml` (flat: `compose.yaml`) includes the shared `docker/docker-compose.yml`.
 `PROJECT_DOCKER_DIRECTORY` identifies the current config checkout, while app,
 data and tooling paths retain their established layout. The same bootstrap
-works from both supported Docker locations. Explicit `SETUP_DIRECTORY` and
+works from all three supported source locations. The project root stays
+`<project>` for consolidated app sources, so DB/TLS/cache remain in `<project>/data`
+and the application mount remains `<project>/app/public`. Schema/import paths
+are generated relative to that root, e.g. `app/database/schema`. Explicit `SETUP_DIRECTORY` and
 `PROJECT_DIRECTORY` arguments handle nonstandard checkout locations.
 
 `project.py` invokes Docker Compose directly, layering the shared `.env`, the
@@ -494,3 +502,6 @@ via env at that point; do not commit a password.)
 - nginx-proxy: `nginx -t` passes only after placeholder substitution (`init.sh`), resolvable
   upstreams (`--add-host webserver/pma/mailpit`), and an existing cert — these are runtime
   deps, not config errors. Standalone `nginx -t` will *expectedly* fail on them.
+
+The host port allocator also scans `app/env/local.env` and `app/.env.local`,
+so consolidated projects reserve their ports for host provisioning and new projects.

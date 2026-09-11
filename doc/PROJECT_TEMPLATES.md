@@ -33,7 +33,7 @@ The tool preflights all targets, then writes missing files. Repeating it
 preserves project settings and is safe after a partially completed run. It
 refuses an existing different Makefile for review. Grouped project Dockerfiles,
 Compose overrides, README and .gitignore remain project-owned. New root projects
-use grouped sources; existing layouts are preserved. `--sources flat|grouped`
+use grouped sources; existing layouts and source locations are preserved. `--sources flat|grouped`
 selects a new layout explicitly; it never converts an existing one in place.
 Legacy flat sources also retain strict compose.yaml/.gitignore bootstrap checks.
 It does not init Git, set remotes, provision hosts or run Docker.
@@ -58,9 +58,33 @@ For each new project:
 
 Project root names must use lowercase letters, digits, `_` and `-`. Standard
 checkouts live beside `setup`; for another location pass
-`SETUP_DIRECTORY=/absolute/path/to/setup` to Make. The bootstrap supports both
-`<project>/docker` and `<project>/app/docker`; `PROJECT_DIRECTORY=...` explicitly
+`SETUP_DIRECTORY=/absolute/path/to/setup` to Make. The bootstrap supports
+`<project>/docker`, `<project>/app` and `<project>/app/docker`; `PROJECT_DIRECTORY=...` explicitly
 selects the project root for unusual layouts.
+
+## Consolidating sources in app/
+
+Use `python3 prepare_project.py --layout app ../shop-one` to place grouped
+sources directly in `shop-one/app`, beside `public/`. It merges missing source
+files with existing directories and never overwrites application code or
+project configuration. Repeat without `--layout` to use the detected location;
+`--layout auto` prefers an existing app source tree, then root, then legacy.
+New projects without any source markers still default to `<project>/docker`.
+
+The consolidated tree contains `app/{Makefile,Dockerfile,env,compose,config,qa,database}`.
+The app checkout remains `app/public`, and persistent data remains `data`.
+`SCHEMA_DIRECTORY=app/database/schema` and
+`POST_IMPORT_SQL_DIRECTORY=app/database/sql/after-import` are relative to the
+project root. Run Make from `app/`. Host port allocation scans app env files too.
+
+Preparation does not move an existing Git repository. When consolidating an
+existing checkout, first compare colliding files, merge directories, move the
+configuration repository's `.git` only if the destination has no repository,
+and preserve independent nested application checkouts. Exclude those checkouts
+and unrelated local files from the configuration repository's commits. Archive
+obsolete entry points privately; generated files containing old absolute paths
+must not become the active Compose input. Validate normalized models and start
+from the new source directory after moving.
 
 ## Preparing an existing project for migration
 

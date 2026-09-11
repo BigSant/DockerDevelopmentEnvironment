@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read reserved host ports from both supported project layouts."""
+"""Read reserved host ports from all supported project source locations."""
 
 import argparse
 from pathlib import Path
@@ -21,8 +21,8 @@ def read_ports(env_file):
 
 def allocate(project):
     project = Path(project).resolve()
-    suffixes = ("docker/.env.local", "app/docker/.env.local",
-                "docker/env/local.env", "app/docker/env/local.env")
+    suffixes = ("docker/.env.local", "app/docker/.env.local", "app/.env.local",
+                "docker/env/local.env", "app/docker/env/local.env", "app/env/local.env")
     existing = [project / suffix for suffix in suffixes
                 if (project / suffix).is_file()]
     if existing:

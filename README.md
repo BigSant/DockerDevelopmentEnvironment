@@ -12,6 +12,8 @@ Makefile/Compose sources for any number of projects; only project settings diffe
 ```bash
 python3 prepare_project.py --check ../shop-one ../shop-two
 python3 prepare_project.py ../shop-one ../shop-two
+# Or keep all project sources beside app/public:
+python3 prepare_project.py --layout app ../shop-three
 # Existing projects: copy their app/docker settings without switching containers.
 python3 prepare_project.py --from-legacy ../forsena
 make -C ../forsena/docker check

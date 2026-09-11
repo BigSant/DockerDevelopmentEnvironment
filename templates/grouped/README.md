@@ -2,7 +2,8 @@
 
 Shared commands and images come from the sibling setup checkout. Project sources
 are grouped under env/, compose/, config/, qa/ and database/. The application
-checkout stays at ../app/public; persistent data and reports stay at ../data.
+checkout stays at <project>/app/public; persistent data and reports stay at
+<project>/data. Sources can live in <project>/docker or directly in <project>/app.
 
 1. Run make init to create a private env/local.env template and writable directories.
 2. Edit env/local.env: set credentials, domain and two unused host ports. Supply
