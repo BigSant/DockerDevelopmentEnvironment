@@ -4,6 +4,36 @@ Provisions and orchestrates an isolated multi-container stack (nginx-proxy, apac
 mysql, + optional cron/pma/mailpit/phpstan/php-cs/playwright) for each PHP project
 (PrestaShop / Akeneo) under `~/Projects/`.
 
+## Create a new project
+
+From this shared setup checkout, run one command:
+
+```bash
+./create-project demo
+```
+
+This creates the sibling `../demo/app` with configuration and a PHP page in
+`public/`, chooses free local ports, generates a private database password,
+prepares local TLS and PhpStorm, builds images and starts the four core services.
+The command checks the page and prints its URL. No manual env editing or Python
+command is needed. Docker must be running; Make, Python 3.10+, Compose 2.24.4+,
+OpenSSL and mkcert must be installed. A first-time local CA/host permission step
+may be necessary; the command prints the exact action and can be rerun afterward.
+
+Repeating `./create-project demo` preserves the generated project's files and
+credentials and retries startup. An unrelated existing directory is rejected.
+Project names use lowercase letters, digits and single hyphens, start with a
+letter and contain at most 32 characters.
+
+Use `./create-project demo --no-start` to create files without Docker or host
+provisioning; run the same command without that flag when ready. This creates a
+generic PHP environment, not a PrestaShop installation. Additional service files
+are provided but their profiles are disabled by default. Put your application
+in `../demo/app/public`; keep project-specific changes in `env/`, `compose/` and
+`config/`. The shared setup remains a single checkout, without a Git submodule.
+
+See the [Lithuanian quick start](doc/lt/02-pradzia.md#c-naujas-projektas-viena-komanda).
+
 ## Reusable project sources
 
 Keep one shared `setup` checkout on each machine. Prepare identical original

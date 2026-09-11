@@ -67,141 +67,110 @@ Dump kelią pakeisk turimu failu. Importas nėra būtinas naujam paprastam PHP p
 
 Esami tikri nustatymai išsaugomi. Ši komanda neatsisiunčia nežinomo aplikacijos kodo, neimportuoja DB ir nekuria atvaizdų. Jeigu reikia vienkartinio `mkcert -install` ar privilegijų domenui įrašyti, gausi konkrečią komandą. Ją įvykdęs pakartok `make bootstrap`.
 
-## C. Naujas minimalus projektas nuo nulio
+## C. Naujas projektas viena komanda
 
-Situacija: kuri paprastą PHP projektą `demo`. Nereikia nei PS logikos, nei papildomų servisų.
-
-### 1. Sukurk šabloną
+Situacija: nori naujo projekto `demo`, kad iš karto galėtum atidaryti veikiantį puslapį.
 
 ```bash
 cd ~/Projects/setup
-python3 prepare_project.py --layout app --check ../demo
-python3 prepare_project.py --layout app ../demo
-cd ../demo/app
+./create-project demo
 ```
 
-Pirmoji komanda tik parodo trūkstamų failų skaičių. Antroji juos sukuria. Generatorius pateikia pilną galimybių šabloną, todėl toliau aiškiai pasirenkame minimalų servisų sąrašą. Neįjungti `qa/`, `database/doctrine` ir Redis failai gali likti kaip pasirenkami šaltiniai; jų buvimas nepaleidžia servisų.
+Tai visa projekto sukūrimo ir pirmo paleidimo komanda. `demo` pakeisk savo pavadinimu,
+pavyzdžiui `parduotuve-a`. Naudok mažąsias raides, skaičius ir pavienius brūkšnelius;
+pavadinimas turi prasidėti raide ir būti iki 32 simbolių.
 
-### 2. Įrašyk bendrus projekto nustatymus
+Komanda pati:
 
-Failas `env/common.env`:
+1. Sukuria `~/Projects/demo/app` su `Makefile`, projekto `Dockerfile`, `env/`, `compose/`, `config/`, `database/` ir `qa/`.
+2. Sukuria `public/index.php` – bandomąjį puslapį su projekto vardu, PHP versija ir cache režimu.
+3. Parenka laisvus vietinius HTTP/HTTPS portus, domeną `demo.localhost`, DB vardą ir atsitiktinį slaptažodį. Prisijungimai lieka privačiame `env/local.env` su `600` teisėmis.
+4. Paruošia vietinį TLS ir PhpStorm projekto nustatymus.
+5. Patikrina konfigūraciją, sukuria Docker atvaizdus ir paleidžia Nginx, Apache, PHP bei MySQL.
+6. Palaukia servisų, patikrina bandomąjį puslapį ir išspausdina jo adresą.
 
-```dotenv
-PROJECT_NAME=demo
-PROFILE=
-PHP_VERSION=8.1
-SETUP_REQUIRED_API=1
-VERSIONED_IMAGES=1
-COMPOSE_PROFILES=
-PROJECT_COMPOSE_FILES=
-POST_IMPORT_SQL_DIRECTORY=app/database/after-import
-SCHEMA_DIRECTORY=app/database/schema
-FIXTURES_DIRECTORY=app/database/fixtures
+Pabaigoje pamatysi, pavyzdžiui:
+
+```text
+Projektas veikia: http://demo.localhost:31820/
+PhpStorm atidaryk: /home/tomas/Projects/demo/app
+Aplikacijos kodas: /home/tomas/Projects/demo/app/public
 ```
 
-Tuščias `PROFILE` išjungia PS veiksmus. Tuščias `PROJECT_COMPOSE_FILES` šiuo atveju svarbus: minimalus pagrindas nebeturi QA servisų, kuriuos pilno šablono `qa.yaml` tik papildo.
+Naudok komandos parodytą adresą: portą ji parenka automatiškai. Pirmas build gali
+užtrukti, kol Docker atsisiunčia ir sukuria atvaizdus.
 
-### 3. Pasirink keturis servisus
+**Vienkartinis kompiuterio paruošimas.** Turi būti įdiegti šio skyriaus B dalyje
+nurodyti Make, Python, Docker/Compose, OpenSSL ir mkcert. Docker turi veikti.
+Jei trūksta pasitikėjimo vietiniu sertifikatu ar teisių domeno įrašui, komanda
+parodys konkretų veiksmą. Jį atlikęs pakartok `./create-project demo` – jau paruošti
+failai, aplikacija ir slaptažodis neperrašomi. Esamas svetimas katalogas neperimamas.
 
-Failas `compose/base.yaml`:
+Nereikia pačiam paleisti `.py`, kopijuoti env ar kurti bandomojo PHP failo.
+Bendras `setup` lieka vienas ir nepridedamas į projekto Git kaip submodulis.
 
-```yaml
-name: ${PROJECT_NAME}-${ENV}
-include:
-  - ${ROOT_DIRECTORY}/docker/nginx-proxy/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/apache/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/mysql/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/php-fpm/docker-compose.yml
-networks:
-  network_app:
-    driver: bridge
-    name: ${PROJECT_NAME}-${ENV}-network
-```
-
-Failas `compose/common.yaml`:
-
-```yaml
-services:
-  php-fpm:
-    build:
-      context: ${PROJECT_DOCKER_DIRECTORY}
-      dockerfile: Dockerfile
-      args:
-        BASE_IMAGE: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX:-}
-      additional_contexts:
-        profiles: ${ROOT_DIRECTORY}/profile
-  nginx-proxy:
-    command:
-      - /bin/sh
-      - -c
-      - ': > /etc/nginx/conf.d/sites_env.conf; exec /usr/local/bin/init.sh "$$@"'
-      - minimal-nginx
-      - ${DOMAIN}
-      - ${WHITELISTED_IP}
-      - ${WEBSERVICE_TIMEOUT}
-```
-
-PHP dalis naudoja generatoriaus sukurtą projekto `Dockerfile`. Nginx dalis išjungia bendro vietinio atvaizdo phpMyAdmin ir Mailpit virtualius hostus, nes tų servisų čia nėra. Be šio pakeitimo Nginx gali ieškoti neegzistuojančio `pma` ar `mailpit`.
-
-Pilno šablono `compose/local.yaml` turi Playwright papildymą. Minimaliame projekte pakeisk jo turinį į:
-
-```yaml
-services: {}
-```
-
-`prod.yaml` kol kas nenaudojamas. Prieš pirmą prod paleidimą jį sutvarkyk pagal [aplinkų skyrių](09-aplinkos.md): pilno šablono failas turi daugiau servisų ir papildomą `/prod` keliuose.
-
-### 4. Pridėk aplikaciją
-
-Sukurk katalogą `public` ir failą `public/index.php`:
-
-```php
-<?php
-header('Content-Type: text/plain; charset=utf-8');
-echo "Demo veikia\n";
-```
-
-Jei jau turi Git aplikaciją, šio bandomojo failo nereikia – į `public` įkelk visą jos checkout.
-
-### 5. Paruošk privačius nustatymus ir paleisk
+### Jei nori tik failų
 
 ```bash
-make bootstrap
+./create-project demo --no-start
 ```
 
-Atidaryk `env/local.env`. Pamatysi `DOMAIN`, `LOCALHOST_PORT` ir `LOCALHOST_PORT_SSL`. Pavyzdžiui, jei bootstrap pasirinko `demo.localhost` ir HTTP portą `31820`, į tą patį privatų failą įrašyk:
-
-```dotenv
-SMOKE_URL=http://demo.localhost:31820/
-SMOKE_EXPECT=Demo veikia
-```
-
-Naudok **savo sugeneruotą portą**, ne aklai `31820`.
+Tai sukuria struktūrą, bandomąjį puslapį ir vietinius nustatymus, bet Docker,
+TLS ir PhpStorm paruošimą atideda. Vėliau paleisk:
 
 ```bash
-make check
-make build
+./create-project demo
+```
+
+### Kur tęsti darbą
+
+PhpStorm atidaryk `~/Projects/demo/app`, o savo aplikaciją laikyk `public/`.
+Generatoriaus puslapį gali pakeisti savo kodu. Jei vietoje jo klonuosi atskirą
+Git repozitoriją, pirmiau pašalink arba perkelk tik šį bandomąjį failą, kad klonavimo
+katalogas būtų tuščias. Atnaujink arba išvalyk `SMOKE_EXPECT` savo `env/local.env`,
+kai naujas puslapis neberodys projekto vardo; `SMOKE_URL` turi tikrinti tavo aplikaciją.
+
+```bash
+cd ~/Projects/demo/app
 make up
-make doctor
+make logs service=php-fpm
+make down
 ```
 
-Patikra: naršyklėje atidaręs tą patį adresą matai „Demo veikia“. `make up` patikrina HTTP ir laukiamą tekstą. PS prisijungimų failų šiame projekte niekas neieško.
+`make down` sustabdo aplinką ir pašalina jos konteinerius, o DB failai lieka
+`~/Projects/demo/data`. Kitų projektų aplinkos neliečiamos.
+
+Pagal nutylėjimą tai bendras PHP projektas (`PROFILE=`), o papildomi Redis,
+Mailpit ir QA servisai išjungti. Jų konfigūracijos failų buvimas nereiškia, kad
+servisai paleisti. Redis ar cache bandymams naudok
+[hibridinės aplinkos nustatymus](12-cache-ir-hibridines-aplinkos.md).
+
+**PrestaShop atvejis:** komanda neįdiegia parduotuvės ir negeneruoja jos tikrų
+raktų. Kai į `public/` perkeliama jau įdiegta PS aplikacija, jos konfigūracija ir DB,
+`env/common.env` nustatyk `PROFILE=ps`. Tada taikyk B dalies DB atkūrimo veiksmus
+ir `make build`, `make up`. Tuščiam bandomajam puslapiui PS profilio nereikia.
 
 ## D. Paruošti daugiau projektų
 
+Kiekvienas pavadinimas sukuria atskirą projektą šalia bendro setup:
+
 ```bash
 cd ~/Projects/setup
-python3 prepare_project.py --layout app --check ../parduotuve-a ../parduotuve-b
-python3 prepare_project.py --layout app ../parduotuve-a ../parduotuve-b
+./create-project parduotuve-a
+./create-project parduotuve-b
 ```
 
-Kiekvienas projektas turi savo `env/local.env`, vardą, portus ir DB duomenis. Generatorius patikrina visų projektų planą prieš pradėdamas rašyti, kuria tik trūkstamus failus ir neperrašo savininko esamų nustatymų. Jis nėra visų esamų failų atnaujinimo į naujausią šabloną komanda.
-
-Jei bendras setup gyvena kitur, komandai nurodyk jo vietą:
+Projektai gauna atskirus vardus, portus, prisijungimus, kodo ir duomenų katalogus.
+Komandą galima iškviesti ir absoliučiu keliu iš bet kurio katalogo:
 
 ```bash
-make SETUP_DIRECTORY=/opt/komandos-setup check
+/home/tomas/Projects/setup/create-project demo
 ```
+
+Projekto vietą lemia `setup` vieta, ne dabartinis terminalo katalogas.
+Esamų repozitorijų paruošimui ir senos struktūros perkėlimui skirtas atskiras
+[šaltinių generatorius](../PROJECT_TEMPLATES.md); `create-project` kuria tik naujus
+projektus arba tęsia savo anksčiau sukurtų projektų paleidimą.
 
 ## Kada ką kartoti
 
