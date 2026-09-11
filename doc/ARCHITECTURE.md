@@ -109,11 +109,26 @@ including compiled containers and legacy parameter caches. Unchanged restarts
 preserve the warmed cache. Invalid settings fail startup before PHP-FPM runs.
 See [PrestaShop runtime parameters](PRESTASHOP_PARAMETERS.md).
 
+`database_fixtures.py` implements `fixtures-plan` and `fixtures-load`. The project
+sets `FIXTURES_DIRECTORY` relative to its root and explicitly selects a data set
+(`set=local`, `set=test`, or another directory name), independently of Docker
+`ENV`. The plan is ordered `common/*.sql` followed by `<set>/*.sql`; absent sets
+and linked groups/files are rejected. An empty existing set is a no-op. The shared
+`database_import.execute_sql` pre-opens inputs, renders validated `${DOMAIN}`
+substitutions and streams SQL under the same project/environment lock as imports.
+Each file uses a separate MySQL session; failures stop later files without a
+global rollback. There is no implicit reset or execution history. Grouped templates
+provide empty common/local/test directories and the resolved fixture path.
+See [SQL fixtures](DATABASE_FIXTURES.md).
+
 `database_import.py` implements `db-import-plan` and `db-import`. Both require
 an explicit nonempty plain `.sql` dump, `DATABASE_NAME`, and a project-relative
 `POST_IMPORT_SQL_DIRECTORY`. It preflights all inputs, selects `common/*.sql`
 followed by `<environment>/*.sql` in filename order, and rejects hooks escaping
 the configured directory. Planning prints paths without touching the DB.
+An optional `fixtures=<set>` appends the fixture plan after these hooks, validates
+it before starting the dump, and executes everything under one lock. Without that
+explicit option, imports retain their existing behavior.
 Import holds a nonblocking project/environment lock under `.generated/` and
 opens all inputs before streaming to `docker compose exec -T database`.
 The MySQL client uses credentials already present in that running container,

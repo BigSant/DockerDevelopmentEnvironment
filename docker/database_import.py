@@ -62,6 +62,12 @@ def plan_import(project, dump):
 
 
 def import_database(project, plan):
+    execute_sql(project, plan, first_is_dump=True)
+    print("Dump and after-import SQL completed.")
+
+
+def execute_sql(project, plan, *, first_is_dump=False):
+    """Pre-open all inputs and serialize imports/fixtures with the same DB lock."""
     output = project.directory / ".generated"
     output.mkdir(mode=0o700, exist_ok=True)
     lock_path = output / f"db-import.{project.environment}.lock"
@@ -73,7 +79,7 @@ def import_database(project, plan):
         with ExitStack() as stack:
             inputs = []
             for index, path in enumerate(plan):
-                if index == 0:
+                if index == 0 and first_is_dump:
                     handle = stack.enter_context(path.open("rb"))
                 else:
                     # subprocess stdin requires a real file descriptor. Keep rendered SQL
@@ -85,7 +91,6 @@ def import_database(project, plan):
             command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_IMPORT,
                                          "database-import", project.settings["DATABASE_NAME"]]
             for index, (path, handle) in enumerate(inputs):
-                print(f"{'Import' if index == 0 else 'After import'}: {path.name}", flush=True)
+                print(f"{'Import' if index == 0 and first_is_dump else 'SQL'}: {path}", flush=True)
                 # A failing dump or hook stops the sequence; no later SQL runs.
                 subprocess.run(command, env=project.child_env(), stdin=handle, check=True)
-    print("Dump and after-import SQL completed.")

@@ -12,6 +12,7 @@ project under `~/Projects/`.
 | [USAGE.md](USAGE.md) | Practical how-to: create a host, start/stop, import DB, select containers, override config per project, profiles, QA tools. | Developer |
 | [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) | Original project sources, batch preparation, private settings and migration from app/docker. | Developer / maintainer |
 | [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) | MySQL table snapshots, exact staged-file checks and opt-in Git hooks. | Developer / maintainer |
+| [DATABASE_FIXTURES.md](DATABASE_FIXTURES.md) | Project SQL data sets for local development/testing and optional loading after imports. | Developer |
 | [PHPSTORM.md](PHPSTORM.md) | Portable project settings, Docker PHP interpreter and startup/run commands. | Developer |
 | [PRESTASHOP_PARAMETERS.md](PRESTASHOP_PARAMETERS.md) | Opt-in runtime DB connection synchronization without rebuilding images. | Developer |
 

@@ -5,6 +5,7 @@ PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh
+.PHONY: fixtures-plan fixtures-load
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine db-import db-import-plan schema-export schema-check schema-hook-install
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -19,6 +20,8 @@ help:
 	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|stage|prod; PROFILES= selects core only'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
 	@echo 'db-import-plan file=dump.sql: preview; db-import file=dump.sql: import then run SQL hooks'
+	@echo 'fixtures-plan / fixtures-load set=local|test: preview / load common + selected SQL fixtures'
+	@echo 'db-import file=dump.sql fixtures=local: append fixtures after the import hooks'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: enable pre-commit schema-check in the schema repository'
 
@@ -32,4 +35,7 @@ phpstan phpcs e2e doctrine:
 	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),)
 
 db-import db-import-plan:
-	@$(RUN_PROJECT) $@ --dump $(call quote,$(file))
+	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter undefined,$(origin fixtures)),,--fixtures $(call quote,$(fixtures)))
+
+fixtures-plan fixtures-load:
+	@$(RUN_PROJECT) $@ --fixtures $(call quote,$(set))
