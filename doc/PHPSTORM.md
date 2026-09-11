@@ -1,5 +1,16 @@
 # PhpStorm project setup
 
+`./create-project <name>` prepares only `.idea/.name` immediately, so opening
+`<normalized-name>/app` uses the intended project name without starting Docker.
+For example, `create-project MelgaMCP` uses `melga_mcp/app` on disk and `MelgaMCP`
+in PhpStorm. `PROJECT_DISPLAY_NAME` persists the original spelling across
+bootstrap and ide-init, while `PROJECT_NAME` remains the Docker/DB identity. Rerunning
+creation restores a missing name file and preserves an existing custom name.
+Full interpreter/run settings are still prepared by `make ide-init` / bootstrap.
+For an already open project, close and reopen it after restoring the name file;
+there is no need to rename the `app` directory. PhpStorm also supports
+[File → Rename Project](https://www.jetbrains.com/help/phpstorm/renaming-projects.html).
+
 From a prepared project's Makefile directory, run:
 
 ```sh

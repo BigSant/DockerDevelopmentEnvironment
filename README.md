@@ -31,17 +31,26 @@ is printed if privileges are unavailable. The host Nginx listens on 80/443 and
 routes `demo.local` to the project's private port pair, matching the legacy URLs.
 
 Repeating creation preserves the project's files and credentials and still does
-not start it. An unrelated existing directory is rejected. Names use lowercase
-letters, digits and single hyphens, start with a letter and have at most 32
-characters. The previous `--no-start` option remains accepted, but is unnecessary.
+not start it. An unrelated existing directory is rejected. Names may use ASCII letters in either case, digits and single underscores or
+hyphens. CamelCase and acronyms are normalized for folders, Docker and DB:
+`Melga` → `melga`, `MelgaMCP` → `melga_mcp`, `GameroomAkeneo` → `gameroom_akeneo`.
+The original is stored in `PROJECT_DISPLAY_NAME` and used by PhpStorm, including
+after bootstrap/ide-init. The normalized name must start with a letter and have
+at most 32 characters. Existing explicit hyphens remain supported. Hostnames use
+hyphens instead of underscores (`melga-mcp.local`) for DNS/TLS compatibility.
+A conflicting local domain is rejected before creating the new project. The previous `--no-start` option remains accepted, but is unnecessary.
 
 The new project is minimal: `Makefile`, `.gitignore`, `compose/base.yaml`,
 `env/common.env`, `env/local.env.example`, private `env/local.env` and
-`public/index.php`, plus an ignored internal creation marker. It uses the shared
+`public/index.php`, `.idea/.name` for the PhpStorm display name, plus an ignored
+internal creation marker. It uses the shared
 Dockerfile and exactly four runtime services. No Redis, QA, Doctrine, fixtures,
 schema, production overlays or sample service configuration files are copied.
-At startup, only the empty configuration directories mounted by the core
-services and their runtime data/IDE directories are created.
+The project name is ready before opening `app/` in PhpStorm, without Docker or
+bootstrap. Creation retries restore a missing `.idea/.name` but preserve an
+existing custom name. If the project was already open, close and reopen it to
+reload the metadata. At startup, only the empty configuration directories
+mounted by the core services and their runtime data/full IDE settings are created.
 
 The env example lets a colleague restore private settings after cloning the
 project; real credentials never belong in Git. Optional component templates

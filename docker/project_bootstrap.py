@@ -122,7 +122,7 @@ def bootstrap(project):
     private = project.env_files[-1]
     raw = private.read_text()
     if not project.settings['DOMAIN'] or project.settings['DOMAIN'] == 'example.local':
-        values['DOMAIN'] = project.settings['PROJECT_NAME'] + ('.test.localhost' if project.environment == 'test' else '.localhost')
+        values['DOMAIN'] = project.settings['PROJECT_NAME'].replace('_', '-') + ('.test.localhost' if project.environment == 'test' else '.localhost')
     if any(project.settings[key] in ('', '0') for key in ('LOCALHOST_PORT', 'LOCALHOST_PORT_SSL')):
         ports = available_ports(project)
         for key, port in zip(('LOCALHOST_PORT', 'LOCALHOST_PORT_SSL'), ports):
@@ -165,7 +165,7 @@ def initialize_test(project, refresh=False):
     env_file = project.directory / ('env/test.env' if (project.directory/'env/common.env').exists() else '.env.test')
     if not env_file.exists():
         ports = available_ports(project)
-        domain = project.settings['PROJECT_NAME']+'.test.localhost'
+        domain = project.settings['PROJECT_NAME'].replace('_', '-')+'.test.localhost'
         set_env_values(env_file, {'DOMAIN':domain, 'LOCALHOST_PORT':str(ports[0]), 'LOCALHOST_PORT_SSL':str(ports[1]),
                                  'DATABASE_NAME':project.settings['DATABASE_NAME']+'_test', 'DATABASE_USER':'test',
                                  'DATABASE_PASSWORD':secrets.token_hex(24), 'COMPOSE_PROFILES':'',

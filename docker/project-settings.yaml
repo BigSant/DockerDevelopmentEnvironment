@@ -4,6 +4,7 @@ services:
     image: scratch
     environment:
       PROJECT_NAME: ${PROJECT_NAME}
+      PROJECT_DISPLAY_NAME: ${PROJECT_DISPLAY_NAME-${PROJECT_NAME}}
       EXTRA_COMPOSE_FILES: ${PROJECT_COMPOSE_FILES-}
       DATABASE_NAME: ${DATABASE_NAME-}
       DOMAIN: ${DOMAIN-}

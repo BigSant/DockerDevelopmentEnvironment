@@ -13,14 +13,44 @@ sys.path.insert(0, str(SETUP / 'docker'))
 
 from prepare_project import minimal_files
 from project_bootstrap import available_ports, set_env_values
-from project_ide import replace_file
+from project_ide import checked_path, replace_file
 
 MARKER = 'app/.generated/create-project.json'
 
 
+def normalize_name(value):
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*', value):
+        raise ValueError('Pavadinimas turi prasidėti raide; naudok A-Z, a-z, 0-9, pavienius _ arba -.')
+    name = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', value)
+    name = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', name).lower()
+    if len(name) > 32:
+        raise ValueError('Normalizuotas projekto pavadinimas turi būti iki 32 simbolių.')
+    return name
+
+
+def ensure_domain_available(parent, domain):
+    for pattern in ('*/app/env/local.env', '*/docker/env/local.env', '*/app/docker/env/local.env',
+                    '*/app/docker/.env.local', '*/docker/.env.local'):
+        for path in Path(parent).glob(pattern):
+            if not path.is_file():
+                continue
+            match = re.search(r'^DOMAIN\s*=\s*[\'\"]?([^\s\'\"#]+)', path.read_text(), re.M)
+            if match and match[1].lower() == domain:
+                raise ValueError(f'Domenas {domain} jau naudojamas: {path}. Pasirink kitą projekto pavadinimą.')
+
+
+def prepare_project_name(app, name):
+    """Only the display name is needed before opening a newly created project."""
+    path = checked_path(SimpleNamespace(directory=app), '.idea/.name')
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('x') as output:
+            output.write(name + '\n')
+
+
 def scaffold(name, parent):
-    if not re.fullmatch(r'[a-z][a-z0-9]*(?:-[a-z0-9]+)*', name) or len(name) > 32:
-        raise ValueError('Pavadinimas turi prasidėti mažąja raide, būti iki 32 simbolių; naudok a-z, 0-9 ir brūkšnelius.')
+    display_name = name
+    name = normalize_name(name)
     root = Path(parent).resolve() / name
     marker = root / MARKER
     if root.is_symlink():
@@ -28,12 +58,20 @@ def scaffold(name, parent):
     if root.exists():
         if any(p.is_symlink() for p in (root / 'app', marker.parent, marker)):
             raise ValueError(f'Esama projekto paruošimo žyma negali būti nuoroda: {root}')
-        if not marker.is_file() or json.loads(marker.read_text()) != {'creator': 'create-project', 'version': 1, 'name': name}:
+        saved = json.loads(marker.read_text()) if marker.is_file() else {}
+        if not isinstance(saved, dict) or any(saved.get(k) != v for k, v in
+                {'creator': 'create-project', 'version': 1, 'name': name}.items()):
             raise ValueError(f'Katalogas jau yra ir nepriklauso šiai komandai: {root}. Pasirink kitą pavadinimą; esami failai išsaugoti.')
+        original = saved.get('display_name', name)
+        if not isinstance(original, str) or normalize_name(original) != name:
+            raise ValueError('Projekto žymoje išsaugotas netinkamas pavadinimas; failai išsaugoti.')
+        prepare_project_name(root / 'app', original)
         print(f'Projektas jau paruoštas; esami failai ir prisijungimai išsaugoti: {root}', flush=True)
         return root / 'app'
 
-    app, files = minimal_files(root)
+    domain = name.replace('_', '-') + '.local'
+    ensure_domain_available(root.parent, domain)
+    app, files = minimal_files(root, display_name=display_name)
     ports = available_ports(SimpleNamespace(root=root, name=name + '-local'))
     # Claim only a new project directory. Never merge a scaffold into someone else's files.
     root.mkdir()
@@ -49,16 +87,17 @@ def scaffold(name, parent):
         "echo 'PHP: ' . PHP_VERSION . \"\\n\";\n"
         "echo 'Cache: ' . getenv('CACHE_MODE') . \"\\n\";\n")
     import secrets
-    domain = name + '.local'
     set_env_values(app / 'env/local.env', {
         'DOMAIN': domain, 'LOCALHOST_PORT': ports[0], 'LOCALHOST_PORT_SSL': ports[1],
         'DATABASE_USER': name.replace('-', '_'), 'DATABASE_NAME': name.replace('-', '_'),
         'DATABASE_PASSWORD': secrets.token_hex(24), 'COMPOSE_PROFILES': '',
         'SMOKE_URL': f'http://{domain}/', 'SMOKE_EXPECT': name, 'HOST_PROXY': 'nginx',
     })
+    prepare_project_name(app, display_name)
     # The marker is written last: retries may resume a complete scaffold, never guess
     # whether a pre-existing directory (or an interrupted file copy) belongs to us.
-    replace_file(marker, json.dumps({'creator': 'create-project', 'version': 1, 'name': name}).encode(), private=True)
+    replace_file(marker, json.dumps({'creator': 'create-project', 'version': 1, 'name': name,
+                                    'display_name': display_name}).encode(), private=True)
     print(f'Sukurti projekto failai: {app}', flush=True)
     return app
 
@@ -90,7 +129,7 @@ def start(app):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='create-project', description='Paruošia naują projektą šalia bendro setup. Aplinkos automatiškai nepaleidžia.')
-    parser.add_argument('name', metavar='pavadinimas', help='Pvz. demo arba mano-projektas')
+    parser.add_argument('name', metavar='pavadinimas', help='Pvz. Melga, MelgaMCP arba GameroomAkeneo')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--start', action='store_true', help='Aiškiai paruošti host/TLS/IDE, sukurti atvaizdus ir paleisti aplinką')
     mode.add_argument('--no-start', action='store_true', help=argparse.SUPPRESS)  # Previous spelling remains harmless.

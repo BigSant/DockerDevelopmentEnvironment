@@ -76,8 +76,33 @@ cd ~/Projects/setup
 ./create-project demo
 ```
 
-`demo` pakeisk savo pavadinimu, pavyzdžiui `melga`. Naudok mažąsias raides,
-skaičius ir pavienius brūkšnelius; pradėk raide, iki 32 simbolių.
+`demo` pakeisk savo pavadinimu. Galima rašyti didžiosiomis ir mažosiomis ASCII
+raidėmis: sistema atskiria žodžius, išlaiko santrumpas viename žodyje ir techninius
+vardus paverčia mažosiomis raidėmis.
+
+| Įvedi | Katalogas, `PROJECT_NAME`, DB | PhpStorm pavadinimas | Adresas |
+| --- | --- | --- | --- |
+| `Melga` | `melga` | `Melga` | `http://melga.local` |
+| `MelgaMCP` | `melga_mcp` | `MelgaMCP` | `http://melga-mcp.local` |
+| `GameroomAkeneo` | `gameroom_akeneo` | `GameroomAkeneo` | `http://gameroom-akeneo.local` |
+
+```bash
+./create-project MelgaMCP
+# Sukuria ../melga_mcp/app; PhpStorm vardas – MelgaMCP.
+```
+
+Normalizuotas vardas turi prasidėti raide ir būti iki 32 simbolių. Leidžiami
+skaičiai ir pavieniai `_` arba `-`; aiškiai įvesti brūkšneliai išsaugomi senų
+pavadinimų suderinamumui. Domenams pabraukimai pakeičiami brūkšneliais. Jei toks
+adresas jau priklauso kitam projektui, kūrimas sustoja prieš failų rašymą.
+
+`env/common.env` saugomi du vardai: `PROJECT_NAME=melga_mcp` ir
+`PROJECT_DISPLAY_NAME=MelgaMCP`. Antrasis naudojamas tik IDE projekto pavadinimui.
+Paleidžiant ar kartojant kūrimą su techniniu vardu originali rašyba išlieka:
+
+```bash
+./create-project melga_mcp --start
+```
 
 Komanda tik sukuria failus:
 
@@ -102,7 +127,13 @@ app/
     └── index.php
 ```
 
-Dar sukuriama ignoruojama techninė žyma `.generated/create-project.json`, kad
+Dar sukuriamas `.idea/.name` su projekto pavadinimu, todėl atidarius `app/`
+PhpStorm gali jį rodyti kaip `demo`, nelaukiant Docker paleidimo. Kitų IDE nustatymų
+kūrimo metu nepridedama. Jei projektą jau buvai atidaręs be šio failo, pakartok
+`./create-project demo`, uždaryk projektą ir atidaryk iš naujo. Jau esamas tavo
+pasirinktas pavadinimas neperrašomas.
+
+Taip pat sukuriama ignoruojama techninė žyma `.generated/create-project.json`, kad
 pakartotinė komanda atpažintų savo projektą. `local.env.example` reikalingas kolegai
 po Git klonavimo atkurti privatų env; tikras `local.env` į Git nepatenka.
 

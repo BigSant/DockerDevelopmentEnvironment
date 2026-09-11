@@ -14,7 +14,7 @@ SERVICES = ("mysql", "mariadb", "php", "apache", "nginx-proxy")
 LAYOUT_DIRECTORIES = {"root": "docker", "app": "app", "legacy": "app/docker"}
 
 
-def minimal_files(root):
+def minimal_files(root, display_name=None):
     """Only the core sources used by create-project; extensions remain in setup."""
     root = Path(root).resolve()
     target = root / 'app'
@@ -23,6 +23,8 @@ def minimal_files(root):
     files[target / 'Makefile'] = (TEMPLATE / 'Makefile').read_bytes()
     for path in files:
         files[path] = files[path].replace(b'__PROJECT_NAME__', root.name.encode())
+        files[path] = files[path].replace(b'__PROJECT_DISPLAY_NAME__', (display_name or root.name).encode())
+        files[path] = files[path].replace(b'__PROJECT_DOMAIN__', (root.name.replace('_', '-') + '.local').encode())
     return target, files
 
 
