@@ -106,6 +106,19 @@ Patikra priima HTTP 2xx. Peradresavimas į kitą schemą, hostą ar portą atmet
 
 Bendri pirmojo DB starto scriptai suteikia dev aplikacijos vartotojui plačias teises, kad veiktų vietinės migracijos. `ENV=prod` pats jų nesusiaurina. Gamybiniam naudojimui atskirai paruošk DB paskyras ir savo inicializavimo politiką.
 
+## PrestaShop debug
+
+Šie laukai veikia tik su `PROFILE=ps` arba `PROFILE=prestashop`. Bendras PHP servisas juos jau perduoda konteineriui; papildomo Compose aprašo nereikia.
+
+| Env raktas | Numatytoji reikšmė | Ką rašyti ir kas įvyksta |
+| --- | --- | --- |
+| `PS_DEBUG_MODE` | Runner palieka tuščią, naujas grouped šablonas nustato `off` | `off` išjungia debug; `on` įjungia visoms užklausoms ir CLI; `ip` įjungia tik leidžiamiems HTTP klientų IP, CLI išjungia. Tuščias arba nepateiktas raktas palieka esamą `defines.inc.php` nevaldomą ir **neatšaukia ankstesnio pakeitimo**. |
+| `PS_DEBUG_IPS` | Tuščias | Kableliais atskirti tikslūs IPv4 / IPv6 adresai, pvz. `192.0.2.10,2001:db8::10`. Su `ip` būtinas bent vienas. Tarpai aplink adresus leidžiami; domenai, portai, CIDR (`/24`) ir tušti sąrašo elementai atmetami. Su `off` / `on` sąrašas tik patikrinamas, prieigos neriboja; su tuščiu režimu ignoruojamas. |
+
+Režimo vardai rašomi mažosiomis raidėmis, be papildomų tarpų. `true`, `false`, `1`, `0` nėra režimų vardai. Netinkama konfigūracija sustabdo PS paruošimą prieš DB prisijungimų failo pakeitimą.
+
+Nustatymus taikyk su `make up` (kitai aplinkai – `make up ENV=prod`). Jie keičiami paleidžiant PHP, ne kuriant image. Visas paruošimas, realios situacijos ir proxy paaiškinimas yra [aplikacijos skyriuje](06-aplikacija.md#f-prestashop-debug-iš-env).
+
 ## Programų versijos
 
 Šiuos raktus paprastai laikyk `common.env`. Keitimo seka: `make check` → `make build` → `make up`. DB variklio versijos keitimas papildomai reikalauja suderinamo duomenų perkėlimo; nepakanka perstatyti konteinerį.

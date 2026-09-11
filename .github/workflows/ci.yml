@@ -24,7 +24,7 @@ jobs:
       - run: docker pull "php:${PHP_VERSION}-cli"
         env:
           PHP_VERSION: '${{ matrix.php }}'
-      - run: python3 -m unittest discover -s tests -p test_runtime_features.py -v
+      - run: python3 -m unittest discover -s tests -p 'test_runtime*.py' -v
         env:
           PHP_TEST_IMAGE: 'php:${{ matrix.php }}-cli'
   database:

@@ -41,6 +41,8 @@ services:
     command: ["php-fpm", "-R"]
     environment:
       PROFILE: ${PROFILE-}
+      PS_DEBUG_MODE: ${PS_DEBUG_MODE-}
+      PS_DEBUG_IPS: ${PS_DEBUG_IPS-}
       DATABASE_HOST: ${APP_DATABASE_HOST:-database}
       DATABASE_PORT: ${APP_DATABASE_PORT:-3306}
       DATABASE_NAME: ${DATABASE_NAME-}

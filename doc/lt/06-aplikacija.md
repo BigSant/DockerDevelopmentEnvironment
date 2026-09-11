@@ -190,6 +190,82 @@ Tai naujam tavo valdomam config failui skirtas pavyzdys, ne savavališko esamo f
 
 Vykdyk `make check`, `make up` ir patikrink aplikacijos funkciją. Tuščias PS profilis užtikrina, kad PS failų nėra ieškoma. `APP_MODE` perduodame aiškiai – vien runner `ENV` vardas savaime nėra kiekvieno konteinerio env.
 
+## F. PrestaShop debug iš env
+
+Debug režimas parodo daugiau klaidų informacijos. Jį valdo PS konstanta `_PS_MODE_DEV_`, esanti aplikacijos `config/defines.inc.php`. Mūsų `app/` struktūroje visas kelias yra **`public/config/defines.inc.php`**. Tai kitas katalogas nei aplinkos `config/php/`, kuriame laikomi PHP `.ini` failai.
+
+Tas pats bendras updater veikia PS 1.6 ir naujesniems PS projektams su palaikoma DB konfigūracija. Pasirink `PROFILE=ps` arba `PROFILE=prestashop`, turėk originalų tos parduotuvės `defines.inc.php` ir jos prisijungimų failą. Kitų profilių failai neliečiami.
+
+### Situacija 1: vietoje kuri modulį ir nori matyti klaidas
+
+`env/common.env` bendrą saugų pasirinkimą palik:
+
+```dotenv
+PROFILE=ps
+PS_DEBUG_MODE=off
+PS_DEBUG_IPS=
+```
+
+Tik savo `env/local.env` pridėk:
+
+```dotenv
+PS_DEBUG_MODE=on
+```
+
+Iš aplinkos katalogo paleisk:
+
+```bash
+make up
+make smoke
+```
+
+`on` reiškia, kad debug galioja **visiems** šios aplinkos lankytojams ir CLI komandoms. IP sąrašas šiame režime neriboja lankytojų. Tai PS klaidų režimas; Xdebug derintuvo ir `_PS_DEBUG_PROFILING_` jis neįjungia.
+
+### Situacija 2: klaidas turi matyti tik konkretus žmogus
+
+Pavyzdžiui, demonstracinę parduotuvę peržiūri klientas, o programuotojas klaidas turi matyti tik iš savo biuro. Tos aplinkos env faile:
+
+```dotenv
+PS_DEBUG_MODE=ip
+PS_DEBUG_IPS=192.0.2.10,2001:db8::10
+```
+
+Adresai čia yra dokumentacijos pavyzdžiai: pakeisk juos tikrais konkrečių klientų adresais. Vietiniam tiesioginiam prisijungimui gali tikti `127.0.0.1,::1`, bet su Docker/proxy serveris gali matyti kitą adresą. Tuščias sąrašas neleidžiamas. Palaikomi tik tikslūs adresai, ne tinklų intervalai.
+
+Paleisk `make up` pasirinktai aplinkai. PHP kiekvienai HTTP užklausai atskirai palygins serverio `REMOTE_ADDR` su sąrašu. Leidžiamam adresui debug bus įjungtas, kitiems išjungtas. Lygiaverčiai IPv6 užrašai sutampa; IPv4 `127.0.0.1` ir IPv4-mapped IPv6 `::ffff:127.0.0.1` laikomi atskirais adresais, todėl prireikus įrašyk abu. CLI ir phpdbg režimu `ip` visada išjungia debug, net jei procesui kas nors priskiria `REMOTE_ADDR`.
+
+**Kai naudojamas proxy.** `REMOTE_ADDR` turi būti tikras kliento adresas, kurį paruošia patikimai sukonfigūruotas web serveris. PHP kodas pats neskaito `X-Forwarded-For` ar `X-Real-IP`. Bendrame Apache dabar įjungtas `mod_remoteip`, pasitikintis `172.16.0.0/12`; konkrečioje infrastruktūroje pasitikėjimą reikia apriboti tik tikrais proxy. Jeigu visi lankytojai atrodo kaip vienas Docker gateway ar proxy adresas, jo įtraukimas į leidžiamų adresų sąrašą leistų debug visiems už jo esantiems žmonėms. Pirmiausia sutvarkyk tikro kliento adreso perdavimą per visą proxy grandinę.
+
+Patikra: iš leidžiamo ir neleidžiamo kliento patikrink `_PS_MODE_DEV_` bei klaidų rodymą savo bandymų aplinkoje. Vien CLI patikra `ip` režimo HTTP veikimo neparodo. Proxy patikrai iš neleidžiamo kliento papildomai siųsk suklastotą `X-Forwarded-For` su leidžiamu adresu: debug turi likti išjungtas. IP ribojimas nėra prisijungimo sistema; bendrą viešą IP naudojantys žmonės turės vienodą rezultatą.
+
+### Situacija 3: užbaigei derinimą arba ruoši prod
+
+`env/prod.env` arba kitos derinamos aplinkos faile aiškiai nustatyk:
+
+```dotenv
+PS_DEBUG_MODE=off
+PS_DEBUG_IPS=
+```
+
+```bash
+make up ENV=prod
+make smoke ENV=prod
+```
+
+Local atveju `ENV=prod` nerašyk. Vien eilutės ištrynimas ne visada išjungia debug: gali būti paveldėtas common pasirinkimas. Jei režimas galiausiai tuščias, updater visai neliečia esamo failo, net jei anksčiau į jį įrašė `true`. Išjungimui visada naudok `off` ir paleisk `make up`.
+
+### Kas konkrečiai pakeičiama ir kas išsaugoma
+
+- Keičiamas tik esamo `define('_PS_MODE_DEV_', ...)` reikšmės argumentas. `off` įrašo `false`, `on` – `true`, o `ip` – kiekvienos užklausos metu įvertinamą IP patikrą. Likusios konstantos ir aplinkinis failo turinys išsaugomi.
+- Failas pakeičiamas atominiu pervadinimu, išsaugant jo prieigos teises. Nepasikeitęs rezultatas neperrašomas; vien debug pakeitimas DB parametrų ir aplikacijos cache nevalo. PS pats pasirenka debug/prod veikimą, o PHP-FPM startas atnaujina jo procesus.
+- Reikia vieno įprasto, vardą tekstu nurodančio `define`. Trūkstamas, pasikartojantis aprašas arba symlink yra klaida. Updater nekuria naujo PS sisteminio failo nuo nulio ir neprideda debug konstantos failo gale, kai PS jau būtų ją panaudojęs.
+- `defines_custom.inc.php` ar kitas ankstesnis aplikacijos kodas neturi iš anksto apibrėžti `_PS_MODE_DEV_`: PHP jau apibrėžtos konstantos nepakeičia. Tokį ankstesnį debug valdymą pašalink prieš pereidamas prie env.
+- Administravimo skydelis ar PS atnaujinimas gali vėl pakeisti `defines.inc.php`. Env yra mūsų paleidimo konfigūracija: naujas PHP startas pritaiko ją iš naujo. Jei env nepasikeitė, konteinerį perkrauk Docker/PhpStorm įrankiu. `docker restart` tinka tik jau konteineryje esantiems env, o po **env failo pakeitimo** reikia `make up`.
+- Failas yra aplikacijos prijungtame kataloge. Jeigu jis versijuojamas aplikacijos Git, matysi vietinį pakeitimą. Aplinkai sugeneruotos IP taisyklės nekelk kaip bendro aplikacijos pakeitimo. Aplinkos env pavyzdžius versijuok, tikrą `local.env` / `prod.env` laikyk privačiai.
+- Tą patį aplikacijos katalogą naudojantys procesai skaito tą patį failą. Skirtingiems local/test/prod režimams reikia atskirų aplikacijos kopijų; šiam setup `test-init` jas atskiria. Read-only produkcinio kodo atveju šis startup updater netinka be atskiro writable konfigūracijos sprendimo.
+
+Elgsenos šaltiniai: [PS 1.6 debug konstantos ir klaidų valdymas](https://github.com/PrestaShop/PrestaShop/blob/1.6.1.24/config/defines.inc.php), [PHP serverio kintamieji](https://www.php.net/manual/en/reserved.variables.server.php). Mūsų env vardai ir jų vertimas aprašyti pagal šio setup kodą, tai nėra pačio PrestaShop standartiniai env vardai.
+
 ## Hook taisyklės
 
 - Tiesioginiai `config/startup/*.sh` vykdomi failų vardų tvarka. Naudok `010-…`, `020-…`, `100-…`.

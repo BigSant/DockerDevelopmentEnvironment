@@ -45,7 +45,7 @@ Teksto blokas su `yaml`, `dotenv`, `ini`, `php` ar `sql` yra failo turinys, o ne
 
 ## Vadovo ribos ir tikslumas
 
-Aprašomas `setup` API 1 ir `v1.0.0` veikimas. Nustatymai sutikrinti su [bendrais numatytaisiais nustatymais](../../docker/.env), [runner](../../docker/project.py), [Make komandomis](../../docker/project.mk), [servisų aprašais](../../docker/docker) ir [šablonais](../../templates/grouped). Tikrinta 2026-09-11.
+Aprašomas `setup` API 1 ir dabartinės `master` šakos veikimas. Pradinėje `v1.0.0` žymoje naujesnio debug valdymo iš env dar nėra. Nustatymai sutikrinti su [bendrais numatytaisiais nustatymais](../../docker/.env), [runner](../../docker/project.py), [Make komandomis](../../docker/project.mk), [servisų aprašais](../../docker/docker) ir [šablonais](../../templates/grouped). Tikrinta 2026-09-11.
 
 Čia surašyti visi šių setup failų bendri konfigūracijos kintamieji ir prijungimo vietos. PHP, Nginx ar MySQL patys turi šimtus papildomų nustatymų, priklausančių nuo jų versijos. Atitinkamuose skyriuose pateikiami darbo pavyzdžiai ir nuorodos į pilnus oficialius jų žinynus. Savavališkai sukurtas env kintamasis pradeda veikti tik tada, kai jį perskaito Compose, konfigūracijos failas arba aplikacija.
 
@@ -53,4 +53,4 @@ Katalogų pavadinimų skaičius nėra ribotas: gali pridėti savo `config/rabbit
 
 Forsenos keturių servisų aplinka jau pritaikyta minimaliai konfigūracijai. Bendras generatorius sukuria platesnį šabloną. Vadove aiškiai nurodyta, kuriuo variantu remiasi pavyzdys. Kopijuodamas pasirenkamus įrankius, jų neprivalai įjungti visiems projektams.
 
-Patikrintos vietinės nuorodos, shell/PHP/JavaScript/YAML/INI pavyzdžių sintaksė, Apache ir Nginx konfigūracijų sintaksė bei aprašytų minimalaus projekto, Redis, MariaDB, QA, testinės, prod ir papildomų UI servisų Compose variantų surinkimas. Aprašyti visi 69 bendrų env/interpoliavimo šaltinių raktai ir 30 runner veiksmų. Šios dokumentacijos patikros neįdiegė naujų aplikacijų, nevykdė verslo SQL tikrose DB ir neatstoja tavo aplikacijos priėmimo testų.
+Patikrintos vietinės nuorodos, shell/PHP/JavaScript/YAML/INI pavyzdžių sintaksė, Apache ir Nginx konfigūracijų sintaksė bei aprašytų minimalaus projekto, Redis, MariaDB, QA, testinės, prod ir papildomų UI servisų Compose variantų surinkimas. Aprašyti visi 71 bendrų env/interpoliavimo šaltinių raktai ir 30 runner veiksmų. Šios dokumentacijos patikros neįdiegė naujų aplikacijų, nevykdė verslo SQL tikrose DB ir neatstoja tavo aplikacijos priėmimo testų.
