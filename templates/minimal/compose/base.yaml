@@ -1,0 +1,10 @@
+name: ${PROJECT_NAME}-${ENV}
+include:
+  - ${ROOT_DIRECTORY}/docker/nginx-proxy/docker-compose.yml
+  - ${ROOT_DIRECTORY}/docker/apache/docker-compose.yml
+  - ${ROOT_DIRECTORY}/docker/mysql/docker-compose.yml
+  - ${ROOT_DIRECTORY}/docker/php-fpm/docker-compose.yml
+networks:
+  network_app:
+    driver: bridge
+    name: ${PROJECT_NAME}-${ENV}-network

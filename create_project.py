@@ -11,7 +11,7 @@ from types import SimpleNamespace
 SETUP = Path(__file__).resolve().parent
 sys.path.insert(0, str(SETUP / 'docker'))
 
-from prepare_project import planned_files
+from prepare_project import minimal_files
 from project_bootstrap import available_ports, set_env_values
 from project_ide import replace_file
 
@@ -33,7 +33,7 @@ def scaffold(name, parent):
         print(f'Projektas jau paruoštas; esami failai ir prisijungimai išsaugoti: {root}', flush=True)
         return root / 'app'
 
-    app, files = planned_files(root, layout='app', sources='grouped')
+    app, files = minimal_files(root)
     ports = available_ports(SimpleNamespace(root=root, name=name + '-local'))
     # Claim only a new project directory. Never merge a scaffold into someone else's files.
     root.mkdir()

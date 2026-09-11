@@ -9,8 +9,21 @@ import sys
 
 TEMPLATE = Path(__file__).resolve().parent / "templates/project"
 GROUPED_TEMPLATE = TEMPLATE.parent / "grouped"
+MINIMAL_TEMPLATE = TEMPLATE.parent / "minimal"
 SERVICES = ("mysql", "mariadb", "php", "apache", "nginx-proxy")
 LAYOUT_DIRECTORIES = {"root": "docker", "app": "app", "legacy": "app/docker"}
+
+
+def minimal_files(root):
+    """Only the core sources used by create-project; extensions remain in setup."""
+    root = Path(root).resolve()
+    target = root / 'app'
+    files = {target / path.relative_to(MINIMAL_TEMPLATE): path.read_bytes()
+             for path in MINIMAL_TEMPLATE.rglob('*') if path.is_file()}
+    files[target / 'Makefile'] = (TEMPLATE / 'Makefile').read_bytes()
+    for path in files:
+        files[path] = files[path].replace(b'__PROJECT_NAME__', root.name.encode())
+    return target, files
 
 
 def project_layout(root, layout, from_legacy=False):

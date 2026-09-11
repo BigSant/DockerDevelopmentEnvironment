@@ -35,10 +35,20 @@ not start it. An unrelated existing directory is rejected. Names use lowercase
 letters, digits and single hyphens, start with a letter and have at most 32
 characters. The previous `--no-start` option remains accepted, but is unnecessary.
 
-This creates a generic PHP environment, not a PrestaShop installation. Optional
-service files are provided but their profiles are disabled by default. Put your
-application in `../demo/app/public`; keep changes in `env/`, `compose/` and
-`config/`. The shared setup remains one checkout, without a Git submodule.
+The new project is minimal: `Makefile`, `.gitignore`, `compose/base.yaml`,
+`env/common.env`, `env/local.env.example`, private `env/local.env` and
+`public/index.php`, plus an ignored internal creation marker. It uses the shared
+Dockerfile and exactly four runtime services. No Redis, QA, Doctrine, fixtures,
+schema, production overlays or sample service configuration files are copied.
+At startup, only the empty configuration directories mounted by the core
+services and their runtime data/IDE directories are created.
+
+The env example lets a colleague restore private settings after cloning the
+project; real credentials never belong in Git. Optional component templates
+remain in the shared setup and are copied only when you choose to add one.
+Put your application in `../demo/app/public`. The shared setup remains one
+checkout, without a Git submodule. This creates a generic PHP environment,
+not a PrestaShop installation.
 
 See the [Lithuanian quick start](doc/lt/02-pradzia.md#c-naujas-projektas-viena-komanda).
 

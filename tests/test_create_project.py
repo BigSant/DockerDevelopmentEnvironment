@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from create_project import scaffold, start, main
 from project import Project
+from project_environment import initialize_directories, initialize_env
 
 
 class CreateProjectTest(unittest.TestCase):
@@ -29,9 +30,18 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_new_project_has_working_core_config_and_private_credentials(self):
         app = self.create()
+        self.assertEqual({p.relative_to(app).as_posix() for p in app.rglob('*') if p.is_file()}, {
+            'Makefile', '.gitignore', 'compose/base.yaml', 'env/common.env',
+            'env/local.env', 'env/local.env.example', 'public/index.php', '.generated/create-project.json',
+        })
+        self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'compose', 'env', 'public', '.generated'})
         project = Project(app)
         active = json.loads(project.capture(['config', '--format', 'json']))['services']
         self.assertEqual(set(active), {'nginx-proxy', 'webserver', 'php-fpm', 'database'})
+        self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base'})
+        self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/Dockerfile')
+        self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
+        self.assertNotIn('REDIS_VERSION', (app / 'env/common.env').read_text())
         self.assertEqual(project.settings['PROFILE'], '')
         self.assertEqual(project.settings['CACHE_MODE'], 'off')
         self.assertEqual(project.settings['MAIL_MODE'], 'off')
@@ -46,6 +56,19 @@ class CreateProjectTest(unittest.TestCase):
         result = subprocess.run(['make', '-s', '-C', str(app), f'SETUP_DIRECTORY={ROOT}', 'check'],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
+        with contextlib.redirect_stdout(io.StringIO()):
+            initialize_directories(project)
+        self.assertEqual({p.name for p in (app / 'config').iterdir()}, {'php', 'mysql', 'apache', 'nginx-proxy'})
+
+    def test_private_env_can_be_restored_after_cloning_sources(self):
+        app = self.create()
+        (app / 'env/local.env').unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            initialize_env(app, 'local')
+        project = Project(app)
+        self.assertEqual(project.settings['DOMAIN'], 'new-shop.local')
+        self.assertEqual(project.settings['SMOKE_URL'], 'http://new-shop.local/')
+        self.assertEqual((app / 'env/local.env').stat().st_mode & 0o777, 0o600)
 
     def test_projects_get_distinct_ports_and_passwords(self):
         first, second = Project(self.create('one')), Project(self.create('two'))
@@ -61,6 +84,8 @@ class CreateProjectTest(unittest.TestCase):
         (app / 'public/index.php').write_text('<?php echo "My application";')
         with (app / 'env/local.env').open('a') as handle:
             handle.write('CACHE_MODE=on\n')
+        # Explicit extensions belong to the user; a retry must not remove them.
+        (app / 'compose/redis.yaml').write_text('services: {}\n')
         before = {p.relative_to(app): p.read_bytes() for p in app.rglob('*') if p.is_file()}
         self.assertEqual(self.create(), app)
         after = {p.relative_to(app): p.read_bytes() for p in app.rglob('*') if p.is_file()}

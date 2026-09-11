@@ -81,10 +81,36 @@ skaičius ir pavienius brūkšnelius; pradėk raide, iki 32 simbolių.
 
 Komanda tik sukuria failus:
 
-1. Paruošia `~/Projects/demo/app` su `Makefile`, `Dockerfile`, `env/`, `compose/`, `config/`, `database/` ir `qa/`.
+1. Paruošia `~/Projects/demo/app` su `Makefile`, `.gitignore`, `compose/base.yaml` ir env failais. Naudojamas bendras setup Dockerfile.
 2. Sukuria `public/index.php` su bandomuoju puslapiu.
 3. Sugeneruoja privatų DB slaptažodį ir parenka laisvus Docker portus.
 4. Įrašo `DOMAIN=demo.local`, `SMOKE_URL=http://demo.local/` ir `HOST_PROXY=nginx` į `env/local.env`.
+
+Naujo projekto šaltiniai:
+
+```text
+app/
+├── Makefile
+├── .gitignore
+├── compose/
+│   └── base.yaml
+├── env/
+│   ├── common.env
+│   ├── local.env.example
+│   └── local.env
+└── public/
+    └── index.php
+```
+
+Dar sukuriama ignoruojama techninė žyma `.generated/create-project.json`, kad
+pakartotinė komanda atpažintų savo projektą. `local.env.example` reikalingas kolegai
+po Git klonavimo atkurti privatų env; tikras `local.env` į Git nepatenka.
+
+Redis, QA, Doctrine, fixtures, schemos ir prod pavyzdžių nei failai, nei katalogai
+nekuriami. Projekto Dockerfile kopijos taip pat nėra. Paleidžiant paruošiami tik
+bendrų servisų naudojami tušti `config/php/local`, `config/mysql/local`,
+`config/apache/local`, `config/nginx-proxy/local` katalogai, vykdymo duomenys ir IDE
+nustatymai. Konfigūracijos `.ini` ar `.conf` failus pridėsi tik tada, kai jų reikės.
 
 **Konteineriai nepaleidžiami, atvaizdai nekuriami, sistemos Nginx, DNS ir TLS tuo
 metu nekeičiami.** Failų sukūrimui pakanka Python 3.10+; jo komandos pačiam rašyti
@@ -147,10 +173,12 @@ make down
 `make down` sustabdo aplinką ir pašalina jos konteinerius, o DB failai lieka
 `~/Projects/demo/data`. Kitų projektų aplinkos neliečiamos.
 
-Pagal nutylėjimą tai bendras PHP projektas (`PROFILE=`), o papildomi Redis,
-Mailpit ir QA servisai išjungti. Jų konfigūracijos failų buvimas nereiškia, kad
-servisai paleisti. Redis ar cache bandymams naudok
-[hibridinės aplinkos nustatymus](12-cache-ir-hibridines-aplinkos.md).
+Pagal nutylėjimą tai bendras PHP projektas (`PROFILE=`) su Nginx, Apache, PHP ir
+MySQL. Papildomi servisai net neįtraukti į Compose. Kai prireiks konkretaus
+papildymo, tik jo failus nukopijuok iš bendro setup šablonų ir įtrauk į projektą
+pagal [servisų vadovą](05-servisai.md). Vien `PROFILES=redis` naujame minimaliame
+projekte Redis nepridės. Cache valdymas veikia ir be Redis; žr.
+[hibridines aplinkas](12-cache-ir-hibridines-aplinkos.md).
 
 **PrestaShop atvejis:** komanda neįdiegia parduotuvės ir negeneruoja jos tikrų
 raktų. Kai į `public/` perkeliama jau įdiegta PS aplikacija, jos konfigūracija ir DB,

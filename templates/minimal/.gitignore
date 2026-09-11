@@ -1,0 +1,5 @@
+.generated/
+.idea/
+__pycache__/
+/env/*.env
+!/env/common.env
