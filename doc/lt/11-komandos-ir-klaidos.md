@@ -23,6 +23,8 @@ Komandas vykdyk kataloge su projekto Makefile. Numatyta aplinka `local`. `make h
 | `make ps` | Parodo pasirinktus konteinerius | Būsenos patikra. |
 | `make logs` | Parodo Compose logus | Neprideda savo papildomų `--follow` argumentų. |
 | `make shell` | Atidaro `sh` PHP konteineryje | PHP turi veikti; išėjimas `exit`. |
+| `make composer dir=themes/framework cmd=install` | Paleidžia Composer pasirinktame aplikacijos kataloge | `dir` skaičiuojamas nuo `public/`; nenurodžius naudojama aplikacijos šaknis. |
+| `make npm dir=themes/framework/_dev cmd="run build"` | Kompiliuoja JS/CSS pagal to katalogo `package.json` | PHP konteineris turi veikti, priklausomybės turi būti įdiegtos. |
 | `make doctor` | Tikrina Engine/Compose, atvaizdus, portus, mount, env/TLS; veikiančiam PS – DB/HTTP | Randa paruošimo klaidas; failų automatiškai netaiso. |
 | `make ide-init` | Sugeneruoja/atnaujina PhpStorm nustatymus | Esami savi komponentai saugomi; reikia IDE Docker ryšio. |
 | `make ide-refresh` | Atnaujina tik privatų IDE Compose failą | Nekeičia IDE bendrų vartotojo parinkčių. |

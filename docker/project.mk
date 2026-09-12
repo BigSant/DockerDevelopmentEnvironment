@@ -6,7 +6,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh db-backup db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
-.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer cache-clear db-backup-prune runtime-info
+.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
 quote = '$(subst ','"'"',$(1))'
@@ -21,7 +21,8 @@ help:
 	@echo 'build: explicitly build images; up: start using existing images; down / ps / logs'
 	@echo 'restart [service=php-fpm]: apply configuration; logs [service=database] [follow=1] [tail=100]'
 	@echo 'runtime-info: resolved cache/mail policy; cache-clear: clear application and PHP caches'
-	@echo 'composer [cmd="install"]: run Composer; db-backup-prune [apply=1]: preview / prune old backups'
+	@echo 'composer / npm [dir=themes/example/_dev] [cmd="install"]: run package tools in application sources'
+	@echo 'db-backup-prune [apply=1]: preview / prune old backups'
 	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|test|stage|prod; PROFILES= selects core only'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
 	@echo 'doctrine-build: build only the optional migration tool, independently of application PHP'
@@ -43,8 +44,8 @@ restart:
 logs:
 	@$(RUN_PROJECT) $@ $(if $(service),--service $(call quote,$(service)),) $(if $(filter 1,$(follow)),--follow,) $(if $(tail),--tail $(call quote,$(tail)),)
 
-composer:
-	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),)
+composer npm:
+	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(dir),--workdir $(call quote,$(dir)),)
 
 db-backup-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,)

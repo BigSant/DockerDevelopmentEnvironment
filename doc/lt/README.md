@@ -18,6 +18,7 @@
 | 10 | [Kasdienis darbas, IDE ir atnaujinimai](10-kasdienis-darbas.md) | PhpStorm, Git/Bitbucket, bendro setup atnaujinimas ir grįžimas į ankstesnę versiją. |
 | 11 | [Komandos ir klaidų sprendimai](11-komandos-ir-klaidos.md) | Visos runner komandos, jų argumentai ir dažniausių klaidų sprendimai. |
 | 12 | [Cache ir hibridinės aplinkos](12-cache-ir-hibridines-aplinkos.md) | Cache, laiškai, Redis, konteinerių ribos ir papildomos komandos. |
+| 13 | [PHP ir JS/CSS įrankiai](13-php-ir-build-irankiai.md) | Versijos env failuose, Composer/npm komandos ir PrestaShop 9 suderinamumo patikra. |
 
 ## Kaip skaityti pavyzdžius
 

@@ -12,6 +12,8 @@ and `PROFILES=...` select the same environment and services as `make up`.
 | `make doctor` | Checks Docker/Compose, selected local images, explicit available host ports, bind sources, private file permissions/placeholders and expected TLS files. |
 | `make up` | Starts/recreates selected services using existing images, waits for container readiness. |
 | `make shell` | Opens `sh` in the running PHP container. |
+| `make composer [dir=themes/example] [cmd="install"]` | Runs Composer in application sources; defaults to showing its version. |
+| `make npm [dir=themes/example/_dev] [cmd="run build"]` | Runs npm in application sources; defaults to showing its version. `dir` is relative to `public/`. |
 | `make bootstrap` | Prepares local env placeholders, ports, hostname, TLS and PhpStorm. |
 | `make test-init` | Creates independent test env, code and data paths. |
 | `make db-prepare ENV=test` | Starts only the test DB before its initial import. |
@@ -64,3 +66,5 @@ policy, database durability/grants, secret delivery or immutable app images.
 See [the complete runtime workflow](ENVIRONMENT_WORKFLOW.md) for bootstrap, test isolation and per-project startup/configuration hooks.
 
 For initial baseline, migration review and deployment, see [automatic Doctrine generation](DATABASE_MIGRATIONS.md).
+
+PHP 8.x images include Composer, Node, npm, npx and Webpack; Xdebug is included in local builds only. Version defaults live in `docker/.env` and can be overridden in project `env/common.env` or `env/<environment>.env`. Rebuild and recreate containers after changing build versions. Use `make npm dir=themes/framework/_dev cmd=ci`, then `make npm dir=themes/framework/_dev cmd="run build"`. Paths are relative to the mounted application source. Project dependencies remain locked by Composer/npm lockfiles. See the [PHP and build tools guide](lt/13-php-ir-build-irankiai.md) for configuration and PrestaShop compatibility.

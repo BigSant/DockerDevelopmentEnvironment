@@ -12,6 +12,13 @@ services:
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
         NODE_VERSION: ${NODE_VERSION}
+        NPM_VERSION: ${NPM_VERSION}
+        WEBPACK_VERSION: ${WEBPACK_VERSION}
+        WEBPACK_CLI_VERSION: ${WEBPACK_CLI_VERSION}
+        NVM_VERSION: ${NVM_VERSION}
+        NVM_INSTALL_SHA256: ${NVM_INSTALL_SHA256}
+        SUPERCRONIC_VERSION: ${SUPERCRONIC_VERSION}
+        SUPERCRONIC_SHA1SUM: ${SUPERCRONIC_SHA1SUM}
         APCU_VERSION: ${APCU_VERSION}
         PHPSTAN_PHAR_VERSION: ${PHPSTAN_PHAR_VERSION}
     profiles:
@@ -47,6 +54,9 @@ services:
     entrypoint: ["/bin/sh", "/opt/setup/runtime/start.sh"]
     command: ["php-fpm", "-R"]
     environment:
+      # The host UID may have HOME=/; package managers need writable directories.
+      NPM_CONFIG_CACHE: ${NPM_CONFIG_CACHE:-/tmp/setup-npm-cache}
+      COMPOSER_HOME: ${COMPOSER_HOME:-/tmp/setup-composer}
       PROFILE: ${PROFILE-}
       CACHE_MODE: ${CACHE_MODE-}
       PHP_OPCACHE: ${PHP_OPCACHE-}

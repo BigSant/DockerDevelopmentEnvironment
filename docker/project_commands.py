@@ -1,6 +1,7 @@
 """Daily operations with argument arrays and explicit application adapters."""
 import json
 import shlex
+from pathlib import PurePosixPath
 from project_policy import preflight_php
 
 
@@ -22,9 +23,21 @@ def logs(project, service=None, follow=False, tail=100):
     project.run(['logs', '--tail', str(tail)] + (['--follow'] if follow else []) + selected)
 
 
-def composer(project, command=None):
+def package_command(project, tool, command=None, directory='.'):
     selected_service(project, 'php-fpm')
-    project.run(['exec', '-T', 'php-fpm', 'composer'] + shlex.split(command or '--version'))
+    relative = PurePosixPath(directory)
+    if relative.is_absolute() or '..' in relative.parts or '\x00' in directory:
+        raise ValueError('dir must be relative to the application source directory, without ..')
+    options = ['--workdir', str(PurePosixPath('/var/www/html') / relative)]
+    project.run(['exec', '-T', *options, 'php-fpm', tool] + shlex.split(command or '--version'))
+
+
+def composer(project, command=None, directory='.'):
+    package_command(project, 'composer', command, directory)
+
+
+def npm(project, command=None, directory='.'):
+    package_command(project, 'npm', command, directory)
 
 
 def cache_clear(project):

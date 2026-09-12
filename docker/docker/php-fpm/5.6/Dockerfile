@@ -1,13 +1,13 @@
 ARG PHP_VERSION=""
 ARG COMPOSER_VERSION=""
-ARG PHPSTAN_PHAR_VERSION=1.12.33
+ARG PHPSTAN_PHAR_VERSION
 FROM composer:${COMPOSER_VERSION} AS composer
 FROM ghcr.io/phpstan/phpstan:${PHPSTAN_PHAR_VERSION} AS phpstan
 
 FROM php:${PHP_VERSION}-fpm AS base
 
 ARG PHP_VERSION=""
-ARG APCU_VERSION=5.1.28
+ARG APCU_VERSION
 ENV ACCEPT_EULA=Y
 
 #RUN apt-get update \
@@ -31,8 +31,8 @@ COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin/phpstan
 RUN chmod a+x /usr/local/bin/phpstan
 
-ARG SUPERCRONIC_VERSION=0.2.29
-ARG SUPERCRONIC_SHA1SUM=cd48d45c4b10f3f0bfdd3a57d054cd05ac96812b
+ARG SUPERCRONIC_VERSION
+ARG SUPERCRONIC_SHA1SUM
 RUN curl -fsSLo /usr/local/bin/supercronic \
         "https://github.com/aptible/supercronic/releases/download/v${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \
     && echo "${SUPERCRONIC_SHA1SUM}  /usr/local/bin/supercronic" | sha1sum -c - \

@@ -190,12 +190,13 @@ def main():
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
-                                           "restart", "composer", "cache-clear", "db-backup-prune", "runtime-info",
+                                           "restart", "composer", "npm", "cache-clear", "db-backup-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
+    parser.add_argument("--workdir", default=".", help="Composer/npm directory relative to application sources")
     parser.add_argument("--ref", default="HEAD", help="Committed schema baseline for doctrine-diff (default: HEAD)")
     parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
@@ -226,11 +227,12 @@ def main():
         elif args.action == 'db-backup-prune':
             from project_storage import prune_backups
             prune_backups(project, args.apply)
-        elif args.action in ('restart', 'logs', 'composer', 'cache-clear'):
-            from project_commands import restart, logs, composer, cache_clear
+        elif args.action in ('restart', 'logs', 'composer', 'npm', 'cache-clear'):
+            from project_commands import restart, logs, composer, npm, cache_clear
             if args.action == 'restart': restart(project, args.service, args.timeout)
             elif args.action == 'logs': logs(project, args.service, args.follow, args.tail)
-            elif args.action == 'composer': composer(project, args.command)
+            elif args.action == 'composer': composer(project, args.command, args.workdir)
+            elif args.action == 'npm': npm(project, args.command, args.workdir)
             else: cache_clear(project)
         elif args.action == 'test-init':
             from project_bootstrap import initialize_test

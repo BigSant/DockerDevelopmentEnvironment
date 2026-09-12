@@ -50,6 +50,11 @@ Naujam projektui `COMPOSE_PROFILES` nereikalingas. Servisus aprašyk YAML: servi
 
 Env nėra shell scriptas. Nerašyk ten `$(komanda)`, nenaudok `source env/local.env`. Slaptažodžiams su `$` saugiau naudoti viengubas kabutes. Savus sudėtingus simbolius patikrink per `make check`; paslapčių nekopijuok iš išplėsto Compose į pokalbius. Interpoliavimo taisyklės: [Docker dotenv žinynas](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
 
+PHP ir JS/CSS įrankių versijų pavyzdžiai bei naudojimas pateikti
+[atskirame skyriuje](13-php-ir-build-irankiai.md). `NPM_CONFIG_CACHE` (numatyta
+`/tmp/setup-npm-cache`) ir `COMPOSER_HOME` (numatyta `/tmp/setup-composer`)
+keičia šių įrankių rašomų failų vietas PHP konteineryje.
+
 ## Tapatybė, profilis ir servisai
 
 Lentelių „numatyta“ reiškia dabartinį bendrą setup, jeigu projektas nieko nepakeitė. „Tuščia“ nereiškia, kad reikšmė visada neprivaloma.
@@ -115,6 +120,10 @@ Nustatymus taikyk su `make up` (kitai aplinkai – `make up ENV=prod`). Jie kei�
 | `XDEBUG_VERSION` | `3.1.5` | Xdebug plėtinio versiją. Turi derėti su pasirinktu PHP; PS 1.6 nereikia automatiškai priskirti šio default. |
 | `COMPOSER_VERSION` | `2.7.6` | Composer atvaizdo/programos versiją. Taip pat turi derėti su PHP. |
 | `NODE_VERSION` | `22.23.1` | Per nvm į PHP bazinį atvaizdą diegiamą Node versiją. |
+| `NPM_VERSION` | `10.9.8` | Npm versija PHP 8.x atvaizde. |
+| `WEBPACK_VERSION` / `WEBPACK_CLI_VERSION` | `5.94.0` / `5.1.4` | Globalūs įrankiai; nekeičia projekto `package-lock.json`. |
+| `NVM_VERSION` / `NVM_INSTALL_SHA256` | `v0.40.4` / žr. bendrą `.env` | NVM diegiklio versija ir SHA-256. Keičiamos kartu. |
+| `SUPERCRONIC_VERSION` / `SUPERCRONIC_SHA1SUM` | `0.2.29` / žr. bendrą `.env` | Cron vykdyklės versija ir patikros suma. Keičiamos kartu. |
 | `APCU_VERSION` | `5.1.28` | APCu versiją tuose PHP receptuose, kurie ją naudoja; neįjungia papildomo serviso. |
 | `PHPSTAN_PHAR_VERSION` | `1.12.33` | Į PHP atvaizdą kepamo PHPStan PHAR versiją. Tai ne atskiro QA serviso versija. |
 | `PHP_PHPSTAN_VERSION` | `2.2.2-php8.1` | Atskiro `php-phpstan` įrankio bazinio atvaizdo tag. |
