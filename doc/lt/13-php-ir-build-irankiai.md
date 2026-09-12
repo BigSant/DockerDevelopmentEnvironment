@@ -148,3 +148,11 @@ SETUP_PHP_TEST_IMAGE=setup-php-image-test python3 -m unittest discover -s tests 
 HTMLPurifier HTML valymo patikra su PHP 8.4 praėjo. Keistų priklausomybių ankstesni failai išsaugoti
 projekto `.generated/dependency-backups`. HTMLPurifier PHP palaikymas aprašytas
 [4.19.0 leidime](https://github.com/ezyang/htmlpurifier/releases/tag/v4.19.0).
+
+Vien `PHP_VERSION` pakeitimo gali nepakakti: seno aplikacijos `composer.lock`
+bibliotekos gali riboti PHP versiją, nors pati PrestaShop šaka naują PHP palaiko.
+Prieš perjungiant naudok naują PHP atvaizdą `composer check-platform-reqs --lock --no-dev`
+patikrai. Atnaujink tik nesuderinamas bibliotekas ir būtinas jų priklausomybes,
+o pakeitimus, kuriems jau reikia naujesnio PHP, įdiek kartu su konteinerio perjungimu.
+JWT pasirašymo ir laiškų CSS apdorojimo patikros naudingos atnaujinant atitinkamas bibliotekas.
+Projekto šaknies `composer.lock` turi būti saugomas Git kartu su `composer.json`.
