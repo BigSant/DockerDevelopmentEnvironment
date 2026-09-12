@@ -70,7 +70,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         with contextlib.redirect_stdout(io.StringIO()):
             initialize_directories(project)
-        self.assertEqual({p.name for p in (app / 'config').iterdir()}, {'php', 'mysql', 'apache', 'nginx-proxy'})
+        self.assertFalse((app / 'config').exists())
 
     def test_private_env_can_be_restored_from_a_user_supplied_template(self):
         app = self.create()

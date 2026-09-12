@@ -94,7 +94,13 @@ ARG CONTAINER_GROUPID="0"
 RUN getent group ${CONTAINER_GROUPID} || addgroup --gid ${CONTAINER_GROUPID} ${CONTAINER_GROUP}
 RUN id ${CONTAINER_USER} || adduser --system --no-create-home --disabled-password --uid ${CONTAINER_USERID} --ingroup ${CONTAINER_GROUP} ${CONTAINER_USER}
 
-COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/php-fpm.conf
+ENV PHP_FPM_MAX_CHILDREN=4 \
+    PHP_FPM_START_SERVERS=1 \
+    PHP_FPM_MIN_SPARE_SERVERS=1 \
+    PHP_FPM_MAX_SPARE_SERVERS=2 \
+    PHP_FPM_MAX_REQUESTS=500
+
+COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/zz-base-pool.conf
 RUN sed -i "s#^user = www-data#;user = www-data#g" /usr/local/etc/php-fpm.d/www.conf
 RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/www.conf
 # php-fpm status page intentionally disabled — FPM has no per-path ACL. Enable per project

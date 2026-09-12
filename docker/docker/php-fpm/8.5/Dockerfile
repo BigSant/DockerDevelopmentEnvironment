@@ -92,7 +92,13 @@ ARG CONTAINER_GROUPID="0"
 RUN getent group ${CONTAINER_GROUPID} || addgroup --gid ${CONTAINER_GROUPID} ${CONTAINER_GROUP}
 RUN id ${CONTAINER_USER} || adduser --system --no-create-home --disabled-password --uid ${CONTAINER_USERID} --ingroup ${CONTAINER_GROUP} ${CONTAINER_USER}
 
-COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/php-fpm.conf
+ENV PHP_FPM_MAX_CHILDREN=4 \
+    PHP_FPM_START_SERVERS=1 \
+    PHP_FPM_MIN_SPARE_SERVERS=1 \
+    PHP_FPM_MAX_SPARE_SERVERS=2 \
+    PHP_FPM_MAX_REQUESTS=500
+
+COPY /docker/php-fpm/${PHP_VERSION}/conf/php-fpm.conf /usr/local/etc/php-fpm.d/zz-base-pool.conf
 # The pool runs as the launching (host) user via compose `user:` — comment out the pool
 # user/group so php-fpm does not attempt to setuid (avoids "directive ignored" notices when
 # running as non-root and prevents root-owned files on the bind-mounted web dir).

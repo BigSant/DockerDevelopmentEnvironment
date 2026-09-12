@@ -132,6 +132,8 @@ class Project:
         for override in [overrides[0], *extras, overrides[1]]:
             if override.is_file():
                 self.command += ["-f", str(override)]
+        from project_mounts import attach_optional_config_mounts
+        attach_optional_config_mounts(self)
         active = json.loads(self.capture(['config', '--format', 'json']))['services']
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0')

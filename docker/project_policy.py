@@ -16,6 +16,11 @@ DEFAULTS = {
     'WEB_CONTAINER_MEMORY': '256m', 'CONTAINER_CPUS': '2',
     'CONTAINER_LOG_MAX_SIZE': '10m', 'CONTAINER_LOG_MAX_FILES': '3',
     'MIN_FREE_DISK_MB': '1024', 'BACKUP_KEEP_LAST': '5',
+    'PHP_FPM_MAX_CHILDREN': '4',
+    'PHP_FPM_START_SERVERS': '1',
+    'PHP_FPM_MIN_SPARE_SERVERS': '1',
+    'PHP_FPM_MAX_SPARE_SERVERS': '2',
+    'PHP_FPM_MAX_REQUESTS': '500',
 }
 
 
@@ -54,6 +59,17 @@ def resolve_policy(settings, environment):
             raise ValueError(f'{name} must be a positive size such as 256m or 2g')
     if not re.fullmatch(r'\d+(?:\.\d+)?', values['CONTAINER_CPUS']) or not 0 < float(values['CONTAINER_CPUS']) <= 1024:
         raise ValueError('CONTAINER_CPUS must be greater than 0 and at most 1024')
+    for name in ('PHP_FPM_MAX_CHILDREN', 'PHP_FPM_START_SERVERS', 'PHP_FPM_MIN_SPARE_SERVERS',
+                 'PHP_FPM_MAX_SPARE_SERVERS', 'PHP_FPM_MAX_REQUESTS'):
+        if not re.fullmatch(r'\d+', values[name]) or not 0 <= int(values[name]) <= 100000:
+            raise ValueError(f'{name} must be an integer between 0 and 100000')
+        if name != 'PHP_FPM_MAX_REQUESTS' and int(values[name]) == 0:
+            raise ValueError(f'{name} must be positive')
+    minimum, start, maximum, children = (int(values[name]) for name in (
+        'PHP_FPM_MIN_SPARE_SERVERS', 'PHP_FPM_START_SERVERS',
+        'PHP_FPM_MAX_SPARE_SERVERS', 'PHP_FPM_MAX_CHILDREN'))
+    if not minimum <= start <= maximum <= children:
+        raise ValueError('FPM requires MIN_SPARE_SERVERS <= START_SERVERS <= MAX_SPARE_SERVERS <= MAX_CHILDREN')
     if settings.get('PROFILE') in ('ps', 'prestashop'):
         mode = choice(values, 'PS_DEBUG_MODE', ('', 'off', 'on', 'ip'))
         ips = values['PS_DEBUG_IPS'].strip()

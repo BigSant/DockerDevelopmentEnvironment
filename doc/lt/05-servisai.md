@@ -4,6 +4,53 @@
 
 Failų pavadinimus, pvz. `20-runtime.ini`, gali pasirinkti pats. Svarbūs yra katalogas, plėtinys ir programos skaitomos direktyvos. Bendro katalogo failai skaitomi prieš pasirinktos aplinkos failus. PHP/MySQL nustatymams tai leidžia aplinkoje pakeisti reikšmę; Nginx ir Apache dar svarbus direktyvos kontekstas – ne visus įrašus galima pakartoti.
 
+
+## Neprivalomi konfigūracijos katalogai
+
+Bendri `config/php`, `config/mysql`, `config/mariadb`, `config/apache` ir
+`config/nginx-proxy` katalogai bei jų aplinkos pakatalogiai prijungiami tik jeigu
+jie egzistuoja. Vien dėl standartinės konfigūracijos jų kurti nereikia.
+Tas pats galioja PHP `config` prijungimui, per kurį pasiekiami startup scriptai
+ir PrestaShop papildomi parametrai.
+
+Pavyzdys: reikia PHP nustatymo tik lokaliai. Sukurk
+`config/php/local/custom.ini`, įrašyk nustatymą ir paleisk `make up`.
+Runner iš naujo aptinka katalogą. Jei katalogas jau prijungtas ir keitei tik failo
+turinį, PHP perkrauk su `make restart service=php-fpm`.
+
+Savo Compose faile nurodytas kitas config failas ar katalogas lieka privalomas.
+DB duomenų, aplikacijos ir TLS prijungimai taip pat nėra praleidžiami.
+Runner paruošia techninį prijungimų papildymą `.generated` kataloge;
+jo redaguoti ar saugoti Git nereikia. PhpStorm atnaujinimas per `make ide-refresh`
+naudoja tą pačią galutinę konfigūraciją.
+
+## PHP-FPM procesų skaičius
+
+`PHP_MEMORY_LIMIT` yra vienos PHP užklausos atminties riba.
+`PHP_CONTAINER_MEMORY` apriboja visą konteinerį. Kad užklausos nekonkuruotų dėl
+visos atminties, FPM vienu metu leidžiamų procesų skaičius konfigūruojamas atskirai.
+Numatyta: daugiausia 4 procesai, startuoja 1, laikomi 1–2 laisvi procesai,
+kiekvienas pakeičiamas nauju po 500 užklausų.
+
+Pavyzdys didesnei aplinkai, kurios apkrova ir atminties sąnaudos jau išmatuotos:
+
+```dotenv
+PHP_FPM_MAX_CHILDREN=8
+PHP_FPM_START_SERVERS=2
+PHP_FPM_MIN_SPARE_SERVERS=1
+PHP_FPM_MAX_SPARE_SERVERS=3
+PHP_FPM_MAX_REQUESTS=500
+```
+
+Laikyk `env/common.env` arba konkrečios aplinkos env. Nebūtina įrašyti numatytųjų
+reikšmių. Turi galioti `MIN_SPARE_SERVERS <= START_SERVERS <= MAX_SPARE_SERVERS <= MAX_CHILDREN`.
+`MAX_REQUESTS=0` išjungia periodinį procesų pakeitimą. Pakeitus env užtenka
+`make up`; pirmą kartą pereinant nuo senų atvaizdų reikia `make build`.
+Keturi procesai nėra garantija, kad visos užklausos tilps į 1 GB: dideliems importams
+ir sunkesniems moduliams reikia matuoti atmintį ir derinti abi ribas.
+[PHP-FPM nustatymų žinynas](https://www.php.net/manual/en/install.fpm.configuration.php).
+
+
 ## PHP: daugiau atminties ir didesnis įkeliamas failas
 
 Situacija: moduliui reikia 1 GB atminties, o tiekėjo CSV failas yra 50 MB.

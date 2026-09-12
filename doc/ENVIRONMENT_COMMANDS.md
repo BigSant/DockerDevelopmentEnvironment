@@ -5,7 +5,7 @@ and `PROFILES=...` select the same environment and services as `make up`.
 
 | Command | Behavior |
 | --- | --- |
-| `make init` | Creates a missing private env from its example with mode 0600; creates missing bind directories under project data, app/config and docker/config. |
+| `make init` | Creates a missing private env from its example with mode 0600; creates required bind directories under project data/config. Absent shared optional config directories are omitted. |
 | `make check` | Validates Compose sources for all profiles, without requiring a running Engine. |
 | `make build` | Builds the shared PHP base, then selected buildable services. Changed shared build sources automatically use new image names. |
 | `make pull` | Pulls selected external images; skips locally built images, including reuse by cron. |
@@ -68,3 +68,5 @@ See [the complete runtime workflow](ENVIRONMENT_WORKFLOW.md) for bootstrap, test
 For initial baseline, migration review and deployment, see [automatic Doctrine generation](DATABASE_MIGRATIONS.md).
 
 PHP 8.x images include Composer, Node, npm, npx and Webpack; Xdebug is included in local builds only. Version defaults live in `docker/.env` and can be overridden in project `env/common.env` or `env/<environment>.env`. Rebuild and recreate containers after changing build versions. Use `make npm dir=themes/framework/_dev cmd=ci`, then `make npm dir=themes/framework/_dev cmd="run build"`. Paths are relative to the mounted application source. Project dependencies remain locked by Composer/npm lockfiles. See the [PHP and build tools guide](lt/13-php-ir-build-irankiai.md) for configuration and PrestaShop compatibility.
+
+Shared PHP-FPM worker limits are configurable through `PHP_FPM_MAX_CHILDREN` (4), `PHP_FPM_START_SERVERS` (1), `PHP_FPM_MIN_SPARE_SERVERS` (1), `PHP_FPM_MAX_SPARE_SERVERS` (2), and `PHP_FPM_MAX_REQUESTS` (500). The runner validates pool relationships before starting containers. Use project env overrides for measured production capacity.

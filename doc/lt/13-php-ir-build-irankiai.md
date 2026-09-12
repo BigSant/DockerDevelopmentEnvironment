@@ -75,7 +75,11 @@ jau yra `/var/www/html`.
 
 Composer veikia analogiškai: `make composer dir=themes/framework cmd=validate`.
 `install` vykdyk tik kataloge, kuriame yra `composer.json`. Forsenos aplikacijos
-šaknyje patikros metu jo nebuvo; vien `composer.lock` diegimui nepakanka.
+šaknyje atkurtas PrestaShop 9.0.2 `composer.json`. Iš jo pašalintos projekte
+nesančios `classic` ir `hummingbird` temos; HTMLPurifier atnaujintas į 4.19.0
+PHP 8.4 palaikymui. Kitų bibliotekų PHP reikalavimai tikrinami prieš perjungiant
+aplinką; `composer.lock` sutikrintas. `composer install` gali vykdyti aplikacijos pluginus ir keisti
+modulių failus; jo nereikia vien Docker aplinkai perjungti.
 
 PHP servisas vykdo komandas su host vartotojo UID, kad nesukurtų root priklausančių
 failų. Npm podėlis pagal nutylėjimą yra `/tmp/setup-npm-cache`, Composer namų
@@ -90,7 +94,7 @@ Reikalavimai sutikrinti 2026-09-12 su
 
 | Tikrinama | Reikalavimas | Forsenos būsena patikros metu |
 | --- | --- | --- |
-| PHP | PS 9.0: 8.1–8.4; PS 9.1: 8.1–8.5 | Kode PS 9.0.2. Env nurodyta 8.5 netinka šiai PS šakai; veikiantis konteineris dar naudojo 8.1.34. |
+| PHP | PS 9.0: 8.1–8.4; PS 9.1: 8.1–8.5 | Kode PS 9.0.2. Env pakeista į 8.4; veikiantis konteineris pradinės patikros metu dar naudojo 8.1.34. |
 | Plėtiniai | curl, dom, fileinfo, gd, iconv, intl, json, mbstring, openssl, PDO, pdo_mysql, SimpleXML, zip | Visi rasti veikiančiame konteineryje. |
 | Atmintis | Rekomenduojama bent 512M | 512M; FPM riba valdoma `PHP_MEMORY_LIMIT`. |
 | PHP URL nustatymai | `allow_url_fopen=On`, `allow_url_include=Off` | Atitinka. |
@@ -123,7 +127,24 @@ SETUP_PHP_TEST_IMAGE=your-built-local-image python3 -m unittest discover -s test
 įrašymą ir nuskaitymą, FreeType, PHP/FPM nustatymus bei įrankių veikimą su UID 1000.
 Kiekvienai papildomai PHP versijai reikia atskirai surinkti ir patikrinti atvaizdą.
 
-Pataisytas PHP 8.5.10 vietinis atvaizdas surinktas su Xdebug 3.5.3 ir Composer
-2.10.3. Visi trys šio atvaizdo integraciniai testai praėjo. PHP 7.4–8.4 receptų
+PHP 8.4.25 ir 8.5.10 vietiniai atvaizdai surinkti su Xdebug 3.5.3 ir Composer
+2.10.3. Kiekvieno atvaizdo keturi integraciniai testai praėjo, įskaitant FPM env
+reikšmių veikimą. FPM bazinis pool failas įkeliamas po standartinio `www.conf`,
+kad standartinės reikšmės neperrašytų mūsų nustatymų. Senesnių PHP receptų
 GD pakeitimai peržiūrėti šaltiniuose, bet šioje patikroje atskirai nesurinkti.
-Forsenos veikiančio konteinerio ši patikra neperjungė į naują PHP versiją.
+
+CI `php-images` užduotis surenka mūsų PHP 8.4 ir 8.5 Dockerfile bei PrestaShop
+profilio papildymus. Versijos saugomos `tests/fixtures/php-images/*.env`.
+Tikrinami plėtiniai, GD, įrankiai ir FPM env pakeitimai. Tai atvaizdų, o ne
+PrestaShop konkrečios versijos ar modulių suderinamumo testai.
+
+Tą patį galima pakartoti iš `setup` katalogo:
+
+```bash
+python3 tests/build_php_image.py tests/fixtures/php-images/8.4.env
+SETUP_PHP_TEST_IMAGE=setup-php-image-test python3 -m unittest discover -s tests -p test_php_image_integration.py -v
+```
+
+HTMLPurifier HTML valymo patikra su PHP 8.4 praėjo. Keistų priklausomybių ankstesni failai išsaugoti
+projekto `.generated/dependency-backups`. HTMLPurifier PHP palaikymas aprašytas
+[4.19.0 leidime](https://github.com/ezyang/htmlpurifier/releases/tag/v4.19.0).

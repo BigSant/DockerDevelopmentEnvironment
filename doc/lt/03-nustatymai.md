@@ -229,3 +229,18 @@ Naujai kuriamo projekto `env/common.env` yra tik `PROJECT_NAME`. Privačiame env
 Atvaizdų žymos pagal build konfigūraciją apskaičiuojamos automatiškai.
 
 `DOCTRINE_PHP_VERSION`: pasirinktinio Doctrine įrankio PHP versija, numatyta `8.3`. Ji nepriklauso nuo aplikacijos `PHP_VERSION`; DBAL 4 reikia PHP 8.2 arba naujesnio. Keičiant įrankio versiją perstatyk `make doctrine-build`.
+
+## FPM procesai
+
+Visi šie raktai yra pasirenkami ir keičiami per projekto env; naujų failų ar
+Dockerfile papildymų nereikia.
+
+| Raktas | Numatyta | Paskirtis |
+| --- | --- | --- |
+| `PHP_FPM_MAX_CHILDREN` | `4` | Didžiausias vienu metu veikiančių PHP darbuotojų skaičius. |
+| `PHP_FPM_START_SERVERS` | `1` | Procesų skaičius paleidimo metu. |
+| `PHP_FPM_MIN_SPARE_SERVERS` | `1` | Mažiausias laikomų laisvų procesų skaičius. |
+| `PHP_FPM_MAX_SPARE_SERVERS` | `2` | Didžiausias laikomų laisvų procesų skaičius. |
+| `PHP_FPM_MAX_REQUESTS` | `500` | Užklausų skaičius iki proceso pakeitimo; `0` išjungia ribą. |
+
+Pavyzdžiai ir ribų derinimas: [servisų konfigūracija](05-servisai.md).

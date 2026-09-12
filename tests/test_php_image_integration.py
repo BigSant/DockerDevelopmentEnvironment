@@ -10,13 +10,14 @@ import unittest
 
 @unittest.skipUnless(os.environ.get('SETUP_PHP_TEST_IMAGE'), 'Set SETUP_PHP_TEST_IMAGE to a local PHP 8.x image')
 class PhpImageTest(unittest.TestCase):
-    def run_image(self, *command):
+    def run_image(self, *command, environment=None):
         return subprocess.check_output([
             'docker', 'run', '--rm', '--network', 'none', '--user', '1000:1000',
             '--env', 'PHP_MEMORY_LIMIT=512M', '--env', 'PHP_MAX_EXECUTION_TIME=30',
             '--env', 'PHP_UPLOAD_MAX_FILESIZE=20M', '--env', 'PHP_POST_MAX_SIZE=20M',
             '--env', 'NPM_CONFIG_CACHE=/tmp/setup-npm-cache',
             '--env', 'COMPOSER_HOME=/tmp/setup-composer', '--workdir', '/tmp',
+            *[item for key, value in (environment or {}).items() for item in ('--env', f'{key}={value}')],
             '--entrypoint', command[0], os.environ['SETUP_PHP_TEST_IMAGE'], *command[1:]
         ], text=True, stderr=subprocess.STDOUT, timeout=90)
 
@@ -53,6 +54,8 @@ class PhpImageTest(unittest.TestCase):
         fpm = self.run_image('php-fpm', '-tt')
         self.assertIn('test is successful', fpm)
         self.assertIn('php_admin_value[memory_limit] = 512M', fpm)
+        self.assertIn('pm.max_children = 4', fpm)
+        self.assertIn('pm.start_servers = 1', fpm)
 
     def test_development_tools_are_available_to_host_uid(self):
         for command in (('composer','--version'), ('node','--version'), ('npm','--version'),
@@ -60,3 +63,12 @@ class PhpImageTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(self.run_image(*command).strip())
         self.assertEqual(self.run_image('php', '-r', 'echo extension_loaded("xdebug") ? "yes" : "no";'), 'yes')
+
+    def test_fpm_env_overrides_control_worker_pool(self):
+        env = {'PHP_FPM_MAX_CHILDREN': '6', 'PHP_FPM_START_SERVERS': '2',
+               'PHP_FPM_MIN_SPARE_SERVERS': '1', 'PHP_FPM_MAX_SPARE_SERVERS': '3',
+               'PHP_FPM_MAX_REQUESTS': '250'}
+        output = self.run_image('php-fpm', '-tt', environment=env)
+        for line in ('pm.max_children = 6', 'pm.start_servers = 2', 'pm.min_spare_servers = 1',
+                     'pm.max_spare_servers = 3', 'pm.max_requests = 250'):
+            self.assertIn(line, output)
