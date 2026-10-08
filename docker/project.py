@@ -140,6 +140,10 @@ class Project:
         self.process_env.update(PROJECT_DATA_DIRECTORY=str(self.data_directory), PROJECT_WEB_DIRECTORY=str(self.web_directory))
         if (self.directory / "Dockerfile").is_file():
             validate_project_dockerfile(self.directory / "Dockerfile")
+        if not settings["DATABASE_ROOT_PASSWORD"]:
+            raise ValueError(f"Set DATABASE_ROOT_PASSWORD in {private_env} (make bootstrap generates one locally)")
+        if settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
+            raise ValueError("DATABASE_ROOT_PASSWORD must differ from DATABASE_PASSWORD")
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
@@ -234,7 +238,7 @@ def main():
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
-                                           "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
+                                           "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
@@ -262,6 +266,8 @@ def main():
     try:
         if args.action in ("init", "ide-init", "bootstrap"):
             initialize_env(args.docker_directory, args.env)
+            from project_bootstrap import ensure_generated_secrets
+            ensure_generated_secrets(args.docker_directory, args.env)
         project = Project(args.docker_directory, args.env, args.project_directory, args.profiles)
         if args.action == 'runtime-info':
             from project_policy import DEFAULTS
@@ -289,6 +295,9 @@ def main():
             project = bootstrap(project)
         elif args.action == 'db-prepare':
             project.run(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', str(args.timeout), 'database'])
+        elif args.action == 'db-restrict-grants':
+            from database_grants import restrict_grants
+            restrict_grants(project)
         elif args.action == 'db-backup':
             backup_database(project, args.output)
         elif args.action == "ide-init":

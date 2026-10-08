@@ -25,8 +25,11 @@ exec "$db_client" $key_option --connect-timeout=5 --protocol=TCP --host=127.0.0.
     --user="$MYSQL_USER" --database="$1"
 '''
 
+# Imports run as root: dumps may carry DEFINER clauses or GTID statements that the
+# database-scoped application user is not allowed to execute.
 IMPORT = CLIENT + '''
-exec "$db_client" $key_option --protocol=TCP --host=127.0.0.1 --binary-mode --user="$MYSQL_USER" --database="$1"
+export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
+exec "$db_client" $key_option --protocol=TCP --host=127.0.0.1 --binary-mode --user=root --database="$1"
 '''
 
 DUMP = CLIENT + '''

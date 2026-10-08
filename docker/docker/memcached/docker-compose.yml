@@ -5,6 +5,8 @@ services:
   memcached:
     image: memcached-${IMAGE_ENV:-${ENV}}-${MEMCACHED_VERSION}${SETUP_IMAGE_SUFFIX_MEMCACHED:-}
     container_name: ${PROJECT_NAME}-${ENV}-memcached-${MEMCACHED_VERSION}
+    environment:
+      TZ: ${TZ}
     mem_limit: ${MEMCACHED_MEMORY}
     cpus: ${MEMCACHED_CPUS}
     logging:

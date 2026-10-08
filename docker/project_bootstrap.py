@@ -48,6 +48,21 @@ def set_env_values(path, values):
     replace_file(path, contents.encode(), private=True)
 
 
+def ensure_generated_secrets(directory, environment):
+    """Local/test only: create missing private secrets that nobody has to choose by hand."""
+    if environment not in ('local', 'test'):
+        return
+    private = Path(directory) / f'env/{environment}.env'
+    if not private.is_file():
+        return
+    raw = private.read_text()
+    values = {}
+    if not re.search(r'^DATABASE_ROOT_PASSWORD=\S', raw, re.M):
+        values['DATABASE_ROOT_PASSWORD'] = secrets.token_hex(24)
+    if values:
+        set_env_values(private, values)
+
+
 def certificate_is_valid(certificate, domain):
     expiry = subprocess.run(['openssl', 'x509', '-noout', '-in', str(certificate), '-checkend', '2592000'],
                             capture_output=True)
@@ -165,6 +180,7 @@ def initialize_test(project, refresh=False):
         set_env_values(env_file, {'DOMAIN':domain, 'LOCALHOST_PORT':str(ports[0]), 'LOCALHOST_PORT_SSL':str(ports[1]),
                                  'DATABASE_NAME':project.settings['DATABASE_NAME']+'_test', 'DATABASE_USER':'test',
                                  'DATABASE_PASSWORD':secrets.token_hex(24),
+                                 'DATABASE_ROOT_PASSWORD':secrets.token_hex(24),
                                  'APP_SOURCE_DIRECTORY':'', 'DATA_DIRECTORY':'',
                                  'SQL_DOMAIN':domain})
     if not destination.exists() or refresh:

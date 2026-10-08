@@ -28,7 +28,7 @@ class SchemaIntegrationTest(unittest.TestCase):
             directory.mkdir()
             (directory / "env").mkdir(); (directory / "compose").mkdir()
             (directory / "env/common.env").write_text(f"PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=database/schema\n")
-            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=schema-test-only\nCOMPOSE_PROFILES=\n")
+            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=schema-test-only\nCOMPOSE_PROFILES=\n")
             # No published ports, no host DB bind mount, no access to other project networks.
             (directory / "compose/base.yaml").write_text("""services:
   database:

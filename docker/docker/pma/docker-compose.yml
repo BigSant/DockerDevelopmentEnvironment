@@ -21,6 +21,7 @@ services:
       args:
         PMA_VERSION: ${PMA_VERSION}
     environment:
+      TZ: ${TZ}
       PMA_ABSOLUTE_URI: http://pma.${DOMAIN}
       PMA_HOST: database
       # Credentials injected at runtime — never baked into the shared pma image.

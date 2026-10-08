@@ -34,7 +34,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
             initialize_env(self.directory, "local")
         private = self.directory / "env/local.env"
         private.write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
-                           "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_PASSWORD='private $value'\n")
+                           "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='private $value'\n")
         return private
 
     def test_grouped_default_preserves_custom_sources_and_private_settings(self):
@@ -65,7 +65,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
             initialize_env(app, "local")
             self.assertEqual(prepare(root), [])
         (app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
-                                          "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_PASSWORD=test\n")
+                                          "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test\n")
         project = Project(app)
         model = project.model()
         self.assertEqual(project.root, root)

@@ -26,7 +26,7 @@ class FixturesIntegrationTest(unittest.TestCase):
             directory.mkdir()
             (directory / "env").mkdir(); (directory / "compose").mkdir()
             (directory / "env/common.env").write_text(f"PROJECT_NAME={root.name}\nFIXTURES_DIRECTORY=database/fixtures\nPOST_IMPORT_SQL_DIRECTORY=database/hooks\n")
-            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=fixture-test-only\nCOMPOSE_PROFILES=\n")
+            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=fixture-test-only\nCOMPOSE_PROFILES=\n")
             (directory / "Makefile").write_text(f"PROJECT_DOCKER_DIRECTORY := $(CURDIR)\nSETUP_DIRECTORY := {ROOT}\ninclude $(SETUP_DIRECTORY)/docker/project.mk\n")
             (directory / "compose/base.yaml").write_text("""services:
   database:

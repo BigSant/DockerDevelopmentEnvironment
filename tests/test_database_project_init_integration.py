@@ -58,3 +58,65 @@ class DatabaseProjectInitIntegrationTest(unittest.TestCase):
             rows = sql("SELECT domain FROM example_marker ORDER BY domain").stdout.split()
             self.assertEqual(rows, ["from-script", "shop.local"])
             self.assertEqual(sql("SELECT @@max_connections").stdout.strip(), "321")
+
+
+@unittest.skipUnless(IMAGE, "Set SETUP_MYSQL_IMAGE to a built setup MySQL/MariaDB image")
+class DatabaseGrantsIntegrationTest(unittest.TestCase):
+    def start(self, root_password, app_password="app-test-only"):
+        name = f"setup-db-grants-{uuid.uuid4().hex[:8]}"
+        subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--tmpfs", "/var/lib/mysql",
+                        "-e", f"MYSQL_ROOT_PASSWORD={root_password}", "-e", "MYSQL_DATABASE=shop",
+                        "-e", "MYSQL_USER=shop", "-e", f"MYSQL_PASSWORD={app_password}", "-e", "DATABASE_BUFFER_POOL=128M",
+                        IMAGE], check=True, capture_output=True)
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            if self.sql(name, "root", root_password, "SELECT 1").returncode == 0 and \
+                    subprocess.run(["docker", "exec", name, "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"],
+                                   capture_output=True).returncode == 0:
+                return name
+            time.sleep(2)
+        self.fail("database did not start")
+
+    def sql(self, name, user, password, query, env=()):
+        return subprocess.run(["docker", "exec", *env, name, "sh", "-c",
+                               f'MYSQL_PWD="{password}" mysql --protocol=TCP -h127.0.0.1 -u{user} -N -e "{query}"'],
+                              capture_output=True, text=True)
+
+    def test_new_database_scopes_the_application_user(self):
+        name = self.start("root-test-only")
+        self.assertNotEqual(self.sql(name, "shop", "app-test-only", "CREATE USER x IDENTIFIED BY 'x'").returncode, 0)
+        self.assertNotEqual(self.sql(name, "shop", "app-test-only", "CREATE DATABASE other").returncode, 0)
+        self.assertEqual(self.sql(name, "shop", "app-test-only", "CREATE TABLE shop.t (id INT)").returncode, 0)
+        self.assertNotEqual(self.sql(name, "root", "app-test-only", "SELECT 1").returncode, 0)
+
+    def test_restrict_grants_works_through_the_application_user_when_root_is_unknown(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "docker"))
+        from database_grants import RESTRICT
+        name = self.start("unknown-historic-root")
+        self.sql(name, "root", "unknown-historic-root", "GRANT ALL PRIVILEGES ON *.* TO 'shop'@'%' WITH GRANT OPTION")
+        result = subprocess.run(["docker", "exec", "-e", "MYSQL_ROOT_PASSWORD=new-root-test-only", name, "sh", "-c", RESTRICT],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("changed as shop", result.stdout)
+        self.assertEqual(self.sql(name, "root", "new-root-test-only", "SELECT 1").returncode, 0)
+        self.assertNotEqual(self.sql(name, "shop", "app-test-only", "CREATE DATABASE after_restrict").returncode, 0)
+        self.assertEqual(self.sql(name, "shop", "app-test-only", "CREATE TABLE shop.t3 (id INT)").returncode, 0)
+
+    def test_restrict_grants_narrows_a_pre_v2_database(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "docker"))
+        from database_grants import RESTRICT
+        # Pre-v2 layout: root shares the application password; the application has everything.
+        name = self.start("app-test-only")
+        self.sql(name, "root", "app-test-only", "GRANT ALL PRIVILEGES ON *.* TO 'shop'@'%' WITH GRANT OPTION")
+        self.assertEqual(self.sql(name, "shop", "app-test-only", "CREATE DATABASE before_restrict").returncode, 0)
+        env = ["-e", "MYSQL_ROOT_PASSWORD=new-root-test-only"]
+        for _ in range(2):  # idempotent
+            result = subprocess.run(["docker", "exec", *env, name, "sh", "-c", RESTRICT], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.sql(name, "root", "new-root-test-only", "SELECT 1").returncode, 0)
+        self.assertNotEqual(self.sql(name, "root", "app-test-only", "SELECT 1").returncode, 0)
+        self.assertNotEqual(self.sql(name, "shop", "app-test-only", "CREATE DATABASE after_restrict").returncode, 0)
+        self.assertEqual(self.sql(name, "shop", "app-test-only", "CREATE TABLE shop.t2 (id INT)").returncode, 0)

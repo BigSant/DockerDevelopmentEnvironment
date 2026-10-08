@@ -86,7 +86,7 @@ class ResourceModelTest(unittest.TestCase):
         self.assertEqual(services['php-fpm']['environment']['PHP_FPM_MAX_CHILDREN'], '7')
 
     def test_missing_remote_limits_name_the_keys_and_suggest_values(self):
-        (self.app / 'env/prod.env').write_text('DOMAIN=limits.example\nDATABASE_USER=x\nDATABASE_NAME=x\nDATABASE_PASSWORD=x\n')
+        (self.app / 'env/prod.env').write_text('DOMAIN=limits.example\nDATABASE_USER=x\nDATABASE_NAME=x\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=x\n')
         import subprocess
         real = subprocess.run
         info = subprocess.CompletedProcess([], 0, stdout=f'{16 * 1024 ** 3} 4\n')

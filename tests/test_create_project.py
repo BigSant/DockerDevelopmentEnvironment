@@ -53,7 +53,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
         self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\n')
         self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line},
-                         {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD'})
+                         {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD'})
         self.assertEqual(project.settings['LOCALHOST_PORT'], '0')
         self.assertEqual(project.profiles, '')
         self.assertRegex(active['database']['image'], r'-s[0-9a-f]{12}$')
@@ -78,7 +78,7 @@ class CreateProjectTest(unittest.TestCase):
         app = self.create()
         (app / 'env/local.env').unlink()
         (app / 'env/local.env.example').write_text(
-            'DOMAIN=new-shop.local\nDATABASE_USER=example\nDATABASE_NAME=example\nDATABASE_PASSWORD=example\n')
+            'DOMAIN=new-shop.local\nDATABASE_USER=example\nDATABASE_NAME=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=example\n')
         with contextlib.redirect_stdout(io.StringIO()):
             initialize_env(app, 'local')
         project = Project(app)
@@ -94,7 +94,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(project.profiles, '')
         for environment in ('stage', 'prod', 'test'):
             (app / f'env/{environment}.env').write_text(
-                REMOTE_LIMITS + f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=example\n')
+                REMOTE_LIMITS + f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=example\n')
             other = Project(app, environment)
             self.assertEqual(other.settings['PROFILE'], '')
             self.assertEqual(other.profiles, '')

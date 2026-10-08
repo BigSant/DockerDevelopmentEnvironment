@@ -17,6 +17,11 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_web_access_integration.py' -v
         env:
           SETUP_NGINX_TEST_IMAGE: setup-web-access-test
+      - run: docker build -t setup-apache-test --build-arg APACHE_VERSION=2.4.59 --target env-local -f docker/docker/apache/Dockerfile docker
+      - run: python3 -m unittest discover -s tests -p 'test_webserver_security_integration.py' -v
+        env:
+          SETUP_APACHE_TEST_IMAGE: setup-apache-test
+          SETUP_NGINX_TEST_IMAGE: setup-web-access-test
       - run: docker build -t setup-mysql-test --build-arg MYSQL_VERSION=8.4.0 --target env-local -f docker/docker/mysql/Dockerfile docker
       - run: python3 -m unittest discover -s tests -p 'test_database_project_init_integration.py' -v
         env:

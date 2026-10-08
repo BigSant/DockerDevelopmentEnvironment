@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: image-prune
+.PHONY: image-prune db-restrict-grants
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -36,11 +36,12 @@ help:
 	@echo 'db-fixtures-plan / db-fixtures-load set=local|test: preview / load common + selected SQL fixtures'
 	@echo 'db-import file=dump.sql db-fixtures=local: append fixtures after the import hooks'
 	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
+	@echo 'db-restrict-grants: one-time: own database privileges only, separate root password (pre-v2 databases)'
 	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: enable pre-commit schema-check in the schema repository'
 
-init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install bootstrap setup-info db-prepare cache-clear runtime-info doctrine-build:
+init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:

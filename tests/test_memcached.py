@@ -29,7 +29,7 @@ class MemcachedServiceTest(unittest.TestCase):
   - ${ROOT_DIRECTORY}/docker/memcached/docker-compose.yml
 ''')
             (app / 'env/prod.env').write_text(
-                REMOTE_LIMITS + 'DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_PASSWORD=test\n')
+                REMOTE_LIMITS + 'DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test\n')
             for environment in ('local', 'prod'):
                 services = json.loads(Project(app, environment).capture(['config', '--format', 'json']))['services']
                 self.assertEqual('memcached' in services, environment == 'local')

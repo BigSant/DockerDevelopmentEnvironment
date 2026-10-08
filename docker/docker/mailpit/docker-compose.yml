@@ -21,7 +21,7 @@ services:
       args:
         MAILPIT_VERSION: ${MAILPIT_VERSION}
     environment:
-      TZ: Europe/Vilnius
+      TZ: ${TZ}
       MP_MAX_MESSAGES: 5000
       MP_DATABASE: /data/mailpit.db
       MP_SMTP_AUTH_ACCEPT_ANY: 1

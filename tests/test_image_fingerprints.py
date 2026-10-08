@@ -72,7 +72,7 @@ class ProjectFingerprintTest(unittest.TestCase):
             (directory / "compose").mkdir()
             (directory / "env/common.env").write_text("PROJECT_NAME=example\nPROFILE=prestashop\n")
             (directory / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
-                                                     "DATABASE_USER=t\nDATABASE_NAME=t\nDATABASE_PASSWORD=t\n")
+                                                     "DATABASE_USER=t\nDATABASE_NAME=t\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=t\n")
             (directory / "compose/base.yaml").write_bytes((ROOT / "templates/minimal/compose/base.yaml").read_bytes())
             project = Project(directory)
             suffixes = project.image_suffixes

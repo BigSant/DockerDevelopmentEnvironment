@@ -39,7 +39,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         (directory / "env/common.env").write_text(f"PROJECT_NAME={name}\n")
         (directory / "env/local.env").write_text(
             f"DOMAIN={name}.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
-            "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_PASSWORD='literal $PWD # quote'\n" + extra)
+            "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='literal $PWD # quote'\n" + extra)
         (directory / "compose/base.yaml").write_bytes((ROOT / "templates/minimal/compose/base.yaml").read_bytes())
         (directory / "Makefile").write_bytes((ROOT / "templates/shared/Makefile").read_bytes())
         return root, directory
@@ -118,7 +118,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         _, directory = self.prepare(extra="COMPOSE_PROFILES=\n")
         (directory / "env/stage.env").write_text(
             REMOTE_LIMITS + "DOMAIN=stage.example.test\nLOCALHOST_PORT=3401\nLOCALHOST_PORT_SSL=3402\n"
-            "DATABASE_PASSWORD='line one\nCOMPOSE_PROFILES=cron\nline three'\n")
+            "DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='line one\nCOMPOSE_PROFILES=cron\nline three'\n")
         project = Project(directory, environment="stage")
         self.assertEqual(project.name, "example-stage")
         self.assertEqual(project.profiles, "")
@@ -204,7 +204,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         with (directory / "env/common.env").open("a") as handle:
             handle.write("PHP_VERSION=8.1\nPROJECT_COMPOSE_FILES=compose/redis.yaml\n")
         (directory / "env/prod.env").write_text(
-            REMOTE_LIMITS + "DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\nCOMPOSE_PROFILES=\n")
+            REMOTE_LIMITS + "DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\nCOMPOSE_PROFILES=\n")
         (directory / "compose/redis.yaml").write_text(
             "services:\n  redis:\n    image: redis:7.4-alpine\n    networks: [network_app]\n")
         (directory / "compose/local.yaml").write_text(
@@ -227,7 +227,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         _, directory = self.prepare()
         (directory / "Dockerfile").write_text(
             "# extension\nARG SETUP_PHP_IMAGE\nFROM ${SETUP_PHP_IMAGE}\nRUN echo extra\n")
-        (directory / "env/prod.env").write_text(REMOTE_LIMITS + "DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\n")
+        (directory / "env/prod.env").write_text(REMOTE_LIMITS + "DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\n")
         for env in ("local", "prod"):
             project = Project(directory, environment=env)
             services = project.model()["services"]

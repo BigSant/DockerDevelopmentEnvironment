@@ -118,7 +118,7 @@ define('_DB_PREFIX_', 'custom_');
     def test_test_environment_has_distinct_code_data_ports_and_config(self):
         with contextlib.redirect_stdout(io.StringIO()): prepare(self.root/'shop',layout='app')
         app=self.root/'shop/app'
-        (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_PASSWORD=local-secret\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n')
+        (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=local-secret\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n')
         (app/'public').mkdir();(app/'public/index.php').write_text('<?php echo "original";')
         project=Project(app)
         with patch('project_bootstrap.prepare_host'),contextlib.redirect_stdout(io.StringIO()):

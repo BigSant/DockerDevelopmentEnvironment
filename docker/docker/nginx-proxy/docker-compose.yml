@@ -23,6 +23,7 @@ services:
         ENV: ${BUILD_ENV:-${ENV}}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${WEBSERVICE_TIMEOUT}'
     environment:
+      TZ: ${TZ}
       # Available to project *.template drop-ins.
       SETUP_ENV: ${ENV}
       PROJECT_NAME: ${PROJECT_NAME}

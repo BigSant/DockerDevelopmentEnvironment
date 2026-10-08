@@ -90,6 +90,7 @@ def scaffold(name, parent):
         'DOMAIN': domain,
         'DATABASE_USER': name.replace('-', '_'), 'DATABASE_NAME': name.replace('-', '_'),
         'DATABASE_PASSWORD': secrets.token_hex(24),
+        'DATABASE_ROOT_PASSWORD': secrets.token_hex(24),
     })
     prepare_project_name(app, display_name)
     # The marker is written last: retries may resume a complete scaffold, never guess

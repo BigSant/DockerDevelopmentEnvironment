@@ -12,6 +12,8 @@ DEFAULTS = {
     'PS_SMARTY_CACHE': 'auto', 'PS_SMARTY_COMPILE': 'auto', 'PS_ASSET_CACHE': 'auto',
     'PS_OBJECT_CACHE': 'auto', 'MAIL_MODE': 'auto', 'HTTP_FORCE_HTTPS': 'auto',
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
+    # One time zone for PHP, the database, web servers and cron.
+    'TZ': 'Europe/Vilnius',
     'CONTAINER_LOG_MAX_SIZE': '10m', 'CONTAINER_LOG_MAX_FILES': '3',
     'MIN_FREE_DISK_MB': '1024', 'BACKUP_KEEP_LAST': '5',
     # Empty pool sizes are derived from PHP_MEMORY; explicit values win.
@@ -150,6 +152,8 @@ def resolve_policy(settings, environment):
     if settings.get('CONTAINER_CPUS') and (not re.fullmatch(r'\d+(?:\.\d+)?', str(settings['CONTAINER_CPUS']))
                                            or not 0 < float(settings['CONTAINER_CPUS']) <= 1024):
         raise ValueError('CONTAINER_CPUS must be greater than 0 and at most 1024')
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*', values['TZ']):
+        raise ValueError('TZ must be a zone name such as Europe/Vilnius or UTC')
     resolve_resources(settings, values, environment)
     for name in ('PHP_FPM_MAX_CHILDREN', 'PHP_FPM_START_SERVERS', 'PHP_FPM_MIN_SPARE_SERVERS',
                  'PHP_FPM_MAX_SPARE_SERVERS', 'PHP_FPM_MAX_REQUESTS'):
