@@ -101,6 +101,9 @@ run-docker-compose:
 	PROFILES="${profile}" && \
 	if [ -z "$$PROFILES" ]; then PROFILES="$$(grep '^COMPOSE_PROFILES=' /tmp/.env | tail -n1 | cut -d= -f2-)"; fi && \
 	if [ -z "$$PROFILES" ]; then PROFILES="$$(grep "^COMPOSE_PROFILES_$$(echo '${env}' | tr a-z A-Z)=" /tmp/.env | tail -n1 | cut -d= -f2-)"; fi && \
+	SERVICES="$$(COMPOSE_PROFILES="$$PROFILES" docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env config --services)" && \
+	export SETUP_ENABLE_PMA="$$(echo "$$SERVICES" | grep -qx pma && echo 1 || echo 0)" \
+		SETUP_ENABLE_MAILPIT="$$(echo "$$SERVICES" | grep -qx mailpit && echo 1 || echo 0)" && \
 	COMPOSE_PROFILES="$$PROFILES" docker compose -f /tmp/docker-compose.yml --env-file /tmp/.env ${action}
 
 # -----------------------------------------------------------------

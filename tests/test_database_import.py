@@ -3,7 +3,9 @@
 import contextlib
 import fcntl
 import io
+import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -37,6 +39,39 @@ class DatabaseImportTest(unittest.TestCase):
             child_env=lambda: {},
         )
         self.project.directory.mkdir()
+        # Keep streaming deterministic whether or not the suite runs in a terminal.
+        meter = patch("database_import.progress_meter", return_value=None)
+        meter.start()
+        self.addCleanup(meter.stop)
+
+    def fake_pv(self, status=0):
+        script = self.root / "pv"
+        script.write_text(f"#!/bin/sh\necho \"$@\" > '{self.root}/pv.args'\ncat\nexit {status}\n")
+        script.chmod(0o755)
+        return str(script)
+
+    def test_dump_streams_through_pv_with_its_size_and_hooks_do_not(self):
+        plan = plan_import(self.project, str(self.dump))
+        seen = []
+
+        def execute(command, *, env, stdin, check):
+            seen.append((stdin.read(), stat.S_ISFIFO(os.fstat(stdin.fileno()).st_mode)))
+
+        with patch("database_import.progress_meter", return_value=self.fake_pv()), \
+                patch("database_import.subprocess.run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+            import_database(self.project, plan)
+        self.assertEqual([content for content, _ in seen], [p.read_bytes() for p in plan])
+        self.assertEqual((self.root / "pv.args").read_text().split(), ["-s", str(self.dump.stat().st_size)])
+        # Only the dump goes through pv; hooks are read straight from their files.
+        self.assertEqual([piped for _, piped in seen], [True] + [False] * (len(plan) - 1))
+
+    def test_failing_pv_stops_before_hooks(self):
+        plan = plan_import(self.project, str(self.dump))
+        with patch("database_import.progress_meter", return_value=self.fake_pv(status=3)), \
+                patch("database_import.subprocess.run", side_effect=lambda command, **kwargs: kwargs["stdin"].read()) as execute, \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+            import_database(self.project, plan)
+        self.assertEqual(execute.call_count, 1)
 
     def test_plan_orders_common_then_only_selected_environment_without_outputs(self):
         plan = plan_import(self.project, str(self.dump))
@@ -44,6 +79,21 @@ class DatabaseImportTest(unittest.TestCase):
         self.project.environment = "prod"
         self.assertEqual(plan_import(self.project, str(self.dump))[-1].name, "010-prod.sql")
         self.assertFalse((self.project.directory / ".generated").exists())
+
+    def test_unset_directory_defaults_to_project_after_import_or_dump_only(self):
+        del self.project.settings["POST_IMPORT_SQL_DIRECTORY"]
+        self.assertEqual(plan_import(self.project, str(self.dump)), [self.dump.resolve()])
+        default = self.project.directory / "database/after-import/local"
+        default.mkdir(parents=True)
+        (default / "010-default.sql").write_text("SELECT 'default';\n")
+        self.assertEqual([p.name for p in plan_import(self.project, str(self.dump))], [self.dump.name, "010-default.sql"])
+        self.project.settings["POST_IMPORT_SQL_DIRECTORY"] = ""
+        self.assertEqual(plan_import(self.project, str(self.dump))[-1].name, "010-default.sql")
+
+    def test_explicit_missing_directory_is_still_rejected(self):
+        self.project.settings["POST_IMPORT_SQL_DIRECTORY"] = "database/missing"
+        with self.assertRaisesRegex(ValueError, "inside the project"):
+            plan_import(self.project, str(self.dump))
 
     def test_preflight_rejects_missing_empty_non_sql_dump_and_escaping_hooks(self):
         empty = self.root / "empty.sql"

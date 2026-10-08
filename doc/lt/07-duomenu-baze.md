@@ -13,10 +13,11 @@
 
 `database/after-import` yra dar viena paskirtis: pritaikyti ką tik atkurtą DB pasirinktos aplinkos domenui, paštui ir pan. Serverio `.cnf` lieka `config/mysql` arba `config/mariadb`.
 
-Visoms šiame skyriuje naudojamoms komandoms sukonfigūruok `env/common.env`:
+After-import SQL be jokio env įrašo ieškomas `database/after-import` šalia projekto Makefile, pvz. `app/database/after-import`. Jei katalogo nėra, `db-import` įkelia tik dump. `POST_IMPORT_SQL_DIRECTORY` rašyk tik tada, kai SQL laikai kitur.
+
+Schemos ir fixture komandoms sukonfigūruok `env/common.env`:
 
 ```dotenv
-POST_IMPORT_SQL_DIRECTORY=app/database/after-import
 SCHEMA_DIRECTORY=app/database/schema
 FIXTURES_DIRECTORY=app/database/fixtures
 ```
@@ -47,6 +48,8 @@ make up
 Kiekvienoje grupėje failai vykdomi pagal vardą, pvz. `010-domain.sql`, `020-mail.sql`. `2-mail.sql` ir `10-domain.sql` nėra patikima numeravimo schema – naudok vienodo ilgio numerius.
 
 Dump importas nėra automatinis visos DB išvalymas: kas bus ištrinta ar pakeista, lemia dump SQL. Kitam serveriui skirtas `USE kita_db` ar `CREATE DATABASE` faile taip pat yra SQL, todėl importuok tik suprantamą savo pasirinktai aplinkai skirtą dump.
+
+Jei įdiegtas `pv` ir komanda paleista terminale, dump eina per `pv`: matai procentus, greitį ir likusį laiką. `.sql.gz` atveju rodomas jau išskleisto SQL progresas. After-import SQL ir fixtures per `pv` neina; be `pv` arba ne terminale (pvz. CI) dump srautas lieka tiesioginis.
 
 Prieš vykdymą tikrinami įvesties failai ir gzip vientisumas. `.sql.gz` prieš pirmą DB rašymą dar išskleidžiamas į privatų laikiną failą `.generated` viduje; reikia vietos ir **nesuspaustam** SQL. Klaida sustabdo kitus failus, tačiau jau įvykdyti SQL pakeitimai automatiškai neatšaukiami.
 

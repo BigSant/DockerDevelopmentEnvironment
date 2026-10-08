@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 
@@ -26,6 +27,27 @@ def render_hook(project, path):
     return contents
 
 
+def progress_meter():
+    """pv for the dump when a person watches the terminal; plain streaming otherwise."""
+    return shutil.which("pv") if sys.stderr.isatty() else None
+
+
+def stream_sql(project, command, handle, meter=None):
+    if not meter:
+        subprocess.run(command, env=project.child_env(), stdin=handle, check=True)
+        return
+    size = os.fstat(handle.fileno()).st_size - handle.tell()
+    progress = subprocess.Popen([meter, "-s", str(size)], stdin=handle, stdout=subprocess.PIPE)
+    try:
+        subprocess.run(command, env=project.child_env(), stdin=progress.stdout, check=True)
+    finally:
+        # Closing our read end lets pv stop on EPIPE if the DB client exited early.
+        progress.stdout.close()
+        status = progress.wait()
+    if status:
+        raise subprocess.CalledProcessError(status, [meter])
+
+
 def plan_import(project, dump):
     if not dump:
         raise ValueError("Specify a dump with file=/path/to/dump.sql")
@@ -34,14 +56,15 @@ def plan_import(project, dump):
         raise ValueError("The dump must be a readable, nonempty .sql or .sql.gz file")
     if not project.settings["DATABASE_NAME"]:
         raise ValueError("DATABASE_NAME is required for import")
-    configured = project.settings["POST_IMPORT_SQL_DIRECTORY"]
-    if not configured:
-        raise ValueError("Set POST_IMPORT_SQL_DIRECTORY to the project's after-import SQL directory")
-    directory = (project.root / configured).resolve()
-    if not directory.is_relative_to(project.root) or not directory.is_dir():
+    configured = project.settings.get("POST_IMPORT_SQL_DIRECTORY", "")
+    # Unset means the shared convention beside the project's Makefile; it may be absent.
+    directory = (project.root / configured).resolve() if configured else (project.directory / "database/after-import").resolve()
+    if not directory.is_relative_to(project.root):
+        raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
+    if configured and not directory.is_dir():
         raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
     hooks = []
-    for group in ("common", project.environment):
+    for group in ("common", project.environment) if directory.is_dir() else ():
         for path in sorted((directory / group).glob("*.sql")):
             resolved = path.resolve()
             if not resolved.is_relative_to(directory) or not resolved.is_file():
@@ -121,7 +144,9 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False):
                 backup_database(project)
             command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_IMPORT,
                                          "database-import", project.settings["DATABASE_NAME"]]
+            meter = progress_meter() if first_is_dump else None
             for index, (path, handle) in enumerate(inputs):
-                print(f"{'Import' if index == 0 and first_is_dump else 'SQL'}: {path}", flush=True)
+                dump = index == 0 and first_is_dump
+                print(f"{'Import' if dump else 'SQL'}: {path}", flush=True)
                 # A failing dump or hook stops the sequence; no later SQL runs.
-                subprocess.run(command, env=project.child_env(), stdin=handle, check=True)
+                stream_sql(project, command, handle, meter if dump else None)

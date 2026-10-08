@@ -3,7 +3,8 @@ FROM phpmyadmin/phpmyadmin:${PMA_VERSION} AS base
 
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-RUN apt-get update && apt-get install -y libpng16-16 libzip5 --no-install-recommends && rm -rf /var/lib/apt/lists/*
+# The official image already ships the gd/zip runtime libraries. Their Debian package
+# names differ per release (bullseye libzip4, trixie libzip5), so do not reinstall them.
 
 FROM base AS env-local
 

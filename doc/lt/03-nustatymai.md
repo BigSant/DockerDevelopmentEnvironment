@@ -135,6 +135,8 @@ Nustatymus taikyk su `make up` (kitai aplinkai – `make up ENV=prod`). Jie kei�
 | `MARIADB_VERSION` | `11.3.2` | MariaDB versiją, kai pagrinde pasirinktas MariaDB aprašas. Vien raktas MySQL nepakeičia MariaDB. |
 | `PMA_VERSION` | `5.2.3` | Pasirenkamo phpMyAdmin versiją. |
 | `MAILPIT_VERSION` | `1.18.3` | Pasirenkamo Mailpit versiją. |
+| `MEMCACHED_VERSION` | `1.6.45` | Pasirenkamo Memcached versiją; servisas įjungiamas tik YAML `include`. |
+| `MEMCACHED_MEMORY` | `128` | Memcached cache dydis MB (`memcached -m`). |
 | `PLAYWRIGHT_VERSION` | `1.61.1` | Naršyklių atvaizdo ir į jį diegiamo `@playwright/test` versiją. Jos turi sutapti. |
 | `REDIS_VERSION` | Bendrame setup nėra; grouped šablone `7.4` | Pasirenkamo `redis:<versija>-alpine` atvaizdo tag. Jis atsisiunčiamas su `make pull`, ne gaminamas bendru Dockerfile. |
 
@@ -157,7 +159,7 @@ Nustatymus taikyk su `make up` (kitai aplinkai – `make up ENV=prod`). Jie kei�
 | --- | --- | --- |
 | `APP_SOURCE_DIRECTORY` | Vietoje `app/public`; testui ir kitoms aplinkoms atskiri default | Kelias nuo `<projektas>/`, pvz. `app/kodas`. Turi likti projekte; testui – `.generated/test` viduje. |
 | `DATA_DIRECTORY` | Vietoje `data`; kitoms aplinkoms atskiri default | Kelias nuo `<projektas>/`, pvz. `data/local-v2`. Nekeisk jo kaip slapto DB „atnaujinimo“: kitas kelias reiškia kitus failus. |
-| `POST_IMPORT_SQL_DIRECTORY` | Tuščias; būtinas `db-import` | `app/database/after-import`; tušti common/aplinkos katalogai leidžiami. |
+| `POST_IMPORT_SQL_DIRECTORY` | Tuščias: naudojamas `database/after-import` šalia projekto Makefile; jei jo nėra, importuojamas tik dump | Kitas kelias nuo `<projektas>/`, pvz. `app/db/hooks`; nurodytas katalogas turi egzistuoti, tušti common/aplinkos katalogai leidžiami. |
 | `SCHEMA_DIRECTORY` | Tuščias; būtinas schema komandoms | `app/database/schema`; hook veikia repozitorijoje, kuriai priklauso šis katalogas. |
 | `FIXTURES_DIRECTORY` | Tuščias; būtinas fixture komandoms | `app/database/fixtures`; rinkinys parenkamas komandos argumentu. |
 | `PHPSTAN_BASELINE_FILE` | Tuščias; grouped šablone `/tmp/phpstan/baselines/phpstan.neon` | **Konteinerio absoliutus kelias**, į kurį `make phpstan-baseline` rašo baseline. Reikia atitinkamo writable mount. |

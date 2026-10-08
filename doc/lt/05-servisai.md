@@ -315,6 +315,43 @@ Grouped Redis šablonas ir aukščiau pateiktas variantas naudoja `${PROJECT_DAT
 
 `ENV=test` reikės ir `config/redis/test/redis.conf`; vien `local` failo neužtenka, nes `include` ieško pasirinktos aplinkos failo.
 
+## Memcached: cache vienam projektui
+
+Situacija: aplikacija naudoja Memcached (pvz. PrestaShop 1.6 `CacheMemcache`), bet kitiems projektams jo nereikia. Bendras aprašas yra setup'e, tačiau **niekur neįtrauktas pagal nutylėjimą**: nei naujuose projektuose, nei pilname `docker/docker-compose.yml`.
+
+Jei Memcached reikia tik lokaliai, į `compose/local.yaml` pridėk:
+
+```yaml
+include:
+  - ${ROOT_DIRECTORY}/docker/memcached/docker-compose.yml
+```
+
+Jei reikia visose aplinkose, tą patį `include` dėk į `compose/common.yaml`. To paties failo antrą kartą neįtrauk.
+
+Numatytoji versija `MEMCACHED_VERSION=1.6.45`, cache dydis `MEMCACHED_MEMORY=128` (MB), konteinerio atminties riba `MEMCACHED_CONTAINER_MEMORY=256m`. Kitas reikšmes įrašyk į projekto `env/common.env` arba aplinkos env. `MEMCACHED_MEMORY` laikyk mažesnį už konteinerio ribą.
+
+```bash
+make check
+make build
+make up
+```
+
+Servisas vadinasi `memcached`, portas `11211` publikuojamas tik projekto tinkle, ne host'e. Healthcheck tikrina `stats` atsakymą.
+
+Konteineris savaime neįdiegia PHP plėtinio. PrestaShop `CacheMemcache` reikia PECL `memcache`, o `CacheMemcached` – `memcached` plėtinio. Jį pridėk projekto Dockerfile, pvz. PHP 7.x:
+
+```dockerfile
+RUN pecl install memcache-4.0.5.2 && docker-php-ext-enable memcache
+```
+
+PrestaShop 1.6 serverių adresai laikomi `ps_memcached_servers` lentelėje. Iš LIVE dump dažniausiai ateina `127.0.0.1`, todėl po importo jį pakeisk, pvz. `database/after-import/local/030-memcached.sql`:
+
+```sql
+UPDATE ps_memcached_servers SET ip = 'memcached', port = 11211;
+```
+
+Kad PS iš tikrųjų naudotų cache, aplinkos env nustatyk `PS_OBJECT_CACHE=on`. Patikra: `make shell`, tada `php --ri memcache`.
+
 ## Mailpit ir phpMyAdmin: papildyti minimalų projektą
 
 Situacija: PMA reikia visose aplinkose, o laiškus gaudantis Mailpit reikalingas tik lokaliai.

@@ -10,6 +10,13 @@ ARG PHP_VERSION=""
 ARG APCU_VERSION
 ENV ACCEPT_EULA=Y
 
+# Debian bullseye reached EOL; security.debian.org now 404s on its pool and
+# archive.debian.org has no bullseye-security yet, so drop that suite.
+RUN sed -i \
+    -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+    -e '/bullseye-security/d' \
+    /etc/apt/sources.list
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libmcrypt-dev \

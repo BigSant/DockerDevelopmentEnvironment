@@ -159,15 +159,19 @@ provide empty common/local/test directories and the resolved fixture path.
 See [SQL fixtures](DATABASE_FIXTURES.md).
 
 `database_import.py` implements `db-import-plan` and `db-import`. Both require
-an explicit nonempty `.sql` or validated `.sql.gz` dump, `DATABASE_NAME`, and a project-relative
-`POST_IMPORT_SQL_DIRECTORY`. New grouped templates use `database/after-import/`
+an explicit nonempty `.sql` or validated `.sql.gz` dump and `DATABASE_NAME`. Hooks come from the
+project-relative `POST_IMPORT_SQL_DIRECTORY`; when it is unset, from `database/after-import/`
+beside the project Makefile, and a missing default directory means dump only. An explicitly
+configured directory must exist. New grouped templates use `database/after-import/`
 beside `database/schema/` and `database/fixtures/`, without an intermediate SQL
 directory. Existing projects' explicit paths remain supported; preparation does
 not migrate them automatically. Database server settings still belong to
 `config/mysql/` or `config/mariadb/`, with environment overrides in subdirectories.
 The importer preflights all inputs, selects `common/*.sql`
 followed by `<environment>/*.sql` in filename order, and rejects hooks escaping
-the configured directory. Planning prints paths without touching the DB.
+the configured directory. Planning prints paths without touching the DB. When `pv` is installed
+and stderr is a terminal, only the dump is streamed through `pv -s <size>` for progress (after
+decompression for `.sql.gz`); a failing `pv` stops the import before hooks run.
 An optional `db-fixtures=<set>` appends the fixture plan after these hooks, validates
 it before starting the dump, and executes everything under one lock. Without that
 explicit option, imports retain their existing behavior.
@@ -493,6 +497,7 @@ also have no profile. New minimal projects include only these four core services
 | `cron` | supercronic over project crontab | reuses php-fpm image | `cron` | `config/php/` + `app/config/cron` |
 | `pma` | phpMyAdmin | shared | none; selected by YAML include | env vars |
 | `mailpit` | mail catcher | shared | none; selected by YAML include | env vars |
+| `memcached` | object cache on `memcached:11211`, no host port; never included by default | shared | none; selected by YAML include | `MEMCACHED_VERSION`, `MEMCACHED_MEMORY` |
 | `php-phpstan` | static analysis (idle, exec on demand) | shared | `phpstan` | `app/config/phpstan` (seeded default) |
 | `php-cs` | PHP-CS-Fixer (idle) | shared | `phpcs` | `app/config/php-cs` (seeded default) |
 | `playwright` | E2E tests (idle) | shared | `playwright` | `app/config/playwright` |

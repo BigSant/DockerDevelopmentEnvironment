@@ -1,0 +1,31 @@
+# Optional cache server; not part of any default stack. Include this file from a project's
+# compose/<env>.yaml. PHP reaches it as memcached:11211 on the project network; the PHP
+# memcache/memcached extension is a separate project Dockerfile concern.
+services:
+  memcached:
+    image: memcached-${IMAGE_ENV:-${ENV}}-${MEMCACHED_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    container_name: ${PROJECT_NAME}-${ENV}-memcached-${MEMCACHED_VERSION}
+    mem_limit: ${MEMCACHED_CONTAINER_MEMORY:-256m}
+    cpus: ${CONTAINER_CPUS:-2}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    build:
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/memcached/Dockerfile
+      target: env-${BUILD_ENV:-${ENV}}
+      args:
+        MEMCACHED_VERSION: ${MEMCACHED_VERSION}
+    # Cache size in MB; keep it below mem_limit to leave room for connections.
+    command: ["memcached", "-m", "${MEMCACHED_MEMORY:-128}"]
+    healthcheck:
+      test: ["CMD-SHELL", "printf 'stats\\r\\nquit\\r\\n' | nc -w 2 127.0.0.1 11211 | grep -q uptime"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - network_app
