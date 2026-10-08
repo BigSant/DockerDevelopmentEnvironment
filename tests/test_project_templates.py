@@ -244,6 +244,45 @@ class ProjectTemplatesTest(unittest.TestCase):
             with self.subTest(text=text), self.assertRaisesRegex(ValueError, "must extend the CORE image"):
                 Project(directory)
 
+    def test_services_list_enables_catalogue_services(self):
+        _, directory = self.prepare()
+        core = {"nginx-proxy", "webserver", "php-fpm", "database"}
+        active = lambda project: set(json.loads(project.capture(["config", "--format", "json"]))["services"])
+        self.assertEqual(active(Project(directory)), core)
+        with (directory / "env/common.env").open("a") as handle:
+            handle.write("SERVICES=pma mailpit cron php-phpstan\n")
+        project = Project(directory)
+        # cron is long-running and starts with up; php-phpstan is a tool started by its command.
+        self.assertEqual(active(project), core | {"pma", "mailpit", "cron"})
+        self.assertIn("php-phpstan", project.model()["services"])
+        self.assertEqual(project.process_env["SETUP_ENABLE_PMA"], "1")
+
+    def test_environment_file_overrides_services(self):
+        _, directory = self.prepare(extra="SERVICES=mailpit\n")
+        with (directory / "env/common.env").open("a") as handle:
+            handle.write("SERVICES=pma\n")
+        services = json.loads(Project(directory).capture(["config", "--format", "json"]))["services"]
+        self.assertIn("mailpit", services)
+        self.assertNotIn("pma", services)
+
+    def test_unknown_or_core_service_names_are_rejected(self):
+        for value in ("pma unknown", "database"):
+            with self.subTest(value=value):
+                _, directory = self.prepare(name=f"x{abs(hash(value)) % 1000}", extra=f"SERVICES={value}\n")
+                with self.assertRaisesRegex(ValueError, "Unknown SERVICES entry"):
+                    Project(directory)
+
+    def test_compose_difference_files_merge_maps_and_override_lists(self):
+        _, directory = self.prepare()
+        (directory / "compose/common.yaml").write_text(
+            "services:\n  php-fpm:\n    environment:\n      EXTRA: one\n"
+            "  database:\n    volumes: !override\n      - ${PROJECT_DATA_DIRECTORY}/mysql-alt:/var/lib/mysql\n")
+        services = Project(directory).model()["services"]
+        self.assertEqual(services["php-fpm"]["environment"]["EXTRA"], "one")
+        self.assertIn("DATABASE_HOST", services["php-fpm"]["environment"])
+        self.assertEqual([v["target"] for v in services["database"]["volumes"]], ["/var/lib/mysql"])
+        self.assertTrue(services["database"]["volumes"][0]["source"].endswith("mysql-alt"))
+
     def test_missing_component_fails_closed(self):
         _, directory = self.prepare()
         with (directory / "env/common.env").open("a") as handle:

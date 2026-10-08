@@ -4,12 +4,6 @@ include:
   - ${ROOT_DIRECTORY}/docker/apache/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/mysql/docker-compose.yml
   - ${ROOT_DIRECTORY}/docker/php-fpm/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/pma/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/cron/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/mailpit/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/php-phpstan/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/php-cs/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/playwright/docker-compose.yml
 networks:
   network_app:
     driver: bridge

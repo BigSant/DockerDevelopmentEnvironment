@@ -23,6 +23,11 @@ from project_policy import DEFAULTS, resolve_policy, validate_configuration
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
+# Optional CORE services a project enables with SERVICES=...; the four core services always run.
+SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'playwright', 'php-phpstan', 'php-cs',
+                     'php-doctrine-migrations')
+# Long-running catalogue services start with `up`; the others are tools started by their command.
+RUNTIME_PROFILES = {'cron': 'cron'}
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
 
 
@@ -121,9 +126,21 @@ class Project:
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
         self.name = f"{name}-{environment}"
-        self.profiles = profiles if profiles is not None else settings["PROFILES"]
+        services = settings["SERVICES"].split()
+        unknown = [name for name in services if name not in SERVICE_CATALOGUE]
+        if unknown:
+            raise ValueError(f"Unknown SERVICES entry: {', '.join(unknown)}; available: {' '.join(SERVICE_CATALOGUE)}")
+        self.services = services
+        if profiles is None:
+            selected = [p for p in re.split(r'[,\s]+', settings["PROFILES"]) if p]
+            selected += [RUNTIME_PROFILES[name] for name in services if name in RUNTIME_PROFILES]
+            profiles = ",".join(dict.fromkeys(selected))
+        self.profiles = profiles
         self.command = base_command + ["--project-name", self.name]
         self.command += ["-f", str(source)]
+        # Selected catalogue services load right after the project's base sources.
+        for name in services:
+            self.command += ["-f", str(DOCKER_ROOT / "docker" / name / "docker-compose.yml")]
         extras = []
         for entry in shlex.split(settings["EXTRA_COMPOSE_FILES"]):
             extra = (self.directory / entry).resolve()
