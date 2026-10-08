@@ -44,24 +44,16 @@ class Project:
         elif environment != 'local':
             self.web_directory = self.root / 'app' / environment / 'public'
             self.data_directory = self.root / 'data' / environment
-        grouped = (self.directory / "env/common.env").exists() or (self.directory / "compose/base.yaml").exists()
-        if grouped:
-            if (self.directory / ".env").exists() or (self.directory / "compose.yaml").exists():
-                raise ValueError("Use one source layout: env/ + compose/, or the root-level files")
-            common_env = self.directory / "env/common.env"
-            private_env = self.directory / f"env/{environment}.env"
-            source = self.directory / "compose/base.yaml"
-            overrides = [self.directory / "compose/common.yaml", self.directory / f"compose/{environment}.yaml"]
-            if not source.is_file():
-                raise ValueError(f"Missing {source}")
-        else:
-            common_env = self.directory / ".env"
-            private_env = self.directory / f".env.{environment}"
-            source = self.directory / "compose.yaml"
-            source = source if source.is_file() else DOCKER_ROOT / "docker-compose.yml"
-            overrides = [self.directory / "compose.override.yaml", self.directory / f"compose.{environment}.override.yaml"]
+        common_env = self.directory / "env/common.env"
+        private_env = self.directory / f"env/{environment}.env"
+        source = self.directory / "compose/base.yaml"
+        overrides = [self.directory / "compose/common.yaml", self.directory / f"compose/{environment}.yaml"]
+        if (self.directory / ".env").exists() or (self.directory / "compose.yaml").exists():
+            raise ValueError("Root-level .env / compose.yaml sources are no longer supported; use env/ + compose/")
         if not common_env.is_file():
-            raise ValueError(f"Missing {common_env}; run prepare_project.py first")
+            raise ValueError(f"Missing {common_env}; create the project with create-project")
+        if not source.is_file():
+            raise ValueError(f"Missing {source}")
         if not private_env.is_file():
             raise ValueError(f"Create {private_env} from its example")
         self.env_files = [DOCKER_ROOT / ".env", common_env, private_env]

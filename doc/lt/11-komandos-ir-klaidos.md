@@ -143,9 +143,8 @@ Testinei aplinkai pirmiausia `make config ENV=test` ir tada naudok `.generated/c
 | `--layout` | `auto`, `root`, `app`, `legacy`. Naujai auto → root; esamam stengiasi išsaugoti aptiktą vietą. |
 | `--sources` | `auto`, `grouped`, `flat`; esamo formato į kitą automatiškai nekonvertuoja. |
 | `--check` | Tik planas, failų nerašo. |
-| `--from-legacy` | Peržiūrimas seno `app/docker` nustatymų kopijavimas; custom Dockerfile/overlay gali reikalauti rankinio perkėlimo. |
 
-Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonus perrašydama tavo darbą. Senas `new_host.sh <domain>` yra kito workflow hosto paruošėjas; jo nemaišyk su jau konsoliduoto projekto `make bootstrap`.
+Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonus perrašydama tavo darbą.
 
 ## Dažniausios klaidos: situacija → patikra → sprendimas
 
@@ -153,7 +152,7 @@ Pasirengimo komanda kuria trūkstamus failus, o ne sinchronizuoja visus šablonu
 | --- | --- | --- |
 | `Shared setup not found` | Ar setup yra bendrame sutartame kelyje? | Atsisiųsti setup arba perduoti absoliutų `SETUP_DIRECTORY`. |
 | `Create ... env/local.env` | Ar yra privatus env / jo example? | `make init`, užpildyti sukurtą failą. Esant nestandartinei aplinkai sukurti jos privatų failą. |
-| `Use one source layout` | Ar kartu turi `env/common.env` ir root `.env` / `compose.yaml`? | Peržiūrėti ir pasirinkti vieną šaltinių formatą; netaisyti sugeneruoto modelio. |
+| `Root-level .env / compose.yaml sources are no longer supported` | Ar projekto šaknyje yra `.env` / `compose.yaml`? | Perkelti į `env/` + `compose/`; root-level struktūra pašalinta. |
 | Trūksta atvaizdo, `pull never` klaida | Ar pasikeitė versija/build argumentai/hash? | Vietiniam atvaizdui `make build`, išoriniam – `make pull`. |
 | Portas užimtas | Kito projekto `env` ir veikiančių konteinerių portai | Parinkti kitą host portą; aplikacijos/SQL URL turi jį atitikti. |
 | Domenas neveda į localhost | Host rezoliucija | `make bootstrap`; prireikus vykdyti jo pateiktą vienkartinį helper. |

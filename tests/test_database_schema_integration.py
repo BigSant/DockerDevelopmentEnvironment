@@ -26,10 +26,11 @@ class SchemaIntegrationTest(unittest.TestCase):
             root = Path(temporary)
             directory = root / "docker"
             directory.mkdir()
-            (directory / ".env").write_text(f"PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=database/schema\n")
-            (directory / ".env.local").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=schema-test-only\nCOMPOSE_PROFILES=\n")
+            (directory / "env").mkdir(); (directory / "compose").mkdir()
+            (directory / "env/common.env").write_text(f"PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=database/schema\n")
+            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=schema-test-only\nCOMPOSE_PROFILES=\n")
             # No published ports, no host DB bind mount, no access to other project networks.
-            (directory / "compose.yaml").write_text("""services:
+            (directory / "compose/base.yaml").write_text("""services:
   database:
     image: __DB_TEST_IMAGE__
     network_mode: none

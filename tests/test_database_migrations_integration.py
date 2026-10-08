@@ -41,7 +41,7 @@ class DoctrineIntegrationTest(unittest.TestCase):
             (config / 'versions').mkdir(parents=True)
             (app / 'env').mkdir()
             (app / 'compose').mkdir()
-            (app / 'Makefile').write_bytes((ROOT / 'templates/project/Makefile').read_bytes())
+            (app / 'Makefile').write_bytes((ROOT / 'templates/shared/Makefile').read_bytes())
             (app / 'env/common.env').write_text(f'PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=app/database/schema\n')
             (app / 'env/local.env').write_text('DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=doctrine-test-only\n')
             (config / 'migrations.php').write_bytes((ROOT / 'templates/grouped/database/doctrine/migrations.php').read_bytes())

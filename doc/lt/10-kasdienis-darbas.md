@@ -168,13 +168,4 @@ Bitbucket projekte norėdamas privalomų aplikacijos patikrų, paruošk atskirą
 
 ## Seno projekto perkėlimas
 
-Generatoriaus `--from-legacy` kopijuoja seno `app/docker` `.env` ir palaikomus nustatymus į naują vietą. Jis neperkelia veikiančių konteinerių, DB ar aplikacijos ir neinterpretuoja savavališko seno Dockerfile.
-
-```bash
-cd ~/Projects/setup
-python3 prepare_project.py --from-legacy --check ../senas-projektas
-```
-
-Numatytai gaunama `<projektas>/docker` vieta. Jei nori `<projektas>/app`, pasirink `--layout app` ir peržiūrėk persidengiančius esamus failus. Nevykdyk migravimo komandos jau sutvarkytai Forsenai vien tam, kad „atnaujintum viską“.
-
-Senas `new_host.sh`, `docker/Makefile`, `docker/Makefile.local` ir `db-init.sh` lieka istoriniam workflow. Jo `make up` ir DB inicializavimas turi kitą veikimą, gali gaminti atvaizdus bei interaktyviai siūlyti ištrinti DB. Dabartinio vadovo komandos skirtos projekto Makefile, kuris įtraukia `setup/docker/project.mk`.
+Senasis kelias (`new_host.sh`, `docker/Makefile`, `docker/Makefile.local`, `db-init.sh`) pašalintas setup v2. Seną projektą perkeliant reikia sukurti `env/` + `compose/` šaltinius pagal naują struktūrą; automatinio perkėlimo įrankio nėra. Paskutinis su senuoju keliu suderinamas setup commit'as – `f9c4da9`.

@@ -24,10 +24,11 @@ class FixturesIntegrationTest(unittest.TestCase):
             root = Path(temporary)
             directory = root / "docker"
             directory.mkdir()
-            (directory / ".env").write_text(f"PROJECT_NAME={root.name}\nFIXTURES_DIRECTORY=database/fixtures\nPOST_IMPORT_SQL_DIRECTORY=database/hooks\n")
-            (directory / ".env.local").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=fixture-test-only\nCOMPOSE_PROFILES=\n")
+            (directory / "env").mkdir(); (directory / "compose").mkdir()
+            (directory / "env/common.env").write_text(f"PROJECT_NAME={root.name}\nFIXTURES_DIRECTORY=database/fixtures\nPOST_IMPORT_SQL_DIRECTORY=database/hooks\n")
+            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=fixture-test-only\nCOMPOSE_PROFILES=\n")
             (directory / "Makefile").write_text(f"PROJECT_DOCKER_DIRECTORY := $(CURDIR)\nSETUP_DIRECTORY := {ROOT}\ninclude $(SETUP_DIRECTORY)/docker/project.mk\n")
-            (directory / "compose.yaml").write_text("""services:
+            (directory / "compose/base.yaml").write_text("""services:
   database:
     image: __DB_TEST_IMAGE__
     network_mode: none
@@ -42,7 +43,7 @@ class FixturesIntegrationTest(unittest.TestCase):
             # Exercise the shared first-start hook even with an official CI image.
             # MYSQL_HOST previously broke its explicit socket connection.
             engine = 'mariadb' if 'mariadb' in os.environ.get('SETUP_DB_TEST_IMAGE', '') else 'mysql'
-            with (directory / 'compose.yaml').open('a') as compose:
+            with (directory / 'compose/base.yaml').open('a') as compose:
                 compose.write('      MYSQL_HOST: 127.0.0.1\n')
                 compose.write(f'    volumes:\n      - {ROOT}/docker/docker/{engine}/conf/init.sh:/docker-entrypoint-initdb.d/01-init-app-user.sh:ro\n')
             fixtures = root / "database/fixtures"

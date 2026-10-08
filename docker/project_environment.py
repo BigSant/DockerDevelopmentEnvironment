@@ -10,8 +10,7 @@ import subprocess
 
 def initialize_env(directory, environment):
     directory = Path(directory).resolve()
-    grouped = (directory / "env/common.env").is_file()
-    private = directory / (f"env/{environment}.env" if grouped else f".env.{environment}")
+    private = directory / f"env/{environment}.env"
     if private.exists():
         return
     example = private.with_name(private.name + ".example")

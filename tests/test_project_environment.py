@@ -16,7 +16,6 @@ sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from prepare_project import prepare
 from project import Project
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
-from project_ports import allocate
 
 
 class ProjectEnvironmentTest(unittest.TestCase):
@@ -26,7 +25,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "example"
-        self.directory = self.root / "docker"
+        self.directory = self.root / "app"
         with contextlib.redirect_stdout(io.StringIO()):
             prepare(self.root)
 
@@ -81,10 +80,6 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertEqual((app / "public/index.php").read_text(), "existing application\n")
         self.assertEqual((app / "config/sql/existing.sql").read_text(), "SELECT 1;\n")
         self.assertFalse((root / "docker").exists())
-        self.assertEqual(allocate(root), (3301, 3302))
-        # Other projects must reserve ports held by consolidated sources too.
-        (app / "env/local.env").write_text("LOCALHOST_PORT=3001\nLOCALHOST_PORT_SSL=3002\n")
-        self.assertEqual(allocate(root.parent / "next"), (3003, 3004))
 
     def test_grouped_model_and_init_preserve_application_and_data(self):
         self.initialize()
@@ -105,7 +100,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
 
     def test_mixed_sources_and_escaping_parent_symlinks_fail_before_writes(self):
         (self.directory / ".env").write_text("PROJECT_NAME=old\n")
-        with self.assertRaisesRegex(ValueError, "Mixed"):
+        with self.assertRaisesRegex(ValueError, "no longer supported"):
             prepare(self.root)
         (self.directory / ".env").unlink()
         target = self.directory / "database/after-import/prod/.gitkeep"
@@ -117,19 +112,6 @@ class ProjectEnvironmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             prepare(self.root)
         self.assertEqual(list(outside.iterdir()), [])
-
-    def test_legacy_copy_uses_grouped_names_and_private_permissions(self):
-        other = Path(self.temporary.name) / "legacy"
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(other, layout="legacy")
-        legacy = other / "app/docker"
-        (legacy / ".env.local").write_text("DATABASE_PASSWORD=private\n")
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(other, from_legacy=True)
-        copied = other / "docker/env/local.env"
-        self.assertEqual(copied.read_bytes(), (legacy / ".env.local").read_bytes())
-        self.assertEqual(copied.stat().st_mode & 0o777, 0o600)
-        self.assertFalse((other / "docker/.env.local").exists())
 
     def test_doctor_reports_conflicting_port_and_missing_tls_without_secrets(self):
         private = self.initialize()

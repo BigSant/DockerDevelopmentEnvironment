@@ -158,7 +158,7 @@ def initialize_test(project, refresh=False):
     if destination.is_symlink(): raise ValueError('Test application must not be a symlink')
     marker = root / 'initialized'
     if destination.exists() and not marker.exists(): raise ValueError('Unmanaged test checkout exists; preserved')
-    env_file = project.directory / ('env/test.env' if (project.directory/'env/common.env').exists() else '.env.test')
+    env_file = project.directory / 'env/test.env'
     if not env_file.exists():
         ports = available_ports(project)
         domain = project.settings['PROJECT_NAME'].replace('_', '-')+'.test.local'

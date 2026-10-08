@@ -198,6 +198,6 @@ Tada `DOCUMENT_ROOT=public`. Aplikacijos checkout vieta nesikeičia; pasikeičia
 
 Naujam projektui generatoriaus automatinis pasirinkimas yra `root`. Norėdamas Forsenos išdėstymo, aiškiai naudok `--layout app`.
 
-Taip pat yra du failų grupavimo variantai: `grouped` naudoja `env/` ir `compose/`, o `flat` naudoja `.env`, `.env.local`, `compose.yaml`, `compose.override.yaml`, `compose.local.override.yaml` šalia Makefile. Vienoje vietoje jų nemaišyk. Šis vadovas toliau remiasi `grouped` ir `--layout app`.
+Palaikoma tik viena failų struktūra: `env/` ir `compose/` šalia Makefile (`app/` kataloge, šalia `app/public`).
 
 Senesni QA prijungimai gali rodyti į `app/config/phpstan`, `app/config/php-cs`, `app/config/playwright`, `app/tests/playwright` ir `app/config/doctrine-migrations`. `compose/qa.yaml` bei `compose/doctrine.yaml` juos pakeičia į šiame vadove aprašytus `qa/` ir `database/doctrine/` kelius. Vien perkėlus failus prijungimai nepasikeičia.
