@@ -135,8 +135,12 @@ define('_DB_PREFIX_', 'custom_');
         model=test.model()
         self.assertEqual(model['services']['database']['image'],project.model()['services']['database']['image'])
         self.assertNotEqual(model['services']['database']['container_name'],project.model()['services']['database']['container_name'])
+        before = project.model()['services']
         with (app/'env/local.env').open('a') as file: file.write('NODE_VERSION=18\n')
-        self.assertNotEqual(Project(app).model()['services']['database']['image'], model['services']['database']['image'])
+        after = Project(app).model()['services']
+        # Per-image fingerprints: a PHP build argument renames only the PHP images.
+        self.assertNotEqual(after['php-fpm']['image'], before['php-fpm']['image'])
+        self.assertEqual(after['database']['image'], before['database']['image'])
         override = app/'compose/test.yaml'
         override.write_text('services:\n  database:\n    volumes:\n      - ${PROJECT_DIRECTORY}/data/mysql:/var/lib/mysql\n')
         with self.assertRaisesRegex(ValueError, 'writable mount'): Project(app, 'test')

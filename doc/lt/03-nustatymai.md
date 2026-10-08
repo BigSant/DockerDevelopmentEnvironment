@@ -185,7 +185,7 @@ Prisimink du skirtingus atskaitos taškus: `SCHEMA_DIRECTORY=app/database/schema
 | `BUILD_ENV` | `test` atveju `local`; kitu atveju sutampa su `ENV`. |
 | `IMAGE_ENV` | Tokia pati taisyklė kaip `BUILD_ENV`; testas gali naudoti vietinius atvaizdus. |
 | `HOST_UID`, `HOST_GID` | Komandą vykdančio vartotojo skaitiniai ID. |
-| `SETUP_IMAGE_SUFFIX` | Tuščias arba `-s` ir kontrolinės sumos dalis. |
+| `SETUP_IMAGE_SUFFIX_<SERVISAS>` | Kiekvieno image'o fingerprint'as (`-s` + 12 hex) iš to image'o įvesčių; runner'is nustato pats. |
 | `PHP_INI_SCAN_DIR` | PHP/cron servisų environment nurodyti papildomi ini paieškos katalogai. Savavališkas jo pakeitimas gali išjungti projekto `.ini` skaitymą. |
 | `COMPOSE_DISABLE_ENV_FILE` | `true`; atsitiktinis shell vietos `.env` netampa papildomu šaltiniu. |
 | `BUILDX_NO_DEFAULT_ATTESTATIONS` | `1`; runner nustatyta build parinktis. |

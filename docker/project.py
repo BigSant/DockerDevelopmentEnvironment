@@ -18,7 +18,7 @@ from project_environment import doctor, initialize_directories, initialize_env, 
 from project_ide import initialize_ide, refresh_ide
 from project_health import start_project
 from database_backup import backup_database
-from setup_release import image_suffix, setup_info
+from setup_release import image_suffixes, setup_info, suffix_variable
 from project_policy import DEFAULTS, resolve_policy, validate_configuration
 
 
@@ -97,7 +97,6 @@ class Project:
         policy = resolve_policy(settings, environment)
         settings.update(policy)
         self.process_env.update(policy)
-        self.process_env['SETUP_IMAGE_SUFFIX'] = ''
         for key, attribute in [('DATA_DIRECTORY', 'data_directory'), ('APP_SOURCE_DIRECTORY', 'web_directory')]:
             if settings[key]:
                 path = (self.root / settings[key]).resolve()
@@ -129,9 +128,9 @@ class Project:
         active = json.loads(self.capture(['config', '--format', 'json']))['services']
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0')
-        arguments = {name: service['build'].get('args', {})
-                     for name, service in self.model()['services'].items() if service.get('build')}
-        self.process_env['SETUP_IMAGE_SUFFIX'] = image_suffix(profile, arguments)
+        # One fingerprint per built image, computed from that image's own inputs only.
+        self.image_suffixes = image_suffixes(profile, self.model()['services'])
+        self.process_env.update({suffix_variable(name): value for name, value in self.image_suffixes.items()})
         if environment == 'test':
             self.validate_test_isolation()
 
@@ -184,7 +183,7 @@ def main():
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
-                                           "restart", "composer", "npm", "cache-clear", "db-backup-prune", "runtime-info",
+                                           "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
@@ -201,7 +200,8 @@ def main():
     parser.add_argument('--service', help='One enabled service for logs/restart')
     parser.add_argument('--follow', action='store_true')
     parser.add_argument('--tail', type=int, default=100)
-    parser.add_argument('--apply', action='store_true', help='Apply the backup pruning plan')
+    parser.add_argument('--apply', action='store_true', help='Apply the pruning plan')
+    parser.add_argument('--cache', action='store_true', help='image-prune: include the Docker build cache')
     args = parser.parse_args()
     if args.timeout < 1:
         parser.error('--timeout must be positive')
@@ -218,6 +218,9 @@ def main():
             print(f'Environment: {project.environment}; project: {project.name}; profile: {project.settings["PROFILE"] or "generic"}')
             for key in DEFAULTS:
                 print(f'{key}={project.settings[key]}')
+        elif args.action == 'image-prune':
+            from project_images import prune_images
+            prune_images(project, args.apply, args.cache)
         elif args.action == 'db-backup-prune':
             from project_storage import prune_backups
             prune_backups(project, args.apply)

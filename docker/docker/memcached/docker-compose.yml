@@ -3,7 +3,7 @@
 # memcache/memcached extension is a separate project Dockerfile concern.
 services:
   memcached:
-    image: memcached-${IMAGE_ENV:-${ENV}}-${MEMCACHED_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: memcached-${IMAGE_ENV:-${ENV}}-${MEMCACHED_VERSION}${SETUP_IMAGE_SUFFIX_MEMCACHED:-}
     container_name: ${PROJECT_NAME}-${ENV}-memcached-${MEMCACHED_VERSION}
     mem_limit: ${MEMCACHED_CONTAINER_MEMORY:-256m}
     cpus: ${CONTAINER_CPUS:-2}
@@ -14,6 +14,10 @@ services:
         max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: memcached
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_MEMCACHED:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/memcached/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}

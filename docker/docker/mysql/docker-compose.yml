@@ -1,6 +1,6 @@
 services:
   database:
-    image: mysql-${IMAGE_ENV:-${ENV}}-${MYSQL_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: mysql-${IMAGE_ENV:-${ENV}}-${MYSQL_VERSION}${SETUP_IMAGE_SUFFIX_DATABASE:-}
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
     mem_limit: ${DB_CONTAINER_MEMORY:-2g}
     cpus: ${CONTAINER_CPUS:-2}
@@ -15,6 +15,10 @@ services:
     # project's .env.${ENV} — those win over the Makefile-injected HOST_UID/HOST_GID.
     user: "${DATABASE_UID:-${HOST_UID:-1000}}:${DATABASE_GID:-${HOST_GID:-1000}}"
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: database
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_DATABASE:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}

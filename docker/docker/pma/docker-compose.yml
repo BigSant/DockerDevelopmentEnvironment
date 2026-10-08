@@ -1,6 +1,6 @@
 services:
   pma:
-    image: pma-${IMAGE_ENV:-${ENV}}-${PMA_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: pma-${IMAGE_ENV:-${ENV}}-${PMA_VERSION}${SETUP_IMAGE_SUFFIX_PMA:-}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
     mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
     cpus: ${CONTAINER_CPUS:-2}
@@ -11,6 +11,10 @@ services:
         max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: pma
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PMA:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/pma/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}

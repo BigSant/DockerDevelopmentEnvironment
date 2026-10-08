@@ -1,9 +1,13 @@
 services:
   php-fpm-base:
-    image: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
     container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-fpm-base
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/php-fpm/${PHP_VERSION}/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
@@ -27,7 +31,7 @@ services:
       - network_app
 
   php-fpm:
-    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX:-}
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
     mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
     cpus: ${CONTAINER_CPUS:-2}
@@ -40,12 +44,17 @@ services:
     # Run as the host user so files written to the bind-mounted web dir are host-owned, not root.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-fpm
+        setup.project: ${PROJECT_NAME}
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
       context: ${DOCKERFILE_DIRECTORY}
       dockerfile: ${DOCKERFILE_DIRECTORY}/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
       args:
         ENV: ${BUILD_ENV:-${ENV}}
-        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX:-}
+        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
         PROFILE: ${PROFILE}
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
