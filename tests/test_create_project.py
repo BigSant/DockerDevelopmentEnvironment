@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path.insert(0, str(ROOT))
 from create_project import scaffold, start, main, normalize_name
 from project import Project
@@ -92,7 +94,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(project.profiles, '')
         for environment in ('stage', 'prod', 'test'):
             (app / f'env/{environment}.env').write_text(
-                f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=example\n')
+                REMOTE_LIMITS + f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=example\n')
             other = Project(app, environment)
             self.assertEqual(other.settings['PROFILE'], '')
             self.assertEqual(other.profiles, '')

@@ -2,8 +2,8 @@ services:
   webserver:
     image: webserver-apache-${IMAGE_ENV:-${ENV}}-${APACHE_VERSION}${SETUP_IMAGE_SUFFIX_WEBSERVER:-}
     container_name: ${PROJECT_NAME}-${ENV}-webserver-apache-${APACHE_VERSION}
-    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${WEBSERVER_MEMORY}
+    cpus: ${WEBSERVER_CPUS}
     logging:
       driver: json-file
       options:

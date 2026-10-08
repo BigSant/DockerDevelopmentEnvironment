@@ -35,7 +35,7 @@ class DatabaseProjectInitIntegrationTest(unittest.TestCase):
                             "--tmpfs", "/var/lib/mysql",
                             "-e", "MYSQL_ROOT_PASSWORD=root-test-only", "-e", "MYSQL_DATABASE=example",
                             "-e", "MYSQL_USER=example", "-e", "MYSQL_PASSWORD=example-test-only",
-                            "-e", "DATABASE_NAME=example", "-e", "DOMAIN=shop.local",
+                            "-e", "DATABASE_NAME=example", "-e", "DOMAIN=shop.local", "-e", "DATABASE_BUFFER_POOL=128M",
                             "-v", f"{config}:/etc/mysql/project.d:ro", IMAGE],
                            check=True, capture_output=True)
             self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)

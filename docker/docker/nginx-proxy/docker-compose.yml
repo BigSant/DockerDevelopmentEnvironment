@@ -2,8 +2,8 @@ services:
   nginx-proxy:
     image: nginx-proxy-${IMAGE_ENV:-${ENV}}-${NGINX_VERSION}${SETUP_IMAGE_SUFFIX_NGINX_PROXY:-}
     container_name: ${PROJECT_NAME}-${ENV}-nginx-proxy-${NGINX_VERSION}
-    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${PROXY_MEMORY}
+    cpus: ${PROXY_CPUS}
     logging:
       driver: json-file
       options:

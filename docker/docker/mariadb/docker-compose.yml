@@ -2,8 +2,8 @@ services:
   database:
     image: mariadb-${IMAGE_ENV:-${ENV}}-${MARIADB_VERSION}${SETUP_IMAGE_SUFFIX_DATABASE:-}
     container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
-    mem_limit: ${DB_CONTAINER_MEMORY:-2g}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${DATABASE_MEMORY}
+    cpus: ${DATABASE_CPUS}
     logging:
       driver: json-file
       options:
@@ -31,6 +31,7 @@ services:
       DOMAIN: ${DOMAIN}
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER}
+      DATABASE_BUFFER_POOL: ${DATABASE_BUFFER_POOL}
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_USER: ${DATABASE_USER}

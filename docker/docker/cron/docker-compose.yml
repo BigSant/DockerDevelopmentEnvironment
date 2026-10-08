@@ -24,8 +24,8 @@ services:
         condition: service_healthy
     networks:
       - network_app
-    mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${CRON_MEMORY}
+    cpus: ${CRON_CPUS}
     logging:
       driver: json-file
       options:

@@ -5,8 +5,8 @@ services:
   memcached:
     image: memcached-${IMAGE_ENV:-${ENV}}-${MEMCACHED_VERSION}${SETUP_IMAGE_SUFFIX_MEMCACHED:-}
     container_name: ${PROJECT_NAME}-${ENV}-memcached-${MEMCACHED_VERSION}
-    mem_limit: ${MEMCACHED_CONTAINER_MEMORY:-256m}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${MEMCACHED_MEMORY}
+    cpus: ${MEMCACHED_CPUS}
     logging:
       driver: json-file
       options:
@@ -23,8 +23,8 @@ services:
       target: env-${BUILD_ENV:-${ENV}}
       args:
         MEMCACHED_VERSION: ${MEMCACHED_VERSION}
-    # Cache size in MB; keep it below mem_limit to leave room for connections.
-    command: ["memcached", "-m", "${MEMCACHED_MEMORY:-128}"]
+    # Cache size in MB, derived as ~90% of MEMCACHED_MEMORY unless MEMCACHED_CACHE_MB is set.
+    command: ["memcached", "-m", "${MEMCACHED_CACHE_MB}"]
     healthcheck:
       test: ["CMD-SHELL", "printf 'stats\\r\\nquit\\r\\n' | nc -w 2 127.0.0.1 11211 | grep -q uptime"]
       interval: 10s

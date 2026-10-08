@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path[:0] = [str(ROOT), str(ROOT/'docker')]
 from prepare_project import prepare
 from project import Project
@@ -28,11 +30,11 @@ class PolicyTest(unittest.TestCase):
         self.app=self.root/'app'
         for env in ('local','test','stage','prod'):
             remote = 'ALLOWED_IPS=203.0.113.10\n' if env in ('stage','prod') else ''
-            (self.app/f'env/{env}.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=shop\nDATABASE_PASSWORD=secret-only\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\nCOMPOSE_PROFILES=\n'+remote)
+            (self.app/f'env/{env}.env').write_text(REMOTE_LIMITS + 'DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=shop\nDATABASE_PASSWORD=secret-only\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\nCOMPOSE_PROFILES=\n'+remote)
 
     def test_defaults_and_hybrids_do_not_change_identity_mail_or_images(self):
         for env in ('local','test','stage','prod'):
-            policy=resolve_policy({},env)
+            policy=resolve_policy({'PHP_MEMORY':'1g','PHP_CPUS':'1','DATABASE_MEMORY':'2g','DATABASE_CPUS':'1','WEBSERVER_MEMORY':'256m','WEBSERVER_CPUS':'1','PROXY_MEMORY':'128m','PROXY_CPUS':'0.5'} if env in ('stage','prod') else {},env)
             self.assertEqual(policy['CACHE_MODE'], 'off' if env in ('local','test') else 'on')
             self.assertEqual(policy['MAIL_MODE'], 'preserve' if env=='prod' else 'off')
         local=Project(self.app);before=local.model()

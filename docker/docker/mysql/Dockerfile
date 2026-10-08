@@ -12,8 +12,10 @@ COPY /docker/mysql/conf/my.cnf /etc/mysql/conf.d/my.cnf
 # The read-only mounts are rendered into world-writable project.r* at start (the server
 # runs as the host or service UID); mysqld includes only the rendered copies.
 RUN mkdir -p /etc/mysql/project.d /etc/mysql/project.d.env \
-    && mkdir -m 0777 -p /etc/mysql/project.r /etc/mysql/project.r.env \
-    && printf '\n!includedir /etc/mysql/project.r/\n!includedir /etc/mysql/project.r.env/\n' >> /etc/my.cnf
+    && mkdir -m 0777 -p /etc/mysql/setup.r /etc/mysql/project.r /etc/mysql/project.r.env \
+    && printf '\n!includedir /etc/mysql/setup.r/\n!includedir /etc/mysql/project.r/\n!includedir /etc/mysql/project.r.env/\n' >> /etc/my.cnf
+# CORE settings derived from the container limits (rendered into setup.r at start).
+COPY /docker/mysql/conf/setup.d/ /etc/mysql/setup.d/
 
 # Profile-specific MySQL tuning (PROFILE=prestashop|akeneo|"").
 # conf.d is read alphabetically, so the zz-/zzz- prefixes override the base my.cnf.

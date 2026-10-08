@@ -54,10 +54,12 @@ class OptionalMountsTest(unittest.TestCase):
 
     def test_fpm_ranges_and_pool_relationships(self):
         defaults = resolve_policy({}, 'local')
-        self.assertEqual(defaults['PHP_FPM_MAX_CHILDREN'], '4')
+        # Derived from the 1g local PHP limit: (1024 - 128) / 128 MB per process.
+        self.assertEqual((defaults['PHP_FPM_MAX_CHILDREN'], defaults['PHP_FPM_START_SERVERS'],
+                          defaults['PHP_FPM_MAX_SPARE_SERVERS']), ('7', '1', '3'))
         for settings in ({'PHP_FPM_MAX_CHILDREN':'0'}, {'PHP_FPM_MAX_REQUESTS':'-1'},
-                         {'PHP_FPM_START_SERVERS':'abc'}, {'PHP_FPM_START_SERVERS':'3'},
-                         {'PHP_FPM_MAX_CHILDREN':'1'}):
+                         {'PHP_FPM_START_SERVERS':'abc'}, {'PHP_FPM_START_SERVERS':'9'},
+                         {'PHP_FPM_MAX_CHILDREN':'2', 'PHP_FPM_MAX_SPARE_SERVERS':'3'}):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 resolve_policy(settings, 'local')
-        self.assertEqual(resolve_policy({'PHP_FPM_MAX_REQUESTS':'0'}, 'prod')['PHP_FPM_MAX_REQUESTS'], '0')
+        self.assertEqual(resolve_policy({'PHP_FPM_MAX_REQUESTS':'0', **{'PHP_MEMORY':'1g','PHP_CPUS':'1','DATABASE_MEMORY':'2g','DATABASE_CPUS':'1','WEBSERVER_MEMORY':'256m','WEBSERVER_CPUS':'1','PROXY_MEMORY':'128m','PROXY_CPUS':'0.5'}}, 'prod')['PHP_FPM_MAX_REQUESTS'], '0')

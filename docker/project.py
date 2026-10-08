@@ -19,7 +19,7 @@ from project_ide import initialize_ide, refresh_ide
 from project_health import start_project
 from database_backup import backup_database
 from setup_release import image_suffixes, setup_info, suffix_variable
-from project_policy import DEFAULTS, resolve_policy, validate_configuration
+from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolve_policy, suggested_limits, validate_configuration
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -40,6 +40,19 @@ def validate_project_dockerfile(path):
     first_from = next((line for line in instructions if line.upper().startswith('FROM ')), '')
     if not re.fullmatch(r'FROM\s+\$\{?SETUP_PHP_IMAGE\}?(\s+AS\s+\S+)?', first_from, re.I):
         raise ValueError(f"{path} must extend the CORE image: start with 'ARG SETUP_PHP_IMAGE' and 'FROM ${{SETUP_PHP_IMAGE}}'")
+
+
+def limit_suggestion(error):
+    """Values to start from, read from the Docker engine the command targets."""
+    try:
+        result = subprocess.run(["docker", "info", "--format", "{{.MemTotal}} {{.NCPU}}"],
+                                capture_output=True, text=True, timeout=20)
+        total, cpus = (int(v) for v in result.stdout.split())
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return f"Set them in env/{error.environment}.env (Docker host size unknown)."
+    lines = [f"{key}={value}" for key, value in suggested_limits(total, cpus).items() if key in error.missing]
+    return (f"Suggested for this Docker host ({total / 1024 ** 3:.1f} GiB RAM, {cpus} CPUs, one project; "
+            f"divide when several projects share it):\n  " + "\n  ".join(lines))
 
 
 def project_root(directory):
@@ -81,7 +94,7 @@ class Project:
         for key in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "COMPOSE_PROFILES",
                     "COMPOSE_ENV_FILES", "ENV_FILE"):
             self.process_env.pop(key, None)
-        for key in DEFAULTS:
+        for key in (*DEFAULTS, *LEGACY_RESOURCE_KEYS):
             self.process_env.pop(key, None)
         self.process_env.update({
             "ROOT_DIRECTORY": str(DOCKER_ROOT),
@@ -110,7 +123,10 @@ class Project:
         if profile == 'ps': profile = 'prestashop'
         settings['PROFILE'] = profile
         self.process_env['PROFILE'] = profile
-        policy = resolve_policy(settings, environment)
+        try:
+            policy = resolve_policy(settings, environment)
+        except MissingLimits as error:
+            raise ValueError(f"{error}\n{limit_suggestion(error)}") from None
         settings.update(policy)
         self.process_env.update(policy)
         for key, attribute in [('DATA_DIRECTORY', 'data_directory'), ('APP_SOURCE_DIRECTORY', 'web_directory')]:

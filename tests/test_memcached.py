@@ -8,6 +8,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path[:0] = [str(ROOT), str(ROOT / 'docker')]
 from create_project import scaffold
 from project import Project
@@ -27,14 +29,15 @@ class MemcachedServiceTest(unittest.TestCase):
   - ${ROOT_DIRECTORY}/docker/memcached/docker-compose.yml
 ''')
             (app / 'env/prod.env').write_text(
-                'DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_PASSWORD=test\n')
+                REMOTE_LIMITS + 'DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_PASSWORD=test\n')
             for environment in ('local', 'prod'):
                 services = json.loads(Project(app, environment).capture(['config', '--format', 'json']))['services']
                 self.assertEqual('memcached' in services, environment == 'local')
             memcached = json.loads(Project(app, 'local').capture(['config', '--format', 'json']))['services']['memcached']
             self.assertNotIn('ports', memcached)
             self.assertNotIn('profiles', memcached)
-            self.assertEqual(memcached['command'], ['memcached', '-m', '128'])
+            # ~90% of the 256m default container limit; the old numeric MEMCACHED_MEMORY stays the cache size.
+            self.assertEqual(memcached['command'], ['memcached', '-m', '230'])
             self.assertEqual(memcached['container_name'], 'cache-demo-local-memcached-1.6.45')
             self.assertIn('network_app', memcached['networks'])
 

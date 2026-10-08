@@ -13,6 +13,8 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "docker"))
 from prepare_project import prepare
@@ -115,7 +117,7 @@ class ProjectTemplatesTest(unittest.TestCase):
     def test_environment_override_and_multiline_value_do_not_confuse_settings(self):
         _, directory = self.prepare(extra="COMPOSE_PROFILES=\n")
         (directory / "env/stage.env").write_text(
-            "DOMAIN=stage.example.test\nLOCALHOST_PORT=3401\nLOCALHOST_PORT_SSL=3402\n"
+            REMOTE_LIMITS + "DOMAIN=stage.example.test\nLOCALHOST_PORT=3401\nLOCALHOST_PORT_SSL=3402\n"
             "DATABASE_PASSWORD='line one\nCOMPOSE_PROFILES=cron\nline three'\n")
         project = Project(directory, environment="stage")
         self.assertEqual(project.name, "example-stage")
@@ -202,7 +204,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         with (directory / "env/common.env").open("a") as handle:
             handle.write("PHP_VERSION=8.1\nPROJECT_COMPOSE_FILES=compose/redis.yaml\n")
         (directory / "env/prod.env").write_text(
-            "DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\nCOMPOSE_PROFILES=\n")
+            REMOTE_LIMITS + "DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\nCOMPOSE_PROFILES=\n")
         (directory / "compose/redis.yaml").write_text(
             "services:\n  redis:\n    image: redis:7.4-alpine\n    networks: [network_app]\n")
         (directory / "compose/local.yaml").write_text(
@@ -225,7 +227,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         _, directory = self.prepare()
         (directory / "Dockerfile").write_text(
             "# extension\nARG SETUP_PHP_IMAGE\nFROM ${SETUP_PHP_IMAGE}\nRUN echo extra\n")
-        (directory / "env/prod.env").write_text("DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\n")
+        (directory / "env/prod.env").write_text(REMOTE_LIMITS + "DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\n")
         for env in ("local", "prod"):
             project = Project(directory, environment=env)
             services = project.model()["services"]

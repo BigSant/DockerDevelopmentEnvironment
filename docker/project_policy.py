@@ -12,16 +12,103 @@ DEFAULTS = {
     'PS_SMARTY_CACHE': 'auto', 'PS_SMARTY_COMPILE': 'auto', 'PS_ASSET_CACHE': 'auto',
     'PS_OBJECT_CACHE': 'auto', 'MAIL_MODE': 'auto', 'HTTP_FORCE_HTTPS': 'auto',
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
-    'PHP_CONTAINER_MEMORY': '1g', 'DB_CONTAINER_MEMORY': '2g',
-    'WEB_CONTAINER_MEMORY': '256m', 'CONTAINER_CPUS': '2',
     'CONTAINER_LOG_MAX_SIZE': '10m', 'CONTAINER_LOG_MAX_FILES': '3',
     'MIN_FREE_DISK_MB': '1024', 'BACKUP_KEEP_LAST': '5',
-    'PHP_FPM_MAX_CHILDREN': '4',
-    'PHP_FPM_START_SERVERS': '1',
-    'PHP_FPM_MIN_SPARE_SERVERS': '1',
-    'PHP_FPM_MAX_SPARE_SERVERS': '2',
+    # Empty pool sizes are derived from PHP_MEMORY; explicit values win.
+    'PHP_FPM_MAX_CHILDREN': '',
+    'PHP_FPM_START_SERVERS': '',
+    'PHP_FPM_MIN_SPARE_SERVERS': '',
+    'PHP_FPM_MAX_SPARE_SERVERS': '',
     'PHP_FPM_MAX_REQUESTS': '500',
+    'PHP_FPM_PROCESS_MEMORY': '128m',
+    'DATABASE_BUFFER_POOL': '',
+    'MEMCACHED_CACHE_MB': '',
 }
+
+# <SERVICE>_MEMORY / <SERVICE>_CPUS with local-machine defaults; stage/prod set them per server.
+RESOURCES = {
+    'PHP': ('1g', '2'), 'DATABASE': ('2g', '2'), 'WEBSERVER': ('256m', '1'), 'PROXY': ('128m', '0.5'),
+    'CRON': ('512m', '1'), 'MEMCACHED': ('256m', '0.5'), 'PMA': ('256m', '0.5'), 'MAILPIT': ('256m', '0.5'),
+}
+REMOTE_REQUIRED = ('PHP', 'DATABASE', 'WEBSERVER', 'PROXY')
+# Previous shared names remain accepted as fallbacks during the transition.
+MEMORY_ALIASES = {
+    'PHP': 'PHP_CONTAINER_MEMORY', 'CRON': 'PHP_CONTAINER_MEMORY', 'PMA': 'PHP_CONTAINER_MEMORY',
+    'DATABASE': 'DB_CONTAINER_MEMORY', 'WEBSERVER': 'WEB_CONTAINER_MEMORY', 'PROXY': 'WEB_CONTAINER_MEMORY',
+    'MAILPIT': 'WEB_CONTAINER_MEMORY', 'MEMCACHED': 'MEMCACHED_CONTAINER_MEMORY',
+}
+LEGACY_RESOURCE_KEYS = ('PHP_CONTAINER_MEMORY', 'DB_CONTAINER_MEMORY', 'WEB_CONTAINER_MEMORY',
+                        'MEMCACHED_CONTAINER_MEMORY', 'CONTAINER_CPUS')
+for _name, (_memory, _cpus) in RESOURCES.items():
+    DEFAULTS[f'{_name}_MEMORY'] = ''
+    DEFAULTS[f'{_name}_CPUS'] = ''
+
+
+class MissingLimits(ValueError):
+    def __init__(self, environment, missing):
+        self.environment, self.missing = environment, missing
+        super().__init__(f'{environment} requires explicit container limits: {", ".join(missing)}')
+
+
+def megabytes(size):
+    match = re.fullmatch(r'([1-9]\d*)([kmg])', size)
+    if not match:
+        raise ValueError(f'Invalid size {size!r}; use a value such as 256m or 2g')
+    return int(match[1]) * {'k': 1 / 1024, 'm': 1, 'g': 1024}[match[2]]
+
+
+def resolve_resources(settings, values, environment):
+    """Container limits per service and the internal sizes derived from them."""
+    get = lambda key: str(settings.get(key) or '')
+    missing = []
+    legacy_cache = ''
+    for name, (memory, cpus) in RESOURCES.items():
+        explicit_memory = get(f'{name}_MEMORY') or get(MEMORY_ALIASES.get(name, ''))
+        if name == 'MEMCACHED' and re.fullmatch(r'\d+', explicit_memory):
+            # The former MEMCACHED_MEMORY was the cache size in MB, not a container limit.
+            legacy_cache, explicit_memory = explicit_memory, get('MEMCACHED_CONTAINER_MEMORY')
+        explicit_cpus = get(f'{name}_CPUS') or get('CONTAINER_CPUS')
+        if environment in ('stage', 'prod') and name in REMOTE_REQUIRED:
+            missing += [f'{name}_{kind}' for kind, value in (('MEMORY', explicit_memory), ('CPUS', explicit_cpus)) if not value]
+        values[f'{name}_MEMORY'] = explicit_memory or memory
+        values[f'{name}_CPUS'] = explicit_cpus or cpus
+    if missing:
+        raise MissingLimits(environment, missing)
+    for name in RESOURCES:
+        megabytes(values[f'{name}_MEMORY'])
+        cpus = values[f'{name}_CPUS']
+        if not re.fullmatch(r'\d+(?:\.\d+)?', cpus) or not 0 < float(cpus) <= 1024:
+            raise ValueError(f'{name}_CPUS must be greater than 0 and at most 1024')
+    if not values['DATABASE_BUFFER_POOL']:
+        values['DATABASE_BUFFER_POOL'] = f"{max(64, int(megabytes(values['DATABASE_MEMORY']) * 0.6))}M"
+    if not re.fullmatch(r'[1-9]\d*[KMG]?', values['DATABASE_BUFFER_POOL']):
+        raise ValueError('DATABASE_BUFFER_POOL must be a size such as 1228M or 12G')
+    values['MEMCACHED_CACHE_MB'] = values['MEMCACHED_CACHE_MB'] or legacy_cache or str(
+        max(16, int(megabytes(values['MEMCACHED_MEMORY']) * 0.9)))
+    if not re.fullmatch(r'[1-9]\d*', values['MEMCACHED_CACHE_MB']):
+        raise ValueError('MEMCACHED_CACHE_MB must be a positive number of megabytes')
+    process = megabytes(values['PHP_FPM_PROCESS_MEMORY'])
+    children = values['PHP_FPM_MAX_CHILDREN'] or str(
+        min(256, max(2, int((megabytes(values['PHP_MEMORY']) - 128) // process))))
+    if re.fullmatch(r'\d+', children):
+        count = int(children)
+        spare = max(1, count // 4)
+        defaults = {'PHP_FPM_MAX_CHILDREN': children, 'PHP_FPM_START_SERVERS': str(spare),
+                    'PHP_FPM_MIN_SPARE_SERVERS': str(spare), 'PHP_FPM_MAX_SPARE_SERVERS': str(max(spare, count // 2))}
+        for key, value in defaults.items():
+            values[key] = values[key] or value
+    return values
+
+
+def suggested_limits(total_bytes, cpus):
+    """Starting limits for a server dedicated to one project (divide when shared)."""
+    total = total_bytes / 1024 ** 2
+    size = lambda share, floor: f'{max(floor, int(total * share // 64 * 64))}m'
+    cpu = lambda share, floor: f'{max(floor, round(cpus * share * 2) / 2):g}'
+    return {'PHP_MEMORY': size(0.30, 512), 'PHP_CPUS': cpu(0.5, 1),
+            'DATABASE_MEMORY': size(0.45, 1024), 'DATABASE_CPUS': cpu(0.5, 1),
+            'WEBSERVER_MEMORY': size(0.04, 256), 'WEBSERVER_CPUS': cpu(0.25, 0.5),
+            'PROXY_MEMORY': size(0.02, 128), 'PROXY_CPUS': cpu(0.125, 0.5)}
 
 
 def choice(settings, name, allowed):
@@ -32,7 +119,8 @@ def choice(settings, name, allowed):
 
 
 def resolve_policy(settings, environment):
-    values = {key: str(settings.get(key, default)) for key, default in DEFAULTS.items()}
+    # An empty setting means 'not set': the default applies.
+    values = {key: str(settings.get(key) or default) for key, default in DEFAULTS.items()}
     development = environment in ('local', 'test')
     cache = choice(values, 'CACHE_MODE', ('auto', 'off', 'on'))
     values['CACHE_MODE'] = ('off' if development else 'on') if cache == 'auto' else cache
@@ -54,11 +142,15 @@ def resolve_policy(settings, environment):
             raise ValueError(f'{name} must be an integer between 0 and 1000000')
     if int(values['BACKUP_KEEP_LAST']) < 1 or int(values['CONTAINER_LOG_MAX_FILES']) < 1:
         raise ValueError('BACKUP_KEEP_LAST and CONTAINER_LOG_MAX_FILES must be positive')
-    for name in ('PHP_CONTAINER_MEMORY', 'DB_CONTAINER_MEMORY', 'WEB_CONTAINER_MEMORY', 'CONTAINER_LOG_MAX_SIZE'):
-        if not re.fullmatch(r'[1-9]\d*[kmg]', values[name]):
-            raise ValueError(f'{name} must be a positive size such as 256m or 2g')
-    if not re.fullmatch(r'\d+(?:\.\d+)?', values['CONTAINER_CPUS']) or not 0 < float(values['CONTAINER_CPUS']) <= 1024:
+    if not re.fullmatch(r'[1-9]\d*[kmg]', values['CONTAINER_LOG_MAX_SIZE']):
+        raise ValueError('CONTAINER_LOG_MAX_SIZE must be a positive size such as 10m')
+    for name in LEGACY_RESOURCE_KEYS[:-1]:
+        if settings.get(name):
+            megabytes(str(settings[name]))
+    if settings.get('CONTAINER_CPUS') and (not re.fullmatch(r'\d+(?:\.\d+)?', str(settings['CONTAINER_CPUS']))
+                                           or not 0 < float(settings['CONTAINER_CPUS']) <= 1024):
         raise ValueError('CONTAINER_CPUS must be greater than 0 and at most 1024')
+    resolve_resources(settings, values, environment)
     for name in ('PHP_FPM_MAX_CHILDREN', 'PHP_FPM_START_SERVERS', 'PHP_FPM_MIN_SPARE_SERVERS',
                  'PHP_FPM_MAX_SPARE_SERVERS', 'PHP_FPM_MAX_REQUESTS'):
         if not re.fullmatch(r'\d+', values[name]) or not 0 <= int(values[name]) <= 100000:

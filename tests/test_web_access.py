@@ -10,6 +10,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path[:0] = [str(ROOT), str(ROOT / 'docker')]
 from create_project import scaffold
 from project import Project
@@ -87,7 +89,7 @@ class RunnerAccessTest(unittest.TestCase):
         with (self.app / 'env/common.env').open('a') as env:
             env.write('SERVICES=pma mailpit\n')
         (self.app / 'env/stage.env').write_text(
-            'DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_PASSWORD=test\n')
+            REMOTE_LIMITS + 'DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_PASSWORD=test\n')
 
     def test_stage_tools_require_an_allowlist(self):
         with self.assertRaisesRegex(ValueError, 'pma on stage requires PMA_ALLOWED_IPS or ALLOWED_IPS'):
