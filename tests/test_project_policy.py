@@ -27,7 +27,8 @@ class PolicyTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()): prepare(self.root, layout='app')
         self.app=self.root/'app'
         for env in ('local','test','stage','prod'):
-            (self.app/f'env/{env}.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=shop\nDATABASE_PASSWORD=secret-only\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\nCOMPOSE_PROFILES=\n')
+            remote = 'ALLOWED_IPS=203.0.113.10\n' if env in ('stage','prod') else ''
+            (self.app/f'env/{env}.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=shop\nDATABASE_PASSWORD=secret-only\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\nCOMPOSE_PROFILES=\n'+remote)
 
     def test_defaults_and_hybrids_do_not_change_identity_mail_or_images(self):
         for env in ('local','test','stage','prod'):

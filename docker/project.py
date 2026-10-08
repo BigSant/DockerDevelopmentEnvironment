@@ -28,6 +28,8 @@ SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'playwright', 'php-p
                      'php-doctrine-migrations')
 # Long-running catalogue services start with `up`; the others are tools started by their command.
 RUNTIME_PROFILES = {'cron': 'cron'}
+# Web tools that stage/prod start only behind a client IP allowlist.
+ALLOWLISTED_TOOLS = ('pma', 'mailpit')
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
 
 
@@ -154,6 +156,10 @@ class Project:
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
         active = json.loads(self.capture(['config', '--format', 'json']))['services']
+        if environment in ('stage', 'prod'):
+            for tool in ALLOWLISTED_TOOLS:
+                if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
+                    raise ValueError(f'{tool} on {environment} requires {tool.upper()}_ALLOWED_IPS or ALLOWED_IPS')
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0')
         # One fingerprint per built image, computed from that image's own inputs only.

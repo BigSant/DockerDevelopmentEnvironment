@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: python3 -m unittest discover -s tests -v
-      - run: docker build -t setup-pma-access-test --build-arg NGINX_VERSION=1.26.0 --target env-local -f docker/docker/nginx-proxy/Dockerfile docker
-      - run: python3 -m unittest discover -s tests -p 'test_pma_access_integration.py' -v
+      - run: docker build -t setup-web-access-test --build-arg NGINX_VERSION=1.26.0 --target env-local -f docker/docker/nginx-proxy/Dockerfile docker
+      - run: python3 -m unittest discover -s tests -p 'test_web_access_integration.py' -v
         env:
-          SETUP_NGINX_TEST_IMAGE: setup-pma-access-test
+          SETUP_NGINX_TEST_IMAGE: setup-web-access-test
       - run: docker build -t setup-mysql-test --build-arg MYSQL_VERSION=8.4.0 --target env-local -f docker/docker/mysql/Dockerfile docker
       - run: python3 -m unittest discover -s tests -p 'test_database_project_init_integration.py' -v
         env:

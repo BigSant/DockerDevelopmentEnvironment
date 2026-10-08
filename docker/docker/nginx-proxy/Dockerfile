@@ -10,8 +10,8 @@ COPY /docker/nginx-proxy/conf/sites.pma.conf /etc/nginx/templates/setup-pma.conf
 COPY /docker/nginx-proxy/conf/sites.mailpit.conf /etc/nginx/templates/setup-mailpit.conf
 
 COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh
-COPY /docker/nginx-proxy/conf/pma-access.sh /usr/local/bin/pma-access.sh
-RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/pma-access.sh
+COPY /docker/nginx-proxy/conf/access.sh /usr/local/bin/access.sh
+RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/access.sh
 
 # Per-project drop-in dirs (bind-mounted read-only at runtime) and their rendered copies.
 # project.d = always, project.d.env = ENV-match; nginx includes the rendered project.r*.

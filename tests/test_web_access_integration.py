@@ -12,7 +12,7 @@ IMAGE = os.environ.get('SETUP_NGINX_TEST_IMAGE')
 
 
 @unittest.skipUnless(IMAGE, 'Set SETUP_NGINX_TEST_IMAGE to a built shared nginx-proxy image')
-class PmaAccessIntegrationTest(unittest.TestCase):
+class WebAccessIntegrationTest(unittest.TestCase):
     def docker(self, *args):
         return subprocess.run(['docker', *args], capture_output=True, text=True,
                               timeout=30, check=True).stdout.strip()
@@ -44,8 +44,8 @@ class PmaAccessIntegrationTest(unittest.TestCase):
         self.docker('run', '-d', '--name', name, '--network', self.network, '--memory', '128m',
                     '-v', f'{self.root}:/etc/ssl/certs:ro',
                     '-e', 'SETUP_ENABLE_PMA=1', '-e', f'SETUP_ENVIRONMENT={environment}',
-                    '-e', f'PMA_ALLOWED_IPS={allowed}', '-e', f'PMA_TRUSTED_PROXIES={trusted}',
-                    IMAGE, '/usr/local/bin/init.sh', 'demo.local', 'allow all;', '60')
+                    '-e', f'PMA_ALLOWED_IPS={allowed}', '-e', f'TRUSTED_PROXIES={trusted}',
+                    IMAGE, '/usr/local/bin/init.sh', 'demo.local', '60')
         return name
 
     def status(self, name, scheme='http', host='pma.demo.local', forwarded=None, address='127.0.0.1'):
@@ -73,15 +73,17 @@ class PmaAccessIntegrationTest(unittest.TestCase):
                 self.assertEqual(self.status(name, scheme, 'demo.local'), '200')
 
     def test_ipv4_cidr_and_ipv6_allowlist_and_local_access(self):
-        for environment, allowed in [('prod', '127.0.0.0/8,::1'), ('local', '203.0.113.10'),
-                                     ('test', '203.0.113.10')]:
+        for environment, allowed in [('prod', '127.0.0.0/8,::1'), ('local', ''), ('test', '')]:
             name = self.start(environment, allowed)
             for scheme in ('http', 'https'):
                 self.assertEqual(self.status(name, scheme), '200')
                 self.assertEqual(self.status(name, scheme, address='[::1]'), '200')
+        # A list restricts local too.
+        name = self.start('local', '203.0.113.10', '192.0.2.1')
+        self.assertEqual(self.status(name), '403')
 
     def test_forwarded_ip_requires_a_trusted_proxy_and_cannot_spoof_the_chain(self):
-        untrusted = self.start('stage', '203.0.113.10')
+        untrusted = self.start('stage', '203.0.113.10', '192.0.2.1')
         trusted = self.start('stage', '203.0.113.10', '127.0.0.1')
         for scheme in ('http', 'https'):
             self.assertEqual(self.status(untrusted, scheme, forwarded='203.0.113.10'), '403')
