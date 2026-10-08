@@ -30,6 +30,30 @@ services:
     networks:
       - network_app
 
+  # CORE project layer (profile overlay, rendered drop-in directories); built before php-fpm.
+  php-fpm-core:
+    image: ${PROJECT_NAME}-php-fpm-core-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
+    build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-fpm-core
+        setup.project: ${PROJECT_NAME}
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/Dockerfile
+      target: env-${BUILD_ENV:-${ENV}}
+      args:
+        ENV: ${BUILD_ENV:-${ENV}}
+        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
+        PROFILE: ${PROFILE}
+        PHP_VERSION: ${PHP_VERSION}
+        XDEBUG_VERSION: ${XDEBUG_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
+    profiles:
+      - build_only
+    networks:
+      - network_app
+
   php-fpm:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
@@ -49,20 +73,19 @@ services:
         setup.service: php-fpm
         setup.project: ${PROJECT_NAME}
         setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+      # The project Dockerfile (or the CORE pass-through) extends the CORE image only.
       context: ${DOCKERFILE_DIRECTORY}
       dockerfile: ${DOCKERFILE_DIRECTORY}/Dockerfile
-      target: env-${BUILD_ENV:-${ENV}}
       args:
-        ENV: ${BUILD_ENV:-${ENV}}
-        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
-        PROFILE: ${PROFILE}
         PHP_VERSION: ${PHP_VERSION}
-        XDEBUG_VERSION: ${XDEBUG_VERSION}
-        COMPOSER_VERSION: ${COMPOSER_VERSION}
-        NODE_VERSION: ${NODE_VERSION}
+        SETUP_PHP_IMAGE: ${PROJECT_NAME}-php-fpm-core-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
     entrypoint: ["/bin/sh", "/opt/setup/runtime/start.sh"]
     command: ["php-fpm", "-R"]
     environment:
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
       # The host UID may have HOME=/; package managers need writable directories.
       NPM_CONFIG_CACHE: ${NPM_CONFIG_CACHE:-/tmp/setup-npm-cache}
       COMPOSER_HOME: ${COMPOSER_HOME:-/tmp/setup-composer}
@@ -95,7 +118,7 @@ services:
       PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE:-20M}
       # Per-project PHP overrides: default conf.d first, then project.d (always),
       # then project.d.env (ENV-match) — last wins.
-      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
+      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.r:/usr/local/etc/php/project.r.env"
     networks:
       - network_app
     extra_hosts:

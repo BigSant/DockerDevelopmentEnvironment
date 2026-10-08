@@ -26,6 +26,15 @@ DOCKER_ROOT = Path(__file__).resolve().parent
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
 
 
+def validate_project_dockerfile(path):
+    """A project Dockerfile may only extend the CORE PHP image, never replace it."""
+    instructions = [line.strip() for line in path.read_text().splitlines()
+                    if line.strip() and not line.strip().startswith('#')]
+    first_from = next((line for line in instructions if line.upper().startswith('FROM ')), '')
+    if not re.fullmatch(r'FROM\s+\$\{?SETUP_PHP_IMAGE\}?(\s+AS\s+\S+)?', first_from, re.I):
+        raise ValueError(f"{path} must extend the CORE image: start with 'ARG SETUP_PHP_IMAGE' and 'FROM ${{SETUP_PHP_IMAGE}}'")
+
+
 def project_root(directory):
     return directory.parent.parent if directory.parent.name == "app" else directory.parent
 
@@ -76,7 +85,7 @@ class Project:
             "PROJECT_DATA_DIRECTORY": str(self.data_directory),
             "PROJECT_DOCKER_DIRECTORY": str(self.directory),
             "DOCKERFILE_DIRECTORY": str(self.directory if (self.directory / "Dockerfile").is_file()
-                                        else DOCKER_ROOT),
+                                        else DOCKER_ROOT / "docker/php-fpm/project"),
             "BUILD_ENV": build_environment, "IMAGE_ENV": build_environment,
             "ENV": environment, "HOST_UID": str(os.getuid()), "HOST_GID": str(os.getgid()),
             "COMPOSE_DISABLE_ENV_FILE": "true",
@@ -106,6 +115,8 @@ class Project:
                     raise ValueError('Test data and code must stay inside .generated/test')
                 setattr(self, attribute, path)
         self.process_env.update(PROJECT_DATA_DIRECTORY=str(self.data_directory), PROJECT_WEB_DIRECTORY=str(self.web_directory))
+        if (self.directory / "Dockerfile").is_file():
+            validate_project_dockerfile(self.directory / "Dockerfile")
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
@@ -260,7 +271,9 @@ def main():
         elif args.action == "config":
             print(project.render())
         elif args.action == "build":
+            # Locally built parents first: base, then the CORE project layer.
             project.run(["build", "php-fpm-base"], profiles="build_only")
+            project.run(["build", "php-fpm-core"], profiles="build_only")
             project.run(["build"])
         elif args.action == "up":
             start_project(project, args.timeout)

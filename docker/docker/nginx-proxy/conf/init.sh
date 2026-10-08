@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Effective project drop-ins: copy and render *.template with this container's environment.
+sh /usr/local/bin/render-templates.sh /etc/nginx/project.d /etc/nginx/project.r /etc/nginx/project.d.env /etc/nginx/project.r.env
+
 : > /etc/nginx/conf.d/sites_env.conf
 if [[ "${SETUP_ENABLE_PMA:-0}" == 1 ]]; then
     /usr/local/bin/pma-access.sh > /etc/nginx/setup-pma-access.conf

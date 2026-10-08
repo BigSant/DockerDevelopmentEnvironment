@@ -23,6 +23,10 @@ services:
         APACHE_VERSION: ${APACHE_VERSION}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${ENV}'
     environment:
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
       HTTP_FORCE_HTTPS: ${HTTP_FORCE_HTTPS:-off}
       CACHE_MODE: ${CACHE_MODE:-off}
     depends_on:

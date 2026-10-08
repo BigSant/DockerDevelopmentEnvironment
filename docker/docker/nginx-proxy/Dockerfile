@@ -13,9 +13,11 @@ COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh
 COPY /docker/nginx-proxy/conf/pma-access.sh /usr/local/bin/pma-access.sh
 RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/pma-access.sh
 
-# Per-project config override dirs (bind-mounted at runtime). Included after conf.d in
-# nginx.conf so project *.conf win. project.d = always, project.d.env = ENV-match.
-RUN mkdir -p /etc/nginx/project.d /etc/nginx/project.d.env
+# Per-project drop-in dirs (bind-mounted read-only at runtime) and their rendered copies.
+# project.d = always, project.d.env = ENV-match; nginx includes the rendered project.r*.
+RUN mkdir -p /etc/nginx/project.d /etc/nginx/project.d.env /etc/nginx/project.r /etc/nginx/project.r.env
+# Renders project drop-ins (*.template) into the effective project.r directories at start.
+COPY /runtime/render-templates.sh /usr/local/bin/render-templates.sh
 
 RUN mkdir -p /var/www/html
 WORKDIR /var/www/html

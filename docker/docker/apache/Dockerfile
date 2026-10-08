@@ -20,9 +20,12 @@ RUN echo 'IncludeOptional /usr/local/apache2/conf/profile/*.conf' >> /usr/local/
 
 # Per-project Apache config override (bind-mounted at runtime). Loaded AFTER the profile
 # include so project .conf files win. project/ = always, project.env/ = ENV-match.
+# The read-only mounts are rendered into project.r* at start; Apache includes the rendered copies.
 RUN mkdir -p /usr/local/apache2/conf/project /usr/local/apache2/conf/project.env \
-    && echo 'IncludeOptional /usr/local/apache2/conf/project/*.conf'     >> /usr/local/apache2/conf/httpd.conf \
-    && echo 'IncludeOptional /usr/local/apache2/conf/project.env/*.conf' >> /usr/local/apache2/conf/httpd.conf
+             /usr/local/apache2/conf/project.r /usr/local/apache2/conf/project.r.env \
+    && echo 'IncludeOptional /usr/local/apache2/conf/project.r/*.conf'     >> /usr/local/apache2/conf/httpd.conf \
+    && echo 'IncludeOptional /usr/local/apache2/conf/project.r.env/*.conf' >> /usr/local/apache2/conf/httpd.conf
+COPY /runtime/render-templates.sh /usr/local/bin/render-templates.sh
 
 COPY /docker/apache/conf/sites.conf /usr/local/apache2/conf/sites.conf
 RUN echo 'Include /usr/local/apache2/conf/sites.conf' >> /usr/local/apache2/conf/httpd.conf

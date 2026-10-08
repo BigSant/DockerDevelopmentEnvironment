@@ -12,7 +12,7 @@ API_VERSION = '1'
 
 
 # A built image whose Dockerfile starts FROM another locally built image.
-SUFFIX_DEPENDENCIES = {'php-fpm': 'php-fpm-base'}
+SUFFIX_DEPENDENCIES = {'php-fpm-core': 'php-fpm-base', 'php-fpm': 'php-fpm-core'}
 IGNORED_NAMES = {'AGENTS.md', '__pycache__', '.DS_Store'}
 
 
@@ -67,7 +67,8 @@ def build_fingerprint(service, build, profile, dependency=''):
     digest = hashlib.sha256()
     arguments = dict(build.get('args') or {})
     # A dependency's fingerprint replaces its placeholder in the arguments.
-    arguments.pop('SETUP_IMAGE_SUFFIX', None)
+    for placeholder in ('SETUP_IMAGE_SUFFIX', 'SETUP_PHP_IMAGE'):
+        arguments.pop(placeholder, None)
     digest.update(json.dumps([API_VERSION, service, profile, dependency, build.get('target'),
                               sorted(arguments.items())]).encode())
     context = Path(build['context'])
@@ -93,8 +94,16 @@ def image_suffixes(profile, services):
     """Fingerprint per built service, dependencies first."""
     built = {name: service['build'] for name, service in services.items() if service.get('build')}
     result = {}
-    for name in sorted(built, key=lambda n: n in SUFFIX_DEPENDENCIES):
-        result[name] = build_fingerprint(name, built[name], profile, result.get(SUFFIX_DEPENDENCIES.get(name), ''))
+
+    def resolve(name):
+        if name not in result:
+            dependency = SUFFIX_DEPENDENCIES.get(name)
+            prefix = resolve(dependency) if dependency in built else ''
+            result[name] = build_fingerprint(name, built[name], profile, prefix)
+        return result[name]
+
+    for name in sorted(built):
+        resolve(name)
     return result
 
 

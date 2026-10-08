@@ -63,7 +63,7 @@ class FingerprintTest(unittest.TestCase):
 
 
 class ProjectFingerprintTest(unittest.TestCase):
-    def test_each_built_service_gets_its_own_suffix_and_php_depends_on_base(self):
+    def test_each_built_service_gets_its_own_suffix_and_php_chain_is_linked(self):
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=scratch) as temporary:
@@ -76,12 +76,13 @@ class ProjectFingerprintTest(unittest.TestCase):
             (directory / "compose/base.yaml").write_bytes((ROOT / "templates/minimal/compose/base.yaml").read_bytes())
             project = Project(directory)
             suffixes = project.image_suffixes
-            self.assertEqual(set(suffixes), {"php-fpm-base", "php-fpm", "webserver", "nginx-proxy", "database"})
+            self.assertEqual(set(suffixes), {"php-fpm-base", "php-fpm-core", "php-fpm", "webserver", "nginx-proxy", "database"})
             self.assertEqual(len(set(suffixes.values())), len(suffixes))
             services = project.model()["services"]
             self.assertTrue(services["php-fpm"]["image"].endswith(suffixes["php-fpm"]))
             self.assertTrue(services["database"]["image"].endswith(suffixes["database"]))
-            self.assertEqual(services["php-fpm"]["build"]["args"]["SETUP_IMAGE_SUFFIX"], suffixes["php-fpm-base"])
+            self.assertEqual(services["php-fpm-core"]["build"]["args"]["SETUP_IMAGE_SUFFIX"], suffixes["php-fpm-base"])
+            self.assertTrue(services["php-fpm"]["build"]["args"]["SETUP_PHP_IMAGE"].endswith(suffixes["php-fpm-core"]))
             labels = services["webserver"]["build"]["labels"]
             self.assertEqual(labels["setup.fingerprint"], suffixes["webserver"])
             self.assertEqual(services["php-fpm"]["build"]["labels"]["setup.project"], "example")

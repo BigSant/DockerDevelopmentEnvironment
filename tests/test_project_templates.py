@@ -221,18 +221,28 @@ class ProjectTemplatesTest(unittest.TestCase):
         self.assertEqual(local["php-fpm"]["build"]["args"]["PHP_VERSION"], "8.1")
         self.assertEqual(prod["php-fpm"]["build"]["args"]["PHP_VERSION"], "8.1")
 
-    def test_grouped_custom_dockerfile_uses_project_context_and_selected_target(self):
+    def test_project_dockerfile_extends_the_core_image(self):
         _, directory = self.prepare()
-        (directory / "Dockerfile").write_text("FROM scratch AS env-local\nFROM scratch AS env-prod\n")
+        (directory / "Dockerfile").write_text(
+            "# extension\nARG SETUP_PHP_IMAGE\nFROM ${SETUP_PHP_IMAGE}\nRUN echo extra\n")
         (directory / "env/prod.env").write_text("DATABASE_PASSWORD=prod-demo\nDOMAIN=example.test\n")
-        (directory / "compose/common.yaml").write_text(
-            "services:\n  php-fpm:\n    build:\n      args:\n        BASE_IMAGE: custom-${ENV}-${PHP_VERSION}\n")
         for env in ("local", "prod"):
-            build = Project(directory, environment=env).model()["services"]["php-fpm"]["build"]
+            project = Project(directory, environment=env)
+            services = project.model()["services"]
+            build = services["php-fpm"]["build"]
             self.assertEqual(Path(build["context"]), directory)
             self.assertEqual(Path(build["dockerfile"]), directory / "Dockerfile")
-            self.assertEqual(build["target"], f"env-{env}")
-            self.assertTrue(build["args"]["BASE_IMAGE"].startswith(f"custom-{env}-"))
+            self.assertNotIn("target", build)
+            self.assertEqual(build["args"]["SETUP_PHP_IMAGE"], services["php-fpm-core"]["image"])
+            self.assertEqual(services["php-fpm-core"]["build"]["target"], f"env-{env}")
+            self.assertTrue(services["php-fpm-core"]["image"].startswith(f"example-php-fpm-core-{env}-s"))
+
+    def test_project_dockerfile_cannot_replace_the_core_image(self):
+        _, directory = self.prepare()
+        for text in ("FROM php:8.4-fpm\n", "FROM scratch AS env-local\n", "ARG X\nFROM ${X}\n"):
+            (directory / "Dockerfile").write_text(text)
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "must extend the CORE image"):
+                Project(directory)
 
     def test_missing_component_fails_closed(self):
         _, directory = self.prepare()

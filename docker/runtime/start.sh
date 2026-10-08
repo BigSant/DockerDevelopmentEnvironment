@@ -1,5 +1,9 @@
 #!/bin/sh
 set -eu
+# Effective PHP drop-ins: copy and render *.template with this container's environment.
+sh /opt/setup/runtime/render-templates.sh \
+    /usr/local/etc/php/project.d /usr/local/etc/php/project.r \
+    /usr/local/etc/php/project.d.env /usr/local/etc/php/project.r.env
 case "${PROFILE:-}" in
     ps|prestashop) php /opt/setup/runtime/prestashop-command.php prepare ;;
 esac

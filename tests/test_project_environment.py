@@ -71,7 +71,8 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertEqual(project.root, root)
         self.assertEqual(project.settings["SCHEMA_DIRECTORY"], "app/database/schema")
         self.assertEqual(project.settings["POST_IMPORT_SQL_DIRECTORY"], "app/database/after-import")
-        self.assertEqual(model["services"]["php-fpm"]["build"]["context"], str(app))
+        # Without a project Dockerfile the CORE pass-through extends the CORE image.
+        self.assertEqual(Path(model["services"]["php-fpm"]["build"]["context"]), ROOT / "docker/docker/php-fpm/project")
         mounts = {v["target"]: v["source"] for v in model["services"]["php-fpm"]["volumes"]}
         self.assertEqual(Path(mounts["/var/www/html"]), app / "public")
         self.assertEqual(Path(mounts["/usr/local/etc/php/project.d"]), app / "config/php")
@@ -94,7 +95,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
             initialize_directories(project)
         self.assertEqual(marker.read_text(), "preserve")
         model = project.model()
-        self.assertEqual(model["services"]["php-fpm"]["build"]["context"], str(self.directory))
+        self.assertEqual(Path(model["services"]["php-fpm"]["build"]["context"]), ROOT / "docker/docker/php-fpm/project")
         self.assertIn("redis", model["services"])
         self.assertNotIn("redis", json.loads(project.capture(["config", "--format", "json"]))["services"])
 
@@ -103,7 +104,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no longer supported"):
             prepare(self.root)
         (self.directory / ".env").unlink()
-        target = self.directory / "database/after-import/prod/.gitkeep"
+        target = self.directory / "database/schema/README.md"
         target.unlink()
         target.parent.rmdir()
         outside = Path(self.temporary.name) / "outside"

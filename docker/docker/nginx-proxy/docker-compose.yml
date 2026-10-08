@@ -23,6 +23,10 @@ services:
         ENV: ${BUILD_ENV:-${ENV}}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${WEBSERVICE_TIMEOUT}'
     environment:
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
       SETUP_ENVIRONMENT: ${ENV}
       CACHE_MODE: ${CACHE_MODE:-off}
       SETUP_ENABLE_PMA: ${SETUP_ENABLE_PMA:-0}

@@ -8,6 +8,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        sh /opt/setup/runtime/render-templates.sh /usr/local/etc/php/project.d /usr/local/etc/php/project.r /usr/local/etc/php/project.d.env /usr/local/etc/php/project.r.env
         : > /tmp/crontab
         for f in /etc/cron.d/crontab /etc/cron.d/crontab.${ENV}; do
           if [ -f "$$f" ]; then
@@ -39,7 +40,7 @@ services:
       PHP_OPCACHE_VALIDATE_TIMESTAMPS: ${PHP_OPCACHE_VALIDATE_TIMESTAMPS-}
       PHP_OPCACHE_REVALIDATE_FREQ: ${PHP_OPCACHE_REVALIDATE_FREQ-}
       MAIL_MODE: ${MAIL_MODE-}
-      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
+      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.r:/usr/local/etc/php/project.r.env"
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
       - ${PROJECT_WEB_DIRECTORY}:/var/www/html

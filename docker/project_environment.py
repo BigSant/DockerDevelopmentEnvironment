@@ -24,7 +24,8 @@ def initialize_env(directory, environment):
 
 def initialize_directories(project):
     created = []
-    permitted = (project.root / "data", project.root / "app/config", project.directory / "config", project.directory / ".generated/test/data")
+    # Runtime data only: configuration directories are optional and created by their owner.
+    permitted = (project.root / "data", project.directory / ".generated/test/data")
     for service in project.model()["services"].values():
         for mount in service.get("volumes", []):
             if mount["type"] != "bind":

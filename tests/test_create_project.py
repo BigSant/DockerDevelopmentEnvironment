@@ -46,8 +46,8 @@ class CreateProjectTest(unittest.TestCase):
         project = Project(app)
         active = json.loads(project.capture(['config', '--format', 'json']))['services']
         self.assertEqual(set(active), {'nginx-proxy', 'webserver', 'php-fpm', 'database'})
-        self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base'})
-        self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/Dockerfile')
+        self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base', 'php-fpm-core'})
+        self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/docker/php-fpm/project/Dockerfile')
         self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
         self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\n')
         self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line},
