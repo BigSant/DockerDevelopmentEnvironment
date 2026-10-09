@@ -366,14 +366,15 @@ Be teisingo token'o atsakymas `401`. DB portas nepublikuojamas. Stage/prod be `D
 
 ## Metrikos (Prometheus)
 
-Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Šiandien atiduodamos keturios grupės:
+Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Šiandien atiduodamos penkios grupės:
 
-- **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`;
+- **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`, `active_connections`;
 - **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas);
 - **HTTP** (paskutinių pilnų minučių log'ai, žr. [HTTP log'ai](#http-logai)): `http_response_codes{code}`, `http_bytes_transferred_total`, `http_request_ips{ip}`, `http_error_type{type}`, nauji `http_request_user_agents{user_agent}`, `http_requests_per_minute` ir `http_requests_per_minute_max`;
-- **saugumas**: `ddos_most_connections_ip_count{ip}` – penki adresai su daugiausiai TCP jungčių į 80 ir 443 portus.
+- **saugumas**: `ddos_most_connections_ip_count{ip}` – penki adresai su daugiausiai TCP jungčių į 80 ir 443 portus;
+- **DB** (per [DB monitoriaus paskyrą](#db-metrikos)): buffer pool (`sql_*`), lėtos užklausos, lentelių skenavimai ir užklausos pagal bendrą laiką (`database_slow_query_*`, `database_table_scan_query_*`, `database_total_time_query_*`), lėčiausia užklausa, lentelių lock'ai ir I/O, vykdomi sakiniai, prisijungimai.
 
-`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e). DB, konteinerių, cron ir procesų grupės prisidės prie to paties serviso.
+`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e). Konteinerių, cron ir procesų grupės prisidės prie to paties serviso.
 
 1. `env/<ENV>.env`:
 
@@ -426,7 +427,7 @@ Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat
 - projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi;
 - HTTP log'ų tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
 
-Portų servisas nepublikuoja ir projekto tinkle nėra (jį pasiekia tik nginx-proxy).
+Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra tik nginx-proxy (jis kreipiasi į `/metrics`) ir DB (DB grupei).
 
 **Prasmė ir vienetai** (kaip seno scripto, įskaitant jo keistenybes, kad dashboard'ai rodytų tą patį):
 
@@ -445,6 +446,7 @@ Portų servisas nepublikuoja ir projekto tinkle nėra (jį pasiekia tik nginx-pr
 | `http_requests_per_minute`, `http_requests_per_minute_max` | prieigos log'as | nauja: vidutinis ir didžiausias užklausų skaičius per minutę lange (seno scripto „requests per minute“) |
 | `http_error_type` | svetainės klaidų log'as per langą | visada šeši tipai su seno parserio etiketėmis; įrašas su keliais tos pačios rūšies pranešimais skaičiuojamas kartą (kaip `awk`); `Connection reset` – nepriklausomai nuo raidžių dydžio |
 | `ddos_most_connections_ip_count` | `/proc/net/tcp*` (kaip `netstat -an`) | 5 adresai; visos būsenos, išskyrus klausymą (taip pat `TIME_WAIT`); 80 **ir 443** portai, tik įeinančios jungtys; be loopback |
+| `active_connections` | `netstat -an \| grep ESTABLISHED \| wc -l` | serverio tinklo vardų erdvės TCP `ESTABLISHED` (`/host/proc/1/net/tcp`, `tcp6`); konteinerių vidiniai ryšiai (pvz. PHP → DB) savo erdvėse neįskaičiuojami, VPN taikinyje – ir jungtys į nginx-proxy publikuotus portus (jos nginx-proxy erdvėje) |
 
 **Svetainės patikra** eina iš metrikų konteinerio per jo atskirą tinklą: projekto tinkle domenas rodo tiesiai į nginx-proxy, o patikra turi praeiti tą patį kelią kaip lankytojas (DirectAdmin ir jo sertifikatas). Jei serveris negali pasiekti savo viešo adreso arba vardas yra tik VPN, nurodyk `METRICS_PROBE_ADDRESS` (pvz. `10.8.0.14`): jungiamasi ten, o `Host` ir SNI lieka iš URL. Sertifikato data nuskaitoma netikrinant jo, todėl pasibaigęs sertifikatas taip pat parodomas.
 
@@ -467,3 +469,40 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 
 **Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytojo maršruto vartai (Docker tinklo vartai – per juos ateina priekinio web serverio ir paties serverio persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
 
+### DB metrikos
+
+DB grupė skaito tik statistiką per [DB monitoriaus](#db-monitorius) paskyrą (`PROCESS`, `performance_schema`, `sys`): skaitiklius ir užklausų šablonus, kuriuose reikšmės jau pakeistos `?`. Projekto lentelių eilučių ji skaityti negali (tai tikrina B testas), o vykdomų sakinių tekstas (`SQL_TEXT`, su reikšmėmis) nenaudojamas. Grupė generic – PrestaShop lentelių neliečia.
+
+1. `env/<ENV>.env` (šalia `SERVICES="metrics"` ir token'o):
+
+```dotenv
+DATABASE_PERFORMANCE_SCHEMA=on
+DATABASE_MONITOR_PASSWORD='bent-16-simboliu-slaptazodis'
+```
+
+2. Pritaikyk ir sukurk paskyrą (vieną kartą; kartoti saugu):
+
+```bash
+make up
+make db-monitor-user
+```
+
+DB prisijungia prie metrikų serviso tinklo, todėl servisas DB randa vardu `database`, o pats lieka už projekto tinklo. Be `DATABASE_MONITOR_PASSWORD` ar nepasiekus DB – `setup_metrics_group_up{group="database"} 0`, kitos grupės veikia.
+
+**`performance_schema` išjungta** (numatyta `off`) – tai būsena, ne klaida: `database_performance_schema 0`, grupė `1`, atiduodami tik buffer pool ir prisijungimai. Užklausų, lentelių ir vykdomų sakinių metrikų tada nėra.
+
+| Metrikos | Šaltinis (seno scripto užklausa) | Vienetai, pastabos |
+| --- | --- | --- |
+| `sql_buffer_pool_size`, `sql_data_cached`, `sql_ram_free`, `sql_dirty_pages` | `INNODB_BUFFER_POOL_STATS`, `Innodb_buffer_pool_pages_dirty` | MB (puslapiai × `innodb_page_size`) |
+| `sql_buffer_used` | ten pat | % (užimti puslapiai nuo viso pool'o) |
+| `database_slow_query_total`, `_time_total`, `_time_average` `{query}` | `events_statements_summary_by_digest`, 10 lėčiausių pagal vidurkį | vykdymų sk., s, s |
+| `database_table_scan_query_total`, `_total_row_examined`, `_total_row_sent` `{query}` | ten pat, 10 daugiausiai eilučių peržiūrėjusių | vnt. |
+| `database_total_time_query_total`, `_time_total`, `_time_average` `{query}` | ten pat, 10 daugiausiai laiko užėmusių | vykdymų sk., s, s |
+| `database_slowest_query_time{query}` (nauja) | ten pat, `MAX_TIMER_WAIT` | s; ilgiausias vienas vykdymas nuo DB statistikos pradžios (paleidimo) |
+| `database_table_lock_total`, `database_table_lock_time_total` `{schema,table}` (naujos) | `table_lock_waits_summary_by_table`, 10 pagal laiką | counter nuo DB paleidimo; s |
+| `database_table_io_read_total`, `_write_total`, `_read_time_total`, `_write_time_total` `{schema,table}` (naujos) | `table_io_waits_summary_by_table`, 10 daugiausiai skaitytų ir rašytų | counter nuo DB paleidimo; s |
+| `database_running_statements`, `database_running_statement_time{query}` (naujos) | `events_statements_current` (be paties nuskaitymo) | vnt.; s, ilgiausiai vykdomas to šablono sakinys, 10 |
+| `database_connections`, `database_connections_running`, `database_connections_max` (naujos) | `Threads_connected`, `Threads_running`, `max_connections` | vnt. |
+| `database_performance_schema` (nauja) | `@@performance_schema` | `1` – įjungta, `0` – išjungta |
+
+**Laiko langas.** Senas scriptas po kiekvieno paleidimo (kas 5 min.) išvalydavo `events_statements_summary_by_digest`, todėl `database_slow_query_*`, `database_table_scan_query_*` ir `database_total_time_query_*` rodė paskutinių 5 minučių užklausas. Monitoriaus paskyra lentelės valyti negali (ir neturi), todėl servisas pats skaičiuoja skirtumą nuo ankstesnio nuskaitymo: langas = Prometheus `scrape_interval` (5 min., kaip anksčiau). Pirmas nuskaitymas po metrikų serviso paleidimo apima laiką nuo DB paleidimo. Rankinis `curl` taip pat yra nuskaitymas – jis sutrumpina Prometheus langą. Vienas šablonas keliose schemose rodomas viena eilute (sumuojama).

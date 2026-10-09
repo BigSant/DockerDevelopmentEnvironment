@@ -12,9 +12,9 @@ if (!hash_equals('Bearer ' . $token, $authorization)) {
 }
 if (parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) !== '/metrics') metrics_respond(404, "not found\n");
 
-// One file per group, runtime/metrics/<group>.php with metrics_<group>_parts(). Planned: database, host.
+// One file per group, runtime/metrics/<group>.php with metrics_<group>_parts(). Planned: host.
 $metrics = new Metrics();
-foreach (array('system', 'website', 'http', 'security') as $group) {
+foreach (array('system', 'website', 'http', 'security', 'database') as $group) {
     metrics_collect($metrics, $group);
 }
 metrics_respond(200, $metrics->render());

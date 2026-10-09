@@ -100,6 +100,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   TCP table snapshot, Apache its site error log through `rotatelogs`, and php-fpm sends PHP messages to Apache
   (`fastcgi.logging=1`). `docker logs` keep everything; each log holds two files of `METRICS_HTTP_LOG_MB`.
   Logs are read backwards in chunks only until the window has passed, never loaded whole.
+  The database joins the metrics network for the database group, which reads statistics only with the DB monitor
+  account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
 - **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
   its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
   (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy

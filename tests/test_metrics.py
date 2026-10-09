@@ -31,12 +31,13 @@ from project_release import release_model
 
 ENDPOINT = ROOT / "docker/runtime/metrics/index.php"
 PROC = Path(__file__).resolve().parent / "fixtures/metrics-proc"
+DATABASE_FIXTURE = Path(__file__).resolve().parent / "fixtures/metrics-database.json"
 HTTP_LOGS = Path(__file__).resolve().parent / "fixtures/metrics-http"
 # The fixture logs' clock: 2026-10-09 12:34:30 in Europe/Vilnius, so the 5-minute window is [12:29:00, 12:34:00).
 HTTP_NOW = "1791538470"
 TOKEN = "m" * 32
-# Groups the target serves so far; 08 adds database, 09 host (and then every group is served).
-IMPLEMENTED = ("system", "website", "http", "security")
+# Groups the target serves so far; 09 adds host (and then every group is served).
+IMPLEMENTED = ("system", "website", "http", "security", "database")
 REMOTE = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n'
           'PROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n'
           'DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n')
@@ -151,6 +152,7 @@ class EndpointMixin:
                     "METRICS_STATE_DIR": str(self.work / "state"), "METRICS_SAMPLE_SECONDS": "0.1",
                     "METRICS_DISK_WRITE_MB": "1", "METRICS_URLS": "", "METRICS_SUPPORT_LEVEL": "2",
                     "METRICS_HTTP_LOG_DIR": str(self.http), "METRICS_HTTP_NOW": HTTP_NOW, "TZ": "Europe/Vilnius", **env}
+        settings.setdefault("METRICS_DATABASE_FIXTURE", str(DATABASE_FIXTURE))
         server = subprocess.Popen(["php", *php, "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env={**os.environ, **settings},
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
@@ -481,8 +483,8 @@ class ExpositionFormatTest(EndpointMixin, unittest.TestCase):
         result = check("--extended", "--lint=none")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr + body)
         # Naming lint: only the dashboards' own gauge names ending in _total or _count may be reported.
-        kept = {f'{name} non-counter metrics should not have "_total" suffix' for name in grafana_names.recorded()
-                if name.endswith("_total")}
+        kept = {f'{name} non-counter metrics should not have "_total" suffix'
+                for name in grafana_names.recorded() | grafana_names.VIEWER_ONLY if name.endswith("_total")}
         kept |= {f'{name} non-histogram and non-summary metrics should not have "_count" suffix'
                  for name in grafana_names.recorded() if name.endswith("_count")}
         result = check()
@@ -664,7 +666,8 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.assertIn("network_rxkb", values)
         self.assertEqual(values["website_response_status"], {'{url="http://demo.local/"}': 0})
         self.assertEqual(values["setup_metrics_group_up"],
-                         {'{group="system"}': 1, '{group="website"}': 1, '{group="http"}': 1, '{group="security"}': 1})
+                         {'{group="system"}': 1, '{group="website"}': 1, '{group="http"}': 1, '{group="security"}': 1,
+                          '{group="database"}': 0})  # no database in this test
 
     def test_real_proxy_log_lines_and_connections(self):
         # The window ends after the current minute, so the requests made now are inside it.
