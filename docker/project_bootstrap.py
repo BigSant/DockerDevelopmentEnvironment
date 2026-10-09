@@ -8,7 +8,6 @@ import secrets
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 
 from project_environment import initialize_directories
@@ -87,6 +86,8 @@ def certificate_is_valid(certificate, domain):
 
 
 INSTALLED_HELPERS = Path('/usr/local/lib/setup')
+# The root-owned system interpreter: sudoers names it, so a user-writable venv/pyenv python never runs as root.
+HOST_PYTHON = '/usr/bin/python3'
 
 
 def host_helper(name):
@@ -128,9 +129,9 @@ def prepare_host(project):
         addresses = set()
     if not addresses:
         helper = host_helper('host_entry.py')
-        result = subprocess.run(['sudo', '-n', sys.executable, str(helper), domain], capture_output=True, text=True)
+        result = subprocess.run(['sudo', '-n', HOST_PYTHON, str(helper), domain], capture_output=True, text=True)
         if result.returncode:
-            raise ValueError(f'Local DNS entry is missing. Run setup/install-host once, or: sudo {sys.executable} {helper} {domain}')
+            raise ValueError(f'Local DNS entry is missing. Run setup/install-host once, or: sudo {HOST_PYTHON} {helper} {domain}')
     elif not addresses.issubset({'127.0.0.1', '::1'}):
         raise ValueError('DOMAIN resolves outside localhost; use a local development hostname')
     ssl = project.data_directory / 'ssl'
@@ -156,17 +157,17 @@ def prepare_host(project):
     for host in ('pma.' + domain, 'mailpit.' + domain, 'cron.' + domain, 'dbmonitor.' + domain):
         if resolves_locally(host):
             continue
-        command = ['sudo', '-n', sys.executable, str(entry_helper), host]
+        command = ['sudo', '-n', HOST_PYTHON, str(entry_helper), host]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
             import shlex
             raise ValueError('Local service hostname could not be prepared. Run setup/install-host once, or: ' +
-                             shlex.join(['sudo', sys.executable, str(entry_helper), host]))
+                             shlex.join(['sudo', HOST_PYTHON, str(entry_helper), host]))
     if route_exists(domain, project.settings['LOCALHOST_PORT']):
         print(f'Local Nginx route already in place: http://{domain}/')
         return
     helper = host_helper('host_proxy.py')
-    args = [sys.executable, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
+    args = [HOST_PYTHON, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
     result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
     if result.returncode:
         import shlex

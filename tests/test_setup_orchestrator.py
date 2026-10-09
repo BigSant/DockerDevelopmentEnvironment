@@ -32,7 +32,7 @@ class InstallHostTest(unittest.TestCase):
         self.assertIn('2.24.4', problems[0])
 
     def test_sudoers_rule_allows_only_the_installed_helpers(self):
-        rule = install_host.sudoers_rule('dev', python='/usr/bin/python3')
+        rule = install_host.sudoers_rule('dev')  # the system interpreter, never the caller's venv
         self.assertIn('dev ALL=(root) NOPASSWD: /usr/bin/python3 /usr/local/lib/setup/host_entry.py *, '
                       '/usr/bin/python3 /usr/local/lib/setup/host_proxy.py *', rule)
         self.assertNotIn(str(ROOT), rule)

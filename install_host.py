@@ -17,6 +17,8 @@ import sys
 ROOT = Path(__file__).resolve().parent
 HELPERS = ('host_entry.py', 'host_proxy.py')
 INSTALLED = Path('/usr/local/lib/setup')
+# Root-owned interpreter named in sudoers (the runner calls the helpers with it); never a user venv.
+HOST_PYTHON = '/usr/bin/python3'
 SUDOERS = Path('/etc/sudoers.d/shared-setup')
 # command -> Debian/Ubuntu package
 PACKAGES = {'make': 'make', 'openssl': 'openssl', 'mkcert': 'mkcert', 'nginx': 'nginx', 'rsync': 'rsync',
@@ -53,7 +55,7 @@ def compose_problem(run=subprocess.run):
     return None
 
 
-def sudoers_rule(user, python=sys.executable, installed=INSTALLED):
+def sudoers_rule(user, python=HOST_PYTHON, installed=INSTALLED):
     helpers = ', '.join(f'{python} {installed / name} *' for name in HELPERS)
     return (f'# Managed by setup/install-host: local DNS and Nginx routes for development projects.\n'
             f'{user} ALL=(root) NOPASSWD: {helpers}\n')
