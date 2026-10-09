@@ -123,14 +123,8 @@ def stream_filtered(project, command, handle, skip, meter=None):
     return skipped
 
 
-def plan_import(project, dump):
-    if not dump:
-        raise ValueError("Specify a dump with file=/path/to/dump.sql")
-    source = Path(dump).resolve()
-    if not (source.name.lower().endswith(".sql") or source.name.lower().endswith(".sql.gz")) or not source.is_file() or source.stat().st_size == 0:
-        raise ValueError("The dump must be a readable, nonempty .sql or .sql.gz file")
-    if not project.settings["DATABASE_NAME"]:
-        raise ValueError("DATABASE_NAME is required for import")
+def after_import_hooks(project):
+    """SQL run after any DB load: profile safe defaults, project common and environment scripts, integration switches."""
     configured = project.settings.get("POST_IMPORT_SQL_DIRECTORY", "")
     # Unset means the shared convention beside the project's Makefile; it may be absent.
     directory = (project.root / configured).resolve() if configured else (project.directory / "database/after-import").resolve()
@@ -163,6 +157,18 @@ def plan_import(project, dump):
             raise ValueError(f"SQL hook must be a file inside {directory}: {path.name}")
         if name not in enabled:
             hooks.append(resolved)
+    return hooks
+
+
+def plan_import(project, dump):
+    if not dump:
+        raise ValueError("Specify a dump with file=/path/to/dump.sql")
+    source = Path(dump).resolve()
+    if not (source.name.lower().endswith(".sql") or source.name.lower().endswith(".sql.gz")) or not source.is_file() or source.stat().st_size == 0:
+        raise ValueError("The dump must be a readable, nonempty .sql or .sql.gz file")
+    if not project.settings["DATABASE_NAME"]:
+        raise ValueError("DATABASE_NAME is required for import")
+    hooks = after_import_hooks(project)
     plan = [source, *hooks]
     # Preflight every input before any database operation, including hook readability.
     for path in plan:

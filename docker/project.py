@@ -252,7 +252,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -262,6 +262,8 @@ def main():
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     parser.add_argument('--backup', action='store_true', help='Create a private backup before importing')
     parser.add_argument('--full', action='store_true', help='db-import: import the data of every table, ignoring registry skip rules')
+    parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
+    parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
@@ -356,6 +358,12 @@ def main():
         elif args.action == "db-migrate":
             from database_migrations_guarded import migrate
             migrate(project)
+        elif args.action == "db-dataset":
+            from database_dataset import build_dataset
+            build_dataset(project, args.set)
+        elif args.action == "db-load":
+            from database_dataset import load_dataset
+            load_dataset(project, args.set, replace=args.replace, backup=args.backup)
         elif args.action in ("schema-export", "schema-check", "schema-hook-install"):
             {"schema-export": export_schema, "schema-check": check_schema,
              "schema-hook-install": install_schema_hook}[args.action](project)

@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: image-prune db-restrict-grants setup schema-resolve db-migrate
+.PHONY: image-prune db-restrict-grants setup schema-resolve db-migrate db-dataset db-load
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -44,6 +44,8 @@ help:
 	@echo 'schema-hook-install: pre-commit hook that exports the schema and stops a commit that changes it'
 	@echo 'schema-resolve: classify database tables the table registry does not know (include / drop)'
 	@echo 'db-migrate: apply pending guarded migrations from the database/migrations directory'
+	@echo 'db-dataset [set=dev]: rebuild the anonymised base data set from the local LIVE copy'
+	@echo 'db-load [set=dev] [replace=1] [backup=1]: load schema + data set + fixtures, then the after-import sequence'
 
 setup init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
@@ -75,6 +77,9 @@ db-import db-import-plan:
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))
+
+db-dataset db-load:
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter 1,$(replace)),--replace,) $(if $(filter 1,$(backup)),--backup,)
 
 db-backup:
 	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),)
