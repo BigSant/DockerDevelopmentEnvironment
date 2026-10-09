@@ -140,6 +140,19 @@ class Project:
         self.process_env.update(PROJECT_DATA_DIRECTORY=str(self.data_directory), PROJECT_WEB_DIRECTORY=str(self.web_directory))
         if (self.directory / "Dockerfile").is_file():
             validate_project_dockerfile(self.directory / "Dockerfile")
+        # Release source for the CORE PHP layer (see docker/Dockerfile).
+        release_on = settings["PS_RELEASE"] == "on"
+        if settings["PS_RELEASE"] not in ("", "on", "off"):
+            raise ValueError("PS_RELEASE must be on or off")
+        if release_on and not settings["PS_VERSION"]:
+            raise ValueError("PS_RELEASE=on requires PS_VERSION")
+        modern_release = release_on and not settings["PS_VERSION"].startswith("1.6")
+        # Empty selects the base image (an empty /var/www/html) through the Compose default.
+        self.process_env["PS_RELEASE_IMAGE"] = f"prestashop/prestashop:{settings['PS_VERSION']}" if modern_release else ""
+        for key in ("PS_RELEASE_PATHS", "PS_ADMIN_DIR"):
+            if any(part in ("", ".", "..") or part.startswith("/") for entry in settings[key].split()
+                   for part in [entry] + entry.split("/")):
+                raise ValueError(f"{key} entries must be relative paths inside the shop")
         if not settings["DATABASE_ROOT_PASSWORD"]:
             raise ValueError(f"Set DATABASE_ROOT_PASSWORD in {private_env} (make bootstrap generates one locally)")
         if settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
@@ -239,7 +252,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "init", "doctor", "pull", "shell", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "init", "doctor", "pull", "shell", "app-prepare", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -306,6 +319,9 @@ def main():
             refresh_ide(project)
         elif args.action == "init":
             initialize_directories(project)
+        elif args.action == "app-prepare":
+            from project_application import prepare_application
+            prepare_application(project)
         elif args.action == "doctor":
             doctor(project)
         elif args.action == "pull":

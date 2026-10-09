@@ -49,6 +49,10 @@ services:
         PHP_VERSION: ${PHP_VERSION}
         XDEBUG_VERSION: ${XDEBUG_VERSION}
         COMPOSER_VERSION: ${COMPOSER_VERSION}
+        PS_RELEASE: ${PS_RELEASE:-off}
+        PS_VERSION: ${PS_VERSION:-}
+        PS_RELEASE_SHA256: ${PS_RELEASE_SHA256:-}
+        PS_RELEASE_IMAGE: ${PS_RELEASE_IMAGE:-php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}}
     profiles:
       - build_only
     networks:
