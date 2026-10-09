@@ -197,6 +197,9 @@ class Project:
         for override in [overrides[0], *extras, overrides[1]]:
             if override.is_file():
                 self.command += ["-f", str(override)]
+        # The cron UI edits the crontab only where git is not the deploy path. Set before the
+        # optional-mount overlay, which freezes the interpolated volume list.
+        self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment in ('local', 'test') else 'ro'
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
         active = json.loads(self.capture(['config', '--format', 'json']))['services']
@@ -207,9 +210,7 @@ class Project:
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0',
                                 SETUP_ENABLE_CRON='1' if 'cron' in active else '0',
-                                SETUP_ENABLE_DBMONITOR='1' if 'dbmonitor' in active else '0',
-                                # The cron UI edits the crontab only where git is not the deploy path.
-                                SETUP_CRON_CONFIG_ACCESS='rw' if environment in ('local', 'test') else 'ro')
+                                SETUP_ENABLE_DBMONITOR='1' if 'dbmonitor' in active else '0')
         # One fingerprint per built image, computed from that image's own inputs only.
         self.image_suffixes = image_suffixes(profile, self.model()['services'])
         self.process_env.update({suffix_variable(name): value for name, value in self.image_suffixes.items()})

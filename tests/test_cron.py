@@ -1,5 +1,7 @@
 """Cron: crontab parsing and next runs, the run wrapper's history, and the UI over PHP's built-in server."""
 
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -16,6 +18,9 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 CRON = ROOT / "docker/runtime/cron"
+sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
+from create_project import scaffold
+from project import Project
 
 
 def php(code, env=None):
@@ -177,6 +182,32 @@ class CronUiTest(unittest.TestCase):
         status, body = self.post("/edit", {"file": "crontab", "crontab": "0 2 * * * echo nightly\n"})
         self.assertEqual(status, 403)
         self.assertEqual((self.root / "cron.d/crontab").read_text(), "*/5 * * * * echo from-cron\n")
+
+
+class CrontabMountTest(unittest.TestCase):
+    def test_ui_may_write_the_crontab_only_on_local_and_test(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            with contextlib.redirect_stdout(io.StringIO()):
+                app = scaffold("cron-mount", temporary)
+            with (app / "env/common.env").open("a") as env:
+                env.write("SERVICES=cron\n")
+            (app / "config/cron").mkdir(parents=True, exist_ok=True)
+            (app / "config/cron/crontab").write_text("*/5 * * * * echo from-cron\n")
+            # Absent optional drop-ins (config/php here) make the runner add a mount overlay.
+            self.assertFalse((app / "config/php").exists())
+            for environment, read_only in (("local", False), ("prod", True)):
+                with self.subTest(environment=environment):
+                    if environment == "prod":
+                        (app / "env/prod.env").write_text(
+                            "PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\n"
+                            "WEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\n"
+                            "DATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_ROOT_PASSWORD=root-test-only\n"
+                            "DATABASE_PASSWORD=test-only\nCRON_ALLOWED_IPS=203.0.113.7\n")
+                    services = json.loads(Project(app, environment).capture(["config", "--format", "json"]))["services"]
+                    mount = next(v for v in services["cron"]["volumes"] if v["target"] == "/etc/cron.d")
+                    self.assertEqual(mount.get("read_only", False), read_only)
 
 
 if __name__ == "__main__":
