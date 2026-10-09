@@ -29,6 +29,7 @@ def attach_optional_config_mounts(project):
         ('nginx-proxy', 'nginx-proxy', '/etc/nginx/project.d', '/etc/nginx/project.d.env'),
         ('database', 'mysql', '/etc/mysql/project.d', '/etc/mysql/project.d.env'),
         ('database', 'mariadb', '/etc/mysql/project.d', '/etc/mysql/project.d.env'),
+        ('redis', 'redis', '/usr/local/etc/redis/project.d', '/usr/local/etc/redis/project.d.env'),
     ):
         defaults.setdefault((service, common), set()).add(root / component)
         defaults.setdefault((service, selected), set()).add(root / component / project.environment)

@@ -26,10 +26,10 @@ jobs:
       - run: python3 -m unittest discover -s tests -p 'test_database_project_init_integration.py' -v
         env:
           SETUP_MYSQL_IMAGE: setup-mysql-test
-      - run: docker pull redis:7.4-alpine
+      - run: docker build -t setup-redis-test --build-arg REDIS_VERSION=7.4 --target env-local -f docker/docker/redis/Dockerfile docker
       - run: python3 -m unittest discover -s tests -p 'test_redis_integration.py' -v
         env:
-          SETUP_REDIS_TEST_IMAGE: redis:7.4-alpine
+          SETUP_REDIS_TEST_IMAGE: setup-redis-test
   php-config:
     runs-on: ubuntu-24.04
     strategy:

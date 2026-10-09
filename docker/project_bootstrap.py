@@ -39,12 +39,17 @@ def set_env_values(path, values):
     if path.is_symlink(): raise ValueError('Private env must not be a symlink')
     contents = path.read_text() if path.exists() else ''
     for key, value in values.items():
-        # Generated values are simple hostnames, ports, identifiers and hex tokens.
-        if not re.fullmatch(r'[A-Za-z0-9_.:/-]*', str(value)):
-            raise ValueError('Invalid generated environment value')
-        line = f'{key}={value}'
+        value = str(value)
+        # Plain hostnames, ports, identifiers, hex and base64 stay unquoted; anything else is
+        # single-quoted, which dotenv keeps literally (no ${...} interpolation).
+        if re.fullmatch(r'[A-Za-z0-9_.:/+=-]*', value):
+            line = f'{key}={value}'
+        elif "'" not in value and '\n' not in value:
+            line = f"{key}='{value}'"
+        else:
+            raise ValueError(f'Cannot store {key} safely in an env file')
         pattern = rf'^{re.escape(key)}=.*$'
-        contents = re.sub(pattern, lambda m: line, contents, flags=re.M) if re.search(pattern, contents, re.M) else contents.rstrip()+'\n'+line+'\n'
+        contents = re.sub(pattern, lambda m: line, contents, flags=re.M) if re.search(pattern, contents, re.M) else (contents.rstrip()+'\n' if contents.strip() else '')+line+'\n'
     replace_file(path, contents.encode(), private=True)
 
 
@@ -59,6 +64,14 @@ def ensure_generated_secrets(directory, environment):
     values = {}
     if not re.search(r'^DATABASE_ROOT_PASSWORD=\S', raw, re.M):
         values['DATABASE_ROOT_PASSWORD'] = secrets.token_hex(24)
+    setting = lambda name: next((m[1].strip().strip('"\'') for f in (private, Path(directory) / 'env/common.env')
+                                 if f.is_file() for m in [re.search(rf'^{name}=(.*)$', f.read_text(), re.M)] if m), '')
+    if setting('PROFILE') in ('ps', 'prestashop') and setting('PS_VERSION'):
+        from project import project_root
+        from project_prestashop import local_key_values
+        present = {k for k in re.findall(r'^(PS_[A-Z_]+)=\S', raw, re.M)}
+        web = project_root(Path(directory).resolve()) / 'app/public'
+        values.update(local_key_values(web, setting('PS_VERSION'), present))
     if values:
         set_env_values(private, values)
 

@@ -6,6 +6,7 @@ class PrestashopSetupException extends RuntimeException
 {
 }
 require_once __DIR__ . '/prestashop-policy.php';
+require_once __DIR__ . '/prestashop-keys.php';
 
 function removePrestashopCache($path)
 {
@@ -70,6 +71,8 @@ function updatePrestashopParameters($root, $overrideFile = null)
         }
     }
     $values = array_merge($values, psEscapeParameters($overrides));
+    $version = psConfiguredVersion();
+    if ($version !== null) $values = array_merge($values, psEscapeParameters(psKeyOverrides($version, $config['parameters'])));
     $objectCache = psObjectCacheValue();
     if ($objectCache !== null) $values['ps_cache_enable'] = $objectCache;
     $changed = false;
@@ -137,6 +140,8 @@ function psOverrides($file)
 
 function psLayout($root)
 {
+    $version = psConfiguredVersion();
+    if ($version !== null) return psLayoutForVersion($version);
     $legacy = "$root/config/settings.inc.php";
     if (is_file($legacy) && preg_match('/[\'\"]_PS_VERSION_[\'\"]\s*,\s*[\'\"]1\.6\./', file_get_contents($legacy))) return 'legacy';
     if (is_file("$root/app/config/parameters.php")) return 'modern';
@@ -157,6 +162,15 @@ function psConnectionValues()
     }
     if (!ctype_digit($values['PORT']) || (int)$values['PORT'] < 1 || (int)$values['PORT'] > 65535) {
         throw new PrestashopSetupException('DATABASE_PORT must be between 1 and 65535.');
+    }
+    return $values;
+}
+
+function psLegacyDefines($source)
+{
+    $values = array();
+    if (preg_match_all('/define\(\s*[\'"]([A-Z0-9_]+)[\'"]\s*,\s*\'((?:[^\'\\\\]|\\\\.)*)\'\s*\)/', $source, $matches, PREG_SET_ORDER)) {
+        foreach ($matches as $match) $values[$match[1]] = strtr($match[2], array("\\'" => "'", '\\\\' => '\\'));
     }
     return $values;
 }
@@ -306,6 +320,8 @@ function updateLegacyPrestashop($root, $overrideFile)
     }
     $source = file_get_contents($file);
     $values = array_merge($values, $overrides);
+    $version = psConfiguredVersion();
+    if ($version !== null) $values = array_merge($values, psKeyOverrides($version, psLegacyDefines($source)));
     $objectCache = psObjectCacheValue();
     if ($objectCache !== null) $values['_PS_CACHE_ENABLED_'] = $objectCache;
     $updated = psPatchDefines($source, $values);
@@ -342,6 +358,12 @@ function preparePrestashop($root, $config)
     $debug = psDebugPlan($root);
     psPolicyValues();
     psObjectCacheValue();
+    $version = psConfiguredVersion();
+    if ($version !== null) {
+        psCheckVersion($root, $version);
+        $file = psLayoutForVersion($version) === 'legacy' ? "$root/config/settings.inc.php" : "$root/app/config/parameters.php";
+        if (!is_file($file) && !is_link($file)) psGenerateConfig($root, $version);
+    }
     if (psLayout($root) === 'legacy') updateLegacyPrestashop($root, "$config/prestashop/settings.override.php");
     else updatePrestashopParameters($root, "$config/prestashop/parameters.override.php");
     updatePrestashopDebug($debug);
@@ -356,6 +378,23 @@ function validatePrestashop($root, $config)
     psObjectCacheValue();
     $layout = psLayout($root);
     $file = $layout === 'legacy' ? "$root/config/settings.inc.php" : "$root/app/config/parameters.php";
+    $version = psConfiguredVersion();
+    if ($version !== null) {
+        psCheckVersion($root, $version);
+        if (!is_file($file)) {
+            foreach (psKeysFor($version) as $name => $entry) {
+                if ($entry[1] === null) throw new PrestashopSetupException("No shop configuration yet: set {$entry[0]} to create it.");
+            }
+            echo "PrestaShop configuration will be created from the template (no writes).\n";
+            return;
+        }
+        $existing = $layout === 'legacy' ? psLegacyDefines(file_get_contents($file)) : null;
+        if ($existing === null) {
+            $loaded = require $file;
+            $existing = is_array($loaded) && isset($loaded['parameters']) ? $loaded['parameters'] : array();
+        }
+        psKeyOverrides($version, $existing);
+    }
     foreach (array($root, dirname(dirname($file)), dirname($file), $file) as $path) {
         if (is_link($path)) throw new PrestashopSetupException('Refusing a symlink in a managed PrestaShop path.');
     }

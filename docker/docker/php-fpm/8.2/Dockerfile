@@ -32,6 +32,17 @@ RUN pecl install apcu-${APCU_VERSION}
 RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
     && docker-php-ext-enable apcu --ini-name 20-docker-php-ext-apc.ini
 
+# Optional cache extensions, compiled but NOT enabled: a project that selects the memcached or
+# redis service enables one with an ini drop-in (extension=memcached.so / extension=redis.so).
+ARG MEMCACHED_EXT_VERSION=3.3.0
+ARG REDIS_EXT_VERSION=6.2.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libmemcached-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && yes '' | pecl install -f memcached-${MEMCACHED_EXT_VERSION} \
+    && yes '' | pecl install -f redis-${REDIS_EXT_VERSION} \
+    && rm -rf /tmp/pear
+
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
 
 COPY --from=phpstan /composer/vendor/phpstan/phpstan/phpstan.phar /usr/local/bin/phpstan

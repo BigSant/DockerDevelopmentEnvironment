@@ -49,3 +49,22 @@ class MemcachedServiceTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RedisServiceTest(unittest.TestCase):
+    def test_redis_is_a_catalogue_service_with_a_derived_memory_cap(self):
+        scratch = ROOT / '.test-work'
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            with contextlib.redirect_stdout(io.StringIO()):
+                app = scaffold('redis-demo', temporary)
+            with (app / 'env/common.env').open('a') as env:
+                env.write('SERVICES=redis\nREDIS_MEMORY=512m\n')
+            services = json.loads(Project(app).capture(['config', '--format', 'json']))['services']
+            redis = services['redis']
+            self.assertNotIn('ports', redis)
+            self.assertNotIn('profiles', redis)
+            self.assertEqual(redis['environment']['REDIS_MAXMEMORY_MB'], '460')
+            self.assertEqual(int(redis['mem_limit']), 512 * 1024 ** 2)
+            targets = [v['target'] for v in redis['volumes']]
+            self.assertEqual(targets, ['/data'])  # missing config/redis drop-in directories are not mounted

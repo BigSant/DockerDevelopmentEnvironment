@@ -25,12 +25,14 @@ DEFAULTS = {
     'PHP_FPM_PROCESS_MEMORY': '128m',
     'DATABASE_BUFFER_POOL': '',
     'MEMCACHED_CACHE_MB': '',
+    'REDIS_MAXMEMORY_MB': '',
 }
 
 # <SERVICE>_MEMORY / <SERVICE>_CPUS with local-machine defaults; stage/prod set them per server.
 RESOURCES = {
     'PHP': ('1g', '2'), 'DATABASE': ('2g', '2'), 'WEBSERVER': ('256m', '1'), 'PROXY': ('128m', '0.5'),
-    'CRON': ('512m', '1'), 'MEMCACHED': ('256m', '0.5'), 'PMA': ('256m', '0.5'), 'MAILPIT': ('256m', '0.5'),
+    'CRON': ('512m', '1'), 'MEMCACHED': ('256m', '0.5'), 'REDIS': ('256m', '0.5'), 'PMA': ('256m', '0.5'),
+    'MAILPIT': ('256m', '0.5'),
 }
 REMOTE_REQUIRED = ('PHP', 'DATABASE', 'WEBSERVER', 'PROXY')
 # Previous shared names remain accepted as fallbacks during the transition.
@@ -89,6 +91,9 @@ def resolve_resources(settings, values, environment):
         max(16, int(megabytes(values['MEMCACHED_MEMORY']) * 0.9)))
     if not re.fullmatch(r'[1-9]\d*', values['MEMCACHED_CACHE_MB']):
         raise ValueError('MEMCACHED_CACHE_MB must be a positive number of megabytes')
+    values['REDIS_MAXMEMORY_MB'] = values['REDIS_MAXMEMORY_MB'] or str(max(16, int(megabytes(values['REDIS_MEMORY']) * 0.9)))
+    if not re.fullmatch(r'[1-9]\d*', values['REDIS_MAXMEMORY_MB']):
+        raise ValueError('REDIS_MAXMEMORY_MB must be a positive number of megabytes')
     process = megabytes(values['PHP_FPM_PROCESS_MEMORY'])
     children = values['PHP_FPM_MAX_CHILDREN'] or str(
         min(256, max(2, int((megabytes(values['PHP_MEMORY']) - 128) // process))))
@@ -192,8 +197,24 @@ def validate_configuration(project):
         if not str(php['DATABASE_PORT']).isdigit() or not 1 <= int(php['DATABASE_PORT']) <= 65535:
             raise ValueError('APP_DATABASE_PORT must be between 1 and 65535')
         root = project.web_directory
-        if not any((root / path).is_file() for path in ('app/config/parameters.php', 'config/settings.inc.php')):
-            raise ValueError('Restore the PS shop configuration and keys before starting: parameters.php or PS 1.6 settings.inc.php')
+        version = project.settings.get('PS_VERSION', '')
+        if not version:
+            raise ValueError('Set PS_VERSION in env/common.env (the PrestaShop version of the shop code)')
+        from project_prestashop import config_file, required_keys
+        if project.settings.get('SETUP_COMPATIBILITY_CHECK', '') != 'off':
+            from compatibility import check
+            engine = 'mariadb' if services.get('database', {}).get('image', '').startswith('mariadb-') else 'mysql'
+            errors, warnings = check(version, project.settings['PHP_VERSION'], engine,
+                                     project.settings.get('MARIADB_VERSION' if engine == 'mariadb' else 'MYSQL_VERSION', ''))
+            for warning in warnings:
+                print(f'Warning: {warning}')
+            if errors:
+                raise ValueError('; '.join(errors) + ' (SETUP_COMPATIBILITY_CHECK=off skips this for forks)')
+        if not config_file(root, version).is_file():
+            missing = [key for key in required_keys(version) if not php.get(key)]
+            if missing:
+                raise ValueError(f"No {config_file(root, version).relative_to(root)} yet and no keys to create it: "
+                                 f"set {', '.join(missing)} (make bootstrap generates them locally)")
         if php.get('PS_DEBUG_MODE') and not (root / 'config/defines.inc.php').is_file():
             raise ValueError('Restore config/defines.inc.php before setting PS_DEBUG_MODE')
     file = project.directory / 'config/environment.json'

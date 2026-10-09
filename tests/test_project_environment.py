@@ -96,8 +96,8 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertEqual(marker.read_text(), "preserve")
         model = project.model()
         self.assertEqual(Path(model["services"]["php-fpm"]["build"]["context"]), ROOT / "docker/docker/php-fpm/project")
-        self.assertIn("redis", model["services"])
-        self.assertNotIn("redis", json.loads(project.capture(["config", "--format", "json"]))["services"])
+        # The full template selects the CORE redis service, which starts with up.
+        self.assertIn("redis", json.loads(project.capture(["config", "--format", "json"]))["services"])
 
     def test_mixed_sources_and_escaping_parent_symlinks_fail_before_writes(self):
         (self.directory / ".env").write_text("PROJECT_NAME=old\n")

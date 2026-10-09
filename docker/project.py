@@ -24,7 +24,7 @@ from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolv
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 # Optional CORE services a project enables with SERVICES=...; the four core services always run.
-SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'playwright', 'php-phpstan', 'php-cs',
+SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
                      'php-doctrine-migrations')
 # Long-running catalogue services start with `up`; the others are tools started by their command.
 RUNTIME_PROFILES = {'cron': 'cron'}
