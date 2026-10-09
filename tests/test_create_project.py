@@ -262,3 +262,77 @@ class CreateProjectTest(unittest.TestCase):
             self.assertEqual(main(['demo', '--start']), 0)
             prerequisites.assert_called_once_with()
             start_project.assert_called_once_with(app)
+
+
+class WizardTest(unittest.TestCase):
+    """The interactive wizard and its parameters: defaults, compatible choices, summary, cancel."""
+
+    def setUp(self):
+        scratch = ROOT / '.test-work'
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        self.parent = Path(temporary.name)
+
+    def run_main(self, argv, answers=(), interactive=True):
+        replies = iter(answers)
+        asked = []
+
+        def ask(prompt):
+            asked.append(prompt)
+            return next(replies)
+
+        created = []
+        with patch('create_project.scaffold', lambda name, parent, options=None: created.append((name, options)) or self.parent), \
+                contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = main(argv, ask=ask, interactive=interactive)
+        return code, created, asked, output.getvalue() + errors.getvalue()
+
+    def test_enter_everywhere_gives_a_prestashop_9_project(self):
+        code, created, asked, output = self.run_main([], ['Melga'] + [''] * 7)
+        self.assertEqual(code, 0)
+        name, options = created[0]
+        self.assertEqual(name, 'Melga')
+        self.assertEqual(options, {'profile': 'prestashop', 'ps_version': '9.0.2', 'php_version': '8.4', 'database': 'mysql',
+                                   'database_version': '8.4', 'services': 'pma mailpit'})
+        self.assertIn('Domain      melga.local', output)
+        self.assertIn('Time zone   Europe/Vilnius', output)
+        self.assertTrue(asked[-1].startswith('Create these files?'))
+
+    def test_only_compatible_php_versions_are_offered(self):
+        code, created, asked, output = self.run_main(['Oldshop', '--ps-version', '1.6.1.24'], ['', '8.4', '7.1', '', '', '', ''])
+        self.assertIn('Choose one of: 5.6, 7.0, 7.1', output)
+        self.assertEqual(created[0][1]['php_version'], '7.1')
+        self.assertEqual(created[0][1]['database_version'], '5.7')
+
+    def test_all_parameters_ask_nothing_and_bad_pairs_are_refused(self):
+        argv = ['Shop', '--profile', 'prestashop', '--ps-version', '8.1.7', '--php-version', '8.1', '--database', 'mariadb',
+                '--database-version', '10.11', '--services', 'pma', '--yes']
+        code, created, asked, _ = self.run_main(argv, interactive=True)
+        self.assertEqual((code, asked), (0, []))
+        self.assertEqual(created[0][1]['database'], 'mariadb')
+        code, created, _, output = self.run_main(['Shop', '--ps-version', '9.0.2', '--php-version', '7.4', '--yes'], interactive=False)
+        self.assertEqual((code, created), (1, []))
+        self.assertIn('PHP 7.4 is not compatible here; choose one of: 8.1, 8.2, 8.3, 8.4', output)
+        code, created, _, output = self.run_main(['Shop', '--services', 'pma rabbit', '--yes'], interactive=False)
+        self.assertIn('Unknown services: rabbit', output)
+
+    def test_cancel_writes_nothing(self):
+        code, created, _, output = self.run_main([], ['Melga'] + [''] * 6 + ['n'])
+        self.assertEqual((code, created), (1, []))
+        self.assertIn('nothing was created', output)
+
+    def test_answers_reach_the_project_files(self):
+        from create_project import complete_options
+        options = complete_options({'profile': 'prestashop', 'ps_version': '9.0.2', 'database': 'mariadb', 'services': 'pma'})
+        with contextlib.redirect_stdout(io.StringIO()):
+            app = scaffold('wizard-shop', self.parent, options)
+        common = (app / 'env/common.env').read_text()
+        for line in ('PROFILE=prestashop', 'PS_VERSION=9.0.2', 'PHP_VERSION=8.4', 'MARIADB_VERSION=11.4', 'SERVICES=pma'):
+            self.assertIn(line, common)
+        self.assertIn('/docker/mariadb/docker-compose.yml', (app / 'compose/base.yaml').read_text())
+        self.assertFalse((app / 'public').exists(), 'the shop is cloned into app/public by the developer')
+        project = Project(app)
+        services = json.loads(project.capture(['config', '--format', 'json']))['services']
+        self.assertTrue(services['database']['image'].startswith('mariadb-'))
+        self.assertIn('pma', services)
