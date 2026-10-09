@@ -521,6 +521,8 @@ DB prisijungia prie metrikų serviso tinklo, todėl servisas DB randa vardu `dat
 - siunčia tik `GET` užklausas (`/info`, `/containers/json`, `/containers/{id}/json`, `/events`), aplinkos kintamųjų ir kitų konteinerio duomenų nekopijuoja;
 - veikia be capabilities (`cap_drop: ALL`, `no-new-privileges`) su tik skaitomu root failų sistema; root naudotojas reikalingas tik root'ui priklausančiam socket'ui atidaryti.
 
+Socket'as prijungtas su `:ro`, bet tai **neriboja Docker API**: per jį vis tiek galima siųsti bet kokią užklausą, ir socket'as lieka root lygio prieiga. `:ro` tik neleidžia konteineriui pakeisti paties socket failo. Apsauga yra aukščiau išvardinta: kolektorius neturi tinklo ir capabilities, o jo kodas siunčia tik `GET`.
+
 Kodėl ne socket proxy (pvz. `docker-socket-proxy`): jam reikia to paties socket'o ir jis pasiekiamas tinklu, o čia socket'ą turintis procesas tinklo neturi visai. Kodėl ne serverio scriptas: DirectAdmin taikiniuose setup v2 nieko į serverį nediegia. Release'as socket'o prijungimą palieka (kaip `/proc`), nes jis yra kiekviename Docker taikinyje.
 
 | Metrikos | Šaltinis | Vienetai, pastabos |

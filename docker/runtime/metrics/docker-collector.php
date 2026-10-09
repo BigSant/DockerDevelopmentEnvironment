@@ -2,7 +2,9 @@
 // Docker collector of the metrics service (service metrics-docker): reads this project's containers from the
 // Docker API and writes a small snapshot the web-facing metrics service reads from a shared volume.
 // Only this process touches the Docker socket: it sends GET requests only, has no network (network_mode: none),
-// a read-only root filesystem and no capabilities; the metrics service never sees the socket.
+// a read-only root filesystem and no capabilities; the metrics service never sees the socket. The socket's
+// read-only mount does not limit the Docker API (any request still works through it): the protection is this
+// GET-only code in a container nothing can reach.
 // Usage: php docker-collector.php [--once]
 
 function collector_setting($name, $default)

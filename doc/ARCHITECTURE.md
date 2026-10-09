@@ -109,8 +109,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   The database joins the metrics network for the database group, which reads statistics only with the DB monitor
   account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
   Containers: the web-facing metrics service has no Docker access. `metrics-docker` (`docker-collector.php`,
-  same image) mounts the socket read-only, has `network_mode: none`, no capabilities and a read-only root, sends
-  GET requests only for the project's own containers (`com.docker.compose.project`) and writes a snapshot
+  same image) holds the socket. Its `:ro` mount does not restrict the Docker API (the socket is
+  root-equivalent either way); the protection is that the collector has `network_mode: none`, no capabilities,
+  a read-only root and code that sends GET requests only for the project's own containers (`com.docker.compose.project`) and writes a snapshot
   (state, health, restart count, last exit/OOM, `oom` events as a persisted counter, OS/Docker versions) into
   the `<project>-<env>-metrics-docker` volume the metrics service mounts read-only; a snapshot older than three
   `METRICS_DOCKER_INTERVAL`s clears the group. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the

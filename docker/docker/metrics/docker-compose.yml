@@ -89,6 +89,8 @@ services:
       METRICS_DOCKER_DIR: /var/lib/setup-docker
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      # read_only only stops the container from replacing the socket file; it does NOT limit the Docker
+      # API, which still accepts any request. The protection is the collector itself (see above).
       - type: bind
         source: /var/run/docker.sock
         target: /var/run/docker.sock
