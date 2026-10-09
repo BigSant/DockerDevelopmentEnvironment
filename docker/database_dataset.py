@@ -191,7 +191,7 @@ def dataset_key(directory):
 
 def build_dataset(project, name='dev'):
     """Write the data set files from the local DB; returns {file name: bytes}."""
-    from database_registry import classify, load, prefix
+    from database_registry import classify, load, registry_file
     from database_schema import registry_exclusions
     if project.environment != 'local':
         raise ValueError('Build the base data set from the local LIVE copy (ENV=local)')
@@ -199,6 +199,10 @@ def build_dataset(project, name='dev'):
     tables = database_tables(project)
     registry_exclusions(project, tables, require_classified=True)
     entries = load(project)
+    if not entries:
+        # A PrestaShop project starts from the profile registry; any other application brings its own.
+        raise ValueError(f'The data set follows the table registry, and {registry_file(project)} has no tables yet: '
+                         'classify them with make schema-resolve')
     sample_sql, recipe = load_recipe(project)
     ids = []
     if product_sample_needed(entries, tables, recipe):

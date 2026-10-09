@@ -267,6 +267,13 @@ class GenericUnitsTest(unittest.TestCase):
         self.assertTrue(product_sample_needed([('app_item', 'catalog', 'slice', 'import')], ['app_item'], recipe))
         self.assertTrue(product_sample_needed(entries, ['app_note'], lambda table: '`id` IN {products}'))
 
+    def test_a_generic_data_set_without_a_registry_says_how_to_classify(self):
+        import database_dataset
+        app = generic_project(self.root)
+        with patch.object(database_dataset, 'database_tables', return_value=['app_note']), \
+                self.assertRaisesRegex(ValueError, 'table-registry.txt has no tables yet: classify them with make schema-resolve'):
+            database_dataset.build_dataset(Project(app))
+
 
 if __name__ == '__main__':
     unittest.main()

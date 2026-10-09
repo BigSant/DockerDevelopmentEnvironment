@@ -111,7 +111,7 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
 | LIVE importas | `import` – importuoti duomenis; `skip` – importuoti tik struktūrą. |
 
-Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Projekto eilutė laimi.
+Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Projekto eilutė laimi. Generic projektas profilio registro neturi: prieš `make db-dataset` jo lenteles klasifikuok `make schema-resolve` (kitaip komanda sustoja ir tai pasako).
 
 ```bash
 make schema-resolve
