@@ -13,7 +13,8 @@ from urllib.parse import quote
 
 
 MANIFEST = "schema.manifest.json"
-HOOK_MARKER = "# Shared setup schema pre-commit hook v1"
+HOOK_MARKER = "# Shared setup schema pre-commit hook v2"
+PREVIOUS_HOOK_MARKERS = ("# Shared setup schema pre-commit hook v1",)
 from database_client import READ as MYSQL_READ
 TABLES_SQL = "SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY BINARY TABLE_NAME;\n"
 
@@ -54,8 +55,15 @@ def normalize_ddl(ddl):
     return ddl.rstrip() + ";\n"
 
 
-def read_schema(project):
-    names = [bytes.fromhex(line).decode("utf-8") for line in mysql_query(project, TABLES_SQL).splitlines()]
+def database_tables(project):
+    return [bytes.fromhex(line).decode("utf-8") for line in mysql_query(project, TABLES_SQL).splitlines()]
+
+
+def read_schema(project, require_classified=False):
+    """Snapshot files of every base table except those the registry marks for a guarded DROP."""
+    tables = database_tables(project)
+    exclude = registry_exclusions(project, tables, require_classified)
+    names = [name for name in tables if name not in exclude]
     if len(names) != len(set(names)):
         raise ValueError("Duplicate table names in schema response")
     definitions = {}
@@ -75,7 +83,7 @@ def read_schema(project):
     if set(definitions) != set(names):
         raise ValueError("Schema changed during collection; retry without concurrent DDL")
     # Catch table additions/removals during collection; this does not lock out concurrent ALTER.
-    after = [bytes.fromhex(line).decode("utf-8") for line in mysql_query(project, TABLES_SQL).splitlines()]
+    after = [name for name in database_tables(project) if name not in exclude]
     if after != names:
         raise ValueError("Table list changed during collection; retry without concurrent DDL")
     files = {table_file(name): definitions[name].encode() for name in sorted(names)}
@@ -99,9 +107,25 @@ def managed_file(name):
     return name == MANIFEST or (name.startswith("table-") and name.endswith(".sql"))
 
 
-def export_schema(project):
+def registry_exclusions(project, tables, require_classified=False):
+    """Tables the registry marks for DROP; optionally fail on tables it does not know."""
+    from database_registry import dropped, load, unknown_tables
+    entries = load(project)
+    if not entries:
+        return set()
+    unknown = unknown_tables(entries, tables)
+    if unknown and require_classified:
+        raise ValueError(f"{len(unknown)} tables are not in the table registry: {', '.join(unknown[:8])}"
+                         f"{' …' if len(unknown) > 8 else ''}\nRun make schema-resolve to include them or mark them for a DROP.")
+    if unknown:
+        print(f"Warning: {len(unknown)} tables are not classified yet (make schema-resolve).")
+    return set(dropped(entries, tables))
+
+
+def export_schema(project, files=None):
     directory = schema_directory(project)
-    files = read_schema(project)  # Finish all DB reads before changing any files.
+    if files is None:
+        files = read_schema(project)  # Finish all DB reads before changing any files.
     directory.mkdir(parents=True, exist_ok=True)
     previous = set()
     manifest_path = directory / MANIFEST
@@ -185,10 +209,7 @@ def staged_schema(directory):
     return files
 
 
-def check_schema(project):
-    directory = schema_directory(project)
-    staged = staged_schema(directory)
-    actual = read_schema(project)
+def schema_differences(staged, actual):
     differences = []
     for name in sorted(actual.keys() | staged.keys()):
         if name not in staged:
@@ -197,6 +218,34 @@ def check_schema(project):
             differences.append(f"no longer in DB: {name}")
         elif staged[name] != actual[name]:
             differences.append(f"different: {name}")
+    return differences
+
+
+def commit_schema(project):
+    """Pre-commit: export the schema, require every table to be classified, stop if it changed."""
+    directory = schema_directory(project)
+    try:
+        database_tables(project)
+    except ValueError:
+        print("Warning: the database is not reachable; the schema was not checked for this commit.")
+        return
+    actual = read_schema(project, require_classified=True)
+    export_schema(project, actual)
+    differences = schema_differences(staged_schema(directory), actual)
+    if differences:
+        from database_migrations_guarded import write_draft
+        draft = write_draft(project, differences)
+        raise ValueError("The database schema changed; the commit was stopped for review:\n  " + "\n  ".join(differences)
+                         + (f"\nA guarded migration draft was written: {draft}" if draft else "")
+                         + f"\nReview, then git add -A {directory} (and the migration) and commit again.")
+    print(f"Schema matches the commit ({len(actual) - 1} tables).")
+
+
+def check_schema(project):
+    directory = schema_directory(project)
+    staged = staged_schema(directory)
+    actual = read_schema(project)
+    differences = schema_differences(staged, actual)
     if differences:
         raise ValueError("DB schema differs from the Git index:\n  " + "\n  ".join(differences)
                          + "\nRun make schema-export, review the changes, then git add -A the schema directory.")
@@ -212,10 +261,11 @@ def install_schema_hook(project):
     hook = Path(os.fsdecode(git(root, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit")).strip())
     command = [sys.executable, str(Path(__file__).with_name("project.py")),
                "--docker-directory", str(project.directory), "--project-directory", str(project.root),
-               "--env", project.environment, "schema-check"]
+               "--env", project.environment, "schema-commit"]
     contents = "#!/bin/sh\n" + HOOK_MARKER + "\nexec " + shlex.join(command) + "\n"
-    if hook.is_symlink() or (hook.exists() and hook.read_text() != contents):
-        raise ValueError(f"Existing hook preserved: {hook}; add schema-check to it manually")
+    previous = hook.exists() and not hook.is_symlink() and any(m in hook.read_text() for m in PREVIOUS_HOOK_MARKERS)
+    if hook.is_symlink() or (hook.exists() and hook.read_text() != contents and not previous):
+        raise ValueError(f"Existing hook preserved: {hook}; add schema-commit to it manually")
     hook.parent.mkdir(parents=True, exist_ok=True)
     hook.write_text(contents)
     hook.chmod(0o755)

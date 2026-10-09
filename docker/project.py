@@ -252,7 +252,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -346,6 +346,12 @@ def main():
             start_project(project, args.timeout)
         elif args.action in ("down", "ps"):
             project.run([args.action])
+        elif args.action == "schema-commit":
+            from database_schema import commit_schema
+            commit_schema(project)
+        elif args.action == "schema-resolve":
+            from database_registry import resolve
+            resolve(project)
         elif args.action in ("schema-export", "schema-check", "schema-hook-install"):
             {"schema-export": export_schema, "schema-check": check_schema,
              "schema-hook-install": install_schema_hook}[args.action](project)

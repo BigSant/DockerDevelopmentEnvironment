@@ -19,7 +19,7 @@ from project import Project
 @unittest.skipUnless(os.environ.get("SETUP_MYSQL_SCHEMA_INTEGRATION") == "1",
                      "set SETUP_MYSQL_SCHEMA_INTEGRATION=1 to run a disposable MySQL container")
 class SchemaIntegrationTest(unittest.TestCase):
-    def test_real_commit_blocks_drift_unstaged_export_and_offline_database(self):
+    def test_real_commit_exports_drift_requires_classification_and_passes_offline(self):
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="schema-integration-", dir=scratch) as temporary:
@@ -67,9 +67,11 @@ CREATE TABLE product (
   UNIQUE KEY product_code (code)
 ) ENGINE=InnoDB;
 """)
+                (root / "database/table-registry.txt").parent.mkdir(parents=True, exist_ok=True)
+                (root / "database/table-registry.txt").write_text("parent config full import\nproduct catalog slice import\n")
                 with contextlib.redirect_stdout(io.StringIO()):
                     export_schema(project)
-                    git(root, "add", "database/schema")
+                    git(root, "add", "database")
                     install_schema_hook(project)
 
                 def commit():
@@ -85,17 +87,27 @@ CREATE TABLE product (
                 result = commit()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("different: table-product.sql", result.stderr)
-                with contextlib.redirect_stdout(io.StringIO()):
-                    export_schema(project)
+                self.assertIn("description", (root / "database/schema/table-product.sql").read_text(),
+                              "the hook exports the changed schema for review")
                 result = commit()
-                self.assertNotEqual(result.returncode, 0, "export without git add must remain blocked")
+                self.assertNotEqual(result.returncode, 0, "an exported but unstaged schema must remain blocked")
                 git(root, "add", "-A", "database/schema")
                 result = commit()
                 self.assertEqual(result.returncode, 0, result.stderr)
-                project.run(["stop", "database"])
+                mysql_query(project, "CREATE TABLE tmp_import (id int);")
                 result = commit()
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("Cannot read DB schema", result.stderr)
+                self.assertIn("tmp_import", result.stderr)
+                self.assertIn("make schema-resolve", result.stderr)
+                with (root / "database/table-registry.txt").open("a") as registry:
+                    registry.write("tmp_import drop drop -\n")
+                git(root, "add", "database/table-registry.txt")
+                result = commit()
+                self.assertEqual(result.returncode, 0, "a table marked for DROP stays out of the snapshot: " + result.stderr)
+                project.run(["stop", "database"])
+                result = commit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("not reachable", result.stdout + result.stderr)
             finally:
                 project.run(["down", "--volumes", "--remove-orphans"])
 

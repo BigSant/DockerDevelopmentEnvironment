@@ -170,7 +170,7 @@ class DatabaseSchemaTest(unittest.TestCase):
         install_schema_hook(self.project)
         hook = self.root / ".git/hooks/pre-commit"
         self.assertTrue(os.access(hook, os.X_OK))
-        self.assertIn("schema-check", hook.read_text())
+        self.assertIn("schema-commit", hook.read_text())
         subprocess.run(["sh", "-n", str(hook)], check=True)
         install_schema_hook(self.project)
         hook.write_text("#!/bin/sh\nexit 3\n")
