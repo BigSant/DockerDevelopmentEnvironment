@@ -61,13 +61,13 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | --- | --- | --- |
 | `DOMAIN` | Tuščias | Hostname be `http://`, porto ir kelio: `demo.local`. Lokaliai jį parenka `make bootstrap`, testui – `<vardas>.test.local`. |
 | `LOCALHOST_PORT`, `LOCALHOST_PORT_SSL` | `0` | Projekto HTTP ir HTTPS portai kompiuteryje. `0` – `make bootstrap` parenka laisvą porą. Naršyklėje porto rašyti nereikia. |
-| `PUBLISH_ADDRESS` | `127.0.0.1` | Adresas, prie kurio rišami portai. Projektas pasiekiamas tik per kompiuterio Nginx arba serverio web serverį. |
+| `PUBLISH_ADDRESS` | `127.0.0.1` | Adresas, ant kurio nginx-proxy publikuoja abu portus. `127.0.0.1` (ar `::1`) – projektas pasiekiamas tik per kompiuterio Nginx arba DirectAdmin. Kitas šio serverio adresas (pvz. VPN sąsajos `10.8.0.14`) – klientai tame tinkle jungiasi tiesiai, be DirectAdmin; tada nginx-proxy jų `X-Forwarded-*` antraščių nepriima. Tik vienas IPv4/IPv6 adresas: be porto, CIDR ir zonos; `0.0.0.0` ir `::` atmetami (portai būtų visose sąsajose). Žr. [Tikras kliento IP](05-servisai.md#ip-apribojimai). |
 | `DOCUMENT_ROOT` | `/` | Poaplankis aplikacijos viduje, kurį aptarnauja Apache, pvz. `public`. |
 | `WEBSERVICE_TIMEOUT` | `90` | Nginx proxy užklausos laikas sekundėmis. |
 | `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
 | `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
 | `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
-| `TRUSTED_PROXIES` | `127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16` | Iš kurių adresų nginx-proxy priima `X-Forwarded-For`. |
+| `TRUSTED_PROXIES` | Tuščias | Iš kurių adresų nginx-proxy priima `X-Forwarded-For` ir `X-Forwarded-Proto`. Tuščias: su `PUBLISH_ADDRESS` ant loopback – tik `127.0.0.1`, `::1` ir projekto Docker tinklo gateway (taip ateina kompiuterio Nginx / DirectAdmin); su kitu adresu – niekas. Nurodytas sąrašas galioja abiem atvejais. |
 
 IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-apribojimai).
 
