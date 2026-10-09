@@ -75,7 +75,8 @@ IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-aprib
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB ir jos vartotojas. Vartotojas gauna teises **tik į savo DB**. Sukuriami pirmą kartą paleidžiant tuščią DB. |
+| `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB ir jos vartotojas. Vartotojas gauna teises **tik į savo DB** (ir `DATABASE_EXTRA_SCHEMAS`). Sukuriami pirmą kartą paleidžiant tuščią DB. |
+| `DATABASE_EXTRA_SCHEMAS` | Tuščias | Papildomos projekto schemos per tarpą, pvz. `"asana_graph asana_git"`. Sukuriamos kartu su DB, vartotojas gauna teises ir į jas. Kopija, importas ir `db-restrict-grants` apima visas schemas; snapshot'as, registras ir bazinis rinkinys – tik `DATABASE_NAME`. Žr. [papildomos schemos](07-duomenu-baze.md#papildomos-schemos). |
 | `DATABASE_ROOT_PASSWORD` | Privalomas | Atskiras root slaptažodis, turi skirtis nuo `DATABASE_PASSWORD`. Local/test sugeneruoja `make init` / `make bootstrap`. |
 | `APP_DATABASE_HOST`, `APP_DATABASE_PORT` | `database`, `3306` | Kur jungiasi PHP. Keisk tik jei aplikacija sąmoningai jungiasi kitur. |
 | `DATABASE_HOST` | `127.0.0.1` (bendrame `.env`) | DB konteinerio vartotojo host'o nustatymas (MySQL `MYSQL_HOST`, MariaDB `MYSQL_ROOT_HOST`). Tai ne PHP adresas. |

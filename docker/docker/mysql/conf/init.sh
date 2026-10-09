@@ -16,12 +16,28 @@ set -euo pipefail
 sql_user=${MYSQL_USER//\'/\'\'}
 sql_password=${MYSQL_PASSWORD//\'/\'\'}
 sql_database=${MYSQL_DATABASE//\`/\`\`}
+# DATABASE_EXTRA_SCHEMAS: further project schemas with the same database-scoped privileges.
+# The grant escapes _ because an unescaped _ in a database grant matches any character.
+extra_sql=
+read -r -a extra_schemas <<< "${DATABASE_EXTRA_SCHEMAS:-}"
+for schema in "${extra_schemas[@]}"; do
+    if [[ ! $schema =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
+        echo "DATABASE_EXTRA_SCHEMAS: invalid schema name; use 1-64 letters, digits or _" >&2
+        exit 64
+    fi
+    pattern=${schema//_/\\_}
+    extra_sql+="CREATE DATABASE IF NOT EXISTS \`${schema}\`;
+GRANT ALL PRIVILEGES ON \`${pattern}\`.* TO '${sql_user}'@'localhost';
+GRANT ALL PRIVILEGES ON \`${pattern}\`.* TO '${sql_user}'@'%';
+"
+done
 MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket --host=localhost --user=root <<EOSQL
 SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
 CREATE USER IF NOT EXISTS '${sql_user}'@'localhost' IDENTIFIED BY '${sql_password}';
 CREATE USER IF NOT EXISTS '${sql_user}'@'%' IDENTIFIED BY '${sql_password}';
 GRANT ALL PRIVILEGES ON \`${sql_database}\`.* TO '${sql_user}'@'localhost';
 GRANT ALL PRIVILEGES ON \`${sql_database}\`.* TO '${sql_user}'@'%';
+${extra_sql}
 FLUSH PRIVILEGES;
 EOSQL
 )
