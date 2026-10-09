@@ -14,7 +14,8 @@ the last v1-compatible commit is `f9c4da9`.
   `docker-compose.yml` and root-level project layouts, `templates/project`, `prepare_project.py
   --from-legacy`, and the nginx webserver service. Projects use `env/` + `compose/` only.
 - **Services** are switched on with `SERVICES="pma mailpit …"` (per env file), not by including setup
-  Compose files. An unknown name is an error.
+  Compose files. An unknown name is an error. The four core services come from the runner too
+  (`DATABASE_ENGINE=mysql|mariadb`); `compose/base.yaml` is optional and holds only project additions.
 - **Settings**: per-service limits `<SERVICE>_MEMORY/_CPUS` (old `*_CONTAINER_MEMORY`/`CONTAINER_CPUS`
   still accepted), one `TZ` (default `Europe/Vilnius`), `XDEBUG_MODE`, `ALLOWED_IPS` /
   `<NAME>_ALLOWED_IPS`, `DATABASE_ROOT_PASSWORD` (separate from the application password),
@@ -31,8 +32,9 @@ the last v1-compatible commit is `f9c4da9`.
 
 1. Update the shared checkout to `v2.0.0` and run `setup/install-host` once per machine.
 2. In the project, keep `env/common.env` and the private `env/<env>.env`; move service selection to
-   `SERVICES=`; delete project Compose files that only included setup files; keep real overrides in
-   `compose/`.
+   `SERVICES=`; remove the `include` of setup's core services and the network from `compose/base.yaml`
+   (the runner loads them; `DATABASE_ENGINE=mariadb` selects MariaDB) and delete files left empty; keep
+   real overrides in `compose/`.
 3. Add `PS_VERSION` and `PROFILE=prestashop` for shops. Copy the six PS keys from the current
    `parameters.php` (or the cookie key for 1.6) into `env/local.env`; `make bootstrap` fills missing
    local keys and `DATABASE_ROOT_PASSWORD`.

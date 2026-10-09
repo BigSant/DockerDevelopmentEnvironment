@@ -31,7 +31,10 @@ class FixturesIntegrationTest(unittest.TestCase):
             (directory / "compose/base.yaml").write_text("""services:
   database:
     image: __DB_TEST_IMAGE__
+    # Overrides the core database: no network, no data directory, the image's own user.
     network_mode: none
+    networks: !reset []
+    user: !reset ""
     tmpfs:
       - /var/lib/mysql
     environment:
@@ -45,7 +48,7 @@ class FixturesIntegrationTest(unittest.TestCase):
             engine = 'mariadb' if 'mariadb' in os.environ.get('SETUP_DB_TEST_IMAGE', '') else 'mysql'
             with (directory / 'compose/base.yaml').open('a') as compose:
                 compose.write('      MYSQL_HOST: 127.0.0.1\n')
-                compose.write(f'    volumes:\n      - {ROOT}/docker/docker/{engine}/conf/init.sh:/docker-entrypoint-initdb.d/01-init-app-user.sh:ro\n')
+                compose.write(f'    volumes: !override\n      - {ROOT}/docker/docker/{engine}/conf/init.sh:/docker-entrypoint-initdb.d/01-init-app-user.sh:ro\n')
             fixtures = root / "database/fixtures"
             for group, identifier in (("common", 1), ("local", 2), ("test", 3)):
                 (fixtures / group).mkdir(parents=True)
@@ -63,7 +66,7 @@ class FixturesIntegrationTest(unittest.TestCase):
             def rows():
                 return mysql_query(project, "SELECT id, value FROM seed ORDER BY id;").strip()
             try:
-                project.run(["up", "-d", "--no-build", "--pull", "never"])
+                project.run(["up", "-d", "--no-build", "--pull", "never", "database"])
                 deadline = time.monotonic() + 90
                 while True:
                     try:

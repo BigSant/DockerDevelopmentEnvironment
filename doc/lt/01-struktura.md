@@ -79,7 +79,7 @@ demo/
 │   │   ├── stage.env, prod.env        # Serverių nustatymai (ne Git)
 │   │   └── *.env.example              # Pavyzdžiai be slaptažodžių (Git)
 │   ├── compose/
-│   │   ├── base.yaml                  # Keturi pagrindiniai servisai ir tinklas
+│   │   ├── base.yaml                  # Neprivalomi projekto servisai (pagrindinius prijungia setup)
 │   │   ├── common.yaml                # Neprivalomi Compose skirtumai visoms aplinkoms
 │   │   └── local.yaml, prod.yaml …    # Neprivalomi Compose skirtumai vienai aplinkai
 │   ├── config/
@@ -125,7 +125,7 @@ demo/
 | --- | --- | --- | --- |
 | `env/common.env` | Bendri projekto nustatymai | Kiekviena komanda | Taip, be slaptažodžių |
 | `env/<ENV>.env` | Aplinkos prisijungimai ir skirtumai | Pasirinkus `ENV` | Ne |
-| `compose/base.yaml` | Pagrindiniai servisai | Visada | Taip |
+| `compose/base.yaml` | Projekto papildomi servisai | Jei failas yra | Taip |
 | `compose/common.yaml`, `compose/<ENV>.yaml` | Compose skirtumai | Jei failas yra | Taip |
 | `SERVICES=` sąraše esantys servisai | CORE servisų aprašai | Kiekviena komanda | Taip (sąrašas env faile) |
 | `config/<servisas>/…` | Drop-in failai | To serviso starto metu | Taip, slaptažodžius imk iš env per `.template` |

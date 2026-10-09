@@ -40,7 +40,6 @@ class ProjectTemplatesTest(unittest.TestCase):
         (directory / "env/local.env").write_text(
             f"DOMAIN={name}.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
             "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='literal $PWD # quote'\n" + extra)
-        (directory / "compose/base.yaml").write_bytes((ROOT / "templates/minimal/compose/base.yaml").read_bytes())
         (directory / "Makefile").write_bytes((ROOT / "templates/shared/Makefile").read_bytes())
         return root, directory
 
@@ -50,7 +49,7 @@ class ProjectTemplatesTest(unittest.TestCase):
             prepare(first)
             prepare(self.projects / "two")
         one, two = first / "app", self.projects / "two/app"
-        for name in ("Makefile", "compose/base.yaml", ".gitignore"):
+        for name in ("Makefile", "compose/common.yaml", ".gitignore"):
             self.assertEqual((one / name).read_bytes(), (two / name).read_bytes())
         (one / "env/common.env").write_text("PROJECT_NAME=custom\n")
         with contextlib.redirect_stdout(io.StringIO()):
@@ -136,6 +135,7 @@ class ProjectTemplatesTest(unittest.TestCase):
     def test_parallel_render_never_rewrites_or_reads_source_snapshots(self):
         _, one = self.prepare("one")
         _, two = self.prepare("two")
+        (one / "compose/base.yaml").write_text("services:\n  php-fpm:\n    environment:\n      PHP_MEMORY_LIMIT: 1024M\n")
         original = (one / "compose/base.yaml").read_bytes()
         (one / "docker-compose.yml").write_text("invalid obsolete snapshot")
         with ThreadPoolExecutor(max_workers=3) as pool:

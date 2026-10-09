@@ -33,7 +33,10 @@ class SchemaIntegrationTest(unittest.TestCase):
             (directory / "compose/base.yaml").write_text("""services:
   database:
     image: __DB_TEST_IMAGE__
+    # Overrides the core database: no network, no data directory, the image's own user.
     network_mode: none
+    networks: !reset []
+    user: !reset ""
     tmpfs:
       - /var/lib/mysql
     environment:
@@ -41,6 +44,7 @@ class SchemaIntegrationTest(unittest.TestCase):
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_ROOT_PASSWORD: schema-root-test-only
+    volumes: !reset []
 """.replace("__DB_TEST_IMAGE__", os.environ.get("SETUP_DB_TEST_IMAGE", "mysql-local-8.4.0:latest")))
             git(root, "init", "-q")
             git(root, "config", "user.name", "Schema Test")
@@ -48,7 +52,7 @@ class SchemaIntegrationTest(unittest.TestCase):
             git(root, "config", "commit.gpgsign", "false")
             project = Project(directory)
             try:
-                project.run(["up", "-d", "--no-build", "--pull", "never"])
+                project.run(["up", "-d", "--no-build", "--pull", "never", "database"])
                 deadline = time.monotonic() + 90
                 while True:
                     try:

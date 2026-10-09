@@ -53,7 +53,8 @@ Constructing `Project` is the contract every action relies on:
    MAIL_MODE (mailpit when the service runs), TZ, resources (`<SERVICE>_MEMORY/_CPUS` → buffer pool,
    FPM pool, memcached/redis memory), PS_SSL, DATABASE_PERFORMANCE_SCHEMA. Results go into the process
    environment used for Compose interpolation.
-4. Compose files: the project's compose sources, every `SERVICES=` catalogue entry
+4. Compose files: the project network and the four core services (`DATABASE_ENGINE` picks mysql or
+   mariadb; a project `include` of them is refused), the project's optional compose sources, every `SERVICES=` catalogue entry
    (`docker/<name>/docker-compose.yml`), env overrides, then a generated overlay that drops optional
    config mounts whose source is absent (Compose would create them root-owned).
 5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor)

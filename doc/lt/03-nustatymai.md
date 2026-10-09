@@ -195,8 +195,9 @@ Paprastai laikomos bendrame setup `.env`. Projektas gali perrašyti bet kurią `
 | `DOCTRINE_MIGRATIONS_VERSION` | `3.8` | Doctrine migracijų įrankis. |
 | `NGINX_VERSION` | `1.26.0` | nginx-proxy. |
 | `APACHE_VERSION` | `2.4.59` | Apache. |
-| `MYSQL_VERSION` | `8.4.0` | MySQL, kai `compose/base.yaml` naudoja MySQL. |
-| `MARIADB_VERSION` | `11.3.2` | MariaDB, kai `compose/base.yaml` naudoja MariaDB. |
+| `DATABASE_ENGINE` | `mysql` | DB variklis: `mysql` arba `mariadb`. |
+| `MYSQL_VERSION` | `8.4.0` | MySQL versija, kai `DATABASE_ENGINE=mysql`. |
+| `MARIADB_VERSION` | `11.3.2` | MariaDB versija, kai `DATABASE_ENGINE=mariadb`. |
 | `PMA_VERSION` | `5.2.3` | phpMyAdmin. |
 | `MAILPIT_VERSION` | `1.18.3` | Mailpit. |
 | `MEMCACHED_VERSION` | `1.6.45` | Memcached. |

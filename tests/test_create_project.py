@@ -41,10 +41,10 @@ class CreateProjectTest(unittest.TestCase):
     def test_new_project_has_working_core_config_and_private_credentials(self):
         app = self.create()
         self.assertEqual({p.relative_to(app).as_posix() for p in app.rglob('*') if p.is_file()}, {
-            'Makefile', '.gitignore', 'compose/base.yaml', 'env/common.env',
+            'Makefile', '.gitignore', 'env/common.env',
             'env/local.env', 'public/index.php', '.generated/create-project.json', '.idea/.name',
         })
-        self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'compose', 'env', 'public', '.generated', '.idea'})
+        self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'env', 'public', '.generated', '.idea'})
         project = Project(app)
         active = json.loads(project.capture(['config', '--format', 'json']))['services']
         self.assertEqual(set(active), {'nginx-proxy', 'webserver', 'php-fpm', 'database'})
@@ -87,6 +87,7 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_project_yaml_adds_service_without_profile_env(self):
         app = self.create()
+        (app / 'compose').mkdir(exist_ok=True)
         (app / 'compose/local.yaml').write_text('services:\n  worker:\n    image: alpine:3.20\n    command: ["sleep", "infinity"]\n')
         project = Project(app)
         active = json.loads(project.capture(['config', '--format', 'json']))['services']
@@ -125,6 +126,7 @@ class CreateProjectTest(unittest.TestCase):
         with (app / 'env/local.env').open('a') as handle:
             handle.write('CACHE_MODE=on\n')
         # Explicit extensions belong to the user; a retry must not remove them.
+        (app / 'compose').mkdir(exist_ok=True)
         (app / 'compose/redis.yaml').write_text('services: {}\n')
         before = {p.relative_to(app): p.read_bytes() for p in app.rglob('*') if p.is_file()}
         self.assertEqual(self.create(), app)
@@ -322,6 +324,18 @@ class WizardTest(unittest.TestCase):
         self.assertEqual((code, created), (1, []))
         self.assertIn('nothing was created', output)
 
+    def test_a_project_including_setup_core_files_gets_a_migration_hint(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            app = scaffold('legacy-include', self.parent)
+        (app / 'compose').mkdir()
+        (app / 'compose/base.yaml').write_text('include:\n  - ${ROOT_DIRECTORY}/docker/mysql/docker-compose.yml\n')
+        with self.assertRaisesRegex(ValueError, "includes setup's core services; the runner loads them now"):
+            Project(app)
+        (app / 'env/common.env').write_text((app / 'env/common.env').read_text() + 'DATABASE_ENGINE=postgres\n')
+        (app / 'compose/base.yaml').unlink()
+        with self.assertRaisesRegex(ValueError, 'DATABASE_ENGINE must be mysql or mariadb'):
+            Project(app)
+
     def test_answers_reach_the_project_files(self):
         from create_project import complete_options
         options = complete_options({'profile': 'prestashop', 'ps_version': '9.0.2', 'database': 'mariadb', 'services': 'pma'})
@@ -330,7 +344,8 @@ class WizardTest(unittest.TestCase):
         common = (app / 'env/common.env').read_text()
         for line in ('PROFILE=prestashop', 'PS_VERSION=9.0.2', 'PHP_VERSION=8.4', 'MARIADB_VERSION=11.4', 'SERVICES=pma'):
             self.assertIn(line, common)
-        self.assertIn('/docker/mariadb/docker-compose.yml', (app / 'compose/base.yaml').read_text())
+        self.assertIn('DATABASE_ENGINE=mariadb', common)
+        self.assertFalse((app / 'compose').exists(), 'the runner loads the core services; no setup paths in the project')
         self.assertFalse((app / 'public').exists(), 'the shop is cloned into app/public by the developer')
         project = Project(app)
         services = json.loads(project.capture(['config', '--format', 'json']))['services']

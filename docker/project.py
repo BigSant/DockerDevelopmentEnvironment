@@ -34,6 +34,7 @@ ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor')
 # and model rendering stay on this build machine, and lifecycle commands use the release model.
 LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
 RELEASE_COMPOSE_COMMANDS = ('up', 'down', 'run', 'create', 'start', 'rm')
+LEGACY_CORE_INCLUDE = re.compile(r"ROOT_DIRECTORY\}?/docker/(nginx-proxy|apache|mysql|mariadb|php-fpm)/docker-compose\.yml")
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
 
 
@@ -85,8 +86,9 @@ class Project:
             raise ValueError("Root-level .env / compose.yaml sources are no longer supported; use env/ + compose/")
         if not common_env.is_file():
             raise ValueError(f"Missing {common_env}; create the project with create-project")
-        if not source.is_file():
-            raise ValueError(f"Missing {source}")
+        if source.is_file() and LEGACY_CORE_INCLUDE.search(source.read_text()):
+            raise ValueError(f"{source} includes setup's core services; the runner loads them now. Remove the include "
+                             "(and the network), set DATABASE_ENGINE=mariadb for MariaDB, keep only real overrides")
         if not private_env.is_file():
             raise ValueError(f"Create {private_env} from its example")
         self.env_files = [DOCKER_ROOT / ".env", common_env, private_env]
@@ -186,7 +188,15 @@ class Project:
             profiles = ",".join(dict.fromkeys(selected))
         self.profiles = profiles
         self.command = base_command + ["--project-name", self.name]
-        self.command += ["-f", str(source)]
+        # The four core services come from setup; a project's base.yaml only adds or overrides.
+        engine = settings["DATABASE_ENGINE"] or "mysql"
+        if engine not in ("mysql", "mariadb"):
+            raise ValueError("DATABASE_ENGINE must be mysql or mariadb")
+        self.command += ["-f", str(DOCKER_ROOT / "docker/network.yml")]
+        for name in ("nginx-proxy", "apache", engine, "php-fpm"):
+            self.command += ["-f", str(DOCKER_ROOT / "docker" / name / "docker-compose.yml")]
+        if source.is_file():
+            self.command += ["-f", str(source)]
         # Selected catalogue services load right after the project's base sources.
         for name in services:
             self.command += ["-f", str(DOCKER_ROOT / "docker" / name / "docker-compose.yml")]

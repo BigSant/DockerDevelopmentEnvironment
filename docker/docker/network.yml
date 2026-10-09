@@ -1,0 +1,5 @@
+# The project network every core and catalogue service joins; loaded by the runner before them.
+networks:
+  network_app:
+    driver: bridge
+    name: ${PROJECT_NAME}-${ENV}-network

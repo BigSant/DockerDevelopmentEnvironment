@@ -14,7 +14,9 @@
 ## Kokia tvarka sujungiami Compose failai
 
 ```text
-compose/base.yaml                     # keturi pagrindiniai servisai
+keturi pagrindiniai servisai iš setup  # nginx-proxy, Apache, MySQL/MariaDB, PHP-FPM ir tinklas
+    ↓
+compose/base.yaml, jei yra            # projekto papildomi servisai ar skirtumai
     ↓
 SERVICES= servisų aprašai iš setup    # pvz. docker/pma/docker-compose.yml
     ↓
@@ -97,17 +99,14 @@ services:
 
 ## MySQL ar MariaDB
 
-`create-project` parenka variklį pagal atsakymą. Jau esamame projekte variklis parenkamas viena `include` eilute `compose/base.yaml`:
+Pagrindinius servisus prijungia pats runner'is, projektas setup kelių nežino. DB variklį renkasi `env/common.env`:
 
-```yaml
-include:
-  - ${ROOT_DIRECTORY}/docker/nginx-proxy/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/apache/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/mariadb/docker-compose.yml
-  - ${ROOT_DIRECTORY}/docker/php-fpm/docker-compose.yml
+```dotenv
+DATABASE_ENGINE=mariadb   # numatyta mysql
+MARIADB_VERSION=11.4
 ```
 
-MySQL ir MariaDB eilutės kartu būti negali: abu aprašai naudoja serviso vardą `database`. Versiją įrašyk į `MARIADB_VERSION`. MariaDB failai rašomi į `data/mariadb`. Esamą DB perkelk per dump ir importą į naują tuščią katalogą, ne prijungdamas senus MySQL failus.
+`create-project` šią eilutę įrašo pagal atsakymą. Projekto `compose/base.yaml`, kuris dar `include`'ina setup'o pagrindinius servisus (v1 būdas), yra klaida su paaiškinimu: include ir tinklą reikia ištrinti, palikti tik tikrus skirtumus. MariaDB failai rašomi į `data/mariadb`. Esamą DB perkelk per dump ir importą į naują tuščią katalogą, ne prijungdamas senus MySQL failus.
 
 ## Projekto Dockerfile
 

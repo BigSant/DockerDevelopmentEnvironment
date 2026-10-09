@@ -173,10 +173,9 @@ def apply_options(app, options):
         lines['PS_VERSION'] = options['ps_version']
     if options['services']:
         lines['SERVICES'] = options['services']
-    set_env_values(app / 'env/common.env', lines)
     if options['database'] == 'mariadb':
-        base = app / 'compose/base.yaml'
-        base.write_text(base.read_text().replace('/docker/mysql/docker-compose.yml', '/docker/mariadb/docker-compose.yml'))
+        lines['DATABASE_ENGINE'] = 'mariadb'
+    set_env_values(app / 'env/common.env', lines)
 
 
 def ask_options(name, given, ask=input):

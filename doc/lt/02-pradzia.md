@@ -164,8 +164,7 @@ Ne terminale (pvz. scripte) vardas privalomas. Su vien vardu ir be kitų paramet
 ~/Projects/demo/app/
 ├── Makefile
 ├── .gitignore
-├── compose/base.yaml         # Keturi pagrindiniai servisai (MySQL arba MariaDB)
-├── env/common.env            # PROJECT_NAME, PROFILE, PS_VERSION, PHP_VERSION, DB versija, SERVICES
+├── env/common.env            # PROJECT_NAME, PROFILE, PS_VERSION, PHP_VERSION, DB variklis ir versija, SERVICES
 ├── env/local.env             # DOMAIN, DB vardas, vartotojas, slaptažodis, DATABASE_ROOT_PASSWORD
 ├── .idea/.name               # PhpStorm projekto pavadinimas
 └── public/index.php          # Tik generic profiliui: bandomasis puslapis

@@ -41,6 +41,7 @@ class OptionalMountsTest(unittest.TestCase):
         self.assertNotIn('/opt/setup/project', [v['target'] for v in first.model()['services']['php-fpm']['volumes']])
 
     def test_explicit_missing_sources_are_not_silently_removed(self):
+        (self.app / 'compose').mkdir(exist_ok=True)
         (self.app / 'compose/local.yaml').write_text('''services:
   php-fpm:
     volumes:

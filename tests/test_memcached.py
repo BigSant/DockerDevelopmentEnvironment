@@ -25,6 +25,7 @@ class MemcachedServiceTest(unittest.TestCase):
             services = json.loads(Project(app, 'local').capture(['config', '--format', 'json']))['services']
             self.assertNotIn('memcached', services)
 
+            (app / 'compose').mkdir(exist_ok=True)
             (app / 'compose/local.yaml').write_text('''include:
   - ${ROOT_DIRECTORY}/docker/memcached/docker-compose.yml
 ''')
