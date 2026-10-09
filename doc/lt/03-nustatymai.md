@@ -100,6 +100,8 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | `METRICS_NETWORK_INTERFACE` | Numatytojo maršruto sąsaja | Serverio tinklo sąsaja `network_*` metrikoms (seno scripto `network_interface`). |
 | `METRICS_SUPPORT_LEVEL` | `0` | Projekto palaikymo lygis 0–9 (`support_level`), pagal jį alert'ai parenka, ką pranešti. |
 | `METRICS_DISK_WRITE_MB` | `100` | Disko rašymo testo dydis (`disk_write_speed`), kartą per valandą. `0` išjungia. |
+| `METRICS_HTTP_WINDOW_MINUTES` | `5` | Kelių paskutinių pilnų minučių HTTP log'ai skaičiuojami (1–60). Lygus Prometheus `scrape_interval`. |
+| `METRICS_HTTP_LOG_MB` | `32` | Vieno HTTP log'o failo dydis MB metrikų tome (1–1024); kiekvienas log'as laiko du failus. Žr. [HTTP log'ai](05-servisai.md#http-logai). |
 
 ## Laikas ir derinimas
 

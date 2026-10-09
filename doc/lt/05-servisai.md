@@ -16,7 +16,7 @@ SERVICES="pma mailpit cron"
 | `mailpit` | Laiškų gaudyklė | UI `https://mailpit.demo.local/`, SMTP `mailpit:1025` projekto tinkle. |
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
 | `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` su token'u. Žr. [DB monitorius](#db-monitorius). |
-| `metrics` | Serverio ir svetainės Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
+| `metrics` | Serverio, svetainės, HTTP ir saugumo Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
 | `playwright` | Naršyklės testų įrankis | `make e2e`. |
@@ -366,12 +366,14 @@ Be teisingo token'o atsakymas `401`. DB portas nepublikuojamas. Stage/prod be `D
 
 ## Metrikos (Prometheus)
 
-Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Šiandien atiduodamos dvi grupės:
+Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Šiandien atiduodamos keturios grupės:
 
 - **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`;
-- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas).
+- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas);
+- **HTTP** (paskutinių pilnų minučių log'ai, žr. [HTTP log'ai](#http-logai)): `http_response_codes{code}`, `http_bytes_transferred_total`, `http_request_ips{ip}`, `http_error_type{type}`, nauji `http_request_user_agents{user_agent}`, `http_requests_per_minute` ir `http_requests_per_minute_max`;
+- **saugumas**: `ddos_most_connections_ip_count{ip}` – penki adresai su daugiausiai TCP jungčių į 80 ir 443 portus.
 
-`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e). HTTP, DB, konteinerių, cron ir procesų grupės prisidės prie to paties serviso.
+`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e). DB, konteinerių, cron ir procesų grupės prisidės prie to paties serviso.
 
 1. `env/<ENV>.env`:
 
@@ -418,10 +420,11 @@ scrape_configs:
 
 Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat 1 1` / `sar 1 1`) plius kiekvieno `METRICS_URLS` adreso patikra (iki 20 s), todėl `scrape_timeout` palik didesnį už numatytą 10 s.
 
-**Serverio, ne konteinerio skaičiai.** Servisas naudoja projekto PHP image'ą, veikia projekto vartotoju ir turi tik du papildomus prijungimus, abu tik skaitymui:
+**Serverio, ne konteinerio skaičiai.** Servisas naudoja projekto PHP image'ą, veikia projekto vartotoju ir turi tris papildomus prijungimus, visus tik skaitymui:
 
 - serverio `/proc` → `/host/proc`: CPU, RAM, apkrova ir uptime `/proc` yra viso serverio; tinklo skaitikliai skaitomi iš `/host/proc/1/net/dev` (serverio tinklo vardų erdvė, ne konteinerio). Release'as šį prijungimą palieka, nes `/proc` yra kiekviename Linux taikinyje;
-- projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi.
+- projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi;
+- HTTP log'ų tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
 
 Portų servisas nepublikuoja ir projekto tinkle nėra (jį pasiekia tik nginx-proxy).
 
@@ -437,5 +440,30 @@ Portų servisas nepublikuoja ir projekto tinkle nėra (jį pasiekia tik nginx-pr
 | `uptime`, `uptime_average_load_*` | `uptime` | s; `uptime_average_load_10min` yra 5 min apkrova (seno parserio vardas) |
 | `disk_write_speed` | `dd … conv=fdatasync` | kaip seno parserio (`MB/s × 1024`); `METRICS_DISK_WRITE_MB` konteinerio laikiname kataloge (Docker diske), ne dažniau nei kas valandą |
 | `website_response_*` | `curl -L` | s ir HTTP kodas; `0` – neatsakė ar netinkamas sertifikatas |
+| `http_response_codes`, `http_bytes_transferred_total`, `http_request_ips` | prieigos log'as per langą | vnt. ir baitai (`$body_bytes_sent`); IP – 10 aktyviausių (`head -10`); be užklausų kodų ir IP eilučių nėra, baitai `0` |
+| `http_request_user_agents` | prieigos log'as | nauja: 10 dažniausių user agent'ų (seno scripto „HTTP top User agents“, kurių parseris neatidavė) |
+| `http_requests_per_minute`, `http_requests_per_minute_max` | prieigos log'as | nauja: vidutinis ir didžiausias užklausų skaičius per minutę lange (seno scripto „requests per minute“) |
+| `http_error_type` | svetainės klaidų log'as per langą | visada šeši tipai su seno parserio etiketėmis; įrašas su keliais tos pačios rūšies pranešimais skaičiuojamas kartą (kaip `awk`); `Connection reset` – nepriklausomai nuo raidžių dydžio |
+| `ddos_most_connections_ip_count` | `/proc/net/tcp*` (kaip `netstat -an`) | 5 adresai; visos būsenos, išskyrus klausymą (taip pat `TIME_WAIT`); 80 **ir 443** portai, tik įeinančios jungtys; be loopback |
 
 **Svetainės patikra** eina iš metrikų konteinerio per jo atskirą tinklą: projekto tinkle domenas rodo tiesiai į nginx-proxy, o patikra turi praeiti tą patį kelią kaip lankytojas (DirectAdmin ir jo sertifikatas). Jei serveris negali pasiekti savo viešo adreso arba vardas yra tik VPN, nurodyk `METRICS_PROBE_ADDRESS` (pvz. `10.8.0.14`): jungiamasi ten, o `Host` ir SNI lieka iš URL. Sertifikato data nuskaitoma netikrinant jo, todėl pasibaigęs sertifikatas taip pat parodomas.
+
+### HTTP log'ai
+
+Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'us. Setup v2 tų pačių skaičių šaltiniai yra konteineriuose, todėl su `SERVICES=metrics` jie papildomai rašomi į bendrą Docker tomą `<PROJECT_NAME>-<ENV>-http-logs`; metrikų servisas jį prijungia tik skaitymui:
+
+| Failas tome | Kas rašo | Kodėl šis |
+| --- | --- | --- |
+| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje; Apache už jo mato tik proxy adresą |
+| `error.log` (+ `error.log.1`) | Apache per `rotatelogs` (svetainės `ErrorLog`) | PHP pranešimai ateina per FastCGI: su `metrics` php-fpm paleidžiamas su `fastcgi.logging=1` |
+| `proxy-net/` | nginx-proxy kas 10 s (`/proc/net/tcp`, `tcp6`, `route`) | jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje, ne metrikų konteinerio |
+
+- **`docker logs` nesikeičia**: nginx-proxy ir php-fpm toliau rašo viską į savo `docker logs` (su `CONTAINER_LOG_*` rotacija), tomas – tik papildoma kopija. `/metrics` užklausos lieka `docker logs`, bet į tomą nepatenka, kad Prometheus nebūtų skaičiuojamas kaip lankytojas.
+- **Dydis ribotas**: kiekvienas log'as tome turi daugiausiai du failus po `METRICS_HTTP_LOG_MB` (numatyta 32): nginx-proxy perkelia `access.log` į `access.log.1` ir atidaro naują, Apache `rotatelogs -n 2` daro tą patį. Anksčiau Apache svetainės klaidų log'as augo konteinerio viduje be ribos.
+- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 5) **pilnos** minutės iki einamosios, kaip seno scripto `5 minutes ago` … dabartinė minutė. Nustatyk lygų Prometheus `scrape_interval`, kad kiekviena užklausa būtų suskaičiuota vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`).
+- **Skaitymas**: log'ai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis log'as į atmintį nekraunamas. Eilutės be laiko (pvz. tęsinys) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
+- **Laikas**: prieigos log'e laikas su zona, klaidų log'e – konteinerio `TZ` laikas (visi projekto konteineriai turi tą patį `TZ`).
+- Kol Apache nieko neparašė, `error.log` nėra – tai reiškia nulį klaidų. Be `access.log` (tomas neprijungtas) HTTP grupės `setup_metrics_group_up` yra `0`.
+
+**Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytojo maršruto vartai (Docker tinklo vartai – per juos ateina priekinio web serverio ir paties serverio persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
+

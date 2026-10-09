@@ -14,7 +14,8 @@ COPY /docker/nginx-proxy/conf/sites.metrics.conf /etc/nginx/templates/setup-metr
 
 COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh
 COPY /docker/nginx-proxy/conf/access.sh /usr/local/bin/access.sh
-RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/access.sh
+COPY /docker/nginx-proxy/conf/http-logs.sh /usr/local/bin/http-logs.sh
+RUN chmod +x /usr/local/bin/init.sh /usr/local/bin/access.sh /usr/local/bin/http-logs.sh
 
 # Per-project drop-in dirs (bind-mounted read-only at runtime) and their rendered copies.
 # project.d = always, project.d.env = ENV-match; nginx includes the rendered project.r*.
