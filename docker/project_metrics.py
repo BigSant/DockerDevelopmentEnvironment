@@ -6,7 +6,8 @@ from urllib.parse import urlsplit
 
 TOKEN_MINIMUM = 24
 # Container-side defaults; the collector itself lives in runtime/metrics/.
-DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100'}
+DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRICS_HTTP_WINDOW_MINUTES': '5',
+            'METRICS_HTTP_LOG_MB': '32'}
 
 
 def resolve_metrics(settings, environment):
@@ -35,6 +36,12 @@ def resolve_metrics(settings, environment):
         raise ValueError('METRICS_SUPPORT_LEVEL must be a support level from 0 to 9')
     if not re.fullmatch(r'\d+', values['METRICS_DISK_WRITE_MB']) or int(values['METRICS_DISK_WRITE_MB']) > 1024:
         raise ValueError('METRICS_DISK_WRITE_MB must be 0 (off) to 1024')
+    # The HTTP figures cover the last full minutes (the old script: 5, its cron and scrape interval).
+    if not re.fullmatch(r'\d+', values['METRICS_HTTP_WINDOW_MINUTES']) or not 1 <= int(values['METRICS_HTTP_WINDOW_MINUTES']) <= 60:
+        raise ValueError('METRICS_HTTP_WINDOW_MINUTES must be 1 to 60 (the Prometheus scrape interval)')
+    # Each of the two files a log keeps in the HTTP log volume (current and rotated).
+    if not re.fullmatch(r'\d+', values['METRICS_HTTP_LOG_MB']) or not 1 <= int(values['METRICS_HTTP_LOG_MB']) <= 1024:
+        raise ValueError('METRICS_HTTP_LOG_MB must be 1 to 1024')
     return values
 
 

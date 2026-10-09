@@ -27,6 +27,7 @@ services:
       METRICS_NETWORK_INTERFACE: ${METRICS_NETWORK_INTERFACE:-}
       METRICS_SUPPORT_LEVEL: ${METRICS_SUPPORT_LEVEL}
       METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB}
+      METRICS_HTTP_WINDOW_MINUTES: ${METRICS_HTTP_WINDOW_MINUTES}
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
       # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
@@ -40,10 +41,37 @@ services:
         source: ${PROJECT_DATA_DIRECTORY}
         target: /host/disk
         read_only: true
+      # The site's access log (nginx-proxy, client IPs after the real-IP handling), the webserver's error
+      # log and nginx-proxy's TCP table snapshot; docker logs keep their own copies.
+      - type: volume
+        source: http_logs
+        target: /host/http-logs
+        read_only: true
 
+  # Writers of the HTTP log volume, each file bounded to two of METRICS_HTTP_LOG_MB (current and rotated).
   nginx-proxy:
     networks:
       network_metrics: {}
+    environment:
+      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB}
+    volumes:
+      - http_logs:/var/log/setup-http
+
+  webserver:
+    environment:
+      SETUP_ENABLE_METRICS: "1"
+      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB}
+    volumes:
+      - http_logs:/var/log/setup-http
+
+  # PHP's messages also reach the webserver's error log (FastCGI stderr), not only docker logs.
+  php-fpm:
+    environment:
+      SETUP_ENABLE_METRICS: "1"
+
+volumes:
+  http_logs:
+    name: ${PROJECT_NAME}-${ENV}-http-logs
 
 networks:
   network_metrics:
