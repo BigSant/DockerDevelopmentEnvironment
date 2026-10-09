@@ -95,6 +95,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
+  The database joins that network for the database group, which reads statistics only with the DB monitor
+  account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
 - **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
   its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
   (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy

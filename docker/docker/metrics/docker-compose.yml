@@ -27,6 +27,9 @@ services:
       METRICS_NETWORK_INTERFACE: ${METRICS_NETWORK_INTERFACE:-}
       METRICS_SUPPORT_LEVEL: ${METRICS_SUPPORT_LEVEL}
       METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB}
+      # Database group: statistics only, through the DB monitor account (make db-monitor-user).
+      DATABASE_MONITOR_USER: ${DATABASE_MONITOR_USER:-${DATABASE_NAME}_monitor}
+      DATABASE_MONITOR_PASSWORD: ${DATABASE_MONITOR_PASSWORD:-}
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
       # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
@@ -42,6 +45,11 @@ services:
         read_only: true
 
   nginx-proxy:
+    networks:
+      network_metrics: {}
+
+  # The database joins the metrics network, so the metrics service stays off the project network.
+  database:
     networks:
       network_metrics: {}
 

@@ -19,6 +19,7 @@ FIXTURE = Path(__file__).resolve().parent / 'fixtures/grafana-metric-names.json'
 # Target /metrics groups. A ticket that implements a group adds it to IMPLEMENTED (test_metrics.py).
 GROUPS = {
     'system': {
+        'active_connections',
         'cpu_usage_usr', 'cpu_usage_nice', 'cpu_usage_sys', 'cpu_usage_iowait', 'cpu_usage_irq', 'cpu_usage_soft',
         'cpu_usage_steal', 'cpu_usage_guest', 'cpu_usage_gnice', 'cpu_usage_idle',
         'ram_total', 'ram_used', 'ram_free', 'ram_shared', 'ram_buff_cache', 'ram_available',
@@ -35,9 +36,13 @@ GROUPS = {
     'database': {'database_slow_query_total', 'database_slow_query_time_total', 'database_slow_query_time_average',
                  'sql_buffer_pool_size', 'sql_buffer_used', 'sql_data_cached', 'sql_dirty_pages', 'sql_ram_free'},
     # 09: connections, security and processes (with containers and cron, which have no dashboard yet).
-    'host': {'active_connections', 'ddos_most_connections_ip_count', 'processes_consuming_cpu',
+    'host': {'ddos_most_connections_ip_count', 'processes_consuming_cpu',
              'processes_consuming_cpu_total', 'processes_consuming_memory', 'processes_consuming_memory_total'},
 }
+# Names the old viewer also emitted that no dashboard queries yet; served unchanged (incl. _total on gauges).
+VIEWER_ONLY = {'database_table_scan_query_total', 'database_table_scan_query_total_row_examined',
+               'database_table_scan_query_total_row_sent', 'database_total_time_query_total',
+               'database_total_time_query_time_total', 'database_total_time_query_time_average'}
 # Not the target's: shop business data (PrestaShop module), PageSpeed (monitoring app), Prometheus itself.
 ELSEWHERE = re.compile(r'^(monitoring_|pagespeed_insight_)|^up$')
 

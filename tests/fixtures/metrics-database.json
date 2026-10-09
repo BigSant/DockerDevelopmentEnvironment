@@ -1,0 +1,36 @@
+{
+ "server": [{"performance_schema": "1", "max_connections": "151", "page_size": "16384"}],
+ "status": [
+  {"Variable_name": "Innodb_buffer_pool_pages_dirty", "Value": "100"},
+  {"Variable_name": "Threads_connected", "Value": "7"},
+  {"Variable_name": "Threads_running", "Value": "2"}
+ ],
+ "buffer_pool": [{"pool_size": "8192", "database_pages": "4096", "free_buffers": "4000"}],
+ "digests": [
+  {"schema_name": "shop", "digest": "d1", "query": "SELECT * FROM `customer` WHERE `email` = ?", "executions": "10",
+   "wait": "5000000000000", "max_wait": "2000000000000", "rows_examined": "1000", "rows_sent": "10"},
+  {"schema_name": "shop_archive", "digest": "d1", "query": "SELECT * FROM `customer` WHERE `email` = ?", "executions": "2",
+   "wait": "1000000000000", "max_wait": "600000000000", "rows_examined": "200", "rows_sent": "2"},
+  {"schema_name": "shop", "digest": "d2", "query": "SELECT `SLEEP` (?)", "executions": "1",
+   "wait": "3000000000000", "max_wait": "3000000000000", "rows_examined": "0", "rows_sent": "1"},
+  {"schema_name": "shop", "digest": "d3", "query": "UPDATE `cart` SET `qty` = ? WHERE `id` = ?", "executions": "100",
+   "wait": "2000000000000", "max_wait": "100000000000", "rows_examined": "100", "rows_sent": "0"},
+  {"schema_name": "shop", "digest": "d4", "query": "SELECT `a\"b\\c` FROM `t`", "executions": "4",
+   "wait": "40000000000", "max_wait": "20000000000", "rows_examined": "0", "rows_sent": "4"},
+  {"schema_name": null, "digest": null, "query": null, "executions": "5",
+   "wait": "100000000000", "max_wait": "50000000000", "rows_examined": "0", "rows_sent": "0"}
+ ],
+ "table_locks": [
+  {"schema_name": "shop", "table_name": "customer", "executions": "40", "wait": "250000000000"},
+  {"schema_name": "shop", "table_name": "cart", "executions": "5", "wait": "0"}
+ ],
+ "table_io": [
+  {"schema_name": "shop", "table_name": "customer", "read_count": "900", "write_count": "10",
+   "read_wait": "1500000000000", "write_wait": "200000000000"}
+ ],
+ "running": [
+  {"query": "SELECT `SLEEP` (?)", "wait": "4000000000000"},
+  {"query": "SELECT `SLEEP` (?)", "wait": "1000000000000"},
+  {"query": null, "wait": "500000000"}
+ ]
+}

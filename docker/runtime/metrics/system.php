@@ -6,7 +6,7 @@ function metrics_system_parts()
 {
     // The I/O part follows the sampled part: both read /proc/stat, iostat's figures are since boot.
     return array('metrics_system_sampled', 'metrics_system_memory', 'metrics_system_uptime', 'metrics_system_disk',
-        'metrics_system_io', 'metrics_system_disk_write');
+        'metrics_system_io', 'metrics_system_disk_write', 'metrics_system_connections');
 }
 
 // /proc/stat cpu lines: name => user nice system idle iowait irq softirq steal guest guest_nice.
@@ -207,4 +207,26 @@ function metrics_system_disk_write(Metrics $metrics)
         @file_put_contents($cache, time() . ' ' . $speed);
     }
     $metrics->add('disk_write_speed', 'Disk write speed', $speed);
+}
+
+// netstat -an | grep ESTABLISHED | wc -l: established TCP connections in the host's network namespace
+// (/proc/<host pid 1>/net/tcp and tcp6, read line by line; state 01 is ESTABLISHED).
+function metrics_system_connections(Metrics $metrics)
+{
+    $count = 0;
+    foreach (array('1/net/tcp', '1/net/tcp6') as $path) {
+        $file = rtrim(metrics_setting('METRICS_PROC_ROOT', '/host/proc'), '/') . '/' . $path;
+        $handle = @fopen($file, 'r');
+        if (!$handle) {
+            if ($path === '1/net/tcp') throw new RuntimeException('cannot read ' . $file);
+            continue; // IPv6 disabled on the host
+        }
+        fgets($handle);
+        while (($line = fgets($handle)) !== false) {
+            $fields = preg_split('/\s+/', trim($line), 5);
+            if (count($fields) > 3 && $fields[3] === '01') $count++;
+        }
+        fclose($handle);
+    }
+    $metrics->add('active_connections', 'Active connections', $count);
 }

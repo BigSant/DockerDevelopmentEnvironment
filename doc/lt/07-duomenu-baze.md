@@ -300,6 +300,16 @@ make db-restrict-grants
 
 Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB ir [papildomas schemas](#papildomos-schemos) (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto.
 
+## Stebėjimo paskyra
+
+DB statistiką (Prometheus [DB metrikos](05-servisai.md#db-metrikos), [DB monitorius](05-servisai.md#db-monitorius)) skaito atskira paskyra `DATABASE_MONITOR_USER` (numatyta `<DATABASE_NAME>_monitor`), ne aplikacijos vartotojas ir ne root:
+
+```bash
+make db-monitor-user
+```
+
+Ji turi tik `PROCESS` ir skaitymą `performance_schema` bei `sys`: mato skaitiklius, buffer pool ir užklausų šablonus (reikšmės pakeistos `?`), bet ne projekto schemų eilutes. Užklausų ir lentelių statistikai reikia `DATABASE_PERFORMANCE_SCHEMA=on` (kelis šimtus MB DB atminties); išjungus ji rodoma kaip būsena `database_performance_schema 0`. Statistika kaupiama nuo DB paleidimo; monitorius jos nevalo.
+
 ## Doctrine migracijos (neprivaloma)
 
 Jei aplikacija naudoja Doctrine migracijas, nusikopijuok šabloną iš setup:

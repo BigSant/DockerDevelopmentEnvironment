@@ -29,9 +29,10 @@ from project_release import release_model
 
 ENDPOINT = ROOT / "docker/runtime/metrics/index.php"
 PROC = Path(__file__).resolve().parent / "fixtures/metrics-proc"
+DATABASE_FIXTURE = Path(__file__).resolve().parent / "fixtures/metrics-database.json"
 TOKEN = "m" * 32
 # Groups the target serves so far; 07 adds http, 08 database, 09 host (and then every group is served).
-IMPLEMENTED = ("system", "website")
+IMPLEMENTED = ("system", "website", "database")
 REMOTE = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n'
           'PROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n'
           'DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n')
@@ -106,6 +107,7 @@ class EndpointMixin:
         settings = {"METRICS_TOKEN": TOKEN, "METRICS_PROC_ROOT": str(self.proc), "METRICS_DISK_PATH": str(self.work / "disk"),
                     "METRICS_STATE_DIR": str(self.work / "state"), "METRICS_SAMPLE_SECONDS": "0.1",
                     "METRICS_DISK_WRITE_MB": "1", "METRICS_URLS": "", "METRICS_SUPPORT_LEVEL": "2", **env}
+        settings.setdefault("METRICS_DATABASE_FIXTURE", str(DATABASE_FIXTURE))
         server = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env={**os.environ, **settings},
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
@@ -274,8 +276,8 @@ class ExpositionFormatTest(EndpointMixin, unittest.TestCase):
         result = check("--extended", "--lint=none")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr + body)
         # Naming lint: only the dashboards' own gauge names ending in _total may be reported.
-        kept = {f'{name} non-counter metrics should not have "_total" suffix' for name in grafana_names.recorded()
-                if name.endswith("_total")}
+        kept = {f'{name} non-counter metrics should not have "_total" suffix'
+                for name in grafana_names.recorded() | grafana_names.VIEWER_ONLY if name.endswith("_total")}
         result = check()
         problems = set(filter(None, (result.stdout + result.stderr).splitlines()))
         self.assertEqual(problems - kept, set())
@@ -426,7 +428,8 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.assertGreater(values["disk_size"][""], 0)
         self.assertIn("network_rxkb", values)
         self.assertEqual(values["website_response_status"], {'{url="http://demo.local/"}': 0})
-        self.assertEqual(values["setup_metrics_group_up"], {'{group="system"}': 1, '{group="website"}': 1})
+        self.assertEqual(values["setup_metrics_group_up"], {'{group="system"}': 1, '{group="website"}': 1,
+                                                            '{group="database"}': 0})  # no database in this test
 
 
 if __name__ == "__main__":
