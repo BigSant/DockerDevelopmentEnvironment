@@ -298,7 +298,7 @@ Prieš v2 sukurtoje DB aplikacijos vartotojas galėjo turėti teises į visą se
 make db-restrict-grants
 ```
 
-Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB ir [papildomas schemas](#papildomos-schemos) (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto.
+Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB ir [papildomas schemas](#papildomos-schemos) (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto. Teisėse `_` ekranuojamas (`shop\_main`): kitaip `_` reikštų bet kurį simbolį ir vartotojas galėtų susikurti panašaus vardo DB, pvz. `shopXmain`. Seną DB, kurios vardas turi `_`, sutvarko tas pats `make db-restrict-grants`.
 
 ## Stebėjimo paskyra
 

@@ -31,7 +31,8 @@ if [ -z "$login_user" ]; then
     exit 65
 fi
 user=$(printf "%s" "$MYSQL_USER" | sed "s/'/''/g")
-database=$(printf "%s" "$MYSQL_DATABASE" | sed 's/`/``/g')
+# Escaped _ (as for the extra schemas): an unescaped _ in a database grant matches any character.
+database=$(printf "%s" "$MYSQL_DATABASE" | sed 's/`/``/g; s/_/\\_/g')
 root_password=$(printf "%s" "$MYSQL_ROOT_PASSWORD" | sed "s/'/''/g")
 root_hosts=$(run "$login_user" "$login_password" "SELECT Host FROM mysql.user WHERE User = 'root'")
 user_hosts=$(run "$login_user" "$login_password" "SELECT Host FROM mysql.user WHERE User = '$user'")

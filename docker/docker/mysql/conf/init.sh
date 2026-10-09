@@ -16,6 +16,8 @@ set -euo pipefail
 sql_user=${MYSQL_USER//\'/\'\'}
 sql_password=${MYSQL_PASSWORD//\'/\'\'}
 sql_database=${MYSQL_DATABASE//\`/\`\`}
+# Escaped _ like the official entrypoint: an unescaped _ in a database grant matches any character.
+sql_database=${sql_database//_/\\_}
 # DATABASE_EXTRA_SCHEMAS: further project schemas with the same database-scoped privileges.
 # The grant escapes _ because an unescaped _ in a database grant matches any character.
 extra_sql=

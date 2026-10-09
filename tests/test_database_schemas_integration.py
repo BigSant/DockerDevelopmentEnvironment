@@ -42,10 +42,10 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.init.chmod(0o755)
         os.chmod(self.directory, 0o755)
 
-    def start(self, extras=EXTRAS, root_password=ROOT_PASSWORD):
+    def start(self, extras=EXTRAS, root_password=ROOT_PASSWORD, database="shop"):
         self.name = f"setup-db-schemas-{uuid.uuid4().hex[:8]}"
         subprocess.run(["docker", "run", "-d", "--rm", "--name", self.name, "--network", "none", "--tmpfs", "/var/lib/mysql",
-                        "-e", f"MYSQL_ROOT_PASSWORD={root_password}", "-e", "MYSQL_DATABASE=shop", "-e", "MYSQL_USER=shop",
+                        "-e", f"MYSQL_ROOT_PASSWORD={root_password}", "-e", f"MYSQL_DATABASE={database}", "-e", "MYSQL_USER=shop",
                         "-e", f"MYSQL_PASSWORD={APP_PASSWORD}", "-e", f"DATABASE_EXTRA_SCHEMAS={extras}",
                         "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off",
                         "-v", f"{self.init}:/docker-entrypoint-initdb.d/01-init-app-user.sh:ro", IMAGE],
@@ -103,6 +103,22 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.assertNotIn("shop_graph", self.root("SHOW DATABASES"))
         self.assertEqual(self.app("CREATE TABLE shop.t (id INT)").returncode, 0)
         self.assertNotEqual(self.app("CREATE DATABASE shop_graph").returncode, 0)
+
+    def test_a_main_database_name_with_underscore_grants_that_database_only(self):
+        # An unescaped _ in a database grant matches any character: shop_main would cover shopXmain.
+        self.start(extras="", database="shop_main")
+        self.assertEqual(self.app("CREATE TABLE shop_main.t (id INT)").returncode, 0)
+        self.assertNotEqual(self.app("CREATE DATABASE shopXmain").returncode, 0, "look-alike database must be refused")
+        self.assertNotIn("shop_main`", self.app("SHOW GRANTS FOR CURRENT_USER()").stdout.replace("\\_", ""))
+
+    def test_restrict_grants_escapes_the_main_database_name(self):
+        self.start(extras="", root_password=APP_PASSWORD, database="shop_main")
+        self.root("GRANT ALL PRIVILEGES ON *.* TO 'shop'@'%' WITH GRANT OPTION;", password=APP_PASSWORD)
+        result = subprocess.run(["docker", "exec", "-e", f"MYSQL_ROOT_PASSWORD={ROOT_PASSWORD}", self.name,
+                                 "sh", "-c", RESTRICT, "restrict-grants"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.app("CREATE TABLE shop_main.t (id INT)").returncode, 0)
+        self.assertNotEqual(self.app("CREATE DATABASE shopXmain").returncode, 0, "look-alike database must be refused")
 
     def test_restrict_grants_covers_the_extra_schemas_of_a_pre_v2_database(self):
         # Pre-v2: root shares the application password, the application holds everything, the code made its schemas.

@@ -138,8 +138,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   project scripts, integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
   policy → schema report (warning only). `db-import` skips the data of `skip` tables unless `full=1`.
 - `DATABASE_EXTRA_SCHEMAS`: further project schemas. The first start creates them and grants the
-  application user the main database's rights on them (grant patterns escape `_`, which would otherwise
-  match any character). Backups dump all schemas in one `mysqldump --databases` run (one transaction,
+  application user the main database's rights on them. Every database grant, the main one included,
+  escapes `_`, which would otherwise match any character (`shop_main` would cover `shopXmain`). Backups dump all schemas in one `mysqldump --databases` run (one transaction,
   `CREATE DATABASE IF NOT EXISTS` + `USE` per schema), so a restore recreates each under its own name;
   an import refuses a dump that `USE`s any other schema; `db-restrict-grants` grants (and creates) them.
   Snapshot, registry, migrations and data sets stay on `DATABASE_NAME`. Without the setting nothing changes.
