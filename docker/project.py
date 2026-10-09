@@ -24,12 +24,12 @@ from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolv
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 # Optional CORE services a project enables with SERVICES=...; the four core services always run.
-SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
+SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'dbmonitor', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
                      'php-doctrine-migrations')
 # Long-running catalogue services start with `up`; the others are tools started by their command.
 RUNTIME_PROFILES = {'cron': 'cron'}
 # Web tools that stage/prod start only behind a client IP allowlist.
-ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron')
+ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor')
 # With DEPLOY_CONTEXT, stage/prod containers run on the target: exec/ps/logs go there, builds
 # and model rendering stay on this build machine, and lifecycle commands use the release model.
 LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
@@ -207,6 +207,7 @@ class Project:
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0',
                                 SETUP_ENABLE_CRON='1' if 'cron' in active else '0',
+                                SETUP_ENABLE_DBMONITOR='1' if 'dbmonitor' in active else '0',
                                 # The cron UI edits the crontab only where git is not the deploy path.
                                 SETUP_CRON_CONFIG_ACCESS='rw' if environment in ('local', 'test') else 'ro')
         # One fingerprint per built image, computed from that image's own inputs only.
@@ -276,7 +277,7 @@ def main():
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
-                                           "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
+                                           "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
@@ -345,6 +346,9 @@ def main():
             project = bootstrap(project)
         elif args.action == 'db-prepare':
             project.run(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', str(args.timeout), 'database'])
+        elif args.action == 'db-monitor-user':
+            from database_grants import create_monitor_user
+            create_monitor_user(project)
         elif args.action == 'db-restrict-grants':
             from database_grants import restrict_grants
             restrict_grants(project)

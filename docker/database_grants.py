@@ -50,3 +50,47 @@ def restrict_grants(project):
     if 'database' not in running:
         raise ValueError('Start the database first (make up or make db-prepare)')
     project.run(['exec', '-T', 'database', 'sh', '-c', RESTRICT])
+
+
+# The DB monitor account: query statistics only (performance_schema, sys, PROCESS), no project data.
+MONITOR = r'''
+set -eu
+client=$(command -v mariadb || command -v mysql)
+user=$(printf "%s" "$1" | sed "s/'/''/g")
+# The password arrives on stdin, never on a command line.
+IFS= read -r raw_password
+password=$(printf "%s" "$raw_password" | sed "s/'/''/g")
+MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$client" --protocol=TCP --host=127.0.0.1 --user=root --batch mysql -e "
+SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
+CREATE USER IF NOT EXISTS '$user'@'%' IDENTIFIED BY '$password';
+ALTER USER '$user'@'%' IDENTIFIED BY '$password';
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM '$user'@'%';
+GRANT PROCESS ON *.* TO '$user'@'%';
+GRANT SELECT ON performance_schema.* TO '$user'@'%';
+GRANT SELECT, EXECUTE ON sys.* TO '$user'@'%';"
+echo "Monitor account $1 reads performance_schema, sys and the process list only."
+'''
+
+
+def monitor_account(project):
+    """(user, password) of the DB monitor; the user defaults to <DATABASE_NAME>_monitor."""
+    import re
+    user = project.settings.get('DATABASE_MONITOR_USER') or f"{project.settings['DATABASE_NAME']}_monitor"
+    password = project.settings.get('DATABASE_MONITOR_PASSWORD') or ''
+    if not re.fullmatch(r'[A-Za-z0-9_]{1,32}', user):
+        raise ValueError('DATABASE_MONITOR_USER must be 1-32 letters, digits or _')
+    if len(password) < 16:
+        raise ValueError(f'Set DATABASE_MONITOR_PASSWORD (16+ characters) in env/{project.environment}.env')
+    if user in (project.settings.get('DATABASE_USER'), 'root'):
+        raise ValueError('The monitor needs its own account, not the application user or root')
+    return user, password
+
+
+def create_monitor_user(project):
+    user, password = monitor_account(project)
+    running = project.capture(['ps', '--status', 'running', '--services']).split()
+    if 'database' not in running:
+        raise ValueError('Start the database first (make up or make db-prepare)')
+    import subprocess
+    command = project.command + ['exec', '-T', 'database', 'sh', '-c', MONITOR, 'monitor-user', user]
+    subprocess.run(command, input=password + '\n', text=True, env=project.compose_env(['exec']), check=True)

@@ -1,0 +1,30 @@
+services:
+  # DB performance data as JSON for an external system, which never connects to the database.
+  # Reached as dbmonitor.<domain> through nginx-proxy (DBMONITOR_ALLOWED_IPS / ALLOWED_IPS) with a
+  # bearer token; reads with the monitor account only (make db-monitor-user).
+  dbmonitor:
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+    container_name: ${PROJECT_NAME}-${ENV}-dbmonitor
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["php", "-S", "0.0.0.0:8081", "/opt/setup/runtime/dbmonitor/index.php"]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - network_app
+    mem_limit: ${DBMONITOR_MEMORY}
+    cpus: ${DBMONITOR_CPUS}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      DBMONITOR_TOKEN: ${DBMONITOR_TOKEN:-}
+      DATABASE_MONITOR_USER: ${DATABASE_MONITOR_USER:-${DATABASE_NAME}_monitor}
+      DATABASE_MONITOR_PASSWORD: ${DATABASE_MONITOR_PASSWORD:-}
+      DATABASE_PERFORMANCE_SCHEMA: ${DATABASE_PERFORMANCE_SCHEMA:-off}
+    volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro

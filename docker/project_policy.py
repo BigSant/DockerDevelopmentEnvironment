@@ -28,6 +28,8 @@ DEFAULTS = {
     'PHP_FPM_MAX_REQUESTS': '500',
     'PHP_FPM_PROCESS_MEMORY': '128m',
     'DATABASE_BUFFER_POOL': '',
+    # Query statistics for the DB monitor; off saves several hundred MB of database memory.
+    'DATABASE_PERFORMANCE_SCHEMA': 'off',
     'MEMCACHED_CACHE_MB': '',
     'REDIS_MAXMEMORY_MB': '',
 }
@@ -36,7 +38,7 @@ DEFAULTS = {
 RESOURCES = {
     'PHP': ('1g', '2'), 'DATABASE': ('2g', '2'), 'WEBSERVER': ('256m', '1'), 'PROXY': ('128m', '0.5'),
     'CRON': ('512m', '1'), 'MEMCACHED': ('256m', '0.5'), 'REDIS': ('256m', '0.5'), 'PMA': ('256m', '0.5'),
-    'MAILPIT': ('256m', '0.5'),
+    'MAILPIT': ('256m', '0.5'), 'DBMONITOR': ('128m', '0.25'),
 }
 REMOTE_REQUIRED = ('PHP', 'DATABASE', 'WEBSERVER', 'PROXY')
 # Previous shared names remain accepted as fallbacks during the transition.
@@ -150,6 +152,7 @@ def resolve_policy(settings, environment):
     elif values['MAIL_MODE'] == 'mailpit' and 'mailpit' not in str(settings.get('SERVICES') or '').split():
         raise ValueError('MAIL_MODE=mailpit requires mailpit in SERVICES')
     choice(values, 'PS_SSL', ('on', 'off'))
+    choice(values, 'DATABASE_PERFORMANCE_SCHEMA', ('on', 'off'))
     if not re.fullmatch(r'[a-z0-9_-]*(?: [a-z0-9_-]+)*', ' '.join(values['INTEGRATIONS_ENABLED'].split())):
         raise ValueError('INTEGRATIONS_ENABLED lists integration names (letters, digits, - and _) separated by spaces')
     if choice(values, 'HTTP_FORCE_HTTPS', ('auto', 'off', 'on')) == 'auto':
