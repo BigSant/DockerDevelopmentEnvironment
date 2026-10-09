@@ -113,6 +113,33 @@ class ProjectTemplatesTest(unittest.TestCase):
             self.assertEqual(active["database"]["environment"]["MYSQL_PASSWORD"], "literal $$PWD # quote")
         self.assertEqual(Project(directory, profiles="mailpit").profiles, "mailpit")
 
+    def test_pipeline_secrets_from_the_process_environment_reach_the_model(self):
+        # Bitbucket Deployment variables arrive only as process environment; a blank placeholder
+        # in an env file (or setup's own defaults) must not hide them.
+        _, directory = self.prepare()
+        (directory / "env/prod.env").write_text(
+            REMOTE_LIMITS + "DOMAIN=prod.example.test\nDATABASE_USER=shop\nDATABASE_NAME=shop\n"
+            "DATABASE_ROOT_PASSWORD=\nPS_COOKIE_KEY=''\n")
+        secrets = {"DATABASE_PASSWORD": "pipeline-user-secret", "DATABASE_ROOT_PASSWORD": "pipeline-root-secret",
+                   "PS_COOKIE_KEY": "pipeline-cookie-key", "PS_SECRET": "pipeline-ps-secret"}
+        with patch.dict(os.environ, {**secrets, "DOMAIN": "leaked.example.test", "PHP_VERSION": "7.4"}):
+            project = Project(directory, environment="prod")
+            services = project.model()["services"]
+        database, php = services["database"]["environment"], services["php-fpm"]["environment"]
+        self.assertEqual((database["MYSQL_PASSWORD"], database["MYSQL_ROOT_PASSWORD"]),
+                         ("pipeline-user-secret", "pipeline-root-secret"))
+        self.assertEqual((php["PS_COOKIE_KEY"], php["PS_SECRET"]), ("pipeline-cookie-key", "pipeline-ps-secret"))
+        # Other settings named in env files still ignore a previous project's exports.
+        self.assertEqual(project.settings["DOMAIN"], "prod.example.test")
+        self.assertNotEqual(project.settings["PHP_VERSION"], "7.4")
+
+    def test_secrets_written_in_the_private_env_file_win_over_the_shell(self):
+        _, directory = self.prepare()
+        with patch.dict(os.environ, {"DATABASE_ROOT_PASSWORD": "previous-project-root"}):
+            database = Project(directory).model()["services"]["database"]["environment"]
+        self.assertEqual(database["MYSQL_ROOT_PASSWORD"], "root-test-only")
+        self.assertEqual(database["MYSQL_PASSWORD"], "literal $$PWD # quote")
+
     def test_environment_override_and_multiline_value_do_not_confuse_settings(self):
         _, directory = self.prepare(extra="COMPOSE_PROFILES=\n")
         (directory / "env/stage.env").write_text(

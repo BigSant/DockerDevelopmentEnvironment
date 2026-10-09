@@ -46,8 +46,12 @@ forsena/
 `make <action>` → `project.py --docker-directory app --project-directory <root> --env <ENV> <action>`.
 Constructing `Project` is the contract every action relies on:
 
-1. Env files: `setup/docker/.env` (versions) → `env/common.env` → `env/<env>.env`. Shell environment
-   wins over files (Compose precedence), which is how pipeline secrets arrive.
+1. Env files: `setup/docker/.env` (versions) → `env/common.env` → `env/<env>.env`. A key named in
+   an env file is dropped from the process environment, so a previous project's exports never select
+   this stack. Exception: the pipeline secrets (`PROCESS_SECRETS`: DB/monitor passwords, dbmonitor
+   and metrics tokens, PS keys) keep their process value when the env files leave them blank or
+   unset, and Compose gives the process environment precedence — that is how Bitbucket Deployment
+   variables arrive. Setup's own `.env` sets no secret defaults.
 2. Settings: only the keys in `project-settings.yaml` are read. A new setting must be added there.
 3. Policy (`project_policy.resolve_policy`): defaults, validation and derived values: cache modes,
    MAIL_MODE (mailpit when the service runs), TZ, resources (`<SERVICE>_MEMORY/_CPUS` → buffer pool,

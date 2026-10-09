@@ -36,7 +36,7 @@ DATABASE_PASSWORD='vietinis-pavyzdys-pakeisk'
 SERVICES="pma mailpit"
 ```
 
-Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Taip Bitbucket Pipelines perduoda slaptažodžius, kurių nėra jokiame faile (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)).
+Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Taip ankstesnio projekto `export` neperjungia šio projekto. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Slaptažodžiams (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, `DATABASE_MONITOR_PASSWORD`, `DBMONITOR_TOKEN`, `METRICS_TOKEN`, PS raktai) yra išimtis: jei env faile jie tušti (`DATABASE_PASSWORD=`), naudojama proceso aplinkos reikšmė. Taip Bitbucket Pipelines perduoda slaptažodžius (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)). Jei slaptažodis įrašytas env faile, laimi failas.
 
 Env failas nėra shell scriptas: nerašyk `$(komanda)` ir nenaudok `source env/local.env`. Slaptažodžiams su `$` naudok viengubas kabutes. Reikšmes su tarpais (pvz. `SERVICES`) rašyk kabutėse. Taisyklės: [Docker dotenv interpoliacija](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
 

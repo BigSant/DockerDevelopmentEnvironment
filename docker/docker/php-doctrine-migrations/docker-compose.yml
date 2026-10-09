@@ -24,7 +24,7 @@ services:
     environment:
       DATABASE_HOST: database
       DATABASE_USER: ${DATABASE_USER}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD-}
       DATABASE_NAME: ${DATABASE_NAME}
     volumes:
       - ${PROJECT_CONFIG_DIRECTORY}/doctrine-migrations/:/tmp/doctrine-migrations/config/

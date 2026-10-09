@@ -20,6 +20,7 @@ from project_health import start_project
 from project_metrics import require_token, resolve_metrics
 from database_backup import backup_database
 from database_client import extra_schemas
+from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS
 from setup_release import image_suffixes, setup_info, suffix_variable
 from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolve_policy, suggested_limits, validate_configuration
 
@@ -37,7 +38,28 @@ ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'metrics')
 LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
 RELEASE_COMPOSE_COMMANDS = ('up', 'down', 'run', 'create', 'start', 'rm')
 LEGACY_CORE_INCLUDE = re.compile(r"ROOT_DIRECTORY\}?/docker/(nginx-proxy|apache|mysql|mariadb|php-fpm)/docker-compose\.yml")
-ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
+ENV_ENTRY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:][ \t]*(.*)$", re.M)
+# Secrets a pipeline passes as process environment (Bitbucket Deployment variables). An env file
+# that leaves one blank does not hide the process value; any other key named in an env file does.
+PROCESS_SECRETS = ('DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD', 'DATABASE_MONITOR_PASSWORD',
+                   'DBMONITOR_TOKEN', 'METRICS_TOKEN', *PRESTASHOP_KEYS)
+
+
+def blank_env_value(raw):
+    """Whether a dotenv value is empty: '', "", or nothing before an inline comment."""
+    raw = raw.strip()
+    if raw[:1] in ('"', "'"):
+        return raw[1:2] == raw[0]
+    return raw == '' or raw.startswith('#')
+
+
+def env_file_keys(env_files):
+    """Keys the env files set, mapped to whether the last file leaves the value blank."""
+    keys = {}
+    for env_file in env_files:
+        for key, raw in ENV_ENTRY.findall(env_file.read_text()):
+            keys[key] = blank_env_value(raw)
+    return keys
 
 
 def validate_project_dockerfile(path):
@@ -94,10 +116,11 @@ class Project:
         if not private_env.is_file():
             raise ValueError(f"Create {private_env} from its example")
         self.env_files = [DOCKER_ROOT / ".env", common_env, private_env]
-        # Do not let a previous project's shell exports silently select this stack.
+        # Do not let a previous project's shell exports silently select this stack: env files win,
+        # except a secret they leave blank, which a pipeline supplies as process environment.
         self.process_env = os.environ.copy()
-        for env_file in self.env_files:
-            for key in ENV_KEY.findall(env_file.read_text()):
+        for key, blank in env_file_keys(self.env_files).items():
+            if not (blank and key in PROCESS_SECRETS and self.process_env.get(key)):
                 self.process_env.pop(key, None)
         for key in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "COMPOSE_PROFILES",
                     "COMPOSE_ENV_FILES", "ENV_FILE"):

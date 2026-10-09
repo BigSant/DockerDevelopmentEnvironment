@@ -79,7 +79,7 @@ DEPLOY_PATH=/home/VARTOTOJAS/demo
 PMA_ALLOWED_IPS="203.0.113.10"
 ```
 
-4. **Slaptažodžiai** (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, PS raktai) į failus nerašomi. Jie ateina iš Bitbucket Deployment variables kaip proceso aplinka. Bandant iš savo kompiuterio jie gali būti privačiame `env/prod.env`.
+4. **Slaptažodžiai** (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, PS raktai) į failus nerašomi. Jie ateina iš Bitbucket Deployment variables kaip proceso aplinka. Env faile jų nerašyk arba palik tuščius – tuščia reikšmė proceso aplinkos neuždengia. Bandant iš savo kompiuterio jie gali būti privačiame `env/prod.env`; tada laimi failas.
 
 ## Image'ai serveryje
 
