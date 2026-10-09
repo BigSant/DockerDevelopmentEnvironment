@@ -225,7 +225,7 @@ make db-load set=dev replace=1 backup=1
 
 Netuščiai DB reikia `replace=1` – visos lentelės pirma ištrinamos. `backup=1` prieš tai pasidaro kopiją. Po užkėlimo vykdoma ta pati seka kaip po importo (after-import, fixtures, migracijos, politika, ataskaita). Jei nurodytas `FIXTURES_DIRECTORY`, kartu įkeliami `database/fixtures/common/` ir `database/fixtures/<rinkinys>/` (jei toks katalogas yra) failai.
 
-**PS 1.6:** slaptažodžiai priklauso nuo `PS_COOKIE_KEY`, todėl į `database/data/<rinkinys>/dataset.env` įrašomas rinkinio rakto piršto atspaudas (SHA-256, ne pats raktas). Jei tavo `PS_COOKIE_KEY` kitoks, `db-load` įspėja, kad dev prisijungimai neveiks.
+**PS 1.6:** slaptažodžiai priklauso nuo `PS_COOKIE_KEY`, todėl rinkinys turi savo dev raktą (ne LIVE raktą), commit'inamą `database/data/<rinkinys>/dataset.env`. Dev prisijungimams įrašyk jį kaip `PS_COOKIE_KEY` į `env/local.env`; kitaip `db-load` įspėja. LIVE dump'ui reikia LIVE rakto, todėl perjungiant tarp jų keičiasi ir `PS_COOKIE_KEY`.
 
 ## G. Atsarginės kopijos
 

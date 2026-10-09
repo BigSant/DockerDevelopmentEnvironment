@@ -8,9 +8,9 @@ registry group, tables in name order, rows sorted by primary key, one row per li
 """
 
 import gzip
-import hashlib
 from pathlib import Path
 import re
+import secrets
 import tempfile
 
 from database_schema import MANIFEST, database_tables, managed_file, mysql_query, schema_directory
@@ -157,8 +157,17 @@ def slice_condition(table, columns, products, recipe):
     raise ValueError(f'Slice table {table} has no id_product column; add a condition for it to database/data/recipe.txt')
 
 
-def key_fingerprint(key):
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
+def dataset_key(directory):
+    """PS 1.6 hashes passwords with the cookie key: the set has its own dev-only key, committed with it.
+
+    Never the builder's PS_COOKIE_KEY, which on a LIVE copy is the LIVE key.
+    """
+    recorded = directory / 'dataset.env'
+    if recorded.is_file():
+        match = re.search(r'^PS_COOKIE_KEY=([A-Za-z0-9]{32,})$', recorded.read_text(), re.M)
+        if match:
+            return match[1]
+    return secrets.token_hex(28)
 
 
 def build_dataset(project, name='dev'):
@@ -176,7 +185,7 @@ def build_dataset(project, name='dev'):
         raise ValueError('The recipe needs an @products line selecting the product sample')
     ids = [line for line in mysql_query(project, sample_sql.rstrip(';') + ';\n').split() if line.isdigit()]
     products = '(' + (','.join(ids) or '0') + ')'
-    legacy_key = project.settings.get('PS_COOKIE_KEY', '') if str(project.settings.get('PS_VERSION', '')).startswith('1.6') else None
+    legacy_key = dataset_key(directory) if str(project.settings.get('PS_VERSION', '')).startswith('1.6') else None
     columns, keys = table_metadata(project)
     groups, summary = {}, []
     for table in sorted(tables):
@@ -211,9 +220,8 @@ def build_dataset(project, name='dev'):
         if not target.exists() or target.read_bytes() != content:
             target.write_bytes(content)
     if legacy_key is not None:
-        # PrestaShop 1.6 hashes passwords with the cookie key: the committed set records which key
-        # (a fingerprint, never the key itself) its dev logins need.
-        (directory / 'dataset.env').write_text(f'PS_COOKIE_KEY_SHA256={key_fingerprint(legacy_key)}\n')
+        (directory / 'dataset.env').write_text('# Dev-only cookie key of this data set (not a LIVE key): its dev logins '
+                                               f'need it as PS_COOKIE_KEY in env/local.env\nPS_COOKIE_KEY={legacy_key}\n')
     raw = sum(len(content) for content in files.values())
     packed = sum(len(gzip.compress(content, mtime=0)) for content in files.values())
     rows = sum(count for _, _, count in summary)
@@ -295,7 +303,7 @@ def load_dataset(project, name='dev', replace=False, backup=False):
             drop_all_tables(project)
         execute_sql(project, [Path(combined.name), *hooks], first_is_dump=True)
     legacy = dataset_directory(project, name) / 'dataset.env'
-    if legacy.is_file() and legacy.read_text().strip() != f'PS_COOKIE_KEY_SHA256={key_fingerprint(project.settings.get("PS_COOKIE_KEY", ""))}':
-        print('Warning: this PrestaShop 1.6 set was built with another PS_COOKIE_KEY (see dataset.env); dev logins fail until they match.')
+    if legacy.is_file() and f'PS_COOKIE_KEY={project.settings.get("PS_COOKIE_KEY", "")}\n' not in legacy.read_text():
+        print(f'Warning: dev logins of this PrestaShop 1.6 set need PS_COOKIE_KEY from {legacy} in env/local.env.')
     after_load(project)
     print(f'Data set {name} loaded. Dev login: employee<id>@example.test / {DEV_PASSWORD}')
