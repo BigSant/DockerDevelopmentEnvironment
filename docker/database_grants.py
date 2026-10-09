@@ -3,9 +3,13 @@
 # Runs inside the database container. Databases created before setup v2 gave the
 # application user ALL PRIVILEGES ON *.* WITH GRANT OPTION and used the application
 # password for root. Afterwards root uses DATABASE_ROOT_PASSWORD (MYSQL_ROOT_PASSWORD
-# in the container) and the application user has all privileges on its database only.
+# in the container) and the application user has all privileges on its database only, plus the
+# extra schemas (DATABASE_EXTRA_SCHEMAS) passed as arguments, which are created when missing.
 RESTRICT = r'''
 set -eu
+for schema in "$@"; do  # checked before any change; names also go into SQL and grant patterns
+    case $schema in ''|*[!A-Za-z0-9_]*) echo "Invalid extra schema name: $schema" >&2; exit 64 ;; esac
+done
 client=$(command -v mariadb || command -v mysql)
 run() {  # run USER PASSWORD SQL — socket first (root@localhost), then TCP ('%' accounts)
     # SQL goes on stdin: statements carry passwords, which a command line would show in ps.
@@ -37,12 +41,22 @@ for host in $root_hosts; do statements="$statements ALTER USER 'root'@'$host' ID
 run "$login_user" "$login_password" "$statements"
 # Revoking ALL at the global level also drops database-level grants, so grant afterwards.
 statements="SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';"
+for schema in "$@"; do statements="$statements CREATE DATABASE IF NOT EXISTS \`$schema\`;"; done
 for host in $user_hosts; do
     statements="$statements REVOKE ALL PRIVILEGES ON *.* FROM '$user'@'$host'; REVOKE GRANT OPTION ON *.* FROM '$user'@'$host';"
     statements="$statements GRANT ALL PRIVILEGES ON \`$database\`.* TO '$user'@'$host';"
+    for schema in "$@"; do
+        # Escaped _: an unescaped _ in a database grant matches any character.
+        pattern=$(printf "%s" "$schema" | sed 's/_/\\_/g')
+        statements="$statements GRANT ALL PRIVILEGES ON \`$pattern\`.* TO '$user'@'$host';"
+    done
 done
 run root "$MYSQL_ROOT_PASSWORD" "$statements"
-echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE only (changed as $login_user)."
+if [ $# -eq 0 ]; then
+    echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE only (changed as $login_user)."
+else
+    echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE and $# extra schemas only (changed as $login_user)."
+fi
 '''
 
 
@@ -50,7 +64,8 @@ def restrict_grants(project):
     running = project.capture(['ps', '--status', 'running', '--services']).split()
     if 'database' not in running:
         raise ValueError('Start the database first (make up or make db-prepare)')
-    project.run(['exec', '-T', 'database', 'sh', '-c', RESTRICT])
+    from database_client import extra_schemas
+    project.run(['exec', '-T', 'database', 'sh', '-c', RESTRICT, 'restrict-grants', *extra_schemas(project.settings)])
 
 
 # The DB monitor account: query statistics only (performance_schema, sys, PROCESS), no project data.

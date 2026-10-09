@@ -34,7 +34,7 @@ Stage/prod konteineriai veikia kaip hosting'o (DirectAdmin) vartotojas `APP_UID`
 build serveris (kol jo nėra – programuotojo kompiuteris)
   ├─ make release        → sukuria image'us iš commit'into setup, užrašo lock failą
   ├─ make deploy-images  → docker save | ssh | docker load, paleidžia konteinerius serveryje
-  └─ make deploy ref=…   → paruošia parduotuvės release'ą, DB kopija, rsync, upgrade'ai, migracijos
+  └─ make deploy ref=…   → paruošia kodo release'ą, DB kopija, rsync, hook'as, upgrade'ai, migracijos
                                 │
 LIVE serveris: tik Docker, kodas, duomenys ir DirectAdmin web serveris
 ```
@@ -43,6 +43,7 @@ LIVE serveris: tik Docker, kodas, duomenys ir DirectAdmin web serveris
 - Serveris valdomas per Docker context (`DEPLOY_CONTEXT`). Kai jis nurodytas, `make ps`, `make logs`, `make shell`, `make db-backup` ENV=stage/prod vykdomi serveryje, o `make up` / `make down` atmetami: konteinerius paleidžia `make deploy-images`.
 - Serveriuose naudojamas fiksuotas setup tag'as: `make release ENV=prod` veikia tik kai setup yra tiksliai ant release tag'o (`vX.Y.Z`), stage tinka bet kuris commit'as. Release iš necommit'into setup atmetamas.
 - **TLS baigiasi DirectAdmin'e** (jo Let's Encrypt). Konteinerio portas rišamas tik prie `127.0.0.1`, DirectAdmin web serveris perduoda užklausas į `http://127.0.0.1:<LOCALHOST_PORT>`. nginx-proxy priima tikrą kliento IP iš `X-Forwarded-For`, o `X-Forwarded-Proto: https` PHP pusėje tampa HTTPS žyma. Konkreti DirectAdmin proxy konfigūracija šiame vadove neaprašyta.
+- **VPN serveris be DirectAdmin** (pvz. asana.local): `PUBLISH_ADDRESS` – serverio VPN sąsajos adresas (`env/prod.env`, pvz. `PUBLISH_ADDRESS=10.8.0.14`). Portai publikuojami tik toje sąsajoje, viešų portų nėra; VPN klientai jungiasi `http://<DOMAIN>:<LOCALHOST_PORT>` (vardas jų `/etc/hosts` rodo į VPN adresą). Klientų `X-Forwarded-*` antraštės ignoruojamos, IP sąrašuose – VPN klientų adresai ([Tikras kliento IP](05-servisai.md#ip-apribojimai)). Kliento IP išlieka tik su Docker numatytu iptables NAT; jei Docker'io iptables išjungti, visi klientai atrodo kaip gateway.
 
 ## Paruošimas vieną kartą
 
@@ -88,6 +89,8 @@ make release ENV=prod
 
 Sukuria visus prod image'us iš commit'into setup ir užrašo `.generated/release/prod/images.lock.json`: setup versiją, image'ų ID ir bazinių image'ų digest'us (atkuriamiems build'ams). Jei įdiegtas [Trivy](https://trivy.dev), patikrina kritines spragas (tik įspėjimas). `allow_dirty=1` leidžia necommit'intą setup, bet tikram release'ui netinka.
 
+**Išoriniai image'ai.** Projekto compose failo servisas be `build` (pvz. `image: getmeili/meilisearch:v1.10`) į release'ą patenka kaip ir sukurti image'ai: jei šiame kompiuteryje jo nėra, release'as jį parsisiunčia (`docker pull`), įrašo jo ID į `images` ir registro digest'ą į `external`, o `make deploy-images` jį perduoda kartu su kitais. Jau esantis image'as nepersiunčiamas iš naujo: naujesnę to paties tag'o versiją parsisiųsk rankomis (`docker pull`). Jei image'o gauti nepavyksta arba kuris nors image'as nesukurtas, release'as sustoja ir lock'o nerašo.
+
 ```bash
 make deploy-images ENV=prod
 ```
@@ -102,20 +105,35 @@ Pakeitus serverio env (limitus, IP sąrašus) pakartok `make deploy-images ENV=p
 make deploy ENV=prod ref=v1.4.0
 ```
 
-`ref` – parduotuvės repozitorijos tag'as arba commit'as. Eiga:
+`ref` – kodo (parduotuvės ar kitos aplikacijos) repozitorijos tag'as arba commit'as. Žingsniai, kurie skaito ar keičia aplikacijos specifinius dalykus, priklauso nuo `PROFILE`: PrestaShop dalykai vykdomi tik su `PROFILE=prestashop`, tuščias (generic) profilis jų neliečia. Eiga:
 
-1. **Release'as:** `git archive` iš parduotuvės, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS`, projekto `config/deploy/build.sh` (pvz. asset'ų surinkimas), jei jis yra.
+1. **Release'as:** `git archive` iš kodo repozitorijos, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS` (PrestaShop), projekto `config/deploy/build.sh` (pvz. frontend'o `npm ci && npm run build`), jei jis yra.
 2. **DB kopija:** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). `backup=0` ją praleidžia.
 3. **rsync** į `DEPLOY_SSH:DEPLOY_PATH/app/prod/public`:
-   - rašomi katalogai ir failai niekada neperrašomi ir netrinami: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml` ir kt.;
+   - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml` ir kt. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
    - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
-   - moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
-4. **Modulių upgrade'ai** pasikeitusiems moduliams (PS 1.6 – per administravimo skydelį).
-5. **Migracijos**, schemos ataskaita ir cache išvalymas.
+   - PrestaShop moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
+4. **Projekto hook'as** `config/deploy/after-rsync.sh`, jei jis yra: vykdomas taikinio `php-fpm` konteineryje (`sh -e`, kodo šaknyje), kai naujas kodas jau ten, pvz. `php bin/console doctrine:migrations:migrate --no-interaction`. Jam nepavykus deploy'us sustoja: migracijos ir cache valymas nevykdomi, o deploy'us įrašomas į istoriją kaip nepavykęs (`"failed": "after-rsync"`), nes naujas kodas jau taikinyje. Pataisęs deploy'ink iš naujo arba grįžk `rollback=1` į ankstesnį release'ą; kitas deploy'us failus šalina lyginant su tuo, kas iš tikrųjų taikinyje.
+5. **Modulių upgrade'ai** pasikeitusiems moduliams – tik PrestaShop (PS 1.6 – per administravimo skydelį). Generic deploy'us `ps_module` lentelės neskaito.
+6. **Setup SQL migracijos**, jei projektas jas turi (`SCHEMA_DIRECTORY` su `migrations/`), ir schemos ataskaita.
+7. **Cache išvalymas:** PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas).
 
 PS priežiūros režimas deploy'aus metu neįjungiamas.
 
-Modulį, kuris yra tik serveryje, perkelk į kodą:
+Generic projekto pavyzdys (`env/prod.env.example` ir aplinkos repo):
+
+```dotenv
+PROFILE=
+DEPLOY_PROTECTED_PATHS="var/data/ var/log/"
+CACHE_CLEAR_COMMAND="php bin/console cache:clear"
+```
+
+```bash
+# config/deploy/after-rsync.sh
+php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration
+```
+
+Modulį, kuris yra tik serveryje, perkelk į kodą (tik `PROFILE=prestashop`):
 
 ```bash
 make module-pull ENV=prod name=mymodule
@@ -130,7 +148,7 @@ Modulis nukopijuojamas į `app/public/modules/mymodule`. Peržiūrėk ir commit'
 make deploy ENV=prod rollback=1
 ```
 
-Iš naujo išsiunčia ankstesnį release'ą (build kompiuteris jų laiko kelis). DB automatiškai negrąžinama: jei reikia, atkurk ją iš prieš-deploy kopijos `.generated/backups/` su `make db-import`.
+Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiuteris jų laiko kelis); release'ai, kurių hook'as nepavyko, ir dabartinio commit'o pakartotiniai deploy'ai praleidžiami. DB automatiškai negrąžinama: jei reikia, atkurk ją iš prieš-deploy kopijos `.generated/backups/` su `make db-import`.
 
 ## Bitbucket Pipelines
 

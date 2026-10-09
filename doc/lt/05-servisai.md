@@ -238,7 +238,12 @@ ALLOWED_IPS="203.0.113.10 198.51.100.0/24"
 
 Pakeitus sąrašą: `make restart service=nginx-proxy` (stage/prod su `DEPLOY_CONTEXT` – per [deploy-images](09-aplinkos.md#imageai-serveryje)).
 
-**Tikras kliento IP.** Konteinerio portai rišami tik prie `127.0.0.1`, todėl į projektą patenkama tik per kompiuterio Nginx arba serverio web serverį. nginx-proxy priima `X-Forwarded-For` tik iš `TRUSTED_PROXIES` adresų (numatyta: localhost ir privatūs tinklai), Apache `mod_remoteip` pasitiki tais pačiais tinklais. Todėl PHP mato tikrą kliento IP, o HTTPS žymą – iš `X-Forwarded-Proto`. Į leidžiamų klientų sąrašą proxy adreso nedėk: taip įleistum visus už jo esančius lankytojus.
+**Tikras kliento IP.** Kam nginx-proxy leidžia pasakyti kliento adresą (`X-Forwarded-For`) ir schemą (`X-Forwarded-Proto`), priklauso nuo [`PUBLISH_ADDRESS`](03-nustatymai.md#adresai-ir-prieiga):
+
+- **`127.0.0.1` (numatyta, DirectAdmin ir kompiuteris).** Į projektą patenkama tik per kompiuterio Nginx arba DirectAdmin. Jie jungiasi per Docker portą ir konteineriui atrodo kaip projekto tinklo gateway, todėl nginx-proxy pasitiki tik juo ir `127.0.0.1`/`::1`. Kiti konteineriai ir tinklai kliento adreso perduoti negali.
+- **Kitas adresas (pvz. VPN serveris be DirectAdmin).** Klientai jungiasi tiesiai, todėl jų atsiųstos `X-Forwarded-*` antraštės ignoruojamos: sąrašai tikrinami pagal tikrą jungties adresą, o schema yra ta, kuria atėjo užklausa. Be šito VPN klientas su suklastota `X-Forwarded-For` praeitų PMA, Mailpit, cron, DB monitoriaus ir `/metrics` sąrašus. Sąraše nurodyk VPN klientų adresus (pvz. `10.8.0.0/24`). Užklausos iš paties serverio ateina kaip Docker tinklo gateway.
+
+`TRUSTED_PROXIES` nurodo pasitikimus proxy rankomis (abiem atvejais), pvz. kai VPN tinkle prieš projektą stovi kitas proxy. Toliau Apache gauna tik nginx-proxy nustatytą kliento adresą, ne kliento atsiųstą grandinę, todėl PHP (ir PrestaShop `getRemoteAddr`) mato tą patį IP. Į leidžiamų klientų sąrašą proxy adreso nedėk: taip įleistum visus už jo esančius lankytojus.
 
 ## Redis ir Memcached
 
@@ -449,7 +454,7 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 
 | Failas tome | Kas rašo | Kodėl šis |
 | --- | --- | --- |
-| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas | nginx-proxy mato tikrą kliento IP (`X-Forwarded-For` iš `TRUSTED_PROXIES`, žr. [IP apribojimai](#ip-apribojimai)); Apache už jo mato tik proxy adresą |
+| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje; Apache už jo mato tik proxy adresą |
 | `error.log` (+ `error.log.1`) | Apache per `rotatelogs` (svetainės `ErrorLog`) | PHP pranešimai ateina per FastCGI: su `metrics` php-fpm paleidžiamas su `fastcgi.logging=1` |
 | `proxy-net/` | nginx-proxy kas 10 s (`/proc/net/tcp`, `tcp6`, `route`) | jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje, ne metrikų konteinerio |
 
@@ -460,5 +465,5 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 - **Laikas**: prieigos log'e laikas su zona, klaidų log'e – konteinerio `TZ` laikas (visi projekto konteineriai turi tą patį `TZ`).
 - Kol Apache nieko neparašė, `error.log` nėra – tai reiškia nulį klaidų. Be `access.log` (tomas neprijungtas) HTTP grupės `setup_metrics_group_up` yra `0`.
 
-**Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytasis maršrutas (Docker tinklo vartai – taip atrodo serverio paties persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
+**Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytojo maršruto vartai (Docker tinklo vartai – per juos ateina priekinio web serverio ir paties serverio persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
 

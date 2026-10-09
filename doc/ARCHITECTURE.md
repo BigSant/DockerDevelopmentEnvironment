@@ -100,10 +100,13 @@ fingerprint is outdated; it removes only with `apply=1`.
   TCP table snapshot, Apache its site error log through `rotatelogs`, and php-fpm sends PHP messages to Apache
   (`fastcgi.logging=1`). `docker logs` keep everything; each log holds two files of `METRICS_HTTP_LOG_MB`.
   Logs are read backwards in chunks only until the window has passed, never loaded whole.
-- **Security defaults**: published ports bind to 127.0.0.1; nginx-proxy takes the client IP from the
-  host proxy (`X-Forwarded-For`) and renders allow/deny per entry point; Apache hides dot-paths
+- **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
+  its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
+  (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy
+  arrives through (plus loopback), on any other address nobody (`SETUP_DIRECT_CLIENTS=1`), or
+  `TRUSTED_PROXIES`; upstreams get only the resolved `$remote_addr`, never the client-sent chain; Apache hides dot-paths
   (except `.well-known`), `*.sql`, backups and composer files; the application DB user has rights on
-  its own database only, root has its own password.
+  its own database (and `DATABASE_EXTRA_SCHEMAS`) only, root has its own password.
 
 ## 5. Database as code
 
@@ -120,6 +123,12 @@ fingerprint is outdated; it removes only with `apply=1`.
 - Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
   project scripts, integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
   policy → schema report (warning only). `db-import` skips the data of `skip` tables unless `full=1`.
+- `DATABASE_EXTRA_SCHEMAS`: further project schemas. The first start creates them and grants the
+  application user the main database's rights on them (grant patterns escape `_`, which would otherwise
+  match any character). Backups dump all schemas in one `mysqldump --databases` run (one transaction,
+  `CREATE DATABASE IF NOT EXISTS` + `USE` per schema), so a restore recreates each under its own name;
+  an import refuses a dump that `USE`s any other schema; `db-restrict-grants` grants (and creates) them.
+  Snapshot, registry, migrations and data sets stay on `DATABASE_NAME`. Without the setting nothing changes.
 - Base data set (`make db-dataset`, local only): registry rules + recipe (product sample, slice
   conditions), personal columns faked, credentials blanked, rows sorted by key, one row per line.
   The output is deterministic. `make db-load set=dev` loads snapshot + set + fixtures.
@@ -140,11 +149,21 @@ installed). A release keeps no host path except the read-only `/proc` of the met
 volumes, such as its HTTP log volume, pass through unchanged).
 `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
-holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path.
-`make deploy ref=TAG` builds the shop release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
-`config/deploy/build.sh`), backs up the target DB by registry, rsyncs without `--delete`, removes only
-files the previous release shipped, upgrades changed modules, migrates and reports.
-`rollback=1` redeploys the previous release.
+holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of
+active services (no `build`, e.g. `getmeili/meilisearch` from a project compose file) are pulled when
+missing and locked (`images` + `external` digests) so `docker save` ships them; a release with an image
+that is not on the build machine stops before writing the lock.
+`make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
+`config/deploy/build.sh` with `HOME`/npm/Composer caches in `/tmp`), backs up the target DB by registry,
+rsyncs without `--delete`, removes only files the previous release shipped and never a protected path,
+runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy and records
+it as `failed`, so later removals and `rollback=1` follow the code the target really holds),
+upgrades changed modules, runs setup migrations when the project has them, reports and clears caches.
+Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
+`.htaccess`, `robots.txt`, `sitemap*.xml`) only for PrestaShop, plus tool folders and
+`DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
+`module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
+`rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
 
 ## 8. Tests
 
@@ -165,4 +184,9 @@ is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks 
 4. A new setting goes into `project-settings.yaml`; a new image input changes only that image's fingerprint.
 5. Optional project directories are never created empty; missing optional mounts are dropped.
 6. Stage/prod refuse to start without limits, allowlists for tools, and (for releases) `APP_UID`.
-7. Tests run only against ENV=test; deploys never delete files the code does not track.
+7. Tests run only against ENV=test; deploys never delete files the code does not track, nor protected paths.
+8. Every setup step that reads or changes application-specific things follows `PROFILE`; an empty
+   (generic) profile never reads or touches PrestaShop things (`ps_module`, module upgrades, PS paths).
+9. Forwarded client headers are trusted only from a proxy that really sits in front: never from clients
+   that reach a non-loopback `PUBLISH_ADDRESS` directly, never from the whole private ranges; upstreams get
+   only nginx-proxy's resolved client address.

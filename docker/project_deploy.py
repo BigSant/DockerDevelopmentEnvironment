@@ -1,13 +1,16 @@
-"""Code deploy: build a release of the shop on this machine and carry it to the target with rsync.
+"""Code deploy: build a release of the application on this machine and carry it to the target with rsync.
 
 make deploy ENV=stage|prod [ref=TAG] [backup=0] [rollback=1]
-  1. release: git archive of the shop ref, composer install --no-dev and PS_RELEASE_PATHS in the
-     release PHP image, the project's config/deploy/build.sh (assets) if present;
+  1. release: git archive of the code ref, composer install --no-dev (and PS_RELEASE_PATHS for
+     PrestaShop) in the release PHP image, the project's config/deploy/build.sh (assets) if present;
   2. a DB backup of the target to this machine, following the table registry (backup=0 skips);
-  3. rsync of the code without --delete: files that exist only on the target (writable paths,
-     module vendors installed there, modules not in the code) stay; a file is removed only when the
-     previously deployed release had it and this one does not (release manifests);
-  4. module upgrades, pending migrations, a schema report and a cache clear on the target.
+  3. rsync of the code without --delete: files that exist only on the target (protected paths,
+     vendors installed there, PrestaShop modules not in the code) stay; a file is removed only when
+     the previously deployed release had it and this one does not (release manifests);
+  4. the project's config/deploy/after-rsync.sh in the PHP container (its failure stops the deploy),
+     PrestaShop module upgrades, pending setup migrations, a schema report and a cache clear.
+Every step that knows an application follows PROFILE: an empty (generic) profile reads and protects
+nothing of PrestaShop, so .htaccess, robots.txt and modules/ are code like any other tracked file.
 rollback=1 deploys the previous release again; the database comes back from the backup by hand.
 """
 
@@ -19,16 +22,34 @@ import shlex
 import shutil
 import subprocess
 
-# PrestaShop paths written by the shop itself; a deploy never overwrites or deletes them. Paths the
-# shop repository tracks (mails/, translations/, config/xml/) are code and deploy like any other file.
-WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/themes/',
-            '/app/config/parameters.php', '/config/settings.inc.php',
-            '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
-            '/modules/*/var/', '/.htaccess', '/robots.txt', '/sitemap*.xml', '/.setup-tools/',
-            # Checkouts and tool folders, never part of a release.
-            '/.git/', '/.claude/', '/.idea/')
+# PrestaShop paths written by the shop itself; a PrestaShop deploy never overwrites or deletes them.
+# Paths the shop repository tracks (mails/, translations/, config/xml/) are code like any other file.
+PRESTASHOP_WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/themes/',
+                       '/app/config/parameters.php', '/config/settings.inc.php',
+                       '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
+                       '/modules/*/var/', '/.htaccess', '/robots.txt', '/sitemap*.xml')
+# Checkouts and tool folders, never part of a release, for every profile.
+TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
+PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
+AFTER_RSYNC_HOOK = 'config/deploy/after-rsync.sh'
 KEEP_RELEASES = 3
 MODULE_VERSION = re.compile(r"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
+
+
+def is_prestashop(project):
+    return project.settings.get('PROFILE') in ('ps', 'prestashop')
+
+
+def protected_paths(project):
+    """Paths of the code tree a deploy never overwrites or deletes: the profile's, the tools', the project's."""
+    patterns = [*(PRESTASHOP_WRITABLE if is_prestashop(project) else ()), *TOOL_PATHS]
+    for entry in (project.settings.get('DEPLOY_PROTECTED_PATHS') or '').split():
+        parts = entry.strip('/').split('/')
+        if not PROTECTED_PATH.fullmatch(entry) or any(part in ('.', '..') for part in parts) or not parts[0].strip('*'):
+            raise ValueError(f'DEPLOY_PROTECTED_PATHS entry is not a plain path inside the code tree: {entry!r} '
+                             '(e.g. var/data/ for a directory, config/local.php for a file)')
+        patterns.append('/' + entry.lstrip('/'))
+    return patterns
 
 
 def deploy_directory(project):
@@ -71,8 +92,10 @@ def php_image(project):
 
 def in_release_image(project, release, command):
     image = php_image(project)
+    # The hosting account has no home directory in the image: npm/Composer caches go to /tmp.
     subprocess.run(['docker', 'run', '--rm', '--network', 'host', '--user', f'{project.process_env["HOST_UID"]}:'
-                    f'{project.process_env["HOST_GID"]}', '-e', 'COMPOSER_HOME=/tmp/composer', '-v', f'{release}:/var/www/html',
+                    f'{project.process_env["HOST_GID"]}', '-e', 'HOME=/tmp', '-e', 'NPM_CONFIG_CACHE=/tmp/setup-npm-cache',
+                    '-e', 'COMPOSER_HOME=/tmp/composer', '-v', f'{release}:/var/www/html',
                     '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
 
 
@@ -129,15 +152,16 @@ def write_manifest(project, release, commit):
 
 
 def removed_files(project, previous, current):
-    """Files of the previously deployed release that the new one no longer ships (never writable paths)."""
+    """Files of the previously deployed release that the new one no longer ships (never protected paths)."""
     from fnmatch import fnmatch
     if not previous or not manifest_path(project, previous).is_file():
         return []
     before = set(manifest_path(project, previous).read_text().split('\n')) - {''}
     after = set(manifest_path(project, current).read_text().split('\n')) - {''}
-    writable = lambda name: any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*')
-                                for pattern in WRITABLE)
-    return sorted(name for name in before - after if not writable(name))
+    patterns = protected_paths(project)
+    protected = lambda name: any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*')
+                                 for pattern in patterns)
+    return sorted(name for name in before - after if not protected(name))
 
 
 def delete_on_target(ssh, path, names):
@@ -189,7 +213,8 @@ def target_modules(ssh, path):
 
 
 def rsync_command(release, ssh, path, protected):
-    excludes = [*WRITABLE, '/.setup-release', *(f'/modules/{name}/' for name in sorted(protected))]
+    """protected: rsync patterns anchored at the code root (protected_paths plus target-only modules)."""
+    excludes = [*protected, '/.setup-release']
     destination = f'{ssh}:{path}/' if ssh else f'{path}/'
     # --checksum: archive mtimes are commit times, so size + mtime cannot tell two releases apart.
     # No --delete: the target holds files the code does not track (module vendors, built assets).
@@ -206,6 +231,33 @@ def module_versions(release):
         if match:
             versions[main.stem] = match[1]
     return versions
+
+
+def after_rsync(project):
+    """The project's hook in the PHP container on the target, once the new code is there (e.g. Doctrine migrations)."""
+    hook = project.directory / AFTER_RSYNC_HOOK
+    if not hook.is_file():
+        return False
+    print(f'==> {AFTER_RSYNC_HOOK} in php-fpm', flush=True)
+    try:
+        # The script is committed project code, not a secret; sh -e stops at its first failing command.
+        project.run(['exec', '-T', 'php-fpm', 'sh', '-e', '-c', hook.read_text()])
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f'{AFTER_RSYNC_HOOK} failed (exit {error.returncode}); the deploy stopped: the new code is on '
+                         'the target (recorded as failed), but migrations and the cache clear did not run. '
+                         'Fix it and deploy again, or deploy rollback=1') from None
+    return True
+
+
+def clear_cache(project):
+    if is_prestashop(project):
+        project.run(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
+        return
+    command = shlex.split(project.settings.get('CACHE_CLEAR_COMMAND') or '')
+    if not command:
+        print('No CACHE_CLEAR_COMMAND for this profile; no application cache was cleared.')
+        return
+    project.run(['exec', '-T', 'php-fpm', *command])
 
 
 def upgrade_modules(project, release):
@@ -238,9 +290,11 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     _, deploy_path = release_settings(project)
     entries = history(project)
     if rollback:
-        if len(entries) < 2:
+        # The latest other release whose deploy completed; a failed one is never a rollback target.
+        completed = [entry for entry in entries[:-1] if not entry.get('failed') and entry['commit'] != entries[-1]['commit']]
+        if not completed:
             raise ValueError('No previous deployment to roll back to')
-        previous = entries[-2]
+        previous = completed[-1]
         release = deploy_directory(project) / 'code' / previous['commit'][:12]
         if not (release / '.setup-release').is_file():
             raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')
@@ -251,16 +305,18 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
             raise ValueError('Name the shop release to deploy: make deploy ENV=... ref=TAG')
         release, commit = build_code(project, ref)
     ssh, path = target_location(project, deploy_path)
-    on_target = target_modules(ssh, path)
-    protected = sorted(on_target - {child.name for child in (release / 'modules').iterdir() if child.is_dir()}) \
-        if (release / 'modules').is_dir() else []
+    prestashop = is_prestashop(project)
+    excludes = protected_paths(project)
+    # PrestaShop modules installed only on the target stay; for other profiles modules/ is plain code.
+    protected = sorted(target_modules(ssh, path) - {child.name for child in (release / 'modules').iterdir() if child.is_dir()}) \
+        if prestashop and (release / 'modules').is_dir() else []
     backup_file = None
     if backup:
         from database_backup import backup_database
         print('==> backing up the target database (table registry)', flush=True)
         backup_file = backup_database(project, registry=True)
     print(f'==> rsync {release} -> {ssh + ":" if ssh else ""}{path}', flush=True)
-    subprocess.run(rsync_command(release, ssh, path, protected), check=True)
+    subprocess.run(rsync_command(release, ssh, path, excludes + [f'/modules/{name}/' for name in protected]), check=True)
     if not manifest_path(project, commit).is_file():
         write_manifest(project, release, commit)
     removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
@@ -272,16 +328,25 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     for name in protected:
         print(f'Warning: module {name} exists only on the target and was left as is; '
               f'make module-pull ENV={project.environment} name={name} brings it into the code.')
-    upgrade_modules(project, release)
+    entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+             'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
+    try:
+        after_rsync(project)
+    except ValueError:
+        # The history tells which code the target holds: the next deploy removes files against it,
+        # and rollback=1 returns to the release before it.
+        record(project, {**entry, 'failed': 'after-rsync'})
+        raise
+    if prestashop:
+        upgrade_modules(project, release)
     from database_migrations_guarded import migrate, migrations_directory
     if project.settings.get('SCHEMA_DIRECTORY') and migrations_directory(project).is_dir():
         migrate(project)
     if project.settings.get('SCHEMA_DIRECTORY'):
         from database_schema import schema_report
         schema_report(project)
-    project.run(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
-    record(project, {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-                     'rollback': rollback, 'backup': str(backup_file) if backup_file else None})
+    clear_cache(project)
+    record(project, entry)
     print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
     return commit
 
@@ -289,6 +354,8 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
 def module_pull(project, name):
     """Copy a module that exists only on the target into the local shop checkout."""
     from project_release import release_settings
+    if not is_prestashop(project):
+        raise ValueError('module-pull copies PrestaShop modules; it needs PROFILE=prestashop')
     if not re.fullmatch(r'[A-Za-z0-9_]+', name or ''):
         raise ValueError('Name the module: make module-pull ENV=... name=MODULE')
     _, deploy_path = release_settings(project)

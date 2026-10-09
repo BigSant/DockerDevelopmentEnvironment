@@ -245,6 +245,8 @@ Pirma komanda parodo, kurias automatiškai pavadintas šios aplinkos kopijas gal
 
 Atkūrimas yra tas pats `make db-import`, todėl po jo vėl vykdomi after-import ir saugūs numatytieji.
 
+Jei projektas turi [papildomų schemų](#papildomos-schemos), kopija apima jas visas ir atkuria jas visas.
+
 ## H. Fixtures
 
 Fixtures – papildomi SQL rinkiniai, pvz. testams reikalingi įrašai.
@@ -264,6 +266,30 @@ make db-import file=/kelias/dump.sql.gz db-fixtures=test
 
 `ENV` pasirenka DB, `set` – rinkinį: `make db-fixtures-load ENV=local set=test` tyčia įkelia testinį rinkinį į vietinę DB. Skaitomi tik tiesioginiai `*.sql` failai pagal vardą. Rinkinys senų įrašų nevalo, todėl rašyk kartojamą SQL (`INSERT … ON DUPLICATE KEY UPDATE`).
 
+## Papildomos schemos
+
+Kai kurios sistemos (pvz. asana.local) naudoja kelias DB schemas. Jas išvardink `env/common.env`:
+
+```dotenv
+DATABASE_EXTRA_SCHEMAS="asana_frontapp asana_memory asana_graph asana_bitbucket asana_git"
+```
+
+Vardai – raidės, skaitmenys ir `_` (iki 64 simbolių), be pasikartojimų, ne `DATABASE_NAME` ir ne sistemos schemos (`mysql`, `sys`…). Kitaip runner'is sustoja.
+
+| Kas | Su papildomomis schemomis |
+| --- | --- |
+| Pirmas tuščios DB paleidimas | Sukuriamos. Aplikacijos vartotojas gauna `ALL PRIVILEGES` tik į pagrindinę ir išvardintas schemas: be globalių teisių, be `GRANT OPTION`, kitų DB kurti negali. |
+| `make db-restrict-grants` | Susiaurina teises iki pagrindinės ir išvardintų schemų, trūkstamas sukuria. Kartoti saugu. |
+| `make db-backup`, kopija prieš deploy'ų | Apima visas schemas (formatas žemiau). |
+| `make db-import` | Užkelia ir kelių schemų dump'ą. |
+| Snapshot'as, registras, migracijos, bazinis rinkinys, `db-load` | Tik `DATABASE_NAME`. |
+
+**Kopijos formatas.** Su papildomomis schemomis kopija daroma vienu `mysqldump --databases` paleidimu: visos schemos nuskaitomos vienoje transakcijoje (suderinta kopija), o kiekviena schema kopijoje turi `CREATE DATABASE IF NOT EXISTS` ir `USE`. Todėl kopija atkuria visas schemas tais pačiais vardais: `make db-import file=…` (arba `mysql < kopija.sql`). Stage/prod kopijoje registras taikomas tik pagrindinei DB, papildomos schemos kopijuojamos pilnai. Be papildomų schemų kopija tokia pati kaip anksčiau: be `USE`, todėl ją galima užkelti ir į kitą `DATABASE_NAME`.
+
+**Importas.** Dump'as gali perjungti schemą (`USE`) tik į `DATABASE_NAME` arba išvardintas schemas. Kitaip importas sustoja dar nieko nekeitęs. Dažniausia priežastis – LIVE pagrindinės DB vardas kitoks: suvienodink `DATABASE_NAME` arba pataisyk `USE` dump'e. Registro patikra ir `skip` taisyklė taikomos tik pagrindinės DB lentelėms.
+
+**Jau veikianti DB.** Schemos kuriamos tik pirmą kartą paleidžiant tuščią DB. Jei schemą įrašai į sąrašą vėliau, paleisk `make db-restrict-grants`: jis sukurs schemą ir suteiks teises. Iš sąrašo išbrauktos schemos teisės savaime neatimamos.
+
 ## Senos DB teisės
 
 Prieš v2 sukurtoje DB aplikacijos vartotojas galėjo turėti teises į visą serverį. Vieną kartą susiaurink:
@@ -272,7 +298,7 @@ Prieš v2 sukurtoje DB aplikacijos vartotojas galėjo turėti teises į visą se
 make db-restrict-grants
 ```
 
-Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto.
+Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB ir [papildomas schemas](#papildomos-schemos) (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto.
 
 ## Doctrine migracijos (neprivaloma)
 

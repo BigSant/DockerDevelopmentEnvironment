@@ -38,7 +38,7 @@ help:
 	@echo 'db-fixtures-plan / db-fixtures-load set=local|test: preview / load common + selected SQL fixtures'
 	@echo 'db-import file=dump.sql db-fixtures=local: append fixtures after the import hooks'
 	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
-	@echo 'db-restrict-grants: one-time: own database privileges only, separate root password (pre-v2 databases)'
+	@echo 'db-restrict-grants: one-time: own database (+ DATABASE_EXTRA_SCHEMAS) privileges only, separate root password (pre-v2 databases)'
 	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
 	@echo 'db-import file=dump.sql full=1: also import the data of tables the registry marks skip'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
@@ -53,7 +53,7 @@ help:
 	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
 	@echo 'release ENV=stage|prod: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
-	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the shop code, back up, rsync, upgrade, migrate'
+	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the code, back up, rsync, hook, upgrade, migrate'
 	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
 
 setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:

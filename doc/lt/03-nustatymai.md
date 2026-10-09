@@ -61,13 +61,13 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | --- | --- | --- |
 | `DOMAIN` | Tuščias | Hostname be `http://`, porto ir kelio: `demo.local`. Lokaliai jį parenka `make bootstrap`, testui – `<vardas>.test.local`. |
 | `LOCALHOST_PORT`, `LOCALHOST_PORT_SSL` | `0` | Projekto HTTP ir HTTPS portai kompiuteryje. `0` – `make bootstrap` parenka laisvą porą. Naršyklėje porto rašyti nereikia. |
-| `PUBLISH_ADDRESS` | `127.0.0.1` | Adresas, prie kurio rišami portai. Projektas pasiekiamas tik per kompiuterio Nginx arba serverio web serverį. |
+| `PUBLISH_ADDRESS` | `127.0.0.1` | Adresas, ant kurio nginx-proxy publikuoja abu portus. `127.0.0.1` (ar `::1`) – projektas pasiekiamas tik per kompiuterio Nginx arba DirectAdmin. Kitas šio serverio adresas (pvz. VPN sąsajos `10.8.0.14`) – klientai tame tinkle jungiasi tiesiai, be DirectAdmin; tada nginx-proxy jų `X-Forwarded-*` antraščių nepriima. Tik vienas IPv4/IPv6 adresas: be porto, CIDR ir zonos; `0.0.0.0` ir `::` atmetami (portai būtų visose sąsajose). Žr. [Tikras kliento IP](05-servisai.md#ip-apribojimai). |
 | `DOCUMENT_ROOT` | `/` | Poaplankis aplikacijos viduje, kurį aptarnauja Apache, pvz. `public`. |
 | `WEBSERVICE_TIMEOUT` | `90` | Nginx proxy užklausos laikas sekundėmis. |
 | `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
 | `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
 | `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
-| `TRUSTED_PROXIES` | `127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16` | Iš kurių adresų nginx-proxy priima `X-Forwarded-For`. |
+| `TRUSTED_PROXIES` | Tuščias | Iš kurių adresų nginx-proxy priima `X-Forwarded-For` ir `X-Forwarded-Proto`. Tuščias: su `PUBLISH_ADDRESS` ant loopback – tik `127.0.0.1`, `::1` ir projekto Docker tinklo gateway (taip ateina kompiuterio Nginx / DirectAdmin); su kitu adresu – niekas. Nurodytas sąrašas galioja abiem atvejais. |
 
 IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-apribojimai).
 
@@ -75,7 +75,8 @@ IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-aprib
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB ir jos vartotojas. Vartotojas gauna teises **tik į savo DB**. Sukuriami pirmą kartą paleidžiant tuščią DB. |
+| `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB ir jos vartotojas. Vartotojas gauna teises **tik į savo DB** (ir `DATABASE_EXTRA_SCHEMAS`). Sukuriami pirmą kartą paleidžiant tuščią DB. |
+| `DATABASE_EXTRA_SCHEMAS` | Tuščias | Papildomos projekto schemos per tarpą, pvz. `"asana_graph asana_git"`. Sukuriamos kartu su DB, vartotojas gauna teises ir į jas. Kopija, importas ir `db-restrict-grants` apima visas schemas; snapshot'as, registras ir bazinis rinkinys – tik `DATABASE_NAME`. Žr. [papildomos schemos](07-duomenu-baze.md#papildomos-schemos). |
 | `DATABASE_ROOT_PASSWORD` | Privalomas | Atskiras root slaptažodis, turi skirtis nuo `DATABASE_PASSWORD`. Local/test sugeneruoja `make init` / `make bootstrap`. |
 | `APP_DATABASE_HOST`, `APP_DATABASE_PORT` | `database`, `3306` | Kur jungiasi PHP. Keisk tik jei aplikacija sąmoningai jungiasi kitur. |
 | `DATABASE_HOST` | `127.0.0.1` (bendrame `.env`) | DB konteinerio vartotojo host'o nustatymas (MySQL `MYSQL_HOST`, MariaDB `MYSQL_ROOT_HOST`). Tai ne PHP adresas. |
@@ -158,8 +159,9 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 | --- | --- | --- |
 | `APP_UID`, `APP_GID` | Tuščias | Stage/prod: hosting'o (DirectAdmin) vartotojo skaitiniai ID. Konteineriai veikia šiuo vartotoju. Release'ui privalomi. |
 | `DEPLOY_CONTEXT` | Tuščias | Docker context'o vardas taikinio serveriui. Su juo stage/prod konteineriai valdomi serveryje. |
-| `DEPLOY_SSH` | Tuščias | `vartotojas@host`, kur `rsync` siunčia parduotuvės kodą. Tuščias – vietinis kelias. |
+| `DEPLOY_SSH` | Tuščias | `vartotojas@host`, kur `rsync` siunčia kodą. Tuščias – vietinis kelias. |
 | `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
+| `DEPLOY_PROTECTED_PATHS` | Tuščias | Papildomi kodo medžio keliai (nuo kodo šaknies, per tarpą), kurių deploy'us niekada neperrašo ir netrina, pvz. `"var/data/ var/log/ config/local.php"`. Katalogas baigiasi `/`, leidžiamas `*`. Papildo profilio sąrašą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 
 Stage/prod dar privalomi keturių pagrindinių servisų limitai, žr. [resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui).
 
