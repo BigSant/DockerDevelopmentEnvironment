@@ -87,6 +87,30 @@ def image_names(model):
     return sorted({service['image'] for service in model['services'].values() if service.get('image')})
 
 
+def external_images(project, model):
+    """Images of active services that no service builds (e.g. getmeili/meilisearch from a project compose file)."""
+    full = project.model()['services']
+    built = {service.get('image') for service in full.values() if service.get('build')}
+    return sorted({service['image'] for name, service in model['services'].items()
+                   if service.get('image') and not full.get(name, {}).get('build') and service['image'] not in built})
+
+
+def image_id(name):
+    result = subprocess.run(['docker', 'image', 'inspect', '--format', '{{.Id}}', name], capture_output=True, text=True)
+    return result.stdout.strip() if result.returncode == 0 else ''
+
+
+def pull_external(images):
+    """Pull the external images this machine lacks, so docker save can ship them with the built ones."""
+    for image in images:
+        if image_id(image):
+            continue
+        print(f'==> pulling {image}', flush=True)
+        result = subprocess.run(['docker', 'pull', image], capture_output=True, text=True)
+        if result.returncode:
+            raise ValueError(f'Cannot pull {image} for the release: {result.stderr.strip()[-300:]}')
+
+
 def base_digests(project):
     """Digests of the external images each built image starts from, as pulled on this machine."""
     full = project.model()
@@ -105,6 +129,11 @@ def base_digests(project):
             local = {s.get('image') for s in full['services'].values()}
             if reference and reference not in local and not reference.startswith(('php-fpm-base-', project.settings['PROJECT_NAME'] + '-')):
                 references.add(reference)
+    return repo_digests(references)
+
+
+def repo_digests(references):
+    """Registry digest of each image as pulled on this machine (None: built or loaded locally)."""
     digests = {}
     for reference in sorted(references):
         result = subprocess.run(['docker', 'image', 'inspect', '--format', '{{json .RepoDigests}}', reference],
@@ -142,11 +171,16 @@ def build_release(project, allow_dirty=False):
     project.run(['build', 'php-fpm-base'], profiles='build_only')
     project.run(['build', 'php-fpm-core'], profiles='build_only')
     project.run(['build'])
-    images = image_names(release_model(project, deploy_path))
-    lock = {'setup': version, 'environment': project.environment, 'project': project.name,
-            'images': {name: subprocess.run(['docker', 'image', 'inspect', '--format', '{{.Id}}', name],
-                                            capture_output=True, text=True).stdout.strip() for name in images},
-            'bases': base_digests(project)}
+    model = release_model(project, deploy_path)
+    images = image_names(model)
+    external = external_images(project, model)
+    pull_external(external)
+    ids = {name: image_id(name) for name in images}
+    missing = [name for name, found in ids.items() if not found]
+    if missing:
+        raise ValueError('Release images are not on this machine: ' + ', '.join(missing) + '; the transfer would fail')
+    lock = {'setup': version, 'environment': project.environment, 'project': project.name, 'images': ids,
+            'bases': base_digests(project), 'external': repo_digests(external)}
     directory = release_directory(project)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     # The lock holds no secrets; the compose model (with passwords) is rendered at deploy time only.

@@ -81,9 +81,9 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | --- | --- |
 | `make release ENV=stage\|prod [allow_dirty=1]` | Sukuria image'us iš commit'into setup, užrašo image lock failą. |
 | `make deploy-images ENV=stage\|prod [transfer=0]` | Nusiunčia image'us į `DEPLOY_CONTEXT` ir paleidžia ten. |
-| `make deploy ENV=stage\|prod ref=TAG [backup=0]` | Parduotuvės release'as, DB kopija, rsync, modulių upgrade'ai, migracijos. |
+| `make deploy ENV=stage\|prod ref=TAG [backup=0]` | Kodo release'as, DB kopija, rsync, projekto hook'as, PS modulių upgrade'ai, migracijos, cache. |
 | `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį release'ą. |
-| `make module-pull ENV=stage\|prod name=MODULIS` | Nukopijuoja tik serveryje esantį modulį į vietinį parduotuvės kodą. |
+| `make module-pull ENV=stage\|prod name=MODULIS` | Nukopijuoja tik serveryje esantį modulį į vietinį parduotuvės kodą (tik `PROFILE=prestashop`). |
 
 ## Make argumentai
 
@@ -152,6 +152,9 @@ Pirmiau visada sugeneruok šviežią modelį su `make config`. Testinei aplinkai
 | `Test service …: writable mount … must stay inside .generated/test` | Testinėje aplinkoje bendri failai prijungiami tik `:ro`, žr. [e2e](08-kodo-kokybe.md#c-e2e-testai-su-playwright). |
 | `Setup has uncommitted changes (…); commit or tag it before a release` | Release'as daromas tik iš commit'into setup. |
 | `ENV=prod runs on … from the release model; use make deploy-images` | Su `DEPLOY_CONTEXT` konteinerius paleidžia `make deploy-images`. |
+| `Cannot pull … for the release` / `Release images are not on this machine` | Išorinio image'o (pvz. `getmeili/meilisearch`) nepavyko parsisiųsti arba image'as nesukurtas; release'as nerašo lock'o, kurio `docker save` neperduotų. |
+| `config/deploy/after-rsync.sh failed (exit N); the deploy stopped` | Projekto hook'as nepavyko: naujas kodas taikinyje, bet migracijos ir cache valymas nevykdyti, deploy'us neįrašytas. Pataisyk ir deploy'ink iš naujo arba `rollback=1`. |
+| `DEPLOY_PROTECTED_PATHS entry is not a plain path inside the code tree` | Saugomas kelias turi būti santykinis kodo medžio kelias be `..`, pvz. `var/data/`. |
 | Trūksta image'o, `pull never` klaida | `make build` (vietiniai image'ai) arba `make pull` (išoriniai). |
 | Portas užimtas | `LOCALHOST_PORT=0` ir `make bootstrap` parinks laisvą. |
 | DB `Access denied` po env pakeitimo | Esamos DB slaptažodis env faile jos viduje nepasikeičia. Suderink env su tikru slaptažodžiu. DB katalogo netrink. |
