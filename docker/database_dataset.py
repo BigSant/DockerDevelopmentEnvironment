@@ -8,6 +8,7 @@ registry group, tables in name order, rows sorted by primary key, one row per li
 """
 
 import gzip
+import hashlib
 from pathlib import Path
 import re
 import tempfile
@@ -156,6 +157,10 @@ def slice_condition(table, columns, products, recipe):
     raise ValueError(f'Slice table {table} has no id_product column; add a condition for it to database/data/recipe.txt')
 
 
+def key_fingerprint(key):
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
 def build_dataset(project, name='dev'):
     """Write the data set files from the local DB; returns {file name: bytes}."""
     from database_registry import classify, load, prefix
@@ -206,8 +211,9 @@ def build_dataset(project, name='dev'):
         if not target.exists() or target.read_bytes() != content:
             target.write_bytes(content)
     if legacy_key is not None:
-        # PrestaShop 1.6 hashes passwords with the cookie key, so the set carries the key it was built with.
-        (directory / 'dataset.env').write_text(f'PS_COOKIE_KEY={legacy_key}\n')
+        # PrestaShop 1.6 hashes passwords with the cookie key: the committed set records which key
+        # (a fingerprint, never the key itself) its dev logins need.
+        (directory / 'dataset.env').write_text(f'PS_COOKIE_KEY_SHA256={key_fingerprint(legacy_key)}\n')
     raw = sum(len(content) for content in files.values())
     packed = sum(len(gzip.compress(content, mtime=0)) for content in files.values())
     rows = sum(count for _, _, count in summary)
@@ -268,6 +274,8 @@ def drop_all_tables(project):
 
 def load_dataset(project, name='dev', replace=False, backup=False):
     from database_import import after_load, execute_sql
+    if project.environment in ('stage', 'prod'):
+        raise ValueError('The base data set (dev logins, sample data) loads only into local and test databases')
     files, hooks = plan_load(project, name)
     existing = database_tables(project)
     if existing and not replace:
@@ -287,7 +295,7 @@ def load_dataset(project, name='dev', replace=False, backup=False):
             drop_all_tables(project)
         execute_sql(project, [Path(combined.name), *hooks], first_is_dump=True)
     legacy = dataset_directory(project, name) / 'dataset.env'
-    if legacy.is_file() and legacy.read_text().strip() != f'PS_COOKIE_KEY={project.settings.get("PS_COOKIE_KEY", "")}':
+    if legacy.is_file() and legacy.read_text().strip() != f'PS_COOKIE_KEY_SHA256={key_fingerprint(project.settings.get("PS_COOKIE_KEY", ""))}':
         print('Warning: this PrestaShop 1.6 set was built with another PS_COOKIE_KEY (see dataset.env); dev logins fail until they match.')
     after_load(project)
     print(f'Data set {name} loaded. Dev login: employee<id>@example.test / {DEV_PASSWORD}')

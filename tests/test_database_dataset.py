@@ -120,6 +120,19 @@ class DatasetTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ENV=local"):
             build_dataset(self.project)
 
+    def test_load_never_replaces_a_server_database(self):
+        for environment in ("stage", "prod"):
+            self.project.environment = environment
+            with self.subTest(environment=environment), self.assertRaisesRegex(ValueError, "only into local and test"):
+                load_dataset(self.project, replace=True)
+
+    def test_a_ps16_set_records_a_key_fingerprint_not_the_key(self):
+        self.project.settings.update(PS_VERSION="1.6.1.24", PS_COOKIE_KEY="secret-cookie-key")
+        self.build({"ps_product": b"('1','x')\x00\n"})
+        recorded = (self.root / "database/data/dev/dataset.env").read_text()
+        self.assertNotIn("secret-cookie-key", recorded)
+        self.assertEqual(recorded, f"PS_COOKIE_KEY_SHA256={database_dataset.key_fingerprint('secret-cookie-key')}\n")
+
     def test_load_plan_and_refusal_to_overwrite(self):
         export_schema(self.project, snapshot({"ps_product": "CREATE TABLE `ps_product` (`id_product` int);\n"}))
         with self.assertRaisesRegex(ValueError, "make db-dataset set=dev"):
