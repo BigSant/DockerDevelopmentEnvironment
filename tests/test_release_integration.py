@@ -12,6 +12,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,10 +58,10 @@ class ReleaseTargetTest(unittest.TestCase):
             "image": "alpine:latest", "command": ["sh", "-c", "date > /data/started; sleep 300"],
             "volumes": [{"type": "bind", "source": "/srv/shop/data/app", "target": "/data",
                          "bind": {"create_host_path": True}}]}}}
-        (release / "compose.json").write_text(json.dumps(model))
         self.assertNotIn(b"alpine", subprocess.run(["docker", "--context", self.target, "images"], capture_output=True).stdout)
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), patch("project_release.release_model", return_value=model):
             self.assertEqual(deploy_images(project), ["alpine:latest"])
+        self.assertFalse(any(release.glob("*compose*")), "the model (with env secrets) is piped, never stored")
         for _ in range(30):
             started = subprocess.run(["docker", "exec", self.target, "cat", "/srv/shop/data/app/started"], capture_output=True)
             if started.returncode == 0:

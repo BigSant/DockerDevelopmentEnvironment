@@ -89,15 +89,20 @@ class ReleaseTest(unittest.TestCase):
 
         def run(command, **kwargs):
             calls.append(command)
+            if 'compose' in command:
+                self.assertIn('"services"', kwargs['input'])
             return subprocess.CompletedProcess(command, 0, '', '')
 
+        model = release_model(project, '/home/shop/site')
         with patch('project_release.subprocess.Popen', Save), patch('project_release.subprocess.run', run), \
-                contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.release_model', return_value=model), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(deploy_images(project), ['a:1', 'b:1'])
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
         self.assertEqual(calls[2][:6], ['docker', '--context', 'shop-stage', 'compose', '-p', 'release-demo-stage'])
         self.assertIn('--no-build', calls[2])
+        self.assertEqual(calls[2][6:8], ['-f', '-'], 'the model is piped, not written to disk')
+        self.assertFalse(any(directory.glob('*compose*')))
 
 
 if __name__ == '__main__':

@@ -2,7 +2,8 @@
 
 The target needs only Docker, the code, data and env: images carry the setup runtime and CORE
 configuration, and the release compose model maps project paths to DEPLOY_PATH and refers to no
-setup file. The target is reached through a Docker context (ssh://user@host for servers).
+setup file. The target is reached through a Docker context (ssh://user@host for servers). The
+model carries env values (passwords), so it is rendered at deploy time and piped, never written.
 """
 
 import json
@@ -14,7 +15,6 @@ import subprocess
 DOCKER_ROOT = Path(__file__).resolve().parent
 SETUP_ROOT = DOCKER_ROOT.parent
 LOCK_NAME = 'images.lock.json'
-COMPOSE_NAME = 'compose.json'
 # Setup files that images now contain; their local mounts are dropped from a release.
 BAKED_MOUNTS = {'/opt/setup/runtime'}
 
@@ -139,20 +139,15 @@ def build_release(project, allow_dirty=False):
     project.run(['build', 'php-fpm-base'], profiles='build_only')
     project.run(['build', 'php-fpm-core'], profiles='build_only')
     project.run(['build'])
-    model = release_model(project, deploy_path)
-    images = image_names(model)
+    images = image_names(release_model(project, deploy_path))
     lock = {'setup': version, 'environment': project.environment, 'project': project.name,
             'images': {name: subprocess.run(['docker', 'image', 'inspect', '--format', '{{.Id}}', name],
                                             capture_output=True, text=True).stdout.strip() for name in images},
             'bases': base_digests(project)}
     directory = release_directory(project)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # The lock holds no secrets; the compose model (with passwords) is rendered at deploy time only.
     (directory / LOCK_NAME).write_text(json.dumps(lock, indent=2, sort_keys=True) + '\n')
-    compose = directory / COMPOSE_NAME
-    # The model carries interpolated env values (passwords): private to this user.
-    compose.touch(mode=0o600)
-    compose.chmod(0o600)
-    compose.write_text(json.dumps(model, indent=2) + '\n')
     missing = [reference for reference, digest in lock['bases'].items() if not digest]
     if missing:
         print('Warning: no registry digest for ' + ', '.join(missing) + ' (built or loaded locally)')
@@ -163,7 +158,7 @@ def build_release(project, allow_dirty=False):
 
 def deploy_images(project, transfer=True):
     """Load the release images into the target's Docker and start the release model there."""
-    context, _ = release_settings(project)
+    context, deploy_path = release_settings(project)
     directory = release_directory(project)
     if not (directory / LOCK_NAME).is_file():
         raise ValueError(f'Build the release first: make release ENV={project.environment}')
@@ -177,6 +172,9 @@ def deploy_images(project, transfer=True):
         if save.wait() or load.returncode:
             raise ValueError(f'Image transfer to {context} failed: {load.stderr.strip()[-300:]}')
     print(f'==> starting {lock["project"]} on {context}', flush=True)
-    subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', str(directory / COMPOSE_NAME),
-                    'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'], check=True)
+    # Rendered now from env (secrets may come from the pipeline's environment) and piped, never stored.
+    model = release_model(project, deploy_path)
+    subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', '-',
+                    'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'],
+                   input=json.dumps(model), text=True, check=True)
     return images
