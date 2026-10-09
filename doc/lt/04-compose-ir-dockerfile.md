@@ -169,7 +169,7 @@ Laikui bėgant kaupiasi seni image'ai. Pažiūrėk, ką galima pašalinti:
 make image-prune
 ```
 
-Komanda parodo setup image'us (pažymėtus `setup.*` label'iais arba atpažįstamus pagal setup vardų schemą), kurių nenaudoja joks konteineris ir nesitikisi nė vienas šalia esantis v2 projektas. Niekas netrinama.
+Komanda parodo setup image'us (pažymėtus `setup.*` label'iais arba atpažįstamus pagal setup vardų schemą), kurių nenaudoja joks konteineris, nesitikisi nė vienas šalia esantis v2 projektas ir nėra stage/prod release lock faile (jų reikia deploy'ui ir rollback'ui). Niekas netrinama.
 
 ```bash
 make image-prune apply=1
@@ -182,6 +182,6 @@ make image-prune cache=1
 make image-prune cache=1 apply=1
 ```
 
-Pirma komanda parodo Docker build cache užimamą vietą, antra jį išvalo.
+Pirma komanda parodo Docker build cache užimamą vietą, antra išvalo **visą** Docker build cache, ir kitų projektų.
 
 **Atsargiai su v1 projektais.** Senuoju keliu veikiančių projektų runner'is nebeperskaito, todėl jų image'ai be veikiančio konteinerio atrodo nenaudojami. Prieš `apply=1` peržiūrėk sąrašą.

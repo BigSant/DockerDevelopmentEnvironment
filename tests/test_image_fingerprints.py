@@ -2,9 +2,11 @@
 
 import contextlib
 import io
+import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -98,6 +100,19 @@ class PrunePlanTest(unittest.TestCase):
         plan = plan_prune(images, {"sha256:used"}, {"forsena-php-fpm-local-snew"})
         self.assertEqual(set(plan), {"sha256:stale"})
 
+    def test_images_of_a_release_lock_are_kept_for_deploy_and_rollback(self):
+        from project_images import released_image_ids
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "shop"
+            lock = root / "app/.generated/release/prod/images.lock.json"
+            lock.parent.mkdir(parents=True)
+            lock.write_text(json.dumps({"images": {"shop-php-fpm-prod-s1": "sha256:released"}}))
+            other = Path(temporary) / "other/app/.generated/release/stage/images.lock.json"
+            other.parent.mkdir(parents=True)
+            other.write_text(json.dumps({"images": {"other-php-fpm-stage-s2": "sha256:other"}}))
+            project = SimpleNamespace(root=root, directory=root / "app")
+            self.assertEqual(released_image_ids(project), {"sha256:released", "sha256:other"})
+
     def test_legacy_names_match_setup_images_only(self):
         for name in ("php-fpm-base-local-7.3-3.1.5-2.7.6", "mysql-local-8.4.0-s1bd8429c96c7",
                      "forsena-php-fpm-local-s98210b6d2a04", "webserver-apache-local-2.4.59"):
@@ -110,6 +125,7 @@ class PrunePlanTest(unittest.TestCase):
         with patch("project_images.setup_images", return_value={"sha256:stale": {"names": ["pma-local-5-sold"], "size": "1MB"}}), \
              patch("project_images.used_image_ids", return_value=set()), \
              patch("project_images.expected_image_names", return_value=set()), \
+             patch("project_images.released_image_ids", return_value=set()), \
              patch("project_images.subprocess.run") as run:
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 prune_images(project)

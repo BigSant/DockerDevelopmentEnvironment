@@ -55,6 +55,18 @@ def expected_image_names(project):
     return names
 
 
+def released_image_ids(project):
+    """Image ids that a stage/prod release lock of any grouped project still needs (deploy, rollback)."""
+    ids = set()
+    for lock in sorted(project.root.parent.glob('*/app/.generated/release/*/images.lock.json')) + \
+            sorted(project.directory.glob('.generated/release/*/images.lock.json')):
+        try:
+            ids.update(json.loads(lock.read_text()).get('images', {}).values())
+        except (ValueError, OSError):
+            continue
+    return ids
+
+
 def plan_prune(images, used, expected):
     keep = lambda entry: any(n in expected or n.split(':')[0] in expected for n in entry['names'])
     return {image_id: entry for image_id, entry in images.items()
@@ -62,7 +74,7 @@ def plan_prune(images, used, expected):
 
 
 def prune_images(project, apply=False, cache=False):
-    plan = plan_prune(setup_images(), used_image_ids(), expected_image_names(project))
+    plan = plan_prune(setup_images(), used_image_ids() | released_image_ids(project), expected_image_names(project))
     if not plan:
         print('No unused outdated setup images.')
     for image_id, entry in sorted(plan.items(), key=lambda item: item[1]['names']):
@@ -78,4 +90,4 @@ def prune_images(project, apply=False, cache=False):
             subprocess.run(['docker', 'builder', 'prune', '-f'], check=True)
         else:
             print(_docker('system', 'df').strip())
-            print('Build cache is removed only with cache=1 apply=1.')
+            print('cache=1 apply=1 clears the whole Docker build cache, including other projects\' layers.')
