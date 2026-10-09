@@ -146,7 +146,7 @@ Modulis nukopijuojamas į `app/public/modules/mymodule`. Peržiūrėk ir commit'
 make deploy ENV=prod rollback=1
 ```
 
-Iš naujo išsiunčia ankstesnį release'ą (build kompiuteris jų laiko kelis). DB automatiškai negrąžinama: jei reikia, atkurk ją iš prieš-deploy kopijos `.generated/backups/` su `make db-import`.
+Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiuteris jų laiko kelis); release'ai, kurių hook'as nepavyko, praleidžiami. DB automatiškai negrąžinama: jei reikia, atkurk ją iš prieš-deploy kopijos `.generated/backups/` su `make db-import`.
 
 ## Bitbucket Pipelines
 

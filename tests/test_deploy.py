@@ -286,10 +286,13 @@ class GenericDeployTest(unittest.TestCase):
         self.assertEqual([(e["ref"], e.get("failed")) for e in entries], [("g1", None), ("g2", "after-rsync")],
                          "the history says which code is on the target")
         hook.write_text("true\n")
-        self.deploy(rollback=True, backup=False)
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"}, removed=["src/Broken.php"])
+        self.deploy(ref="g3")
         public = self.target / "app/public"
-        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "rollback returns to the last good release")
-        self.assertFalse((public / "src/Broken.php").exists(), "the failed release's files are removed like any other")
+        self.assertFalse((public / "src/Broken.php").exists(), "removals follow the failed release the target held")
+        self.deploy(rollback=True, backup=False)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "rollback skips the failed release")
+        self.assertIn("rolling back to g1", self.output.getvalue())
 
     def test_setup_migrations_run_when_the_project_has_them(self):
         self.generic(SCHEMA_DIRECTORY="schema")

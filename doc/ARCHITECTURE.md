@@ -139,7 +139,7 @@ Every application-specific step follows `PROFILE`: protected paths are `PRESTASH
 `.htaccess`, `robots.txt`, `sitemap*.xml`) only for PrestaShop, plus tool folders and
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
-`rollback=1` redeploys the previous release.
+`rollback=1` redeploys the previous completed release (failed ones are skipped).
 
 ## 8. Tests
 

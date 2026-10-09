@@ -82,7 +82,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make release ENV=stage\|prod [allow_dirty=1]` | Sukuria image'us iš commit'into setup, užrašo image lock failą. |
 | `make deploy-images ENV=stage\|prod [transfer=0]` | Nusiunčia image'us į `DEPLOY_CONTEXT` ir paleidžia ten. |
 | `make deploy ENV=stage\|prod ref=TAG [backup=0]` | Kodo release'as, DB kopija, rsync, projekto hook'as, PS modulių upgrade'ai, migracijos, cache. |
-| `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį release'ą. |
+| `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą. |
 | `make module-pull ENV=stage\|prod name=MODULIS` | Nukopijuoja tik serveryje esantį modulį į vietinį parduotuvės kodą (tik `PROFILE=prestashop`). |
 
 ## Make argumentai

@@ -290,9 +290,11 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     _, deploy_path = release_settings(project)
     entries = history(project)
     if rollback:
-        if len(entries) < 2:
+        # The release before the current one whose deploy completed; a failed one is never a rollback target.
+        completed = [entry for entry in entries[:-1] if not entry.get('failed')]
+        if not completed:
             raise ValueError('No previous deployment to roll back to')
-        previous = entries[-2]
+        previous = completed[-1]
         release = deploy_directory(project) / 'code' / previous['commit'][:12]
         if not (release / '.setup-release').is_file():
             raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')
