@@ -19,9 +19,10 @@ import shlex
 import shutil
 import subprocess
 
-# PrestaShop paths written by the shop itself; a deploy never overwrites or deletes them.
-WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/xml/', '/config/themes/',
-            '/translations/', '/mails/', '/app/config/parameters.php', '/config/settings.inc.php',
+# PrestaShop paths written by the shop itself; a deploy never overwrites or deletes them. Paths the
+# shop repository tracks (mails/, translations/, config/xml/) are code and deploy like any other file.
+WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/themes/',
+            '/app/config/parameters.php', '/config/settings.inc.php',
             '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
             '/modules/*/var/', '/.htaccess', '/robots.txt', '/sitemap*.xml', '/.setup-tools/',
             # Checkouts and tool folders, never part of a release.
@@ -47,8 +48,13 @@ def record(project, entry):
     path.write_text(json.dumps(entries, indent=2) + '\n')
 
 
+def shop_checkout(project):
+    """The shop's git checkout: the code directory itself, or the local one beside a server env."""
+    return project.web_directory if (project.web_directory / '.git').exists() else project.root / 'app/public'
+
+
 def shop_commit(project, ref):
-    shop = project.root / 'app/public' if not (project.web_directory / '.git').exists() else project.web_directory
+    shop = shop_checkout(project)
     result = subprocess.run(['git', '-C', str(shop), 'rev-parse', '--verify', '--end-of-options', ref + '^{commit}'],
                             capture_output=True, text=True)
     if result.returncode:
@@ -95,8 +101,8 @@ def build_code(project, ref):
         print('==> composer install --no-dev', flush=True)
         in_release_image(project, release, 'composer install --no-dev --optimize-autoloader --no-interaction --no-progress')
     from project_application import plan_application
-    commands, _ = plan_application(project)
-    for command in commands:
+    plan = plan_application(project)  # None: the profile copies nothing into the code
+    for command in plan[0] if plan else []:
         in_release_image(project, release, command)
     hook = project.directory / 'config/deploy/build.sh'
     if hook.is_file():
@@ -287,7 +293,7 @@ def module_pull(project, name):
         raise ValueError('Name the module: make module-pull ENV=... name=MODULE')
     _, deploy_path = release_settings(project)
     ssh, path = target_location(project, deploy_path)
-    local = project.root / 'app/public/modules' / name
+    local = shop_checkout(project) / 'modules' / name
     if local.exists():
         raise ValueError(f'{local} already exists; the code copy wins')
     source = f'{ssh}:{path}/modules/{name}/' if ssh else f'{path}/modules/{name}/'

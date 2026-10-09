@@ -70,10 +70,10 @@ class DeployTest(unittest.TestCase):
         git(self.shop, "commit", "-q", "-m", tag)
         git(self.shop, "tag", tag)
 
-    def deploy(self, **options):
+    def deploy(self, plan=([], False), **options):
         with patch("project_deploy.php_image", return_value="php:test"), \
                 patch("project_deploy.in_release_image", lambda project, release, command: self.calls.append(["image", command])), \
-                patch("project_application.plan_application", return_value=([], False)), \
+                patch("project_application.plan_application", return_value=plan), \
                 patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
                 patch("project_deploy.upgrade_modules", lambda project, release: self.calls.append(["upgrade"])):
             return deploy_code(self.project, **options)
@@ -84,6 +84,8 @@ class DeployTest(unittest.TestCase):
         self.assertIn("--checksum", command)
         for pattern in ("/var/", "/img/", "/app/config/parameters.php", "/modules/*/cache/", "/modules/serveronly/", "/.git/"):
             self.assertIn(f"--exclude={pattern}", command)
+        for tracked in ("/mails/", "/translations/", "/config/xml/"):
+            self.assertNotIn(f"--exclude={tracked}", command, "paths the shop repository tracks are code")
         self.assertEqual(command[-2:], ["/release/", "shop@host:/srv/app/public/"])
         with self.assertRaisesRegex(ValueError, "user@host"):
             target_location(SimpleNamespace(settings={"DEPLOY_SSH": "host; rm -rf"}, web_directory=self.shop, root=self.root), "/srv")
@@ -139,6 +141,10 @@ class DeployTest(unittest.TestCase):
         self.assertEqual([(e["ref"], e["rollback"]) for e in entries], [("v1", False), ("v2", False), ("v1", True)])
         with self.assertRaisesRegex(ValueError, "ref=TAG"):
             self.deploy()
+
+    def test_a_profile_without_application_steps_still_deploys(self):
+        self.deploy(ref="v1", plan=None)
+        self.assertEqual((self.target / "app/public/index.php").read_text(), "<?php // v1\n")
 
     def test_module_pull_copies_a_target_only_module_into_the_checkout(self):
         module_pull(self.project, "serveronly")

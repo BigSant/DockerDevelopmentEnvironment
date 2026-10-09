@@ -20,7 +20,8 @@ Tas pats CORE veikia visose aplinkose, bet stage/prod turi griežtesnes taisykle
 - nenurodyti keturių pagrindinių servisų limitai `PHP_MEMORY`, `PHP_CPUS`, `DATABASE_MEMORY`, `DATABASE_CPUS`, `WEBSERVER_MEMORY`, `WEBSERVER_CPUS`, `PROXY_MEMORY`, `PROXY_CPUS`. Klaidos pranešimas pasiūlo reikšmes pagal Docker host'o dydį ([resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui));
 - įjungtas `pma`, `mailpit`, `cron` ar `dbmonitor`, bet nėra jo IP sąrašo ([IP apribojimai](05-servisai.md#ip-apribojimai));
 - nurodytas `XDEBUG_MODE` (stage/prod image'uose Xdebug nėra);
-- release'ui nenurodyti `APP_UID`, `APP_GID`, `DEPLOY_PATH` (ir `DEPLOY_CONTEXT` siuntimui į serverį).
+- release'ui nenurodyti `APP_UID`, `APP_GID`, `DEPLOY_PATH` (ir `DEPLOY_CONTEXT` siuntimui į serverį);
+- nurodytas `DEPLOY_CONTEXT`, bet nėra `APP_UID`/`APP_GID` (bet kuri komanda).
 
 Kiti skirtumai pagal nutylėjimą: `CACHE_MODE` įjungtas, `HTTP_FORCE_HTTPS=on`, prod `MAIL_MODE=preserve`, prod po DB užkėlimo saugūs numatytieji ir integracijų išjungimas **nevykdomi**. `make bootstrap` ir PS raktų generavimas veikia tik local/test: serverių reikšmės pateikiamos aiškiai.
 
@@ -105,7 +106,7 @@ make deploy ENV=prod ref=v1.4.0
 1. **Release'as:** `git archive` iš parduotuvės, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS`, projekto `config/deploy/build.sh` (pvz. asset'ų surinkimas), jei jis yra.
 2. **DB kopija:** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). `backup=0` ją praleidžia.
 3. **rsync** į `DEPLOY_SSH:DEPLOY_PATH/app/prod/public`:
-   - rašomi katalogai ir failai niekada neperrašomi ir netrinami: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/xml/`, `config/themes/`, `translations/`, `mails/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml` ir kt.;
+   - rašomi katalogai ir failai niekada neperrašomi ir netrinami: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml` ir kt.;
    - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
    - moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
 4. **Modulių upgrade'ai** pasikeitusiems moduliams (PS 1.6 – per administravimo skydelį).

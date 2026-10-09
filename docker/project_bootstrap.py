@@ -70,7 +70,7 @@ def ensure_generated_secrets(directory, environment):
         from project import project_root
         from project_prestashop import local_key_values
         present = {k for k in re.findall(r'^(PS_[A-Z_]+)=\S', raw, re.M)}
-        web = project_root(Path(directory).resolve()) / 'app/public'
+        web = project_root(Path(directory).resolve()) / (setting('APP_SOURCE_DIRECTORY') or 'app/public')
         values.update(local_key_values(web, setting('PS_VERSION'), present))
     if values:
         set_env_values(private, values)

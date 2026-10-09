@@ -133,6 +133,9 @@ class Project:
                 raise ValueError('APP_UID and APP_GID must both be numeric ids of the account on the server')
             self.process_env.update(HOST_UID=str(settings['APP_UID']), HOST_GID=str(settings['APP_GID']))
         if environment in ('stage', 'prod') and settings.get('DEPLOY_CONTEXT'):
+            if not settings.get('APP_UID'):
+                raise ValueError(f'DEPLOY_CONTEXT runs ENV={environment} on a server: set APP_UID and APP_GID '
+                                 'to the hosting account there')
             self.process_env['DOCKER_CONTEXT'] = settings['DEPLOY_CONTEXT']
         try:
             policy = resolve_policy(settings, environment)

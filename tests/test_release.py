@@ -42,6 +42,10 @@ class ReleaseTest(unittest.TestCase):
             release_settings(self.stage())
         with self.assertRaisesRegex(ValueError, 'ENV=stage or ENV=prod'):
             release_settings(Project(self.app))
+        (self.app / 'env/stage.env').write_text(REMOTE + 'DEPLOY_CONTEXT=shop-stage\n')
+        with self.assertRaisesRegex(ValueError, 'DEPLOY_CONTEXT runs ENV=stage on a server: set APP_UID'):
+            Project(self.app, 'stage')
+        (self.app / 'env/stage.env').write_text(REMOTE)
         project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=srv/shop\nDEPLOY_CONTEXT=shop-stage\n')
         with self.assertRaisesRegex(ValueError, 'absolute project root'):
             release_settings(project)
