@@ -153,6 +153,38 @@ class FirstStartScriptTest(unittest.TestCase):
                 self.assertEqual(executed, [])
 
 
+OLD_BASH_IMAGE = os.environ.get("SETUP_OLD_BASH_IMAGE")  # e.g. mysql:5.7, which ships bash 4.2
+
+
+class OldBashFirstStartTest(unittest.TestCase):
+    """Bash < 4.4 treats an empty array as unset under set -u; mysql:5.7 runs the hook with bash 4.2."""
+
+    def test_no_hook_expands_a_possibly_empty_array_bare(self):
+        for engine, script in INIT_SCRIPTS.items():
+            with self.subTest(engine=engine):
+                self.assertNotRegex(script.read_text(), r'(?<!\+)"\$\{extra_schemas\[@\]\}"')
+
+    @unittest.skipUnless(OLD_BASH_IMAGE, "Set SETUP_OLD_BASH_IMAGE to an image with bash < 4.4 (mysql:5.7)")
+    def test_the_hook_runs_under_bash_4_2_with_and_without_extra_schemas(self):
+        for engine, script in INIT_SCRIPTS.items():
+            for extras in ("", "asana_graph"):
+                with self.subTest(engine=engine, extras=extras):
+                    directory = scratch_directory(self)
+                    log = fake_clients(directory)
+                    result = subprocess.run(
+                        ["docker", "run", "--rm", "--network", "none", "--memory", "64m", "--user", f"{os.getuid()}:{os.getgid()}",
+                         "-v", f"{directory}:{directory}", "-v", f"{script}:/hook.sh:ro", "--entrypoint", "bash",
+                         "-e", f"PATH={directory / 'bin'}:/usr/bin:/bin", "-e", "MYSQL_USER=app", "-e", "MYSQL_PASSWORD=app-secret",
+                         "-e", "MYSQL_DATABASE=asana", "-e", "MYSQL_ROOT_PASSWORD=root-secret",
+                         "-e", f"DATABASE_EXTRA_SCHEMAS={extras}", OLD_BASH_IMAGE, "-c",
+                         'case $BASH_VERSION in 4.[0-3].*|3.*) ;; *) echo "bash $BASH_VERSION is not old" >&2; exit 99 ;; esac\n'
+                         'exec bash /hook.sh'], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    sql = calls(log)[0][1]
+                    self.assertIn("GRANT ALL PRIVILEGES ON `asana`.* TO 'app'@'%';", sql)
+                    self.assertEqual(r"asana\_graph" in sql, bool(extras))
+
+
 class RestrictScriptTest(unittest.TestCase):
     def run_restrict(self, *schemas):
         directory = scratch_directory(self)

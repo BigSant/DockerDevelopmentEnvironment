@@ -22,7 +22,8 @@ sql_database=${sql_database//_/\\_}
 # The grant escapes _ because an unescaped _ in a database grant matches any character.
 extra_sql=
 read -r -a extra_schemas <<< "${DATABASE_EXTRA_SCHEMAS:-}"
-for schema in "${extra_schemas[@]}"; do
+# ${a[@]+"${a[@]}"}: bash < 4.4 (mysql:5.7 ships 4.2) treats an empty array as unset under set -u.
+for schema in ${extra_schemas[@]+"${extra_schemas[@]}"}; do
     if [[ ! $schema =~ ^[A-Za-z0-9_]{1,64}$ ]]; then
         echo "DATABASE_EXTRA_SCHEMAS: invalid schema name; use 1-64 letters, digits or _" >&2
         exit 64

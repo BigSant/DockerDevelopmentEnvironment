@@ -184,6 +184,8 @@ Every application-specific step follows `PROFILE`: protected paths are `PRESTASH
 `python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB). B tests
 run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
 `SETUP_DIND_IMAGE`, `SETUP_MYSQL_SCHEMA_INTEGRATION=1`, … (see each test's skip reason).
+`SETUP_OLD_BASH_IMAGE=mysql:5.7` runs the DB first-start hooks under bash 4.2: shell hooks that run
+inside third-party images must not rely on bash ≥ 4.4 (e.g. `"${array[@]}"` of an empty array under `set -u`).
 The metrics exposition is checked with `promtool` (`SETUP_PROMTOOL_IMAGE=prom/prometheus:latest` when it
 is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks the recorded names are current.
 
