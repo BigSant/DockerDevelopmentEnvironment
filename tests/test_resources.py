@@ -101,3 +101,16 @@ class ResourceModelTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class XdebugModeTest(unittest.TestCase):
+    def test_local_default_explicit_modes_and_remote_rejection(self):
+        self.assertEqual(resolve_policy({}, 'local')['XDEBUG_MODE'], 'debug')
+        self.assertEqual(resolve_policy({'XDEBUG_MODE': 'debug,profile'}, 'test')['XDEBUG_MODE'], 'debug,profile')
+        self.assertEqual(resolve_policy({'XDEBUG_MODE': 'off'}, 'local')['XDEBUG_MODE'], 'off')
+        for value in ('fast', 'off,debug', 'debug;profile'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                resolve_policy({'XDEBUG_MODE': value}, 'local')
+        with self.assertRaisesRegex(ValueError, 'local/test only'):
+            resolve_policy({**LIMITS, 'XDEBUG_MODE': 'debug'}, 'prod')
+        self.assertEqual(resolve_policy(dict(LIMITS), 'prod')['XDEBUG_MODE'], '')

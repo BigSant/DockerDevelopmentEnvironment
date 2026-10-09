@@ -14,6 +14,8 @@ DEFAULTS = {
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
     # One time zone for PHP, the database, web servers and cron.
     'TZ': 'Europe/Vilnius',
+    # Xdebug 3 mode (local/test images only); empty resolves to debug there.
+    'XDEBUG_MODE': '',
     'CONTAINER_LOG_MAX_SIZE': '10m', 'CONTAINER_LOG_MAX_FILES': '3',
     'MIN_FREE_DISK_MB': '1024', 'BACKUP_KEEP_LAST': '5',
     # Empty pool sizes are derived from PHP_MEMORY; explicit values win.
@@ -159,6 +161,14 @@ def resolve_policy(settings, environment):
         raise ValueError('CONTAINER_CPUS must be greater than 0 and at most 1024')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*', values['TZ']):
         raise ValueError('TZ must be a zone name such as Europe/Vilnius or UTC')
+    if development:
+        values['XDEBUG_MODE'] = values['XDEBUG_MODE'] or 'debug'
+        modes = values['XDEBUG_MODE'].split(',')
+        allowed = {'off', 'develop', 'coverage', 'debug', 'gcstats', 'profile', 'trace'}
+        if not set(modes) <= allowed or ('off' in modes and len(modes) > 1):
+            raise ValueError('XDEBUG_MODE must be off or a comma list of: develop, coverage, debug, gcstats, profile, trace')
+    elif values['XDEBUG_MODE']:
+        raise ValueError('XDEBUG_MODE applies to local/test only; stage/prod images have no Xdebug')
     resolve_resources(settings, values, environment)
     for name in ('PHP_FPM_MAX_CHILDREN', 'PHP_FPM_START_SERVERS', 'PHP_FPM_MIN_SPARE_SERVERS',
                  'PHP_FPM_MAX_SPARE_SERVERS', 'PHP_FPM_MAX_REQUESTS'):

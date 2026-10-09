@@ -34,6 +34,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ}
+      # Xdebug 3 reads XDEBUG_MODE itself (debug | off | debug,profile ...); restart to apply.
+      XDEBUG_MODE: ${XDEBUG_MODE}
       # Match php-fpm so cron jobs run PHP with the same per-project overrides.
       CACHE_MODE: ${CACHE_MODE-}
       PHP_OPCACHE: ${PHP_OPCACHE-}

@@ -83,6 +83,8 @@ services:
     command: ["php-fpm", "-R"]
     environment:
       TZ: ${TZ}
+      # Xdebug 3 reads XDEBUG_MODE itself (debug | off | debug,profile ...); restart to apply.
+      XDEBUG_MODE: ${XDEBUG_MODE}
       # Available to project *.template drop-ins.
       SETUP_ENV: ${ENV}
       PROJECT_NAME: ${PROJECT_NAME}
