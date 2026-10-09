@@ -167,7 +167,7 @@ class RemoteRoutingTest(unittest.TestCase):
                 patch("database_schema.database_tables", return_value=["ps_orders", "ps_connections"]):
             passes = registry_passes(SimpleNamespace(), "shop")
         self.assertEqual(passes, [["--ignore-table=shop.ps_connections"],
-                                  ["--no-data", "--skip-routines", "--skip-events", "ps_connections"]])
+                                  ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "ps_connections"]])
         with patch("database_import.skip_rule", return_value=None):
             self.assertEqual(registry_passes(SimpleNamespace(), "shop"), [[]])
 

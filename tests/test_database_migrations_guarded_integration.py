@@ -32,7 +32,7 @@ class GuardedMigrationIntegrationTest(unittest.TestCase):
         subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--tmpfs", "/var/lib/mysql",
                         "-e", f"MYSQL_ROOT_PASSWORD={PASSWORD}", "-e", f"MARIADB_ROOT_PASSWORD={PASSWORD}",
                         "-e", "MYSQL_DATABASE=shop", "-e", "MYSQL_USER=shop", "-e", "MYSQL_PASSWORD=shop-test-only",
-                        "-e", "DATABASE_BUFFER_POOL=128M", image], check=True, capture_output=True)
+                        "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off", image], check=True, capture_output=True)
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
         deadline = time.time() + 120
         while time.time() < deadline:

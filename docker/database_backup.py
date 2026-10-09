@@ -4,14 +4,24 @@ from datetime import datetime, timezone
 import gzip
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
 from database_client import DUMP
 
 
+def keep_existing(structure):
+    """Structure-only dump that restores without dropping or emptying tables that already exist."""
+    return re.sub(rb'^CREATE TABLE `', b'CREATE TABLE IF NOT EXISTS `', structure, flags=re.M)
+
+
 def registry_passes(project, database):
-    """mysqldump option sets: everything without the data of skip tables, then their structure only."""
+    """mysqldump option sets: everything without the data of skip tables, then their structure only.
+
+    Restoring such a backup must not wipe the skip tables on the server (payment tokens, API
+    keys), so their structure carries no DROP TABLE and creates a table only when it is missing.
+    """
     from database_import import skip_rule
     from database_schema import database_tables
     rule = skip_rule(project)
@@ -19,7 +29,7 @@ def registry_passes(project, database):
     if not skipped:
         return [[]]
     return [[f'--ignore-table={database}.{table}' for table in skipped],
-            ['--no-data', '--skip-routines', '--skip-events', *skipped]]
+            ['--no-data', '--skip-add-drop-table', '--skip-routines', '--skip-events', *skipped]]
 
 
 def backup_database(project, destination=None, registry=False):
@@ -54,6 +64,11 @@ def backup_database(project, destination=None, registry=False):
                                                    stderr=errors)
                         try:
                             count = 0
+                            if '--no-data' in command:
+                                # Structure only: small enough to rewrite in memory.
+                                block = keep_existing(process.stdout.read())
+                                writer.write(block)
+                                count = len(block)
                             while True:
                                 block = process.stdout.read(1024 * 1024)
                                 if not block:

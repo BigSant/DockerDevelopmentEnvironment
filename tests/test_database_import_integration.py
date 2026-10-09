@@ -6,11 +6,14 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
+from database_backup import keep_existing, registry_passes
 from database_client import DUMP
 from database_import import filter_dump
 
@@ -24,7 +27,7 @@ class SkippedTableImportIntegrationTest(unittest.TestCase):
         self.name = f"setup-import-{uuid.uuid4().hex[:8]}"
         subprocess.run(["docker", "run", "-d", "--rm", "--name", self.name, "--network", "none", "--tmpfs", "/var/lib/mysql",
                         "-e", f"MYSQL_ROOT_PASSWORD={PASSWORD}", "-e", "MYSQL_DATABASE=shop", "-e", "MYSQL_USER=shop",
-                        "-e", "MYSQL_PASSWORD=shop-test-only", "-e", "DATABASE_BUFFER_POOL=128M", IMAGE],
+                        "-e", "MYSQL_PASSWORD=shop-test-only", "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off", IMAGE],
                        check=True, capture_output=True)
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", self.name], capture_output=True)
         deadline = time.time() + 120
@@ -70,16 +73,25 @@ class SkippedTableImportIntegrationTest(unittest.TestCase):
                            "CREATE TABLE ps_connections (id int PRIMARY KEY); INSERT INTO ps_connections VALUES (1),(2);"
                            "GRANT ALL ON shop.* TO 'shop'@'%';")
         dump = b""
-        for options in (["--ignore-table=shop.ps_connections"], ["--no-data", "--skip-routines", "--skip-events", "ps_connections"]):
+        with patch("database_import.skip_rule", return_value=lambda table: table == "ps_connections"), \
+                patch("database_schema.database_tables", return_value=["ps_connections", "ps_orders"]):
+            passes = registry_passes(SimpleNamespace(), "shop")
+        for options in passes:
             result = subprocess.run(["docker", "exec", self.name, "sh", "-c", DUMP, "database-backup", "shop", *options],
                                     capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            dump += result.stdout
+            dump += keep_existing(result.stdout) if "--no-data" in options else result.stdout
         self.query("", "CREATE DATABASE restored;")
         loaded = self.client("restored", dump)
         self.assertEqual(loaded.returncode, 0, loaded.stderr)
         self.assertEqual(self.query("restored", "SELECT COUNT(*) FROM ps_orders;"), ["1"])
         self.assertEqual(self.query("restored", "SELECT COUNT(*) FROM ps_connections;"), ["0"])
+        # Restoring over the server keeps the data of the tables the backup left out.
+        self.query("shop", "INSERT INTO ps_orders VALUES (2);")
+        loaded = self.client("shop", dump)
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        self.assertEqual(self.query("shop", "SELECT COUNT(*) FROM ps_orders;"), ["1"])
+        self.assertEqual(self.query("shop", "SELECT COUNT(*) FROM ps_connections;"), ["2"])
 
 
 if __name__ == "__main__":

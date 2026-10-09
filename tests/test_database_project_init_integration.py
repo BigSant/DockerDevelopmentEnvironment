@@ -35,7 +35,7 @@ class DatabaseProjectInitIntegrationTest(unittest.TestCase):
                             "--tmpfs", "/var/lib/mysql",
                             "-e", "MYSQL_ROOT_PASSWORD=root-test-only", "-e", "MYSQL_DATABASE=example",
                             "-e", "MYSQL_USER=example", "-e", "MYSQL_PASSWORD=example-test-only",
-                            "-e", "DATABASE_NAME=example", "-e", "DOMAIN=shop.local", "-e", "DATABASE_BUFFER_POOL=128M",
+                            "-e", "DATABASE_NAME=example", "-e", "DOMAIN=shop.local", "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off",
                             "-v", f"{config}:/etc/mysql/project.d:ro", IMAGE],
                            check=True, capture_output=True)
             self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
@@ -66,7 +66,7 @@ class DatabaseGrantsIntegrationTest(unittest.TestCase):
         name = f"setup-db-grants-{uuid.uuid4().hex[:8]}"
         subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--tmpfs", "/var/lib/mysql",
                         "-e", f"MYSQL_ROOT_PASSWORD={root_password}", "-e", "MYSQL_DATABASE=shop",
-                        "-e", "MYSQL_USER=shop", "-e", f"MYSQL_PASSWORD={app_password}", "-e", "DATABASE_BUFFER_POOL=128M",
+                        "-e", "MYSQL_USER=shop", "-e", f"MYSQL_PASSWORD={app_password}", "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off",
                         IMAGE], check=True, capture_output=True)
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
         deadline = time.time() + 120
