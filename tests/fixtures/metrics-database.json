@@ -1,5 +1,5 @@
 {
- "server": [{"performance_schema": "1", "max_connections": "151", "page_size": "16384"}],
+ "server": [{"performance_schema": "1", "max_connections": "151", "page_size": "16384", "version": "8.4.0"}],
  "status": [
   {"Variable_name": "Innodb_buffer_pool_pages_dirty", "Value": "100"},
   {"Variable_name": "Threads_connected", "Value": "7"},

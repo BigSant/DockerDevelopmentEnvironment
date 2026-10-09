@@ -102,6 +102,14 @@ fingerprint is outdated; it removes only with `apply=1`.
   Logs are read backwards in chunks only until the window has passed, never loaded whole.
   The database joins the metrics network for the database group, which reads statistics only with the DB monitor
   account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
+  Containers: the web-facing metrics service has no Docker access. `metrics-docker` (`docker-collector.php`,
+  same image) mounts the socket read-only, has `network_mode: none`, no capabilities and a read-only root, sends
+  GET requests only for the project's own containers (`com.docker.compose.project`) and writes a snapshot
+  (state, health, restart count, last exit/OOM, `oom` events as a persisted counter, OS/Docker versions) into
+  the `<project>-<env>-metrics-docker` volume the metrics service mounts read-only; a snapshot older than three
+  `METRICS_DOCKER_INTERVAL`s clears the group. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
+  cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command.
+  The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.
 - **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
   its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
   (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy
@@ -147,8 +155,8 @@ fingerprint is outdated; it removes only with `apply=1`.
 
 `make release ENV=stage|prod` builds the images here from committed setup and writes
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
-installed). A release keeps no host path except the read-only `/proc` of the metrics service (named
-volumes, such as its HTTP log volume, pass through unchanged).
+installed). A release keeps no host path except the read-only `/proc` of the metrics service and the read-only
+Docker socket of its network-less collector (named volumes, such as its HTTP log volume, pass through unchanged).
 `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of

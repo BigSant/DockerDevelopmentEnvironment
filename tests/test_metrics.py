@@ -36,8 +36,8 @@ HTTP_LOGS = Path(__file__).resolve().parent / "fixtures/metrics-http"
 # The fixture logs' clock: 2026-10-09 12:34:30 in Europe/Vilnius, so the 5-minute window is [12:29:00, 12:34:00).
 HTTP_NOW = "1791538470"
 TOKEN = "m" * 32
-# Groups the target serves so far; 09 adds host (and then every group is served).
-IMPLEMENTED = ("system", "website", "http", "security", "database")
+# Every group the target serves: the Grafana names' groups plus containers and cron (no dashboard yet).
+IMPLEMENTED = ("system", "website", "http", "security", "database", "host", "containers", "cron")
 REMOTE = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n'
           'PROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n'
           'DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n')
@@ -101,6 +101,54 @@ def write_connections(proc, proxy):
                                  "eth0\t000014AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n")
 
 
+UPTIME = 123456.78  # fixtures/metrics-proc/uptime
+HERTZ, PAGE = os.sysconf("SC_CLK_TCK"), os.sysconf("SC_PAGESIZE")
+
+
+def write_process(proc, pid, name, argv, cpu_seconds, age, rss_kb):
+    """/proc/<pid>/stat and cmdline: CPU time over the process's age and its resident memory, as ps reads them."""
+    directory = proc / str(pid)
+    directory.mkdir(parents=True, exist_ok=True)
+    start = int((UPTIME - age) * HERTZ)
+    utime = int(cpu_seconds * HERTZ * 0.8)
+    stime = int(cpu_seconds * HERTZ) - utime
+    (directory / "stat").write_text(f"{pid} ({name}) S 1 {pid} {pid} 0 -1 4194560 100 0 0 0 {utime} {stime} 0 0 20 0 1 0 "
+                                    f"{start} 100000000 {rss_kb * 1024 // PAGE} 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 0 17 3 0 0\n")
+    (directory / "cmdline").write_bytes(b"".join(arg.encode() + b"\0" for arg in argv))
+
+
+def write_host(proc):
+    """Processes (MemTotal 16000000 kB), disks and the kernel release of the fixture host."""
+    write_process(proc, 2, "kthreadd", [], 0, UPTIME - 1, 0)
+    write_process(proc, 100, "mysqld", ["/usr/sbin/mysqld", "--defaults-file=/etc/mysql/my.cnf"], 50000, 100000, 1600000)
+    for pid in (200, 201):
+        write_process(proc, pid, "php-fpm8.4", ["php-fpm: pool www"], 100, 1000, 160000)
+    # The runner gets its OAuth secret as arguments (Atlassian's design): only argv[0] may be shown.
+    write_process(proc, 300, "java", ["/usr/bin/java", "-jar", "runner.jar", "--secret", "oauth-secret-value"], 100, 10000, 3200000)
+    write_process(proc, 400, "odd) (name", ["sh", "-c", "sleep 1"], 0, 50, 4000)
+    (proc / "sys/kernel").mkdir(parents=True, exist_ok=True)
+    (proc / "sys/kernel/osrelease").write_text("6.8.0-45-generic\n")
+    rows = [("8 0 sda", 1500), ("8 1 sda1", 1400), ("7 0 loop0", 900), ("43 0 nbd0", 800), ("259 0 nvme0n1", 2500), ("259 1 nvme0n1p1", 2400),
+            ("253 0 dm-0", 3000)]
+    (proc / "diskstats").write_text("".join(f"   {device} 100 0 2000 50 200 0 4000 100 0 {ticks} 150 0 0 0 0 0 0\n"
+                                            for device, ticks in rows))
+
+
+def docker_container(name, service, state="running", health="healthy", restarts=0, exit_code=0, oom_killed=False):
+    return {"name": name, "service": service, "image": f"demo-{service}", "state": state, "health": health,
+            "restarts": restarts, "exit_code": exit_code, "oom_killed": oom_killed, "started": 1791530000, "finished": 0}
+
+
+def write_docker_state(directory, collected=None, **state):
+    """The Docker collector's snapshot as the metrics service reads it."""
+    directory.mkdir(parents=True, exist_ok=True)
+    snapshot = {"collected": int(time.time()) if collected is None else collected, "project": "demo-stage",
+                "server": {"os": "Ubuntu 22.04.5 LTS", "docker": "28.5.1"},
+                "containers": [docker_container("demo-stage-php-fpm", "php-fpm")], "oom_kills": {},
+                "events_until": int(time.time()), **state}
+    (directory / "state.json").write_text(json.dumps(snapshot))
+
+
 def free_port():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -145,13 +193,17 @@ class EndpointMixin:
         self.http = self.work / "http"
         shutil.copytree(HTTP_LOGS, self.http, copy_function=shutil.copy)
         write_connections(self.proc, self.http / "proxy-net")
+        write_host(self.proc)
+        self.docker_state = self.work / "docker"
+        write_docker_state(self.docker_state)
 
     def start(self, php=(), **env):
         port = free_port()
         settings = {"METRICS_TOKEN": TOKEN, "METRICS_PROC_ROOT": str(self.proc), "METRICS_DISK_PATH": str(self.work / "disk"),
                     "METRICS_STATE_DIR": str(self.work / "state"), "METRICS_SAMPLE_SECONDS": "0.1",
                     "METRICS_DISK_WRITE_MB": "1", "METRICS_URLS": "", "METRICS_SUPPORT_LEVEL": "2",
-                    "METRICS_HTTP_LOG_DIR": str(self.http), "METRICS_HTTP_NOW": HTTP_NOW, "TZ": "Europe/Vilnius", **env}
+                    "METRICS_HTTP_LOG_DIR": str(self.http), "METRICS_HTTP_NOW": HTTP_NOW, "TZ": "Europe/Vilnius",
+                    "METRICS_DOCKER_DIR": str(self.docker_state), **env}
         settings.setdefault("METRICS_DATABASE_FIXTURE", str(DATABASE_FIXTURE))
         server = subprocess.Popen(["php", *php, "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env={**os.environ, **settings},
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -454,10 +506,11 @@ class GrafanaCompatibilityTest(EndpointMixin, unittest.TestCase):
         port = serve(self)
         base = self.start(METRICS_URLS=f"http://shop.invalid:{port}/", METRICS_PROBE_ADDRESS="127.0.0.1")
         served = set(parse(fetch(base, token=TOKEN)[2]))
-        expected = set().union(*(grafana_names.GROUPS[group] for group in IMPLEMENTED))
+        expected = set().union(*(grafana_names.GROUPS[group] for group in IMPLEMENTED if group in grafana_names.GROUPS))
         self.assertEqual(sorted(expected - served), [])
-        if set(IMPLEMENTED) == set(grafana_names.GROUPS):
-            self.assertEqual(sorted({n for n in grafana_names.recorded() if grafana_names.group_of(n) != "elsewhere"} - served), [])
+        # Every group is served: the full set of names the dashboards and alerts use (except shop, PageSpeed, up).
+        self.assertLessEqual(set(grafana_names.GROUPS), set(IMPLEMENTED))
+        self.assertEqual(sorted({n for n in grafana_names.recorded() if grafana_names.group_of(n) != "elsewhere"} - served), [])
 
 
 PROMTOOL = os.environ.get("SETUP_PROMTOOL_IMAGE")
@@ -472,10 +525,17 @@ class ExpositionFormatTest(EndpointMixin, unittest.TestCase):
                         "-keyout", str(self.work / "domain.key"), "-out", str(self.work / "domain.crt")],
                        capture_output=True, check=True, timeout=30)
         plain, tls = serve(self), serve(self, self.work)
+        # Every group, cron with a recorded run.
+        (self.work / "cron").mkdir()
+        (self.work / "cron/crontab").write_text("*/5 * * * * true\n")
+        (self.work / "cron/history.jsonl").write_text('{"job":"5ffe533b830f","trigger":"scheduled","started":1791538470000,'
+                                                      '"duration_ms":12,"exit":2,"log":"x.log"}\n')
         base = self.start(METRICS_URLS=f'http://shop.invalid:{plain}/?q="a\\b" https://shop.invalid:{tls}/',
-                          METRICS_PROBE_ADDRESS="127.0.0.1")
+                          METRICS_PROBE_ADDRESS="127.0.0.1", METRICS_CRON="1", METRICS_CRON_CONFIG=str(self.work / "cron"),
+                          METRICS_CRON_HISTORY=str(self.work / "cron"))
         body = fetch(base, token=TOKEN)[2]
         self.assertIn('url="http://shop.invalid:%d/?q=\\"a\\\\b\\""' % plain, body)
+        self.assertIn('setup_cron_job_last_exit_code{job="5ffe533b830f"} 2', body)
         command = ["promtool"] if shutil.which("promtool") else ["docker", "run", "--rm", "-i", "--entrypoint", "promtool", PROMTOOL]
         check = lambda *flags: subprocess.run(command + ["check", "metrics", *flags], input=body, capture_output=True,
                                               text=True, timeout=120)
@@ -557,6 +617,48 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(release["volumes"], model["volumes"])
         self.assertEqual(services["php-fpm"]["environment"]["SETUP_ENABLE_METRICS"], "1")
 
+    def test_only_the_networkless_collector_reads_docker_and_cron_history_is_mounted_with_cron(self):
+        app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
+        project = Project(app, "stage")
+        services = json.loads(project.capture(["config", "--format", "json"]))["services"]
+        metrics, collector = services["metrics"], services["metrics-docker"]
+        # The web-facing service never gets the socket; the collector has no network, ports or capabilities.
+        for name, service in services.items():
+            if name != "metrics-docker":
+                self.assertNotIn("/var/run/docker.sock", {v.get("source") for v in service.get("volumes", [])}, name)
+        self.assertEqual((collector["network_mode"], collector["read_only"], collector["cap_drop"]), ("none", True, ["ALL"]))
+        self.assertIn("no-new-privileges:true", collector["security_opt"])
+        self.assertNotIn("ports", collector)
+        self.assertNotIn("networks", collector)
+        mounts = {volume["target"]: volume for volume in collector["volumes"]}
+        socket = mounts["/var/run/docker.sock"]
+        self.assertEqual((socket["type"], socket["source"], socket["read_only"]), ("bind", "/var/run/docker.sock", True))
+        state = {volume["target"]: volume for volume in metrics["volumes"]}["/host/docker"]
+        self.assertEqual((state["type"], state["source"], state["read_only"]), ("volume", mounts["/var/lib/setup-docker"]["source"], True))
+        self.assertFalse(mounts["/var/lib/setup-docker"].get("read_only", False))
+        self.assertEqual(collector["environment"]["METRICS_DOCKER_PROJECT"], project.name)
+        self.assertEqual((collector["environment"]["METRICS_DOCKER_INTERVAL"], metrics["environment"]["METRICS_DOCKER_INTERVAL"]), ("15", "15"))
+        self.assertNotIn("METRICS_CRON", metrics["environment"])
+        self.assertNotIn("/host/cron-history", {v["target"] for v in metrics["volumes"]})
+        # The release keeps the read-only socket of the collector, like /proc.
+        release = release_model(project, "/srv/demo")
+        self.assertIn(("/var/run/docker.sock", "/var/run/docker.sock"),
+                      {(v["source"], v["target"]) for v in release["services"]["metrics-docker"]["volumes"] if v["type"] == "bind"})
+        # With cron: the history (data/cron) and the crontab (app/config/cron, when present) read-only.
+        cron = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\nCRON_ALLOWED_IPS=10.8.0.20\n", services="cron metrics")
+        project = Project(cron, "stage")
+        metrics = json.loads(project.capture(["config", "--format", "json"]))["services"]["metrics"]
+        mounts = {volume["target"]: volume for volume in metrics["volumes"]}
+        self.assertEqual((mounts["/host/cron-history"]["source"], mounts["/host/cron-history"]["read_only"]),
+                         (str(project.data_directory / "cron"), True))
+        self.assertNotIn("/host/cron-config", mounts)  # no app/config/cron in this project: not created by Docker
+        self.assertEqual((metrics["environment"]["METRICS_CRON"], metrics["environment"]["ENV"]), ("1", "stage"))
+        (project.root / "app/config/cron").mkdir(parents=True)
+        metrics = json.loads(Project(cron, "stage").capture(["config", "--format", "json"]))["services"]["metrics"]
+        mounts = {volume["target"]: volume for volume in metrics["volumes"]}
+        self.assertEqual((mounts["/host/cron-config"]["source"], mounts["/host/cron-config"]["read_only"]),
+                         (str(project.root / "app/config/cron"), True))
+
     def test_a_writable_or_other_host_mount_is_still_refused_by_the_release(self):
         app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
         (app / "compose").mkdir(exist_ok=True)
@@ -576,6 +678,8 @@ class SettingsTest(unittest.TestCase):
                                  ("METRICS_HTTP_WINDOW_MINUTES=61", "METRICS_HTTP_WINDOW_MINUTES"),
                                  ("METRICS_HTTP_LOG_MB=0", "METRICS_HTTP_LOG_MB"),
                                  ("METRICS_HTTP_LOG_MB=1g", "METRICS_HTTP_LOG_MB"),
+                                 ("METRICS_DOCKER_INTERVAL=4", "METRICS_DOCKER_INTERVAL"),
+                                 ("METRICS_DOCKER_INTERVAL=1m", "METRICS_DOCKER_INTERVAL"),
                                  ("METRICS_NETWORK_INTERFACE='eth0;'", "METRICS_NETWORK_INTERFACE")):
             with self.subTest(setting=setting), self.assertRaisesRegex(ValueError, message):
                 Project(self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n{setting}\n"), "stage")
@@ -667,7 +771,8 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.assertEqual(values["website_response_status"], {'{url="http://demo.local/"}': 0})
         self.assertEqual(values["setup_metrics_group_up"],
                          {'{group="system"}': 1, '{group="website"}': 1, '{group="http"}': 1, '{group="security"}': 1,
-                          '{group="database"}': 0})  # no database in this test
+                          '{group="database"}': 0, '{group="host"}': 1, '{group="containers"}': 0, '{group="cron"}': 1})
+        # No database and no Docker collector in this test; cron is not enabled (nothing to read).
 
     def test_real_proxy_log_lines_and_connections(self):
         # The window ends after the current minute, so the requests made now are inside it.

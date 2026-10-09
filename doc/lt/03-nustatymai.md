@@ -102,6 +102,7 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | `METRICS_DISK_WRITE_MB` | `100` | Disko rašymo testo dydis (`disk_write_speed`), kartą per valandą. `0` išjungia. |
 | `METRICS_HTTP_WINDOW_MINUTES` | `5` | Kelių paskutinių pilnų minučių HTTP log'ai skaičiuojami (1–60). Lygus Prometheus `scrape_interval`. |
 | `METRICS_HTTP_LOG_MB` | `32` | Vieno HTTP log'o failo dydis MB metrikų tome (1–1024); kiekvienas log'as laiko du failus. Žr. [HTTP log'ai](05-servisai.md#http-logai). |
+| `METRICS_DOCKER_INTERVAL` | `15` | Kas kiek sekundžių (5–300) Docker kolektorius nuskaito projekto konteinerius. Senesnė nei trys intervalai (+30 s) nuotrauka – `setup_metrics_group_up{group="containers"} 0`. Žr. [Konteineriai, cron ir procesai](05-servisai.md#konteineriai-cron-ir-procesai). |
 
 ## Laikas ir derinimas
 

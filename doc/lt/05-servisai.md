@@ -16,7 +16,7 @@ SERVICES="pma mailpit cron"
 | `mailpit` | Laiškų gaudyklė | UI `https://mailpit.demo.local/`, SMTP `mailpit:1025` projekto tinkle. |
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
 | `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` su token'u. Žr. [DB monitorius](#db-monitorius). |
-| `metrics` | Serverio, svetainės, HTTP ir saugumo Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
+| `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
 | `playwright` | Naršyklės testų įrankis | `make e2e`. |
@@ -366,15 +366,17 @@ Be teisingo token'o atsakymas `401`. DB portas nepublikuojamas. Stage/prod be `D
 
 ## Metrikos (Prometheus)
 
-Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Šiandien atiduodamos penkios grupės:
+Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Atiduodami **visi** dashboard'ų ir alert'ų naudojami vardai (išskyrus parduotuvės `monitoring_*` – PrestaShop modulio, ir PageSpeed `pagespeed_insight_*` – stebėjimo programos), grupėmis:
 
 - **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`, `active_connections`;
 - **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas);
 - **HTTP** (paskutinių pilnų minučių log'ai, žr. [HTTP log'ai](#http-logai)): `http_response_codes{code}`, `http_bytes_transferred_total`, `http_request_ips{ip}`, `http_error_type{type}`, nauji `http_request_user_agents{user_agent}`, `http_requests_per_minute` ir `http_requests_per_minute_max`;
 - **saugumas**: `ddos_most_connections_ip_count{ip}` – penki adresai su daugiausiai TCP jungčių į 80 ir 443 portus;
-- **DB** (per [DB monitoriaus paskyrą](#db-metrikos)): buffer pool (`sql_*`), lėtos užklausos, lentelių skenavimai ir užklausos pagal bendrą laiką (`database_slow_query_*`, `database_table_scan_query_*`, `database_total_time_query_*`), lėčiausia užklausa, lentelių lock'ai ir I/O, vykdomi sakiniai, prisijungimai.
+- **DB** (per [DB monitoriaus paskyrą](#db-metrikos)): buffer pool (`sql_*`), lėtos užklausos, lentelių skenavimai ir užklausos pagal bendrą laiką (`database_slow_query_*`, `database_table_scan_query_*`, `database_total_time_query_*`), lėčiausia užklausa, lentelių lock'ai ir I/O, vykdomi sakiniai, prisijungimai;
+- **serveris** (`host`): daugiausiai CPU ir RAM naudojantys procesai (`processes_consuming_cpu`, `processes_consuming_memory` ir jų `_total`), nauji I/O wait skaitikliai ir `setup_server_info` (OS, branduolys, Docker, DB versijos);
+- **konteineriai** ir **cron** (naujos): kiekvieno projekto konteinerio būsena, health, restart'ai ir OOM; kiekvienos cron užduoties paskutinis paleidimas, exit kodas ir trukmė. Žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai).
 
-`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e). Konteinerių, cron ir procesų grupės prisidės prie to paties serviso.
+`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e).
 
 1. `env/<ENV>.env`:
 
@@ -427,6 +429,8 @@ Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat
 - projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi;
 - HTTP log'ų tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
 
+Su `cron` servisu prisijungia dar du katalogai, taip pat tik skaitymui: cron istorija (`data/cron`) ir crontab (`app/config/cron`, jei yra). Docker socket'o metrikų servisas negauna – konteinerius skaito atskiras kolektorius, žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai).
+
 Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra tik nginx-proxy (jis kreipiasi į `/metrics`) ir DB (DB grupei).
 
 **Prasmė ir vienetai** (kaip seno scripto, įskaitant jo keistenybes, kad dashboard'ai rodytų tą patį):
@@ -447,6 +451,8 @@ Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra t
 | `http_error_type` | svetainės klaidų log'as per langą | visada šeši tipai su seno parserio etiketėmis; įrašas su keliais tos pačios rūšies pranešimais skaičiuojamas kartą (kaip `awk`); `Connection reset` – nepriklausomai nuo raidžių dydžio |
 | `ddos_most_connections_ip_count` | `/proc/net/tcp*` (kaip `netstat -an`) | 5 adresai; visos būsenos, išskyrus klausymą (taip pat `TIME_WAIT`); 80 **ir 443** portai, tik įeinančios jungtys; be loopback |
 | `active_connections` | `netstat -an \| grep ESTABLISHED \| wc -l` | serverio tinklo vardų erdvės TCP `ESTABLISHED` (`/host/proc/1/net/tcp`, `tcp6`); konteinerių vidiniai ryšiai (pvz. PHP → DB) savo erdvėse neįskaičiuojami, VPN taikinyje – ir jungtys į nginx-proxy publikuotus portus (jos nginx-proxy erdvėje) |
+| `processes_consuming_cpu`, `processes_consuming_memory` `{process}` | `ps -eo %mem,%cpu,cmd`, sumuota pagal komandą | %, kaip `ps`: CPU – procesoriaus laikas per visą proceso gyvavimą (ne šios akimirkos), RAM – rezidentinė dalis; po 10 kiekvieno. `process` – komanda **be argumentų** (`argv[0]`, branduolio gija – `[vardas]`): argumentuose būna slaptažodžių (pvz. runner'io OAuth), senas scriptas rodė visą eilutę |
+| `processes_consuming_cpu_total`, `processes_consuming_memory_total` `{process}` | ten pat | tos komandos procesų skaičius |
 
 **Svetainės patikra** eina iš metrikų konteinerio per jo atskirą tinklą: projekto tinkle domenas rodo tiesiai į nginx-proxy, o patikra turi praeiti tą patį kelią kaip lankytojas (DirectAdmin ir jo sertifikatas). Jei serveris negali pasiekti savo viešo adreso arba vardas yra tik VPN, nurodyk `METRICS_PROBE_ADDRESS` (pvz. `10.8.0.14`): jungiamasi ten, o `Host` ir SNI lieka iš URL. Sertifikato data nuskaitoma netikrinant jo, todėl pasibaigęs sertifikatas taip pat parodomas.
 
@@ -506,3 +512,46 @@ DB prisijungia prie metrikų serviso tinklo, todėl servisas DB randa vardu `dat
 | `database_performance_schema` (nauja) | `@@performance_schema` | `1` – įjungta, `0` – išjungta |
 
 **Laiko langas.** Senas scriptas po kiekvieno paleidimo (kas 5 min.) išvalydavo `events_statements_summary_by_digest`, todėl `database_slow_query_*`, `database_table_scan_query_*` ir `database_total_time_query_*` rodė paskutinių 5 minučių užklausas. Monitoriaus paskyra lentelės valyti negali (ir neturi), todėl servisas pats skaičiuoja skirtumą nuo ankstesnio nuskaitymo: langas = Prometheus `scrape_interval` (5 min., kaip anksčiau). Pirmas nuskaitymas po metrikų serviso paleidimo apima laiką nuo DB paleidimo. Rankinis `curl` taip pat yra nuskaitymas – jis sutrumpina Prometheus langą. Vienas šablonas keliose schemose rodomas viena eilute (sumuojama).
+
+### Konteineriai, cron ir procesai
+
+**Konteineriai.** Docker API (`/var/run/docker.sock`) yra root lygio prieiga, todėl web'ui atviras metrikų servisas jos negauna. Su `SERVICES=metrics` paleidžiamas antras konteineris `<PROJECT_NAME>-<ENV>-metrics-docker` (kolektorius): kas `METRICS_DOCKER_INTERVAL` sekundžių (numatyta 15) jis nuskaito **tik šio projekto** konteinerius (`com.docker.compose.project=<PROJECT_NAME>-<ENV>`) ir įrašo nedidelę nuotrauką į tomą `<PROJECT_NAME>-<ENV>-metrics-docker`; metrikų servisas tomą prijungia tik skaitymui. Kolektorius:
+
+- neturi tinklo (`network_mode: none`), portų nepublikuoja, todėl iš išorės nepasiekiamas;
+- siunčia tik `GET` užklausas (`/info`, `/containers/json`, `/containers/{id}/json`, `/events`), aplinkos kintamųjų ir kitų konteinerio duomenų nekopijuoja;
+- veikia be capabilities (`cap_drop: ALL`, `no-new-privileges`) su tik skaitomu root failų sistema; root naudotojas reikalingas tik root'ui priklausančiam socket'ui atidaryti.
+
+Kodėl ne socket proxy (pvz. `docker-socket-proxy`): jam reikia to paties socket'o ir jis pasiekiamas tinklu, o čia socket'ą turintis procesas tinklo neturi visai. Kodėl ne serverio scriptas: DirectAdmin taikiniuose setup v2 nieko į serverį nediegia. Release'as socket'o prijungimą palieka (kaip `/proc`), nes jis yra kiekviename Docker taikinyje.
+
+| Metrikos | Šaltinis | Vienetai, pastabos |
+| --- | --- | --- |
+| `setup_container_info{project,service,container,image,state,health}` | `State.Status`, `State.Health.Status` | visada `1`; `state` – `running`, `restarting`, `exited`, …; `health` – `healthy`, `unhealthy`, `starting`, `none` |
+| `setup_container_running{project,service,container}` | `State.Status` | `1` – veikia, `0` – ne (taip pat `restarting`) |
+| `setup_container_healthy{…}` | `State.Health.Status` | `1` – `healthy`, `0` – `unhealthy` ar `starting`; tik konteineriams su healthcheck |
+| `setup_container_restarts_total{…}` | `RestartCount` | counter: restart policy perkrovimai nuo konteinerio sukūrimo (`make restart` ir perkūrimas jo nedidina) |
+| `setup_container_oom_killed{…}`, `setup_container_exit_code{…}` | `State.OOMKilled`, `State.ExitCode` | paskutinio išėjimo priežastis ir kodas; po perkrovimo Docker `OOMKilled` išvalo |
+| `setup_container_oom_kills_total{project,service}` | Docker `oom` įvykiai | counter: OOM nužudymai nuo kolektoriaus pirmo paleidimo (skaičius laikomas nuotraukoje, todėl išlieka per kolektoriaus perkrovimą) |
+| `setup_container_started_timestamp_seconds{…}`, `setup_containers_collected_timestamp_seconds` | `State.StartedAt`, nuotraukos laikas | Unix laikas |
+
+Jei nuotraukos nėra ar ji senesnė nei trys intervalai (+30 s), konteinerių metrikų nėra, o `setup_metrics_group_up{group="containers"} 0`.
+
+**Cron** (su `SERVICES="cron metrics"`): metrikų servisas tik skaitymui prijungia crontab (`app/config/cron`, jei yra) ir cron serviso paleidimų istoriją (`data/cron/history.jsonl`, rašo `cron-run.sh`). Kiekvienai šios aplinkos užduočiai (`crontab` ir `crontab.<ENV>`):
+
+| Metrikos | Pastabos |
+| --- | --- |
+| `setup_cron_job_info{job,source,line,schedule}` | `job` – užduoties id, kaip cron UI (pagal komandą); `source:line` – crontab failas ir eilutė. **Komanda etiketėse nerodoma**: joje būna token'ų (pvz. cron URL su `?token=`) |
+| `setup_cron_job_last_run_timestamp_seconds{job}`, `setup_cron_job_last_exit_code{job}`, `setup_cron_job_last_duration_seconds{job}` | paskutinis užbaigtas paleidimas (planinis ar rankinis): pradžia, exit kodas (`0` – sėkmė), trukmė s |
+| `setup_cron_job_last_success_timestamp_seconds{job}` | paskutinio sėkmingo paleidimo pradžia |
+| `setup_cron_job_expected_run_timestamp_seconds{job}` | pirmas planinis laikas po paskutinio paleidimo (be paleidimų – po dabar); jei jis praeityje, paleidimo trūksta (neįvyko, praleistas, nes ankstesnis dar vyko, ar dar vyksta) |
+
+Ta pati komanda `crontab` ir `crontab.<ENV>` turi vieną id ir vieną istoriją (kaip cron UI), todėl paleidimo metrikos jai atiduodamos kartą. Alert'ų pavyzdžiai: `setup_cron_job_last_exit_code != 0`; `time() - setup_cron_job_expected_run_timestamp_seconds > 600`. Be cron istorijos katalogo – `setup_metrics_group_up{group="cron"} 0`; be `cron` serviso grupė nieko neatiduoda.
+
+**Procesai, I/O wait, versijos** (`host` grupė, iš serverio `/proc`):
+
+| Metrikos | Pastabos |
+| --- | --- |
+| `processes_consuming_*` | seno scripto vardais, žr. lentelę [aukščiau](#metrikos-prometheus) |
+| `setup_cpu_iowait_seconds_total` | counter: CPU laikas, laukiant I/O (`/proc/stat` `iowait`, visi branduoliai); Grafana – `rate()`. Seni `cpu_usage_iowait` (1 s mėginys) ir `io_usage_iowait` (nuo paleidimo) lieka |
+| `setup_processes_blocked` | procesai, dabar laukiantys I/O (`procs_blocked`) |
+| `setup_disk_io_time_seconds_total{device}` | counter: laikas, kai diskas vykdė I/O (`/proc/diskstats`); tik visi diskai, be skaidinių, `loop`, `nbd` ir RAM įrenginių |
+| `setup_server_info{os,kernel,docker,database}` | visada `1`: OS ir Docker versija iš kolektoriaus (Docker `/info`), branduolys iš `/proc`, DB – `VERSION()` per monitoriaus paskyrą; nežinoma – tuščia etiketė |

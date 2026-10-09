@@ -1,0 +1,15 @@
+services:
+  # With SERVICES="cron metrics": the cron group reads the project crontab and the cron service's run history
+  # (cron-run.sh's history.jsonl), both read-only.
+  metrics:
+    environment:
+      METRICS_CRON: "1"
+    volumes:
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}/cron
+        target: /host/cron-history
+        read_only: true
+      - type: bind
+        source: ${PROJECT_CONFIG_DIRECTORY}/cron
+        target: /host/cron-config
+        read_only: true
