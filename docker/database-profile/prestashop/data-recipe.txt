@@ -11,3 +11,6 @@
 {p}product_attribute_combination id_product_attribute IN (SELECT id_product_attribute FROM {p}product_attribute WHERE id_product IN {products})
 {p}product_attribute_image id_product_attribute IN (SELECT id_product_attribute FROM {p}product_attribute WHERE id_product IN {products})
 {p}product_attribute_lang id_product_attribute IN (SELECT id_product_attribute FROM {p}product_attribute WHERE id_product IN {products})
+# No shop links for rows that no longer exist (left behind by deleted warehouses, e.g. test runs).
+{p}warehouse_shop id_warehouse IN (SELECT id_warehouse FROM {p}warehouse)
+{p}warehouse_carrier id_warehouse IN (SELECT id_warehouse FROM {p}warehouse)

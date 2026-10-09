@@ -112,6 +112,15 @@ class DatabaseSchemaTest(unittest.TestCase):
         self.stage()
         self.check(empty)
 
+    def test_default_column_collation_is_normalized_away(self):
+        ddl = ("CREATE TABLE `t` (\n  `a` varchar(8) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,\n"
+               "  `b` varchar(8) CHARACTER SET utf8mb3 COLLATE utf8mb3_unicode_ci,\n"
+               "  `c` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci\n) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4")
+        self.assertEqual(normalize_ddl(ddl),
+                         "CREATE TABLE `t` (\n  `a` varchar(8) CHARACTER SET utf8mb3 NOT NULL,\n"
+                         "  `b` varchar(8) COLLATE utf8mb3_unicode_ci,\n"
+                         "  `c` text COLLATE utf8mb4_general_ci\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n")
+
     def test_connection_failure_preserves_export_and_fails_check(self):
         self.export()
         self.stage()

@@ -57,6 +57,13 @@ class PolicyTest(unittest.TestCase):
         stage=Project(self.app,'stage')
         self.assertEqual((stage.settings['PHP_OPCACHE'],stage.settings['MAIL_MODE']),('on','mailpit'))
 
+    def test_import_and_test_switches_reach_the_settings(self):
+        with (self.app/'env/local.env').open('a') as file:
+            file.write('INTEGRATIONS_ENABLED="gtm tecdoc"\nPS_SSL=off\nPS_DATABASE_PREFIX=fs_\nTEST_COPY_EXCLUDE=/modules/x/cache\n')
+        settings=Project(self.app).settings
+        self.assertEqual((settings['INTEGRATIONS_ENABLED'],settings['PS_SSL'],settings['PS_DATABASE_PREFIX'],settings['TEST_COPY_EXCLUDE']),
+                         ('gtm tecdoc','off','fs_','/modules/x/cache'))
+
     def test_individual_cache_overrides_and_explicit_debug_validation(self):
         policy=resolve_policy({'CACHE_MODE':'on','PHP_OPCACHE':'off','PS_SMARTY_COMPILE':'check'},'local')
         self.assertEqual(policy['PHP_OPCACHE'],'off')

@@ -187,25 +187,12 @@ def ide_plan(project, server):
     entries = interpreters.find("interpreters")
     if entries is None:
         entries = ET.SubElement(interpreters, "interpreters")
-    identifier = str(uuid.uuid5(uuid.NAMESPACE_URL, f"shared-setup:{interpreter_name}"))
-    for entry in list(entries):
-        if entry.get("id") == identifier:
-            entries.remove(entry)
-        elif entry.get("name") == interpreter_name:
-            raise ValueError(f"An unrelated interpreter already uses {interpreter_name}; preserved")
-    interpreter = ET.SubElement(entries, "interpreter", id=identifier, name=interpreter_name,
-                                home="docker-compose://DATA", auto="false", debugger_id="php.debugger.XDebug")
-    remote = ET.SubElement(interpreter, "remote_data", INTERPRETER_PATH="/usr/local/bin/php",
-                           HELPERS_PATH="/opt/.phpstorm_helpers", VALID="true", RUN_AS_ROOT_VIA_SUDO="false",
-                           DOCKER_ACCOUNT_NAME=server, DOCKER_COMPOSE_SERVICE_NAME="php-fpm",
-                           DOCKER_REMOTE_PROJECT_PATH="/var/www/html")
-    ET.SubElement(remote, "type_data", command="EXEC")
-    paths = ET.SubElement(remote, "dockerComposeConfigurationPaths")
-    ET.SubElement(paths, "item", value=f"$PROJECT_DIR$/.generated/phpstorm-compose.{project.environment}.yaml")
-    envs = ET.SubElement(remote, "envs")
-    ET.SubElement(envs, "env", name="COMPOSE_PROJECT_NAME", value=project.name)
-    ET.SubElement(envs, "env", name="COMPOSE_DISABLE_ENV_FILE", value="true")
-    ET.SubElement(envs, "env", name="COMPOSE_PROFILES", value=project.profiles)
+    add_interpreter(entries, interpreter_name, server, project)
+    test = test_environment(project)
+    if test is not None:
+        # Tests from the IDE reach only the ENV=test containers and database.
+        test_identifier = add_interpreter(entries, f"{test.name} PHP", server, test)
+        phpunit_settings(php_config, test_identifier)
     outputs[".idea/php.xml"] = xml_bytes(php_config)
 
     workspace = document(".idea/workspace.xml")
@@ -216,6 +203,10 @@ def ide_plan(project, server):
                ("down", "Stop", "down"), ("check", "Check", "doctor"), ("shell", "PHP shell", "shell")]
     if project.settings["SCHEMA_DIRECTORY"]:
         actions += [("schema_export", "Export schema", "schema-export"), ("schema_check", "Check schema", "schema-check")]
+    if project.environment == "local":
+        actions += [("test_prepare", "Prepare tests", "test-prepare"), ("test_sync", "Sync test copy", "test-sync"),
+                    ("phpunit", "PHPUnit (all suites)", "phpunit"), ("phpstan", "PHPStan", "phpstan"),
+                    ("e2e", "E2E tests", "e2e")]
     for key, label, action in actions:
         relative = f".idea/runConfigurations/setup_{key}.xml"
         contents = read(relative)
@@ -237,6 +228,30 @@ def ide_plan(project, server):
                 ET.SubElement(run, "option", name="INDEPENDENT_" + key, value=value)
         ET.SubElement(run, "method", v="2")
         outputs[relative] = xml_bytes(root)
+    if test is not None:
+        from project_testing import find_suites
+        for name, config in sorted(find_suites(test.web_directory).items()):
+            relative = f".idea/runConfigurations/setup_phpunit_{re.sub(r'[^A-Za-z0-9_]', '_', name)}.xml"
+            label = f"PHPUnit: {name}"
+            contents = read(relative)
+            if contents and MARKER.encode() not in contents:
+                existing = ET.fromstring(contents).find("configuration")
+                if existing is None or existing.get("name") != label or existing.get("type") != "PHPUnitRunConfigurationType":
+                    raise ValueError(f"Existing user run configuration preserved: {relative}")
+            root = ET.Element("component", name="ProjectRunConfigurationManager")
+            root.append(ET.Comment(MARKER))
+            run = ET.SubElement(root, "configuration", default="false", name=label,
+                                type="PHPUnitRunConfigurationType", factoryName="PHPUnit")
+            settings = ET.SubElement(ET.SubElement(run, "CommandLine"), "PhpTestInterpreterSettings")
+            ET.SubElement(settings, "option", name="interpreterName", value=f"{test.name} PHP")
+            local = os.path.relpath(config, project.directory)
+            ET.SubElement(run, "TestRunner", configuration_file=f"$PROJECT_DIR$/{local}", scope="XML",
+                          use_alternative_configuration_file="true")
+            method = ET.SubElement(run, "method", v="2")
+            # The test copy runs the code; refresh it from the working tree first.
+            ET.SubElement(method, "option", name="RunConfigurationTask", enabled="true",
+                          run_configuration_name="Setup: Sync test copy", run_configuration_type="ShConfigurationType")
+            outputs[relative] = xml_bytes(root)
     startup = document(".idea/startup.xml")
     entries = component(startup, "ProjectStartupSharedConfiguration")
     configurations = entries.find("configurations")
@@ -246,6 +261,49 @@ def ide_plan(project, server):
         ET.SubElement(configurations, "configuration", id="Shell Script.Setup: Prepare IDE", name="Setup: Prepare IDE")
     outputs[".idea/startup.xml"] = xml_bytes(startup)
     return originals, outputs, deletions
+
+
+def add_interpreter(entries, name, server, project):
+    identifier = str(uuid.uuid5(uuid.NAMESPACE_URL, f"shared-setup:{name}"))
+    for entry in list(entries):
+        if entry.get("id") == identifier:
+            entries.remove(entry)
+        elif entry.get("name") == name:
+            raise ValueError(f"An unrelated interpreter already uses {name}; preserved")
+    interpreter = ET.SubElement(entries, "interpreter", id=identifier, name=name,
+                                home="docker-compose://DATA", auto="false", debugger_id="php.debugger.XDebug")
+    remote = ET.SubElement(interpreter, "remote_data", INTERPRETER_PATH="/usr/local/bin/php",
+                           HELPERS_PATH="/opt/.phpstorm_helpers", VALID="true", RUN_AS_ROOT_VIA_SUDO="false",
+                           DOCKER_ACCOUNT_NAME=server, DOCKER_COMPOSE_SERVICE_NAME="php-fpm",
+                           DOCKER_REMOTE_PROJECT_PATH="/var/www/html")
+    ET.SubElement(remote, "type_data", command="EXEC")
+    paths = ET.SubElement(remote, "dockerComposeConfigurationPaths")
+    ET.SubElement(paths, "item", value=f"$PROJECT_DIR$/.generated/phpstorm-compose.{project.environment}.yaml")
+    envs = ET.SubElement(remote, "envs")
+    ET.SubElement(envs, "env", name="COMPOSE_PROJECT_NAME", value=project.name)
+    ET.SubElement(envs, "env", name="COMPOSE_DISABLE_ENV_FILE", value="true")
+    ET.SubElement(envs, "env", name="COMPOSE_PROFILES", value=project.profiles)
+    return identifier
+
+
+def test_environment(project):
+    """The prepared ENV=test project of a local checkout, or None before make test-prepare."""
+    if project.environment != "local" or not (project.directory / "env/test.env").is_file():
+        return None
+    from project import Project
+    return Project(project.directory, "test", project.root)
+
+
+def phpunit_settings(php_config, interpreter_id):
+    """PHPUnit for the test interpreter: the shop's Composer autoloader (make phpunit picks module versions)."""
+    container = component(php_config, "PhpUnit").find("phpunit_settings")
+    if container is None:
+        container = ET.SubElement(component(php_config, "PhpUnit"), "phpunit_settings")
+    for entry in list(container):
+        if entry.get("interpreter_id") == interpreter_id:
+            container.remove(entry)
+    ET.SubElement(container, "PhpUnitSettings", interpreter_id=interpreter_id, load_method="CUSTOM_LOADER",
+                  custom_loader_path="/var/www/html/vendor/autoload.php")
 
 
 def initialize_ide(project, docker_server=None, config_directory=None):
@@ -267,6 +325,9 @@ def initialize_ide(project, docker_server=None, config_directory=None):
                 backup = checked_path(project, f".generated/phpstorm-backups/{stamp}/{name}")
                 replace_file(backup, originals[name], private=True)
     refresh_ide(project)
+    test = test_environment(project)
+    if test is not None:
+        refresh_ide(test)
     for name, contents in outputs.items():
         replace_file(checked_path(project, name), contents, private=name == ".idea/workspace.xml")
     for name in deletions:

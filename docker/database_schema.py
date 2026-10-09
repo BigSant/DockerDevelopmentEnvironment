@@ -52,9 +52,25 @@ def table_file(name):
     return "table-" + encoded + ".sql"
 
 
+# MySQL spells the same column collation differently for a table recreated from a snapshot than
+# for the original (CHARACTER SET x COLLATE x_ci vs COLLATE x_ci, or a restated default).
+# utf8mb4's default differs between MySQL and MariaDB, so it is never treated as implied.
+DEFAULT_COLLATIONS = {"utf8mb3": "utf8mb3_general_ci", "utf8": "utf8_general_ci", "latin1": "latin1_swedish_ci",
+                      "ascii": "ascii_general_ci"}
+
+
+def canonical_collation(match):
+    """One spelling per column collation: the default as CHARACTER SET alone, others as COLLATE alone."""
+    charset, collation = match[1], match[2]
+    if DEFAULT_COLLATIONS.get(charset) == collation:
+        return f"CHARACTER SET {charset}"
+    return f"COLLATE {collation}" if collation.startswith(charset + "_") else match[0]
+
+
 def normalize_ddl(ddl):
     # Only the table option after ENGINE; retain column AUTO_INCREMENT and comments/defaults.
     ddl = re.sub(r"(?m)^(\) ENGINE=\S+) AUTO_INCREMENT=\d+\b", r"\1", ddl)
+    ddl = re.sub(r"CHARACTER SET (\w+) COLLATE (\w+)", canonical_collation, ddl)
     return ddl.rstrip() + ";\n"
 
 

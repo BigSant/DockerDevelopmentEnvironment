@@ -235,11 +235,15 @@ def initialize_test(project, refresh=False):
                                  'SQL_DOMAIN':domain})
     if not destination.exists() or refresh:
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
-        if refresh:
-            test = Project(project.directory, 'test', project.root)
-            test.run(['stop'])
-        command = ['rsync', '-a', '--safe-links', '--delete', '--exclude=.git', '--exclude=node_modules',
-                   '--exclude=/var/cache', '--exclude=/var/logs', '--exclude=/cache', str(source)+'/', str(destination)+'/']
+        # Tool worktrees and setup's own test tools never come from the local checkout; projects add
+        # large non-code folders (feed caches, media) with TEST_COPY_EXCLUDE.
+        excludes = ['.git', 'node_modules', '/var/cache', '/var/logs', '/cache', '/.claude', '/.setup-tools',
+                    *str(project.settings.get('TEST_COPY_EXCLUDE') or '').split()]
+        for pattern in excludes:
+            if pattern.startswith('-') or '..' in pattern.split('/'):
+                raise ValueError(f'TEST_COPY_EXCLUDE entries are paths inside the shop: {pattern}')
+        command = ['rsync', '-a', '--safe-links', '--delete', *[f'--exclude={pattern}' for pattern in excludes],
+                   str(source)+'/', str(destination)+'/']
         from project_storage import require_space
         preview = subprocess.run(command[:1] + ['--dry-run', '--stats'] + command[1:],
                                  env={**os.environ, 'LC_ALL': 'C'}, capture_output=True, text=True, check=True)
@@ -255,7 +259,7 @@ def initialize_test(project, refresh=False):
         for relative in ('var/cache', 'var/logs', 'cache'):
             (destination/relative).mkdir(parents=True, exist_ok=True)
         replace_file(marker, b'Isolated test application managed by shared setup.\n', private=True)
-        print(f'Prepared isolated test application: {destination}')
+        print(f'{"Refreshed" if refresh else "Prepared"} isolated test application: {destination}')
     else:
         print('Test checkout preserved; use make test-init refresh=1 to refresh it from local source.')
     test = Project(project.directory, 'test', project.root)

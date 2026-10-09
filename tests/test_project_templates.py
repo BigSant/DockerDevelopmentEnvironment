@@ -168,7 +168,8 @@ class ProjectTemplatesTest(unittest.TestCase):
 
     def test_e2e_overrides_idle_entrypoint_and_preserves_argument_boundaries(self):
         _, directory = self.prepare()
-        with patch.object(Project, "run") as execute, patch.object(sys, "argv", [
+        with patch.object(Project, "run") as execute, patch("project_testing.test_project", lambda project: project), \
+                patch.object(sys, "argv", [
             "project.py", "--docker-directory", str(directory), "e2e", "--command",
             "npx playwright test --grep 'product page'",
         ]):
@@ -193,7 +194,8 @@ class ProjectTemplatesTest(unittest.TestCase):
              ["run", "--rm", "--no-deps", "php-doctrine-migrations", "migrate", "--dry-run"], "doctrine"),
         ]
         for action, arguments, expected, profile in cases:
-            with self.subTest(action=action), patch.object(Project, "run") as execute, patch.object(sys, "argv", [
+            with self.subTest(action=action), patch.object(Project, "run") as execute, \
+                    patch("project_testing.test_project", lambda project: project), patch.object(sys, "argv", [
                 "project.py", "--docker-directory", str(directory), action, *arguments,
             ]):
                 self.assertEqual(run_project(), 0)

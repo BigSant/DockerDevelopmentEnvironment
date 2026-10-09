@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: image-prune db-restrict-grants setup schema-resolve db-migrate db-dataset db-load
+.PHONY: image-prune db-restrict-grants setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -46,8 +46,11 @@ help:
 	@echo 'db-migrate: apply pending guarded migrations from the database/migrations directory'
 	@echo 'db-dataset [set=dev]: rebuild the anonymised base data set from the local LIVE copy'
 	@echo 'db-load [set=dev] [replace=1] [backup=1]: load schema + data set + fixtures, then the after-import sequence'
+	@echo 'test-prepare [set=dev]: refresh the isolated ENV=test copy, load the mock data set into its DB and start it'
+	@echo 'test-sync: refresh the ENV=test application copy from the working tree (PhpStorm runs it before tests)'
+	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
 
-setup init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
+setup init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:
@@ -77,6 +80,12 @@ db-import db-import-plan:
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))
+
+test-prepare:
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),)
+
+phpunit:
+	@$(RUN_PROJECT) $@ $(if $(module),--module $(call quote,$(module)),) $(if $(filter),--filter $(call quote,$(filter)),) $(if $(filter 0,$(sync)),--no-sync,)
 
 db-dataset db-load:
 	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter 1,$(replace)),--replace,) $(if $(filter 1,$(backup)),--backup,)

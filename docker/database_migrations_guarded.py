@@ -140,8 +140,10 @@ def untouched_draft(text):
 
 def committed_definitions(project, reference='HEAD'):
     from database_migrations import committed_schema
+    from database_schema import normalize_ddl
     try:
-        return committed_schema(schema_directory(project), reference)[2]
+        # Compare like with like: a snapshot committed before a normalisation rule changed is normalised too.
+        return {table: normalize_ddl(sql) for table, sql in committed_schema(schema_directory(project), reference)[2].items()}
     except ValueError:
         return None  # No commit or no committed snapshot yet: this commit is the baseline.
 
@@ -208,6 +210,7 @@ def commit_problems(project, staged):
     """What still keeps a commit with this staged snapshot from passing."""
     from database_migrations import definitions
     from database_registry import registry_file
+    from database_schema import normalize_ddl
     problems = []
     before = committed_definitions(project)
     migrations = staged_migrations(project)
@@ -216,7 +219,7 @@ def commit_problems(project, staged):
             problems.append(f'migration file name must look like 20260101120000-short-name.sql: {name}')
         if OPEN.search(text):
             problems.append(f'TODO left in migration {name}')
-    if before is not None and staged and definitions(staged) != before and not migrations:
+    if before is not None and staged and {t: normalize_ddl(sql) for t, sql in definitions(staged).items()} != before and not migrations:
         problems.append('the schema changed but no new migration is staged')
     registry = registry_file(project)
     root, _ = schema_repository(registry.parent)
