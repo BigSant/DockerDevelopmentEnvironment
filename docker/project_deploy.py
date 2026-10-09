@@ -244,7 +244,7 @@ def after_rsync(project):
         project.run(['exec', '-T', 'php-fpm', 'sh', '-e', '-c', hook.read_text()])
     except subprocess.CalledProcessError as error:
         raise ValueError(f'{AFTER_RSYNC_HOOK} failed (exit {error.returncode}); the deploy stopped: the new code is on '
-                         'the target, but migrations and the cache clear did not run and the deploy is not recorded. '
+                         'the target (recorded as failed), but migrations and the cache clear did not run. '
                          'Fix it and deploy again, or deploy rollback=1') from None
     return True
 
@@ -326,7 +326,15 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     for name in protected:
         print(f'Warning: module {name} exists only on the target and was left as is; '
               f'make module-pull ENV={project.environment} name={name} brings it into the code.')
-    after_rsync(project)
+    entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+             'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
+    try:
+        after_rsync(project)
+    except ValueError:
+        # The history tells which code the target holds: the next deploy removes files against it,
+        # and rollback=1 returns to the release before it.
+        record(project, {**entry, 'failed': 'after-rsync'})
+        raise
     if prestashop:
         upgrade_modules(project, release)
     from database_migrations_guarded import migrate, migrations_directory
@@ -336,8 +344,7 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
         from database_schema import schema_report
         schema_report(project)
     clear_cache(project)
-    record(project, {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-                     'rollback': rollback, 'backup': str(backup_file) if backup_file else None})
+    record(project, entry)
     print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
     return commit
 

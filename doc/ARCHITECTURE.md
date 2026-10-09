@@ -132,7 +132,8 @@ that is not on the build machine stops before writing the lock.
 `make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
 `config/deploy/build.sh` with `HOME`/npm/Composer caches in `/tmp`), backs up the target DB by registry,
 rsyncs without `--delete`, removes only files the previous release shipped and never a protected path,
-runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy unrecorded),
+runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy and records
+it as `failed`, so later removals and `rollback=1` follow the code the target really holds),
 upgrades changed modules, runs setup migrations when the project has them, reports and clears caches.
 Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
 `.htaccess`, `robots.txt`, `sitemap*.xml`) only for PrestaShop, plus tool folders and

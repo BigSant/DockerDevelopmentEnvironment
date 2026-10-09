@@ -153,7 +153,7 @@ Pirmiau visada sugeneruok šviežią modelį su `make config`. Testinei aplinkai
 | `Setup has uncommitted changes (…); commit or tag it before a release` | Release'as daromas tik iš commit'into setup. |
 | `ENV=prod runs on … from the release model; use make deploy-images` | Su `DEPLOY_CONTEXT` konteinerius paleidžia `make deploy-images`. |
 | `Cannot pull … for the release` / `Release images are not on this machine` | Išorinio image'o (pvz. `getmeili/meilisearch`) nepavyko parsisiųsti arba image'as nesukurtas; release'as nerašo lock'o, kurio `docker save` neperduotų. |
-| `config/deploy/after-rsync.sh failed (exit N); the deploy stopped` | Projekto hook'as nepavyko: naujas kodas taikinyje, bet migracijos ir cache valymas nevykdyti, deploy'us neįrašytas. Pataisyk ir deploy'ink iš naujo arba `rollback=1`. |
+| `config/deploy/after-rsync.sh failed (exit N); the deploy stopped` | Projekto hook'as nepavyko: naujas kodas taikinyje (istorijoje pažymėtas kaip nepavykęs), bet migracijos ir cache valymas nevykdyti. Pataisyk ir deploy'ink iš naujo arba `rollback=1`. |
 | `DEPLOY_PROTECTED_PATHS entry is not a plain path inside the code tree` | Saugomas kelias turi būti santykinis kodo medžio kelias be `..`, pvz. `var/data/`. |
 | Trūksta image'o, `pull never` klaida | `make build` (vietiniai image'ai) arba `make pull` (išoriniai). |
 | Portas užimtas | `LOCALHOST_PORT=0` ir `make bootstrap` parinks laisvą. |

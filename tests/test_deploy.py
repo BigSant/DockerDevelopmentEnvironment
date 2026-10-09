@@ -267,16 +267,29 @@ class GenericDeployTest(unittest.TestCase):
 
         def run(args, profiles=None):
             self.calls.append(args)
-            if args[:4] == ["exec", "-T", "php-fpm", "sh"]:
+            if args[:4] == ["exec", "-T", "php-fpm", "sh"] and args[-1] == "exit 3\n":
                 raise subprocess.CalledProcessError(3, args)
 
         self.project.run = run
+        hook = self.root / "app/config/deploy/after-rsync.sh"
+        hook.write_text("true\n")
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n", "src/Broken.php": "<?php\n"})
+        hook.write_text("exit 3\n")
+        self.calls.clear()
         with patch("database_migrations_guarded.migrations_directory", return_value=self.root / "schema/migrations"), \
-                self.assertRaisesRegex(ValueError, "after-rsync.sh failed .exit 3.*not recorded"):
-            self.deploy(ref="g1")
+                self.assertRaisesRegex(ValueError, "after-rsync.sh failed .exit 3.*recorded as failed.*rollback=1"):
+            self.deploy(ref="g2")
         self.assertNotIn(["migrate"], self.calls)
         self.assertNotIn(["exec", "-T", "php-fpm", "php", "bin/console", "cache:clear"], self.calls)
-        self.assertFalse((self.root / "app/.generated/release/stage/deployments.json").exists())
+        entries = json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())
+        self.assertEqual([(e["ref"], e.get("failed")) for e in entries], [("g1", None), ("g2", "after-rsync")],
+                         "the history says which code is on the target")
+        hook.write_text("true\n")
+        self.deploy(rollback=True, backup=False)
+        public = self.target / "app/public"
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "rollback returns to the last good release")
+        self.assertFalse((public / "src/Broken.php").exists(), "the failed release's files are removed like any other")
 
     def test_setup_migrations_run_when_the_project_has_them(self):
         self.generic(SCHEMA_DIRECTORY="schema")
