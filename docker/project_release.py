@@ -17,6 +17,8 @@ SETUP_ROOT = DOCKER_ROOT.parent
 LOCK_NAME = 'images.lock.json'
 # Setup files that images now contain; their local mounts are dropped from a release.
 BAKED_MOUNTS = {'/opt/setup/runtime'}
+# Host system paths that exist on every Linux target; kept read-only in a release (the metrics service).
+HOST_MOUNTS = {('/proc', '/host/proc')}
 
 
 def release_directory(project):
@@ -68,7 +70,9 @@ def release_model(project, deploy_path):
                 volumes.append(volume)
                 continue
             source = Path(volume['source']).resolve()
-            if source.is_relative_to(local_root):
+            if (volume['source'], volume.get('target')) in HOST_MOUNTS and volume.get('read_only'):
+                volumes.append(volume)
+            elif source.is_relative_to(local_root):
                 volume['source'] = deploy_path + '/' + source.relative_to(local_root).as_posix()
                 volumes.append(volume)
             elif source.is_relative_to(SETUP_ROOT.resolve()) and volume.get('target', '').rstrip('/') in BAKED_MOUNTS:

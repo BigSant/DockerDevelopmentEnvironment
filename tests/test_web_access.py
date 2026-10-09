@@ -39,7 +39,7 @@ class AccessRulesTest(unittest.TestCase):
         for environment in ('local', 'test'):
             result, read = self.rules(environment)
             self.assertEqual(result.returncode, 0, result.stderr)
-            for name in ('site', 'pma', 'mailpit', 'cron', 'dbmonitor'):
+            for name in ('site', 'pma', 'mailpit', 'cron', 'dbmonitor', 'metrics'):
                 self.assertEqual(read(name), '', name)
 
     def test_empty_lists_deny_tools_but_keep_the_site_open_on_stage_and_prod(self):
@@ -47,7 +47,7 @@ class AccessRulesTest(unittest.TestCase):
             result, read = self.rules(environment)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(read('site'), '')
-            for name in ('pma', 'mailpit', 'cron', 'dbmonitor'):
+            for name in ('pma', 'mailpit', 'cron', 'dbmonitor', 'metrics'):
                 self.assertEqual(read(name), 'deny all;\n', name)
 
     def test_common_list_applies_everywhere_and_service_list_replaces_it(self):
