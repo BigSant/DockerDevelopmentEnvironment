@@ -18,6 +18,8 @@ import shutil
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 # INSERT/REPLACE statements of mysqldump and phpMyAdmin dumps; the table name is the first quoted name.
+CREATE = re.compile(rb"^CREATE\s+(?:TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`((?:[^`]|``)+)`", re.I)
+COLUMN = re.compile(rb"^\s*[(,]?\s*`((?:[^`]|``)+)`\s+[a-zA-Z]")
 INSERT = re.compile(rb"^(?:INSERT|REPLACE)(?:\s+(?:IGNORE|LOW_PRIORITY|DELAYED|HIGH_PRIORITY))*\s+(?:INTO\s+)?`((?:[^`]|``)+)`", re.I)
 
 
@@ -52,6 +54,43 @@ def skip_rule(project, full=False):
     if not entries:
         return None
     return lambda table: (classify(entries, table) or ("", "", "", "import"))[3] in ("skip", "-")
+
+
+def dump_tables(path):
+    """Tables a dump creates, with their column names (read from the CREATE TABLE statements)."""
+    tables, current = {}, None
+    with (gzip.open(path, "rb") if path.name.lower().endswith(".gz") else path.open("rb")) as source:
+        for line in source:
+            if line[:1] in (b"C", b"c") and (match := CREATE.match(line)):
+                current = match[1].replace(b"``", b"`").decode("utf-8", "replace")
+                tables[current] = set(COLUMN.findall(line[match.end():]))
+                if line.rstrip().endswith(b";"):
+                    current = None
+            elif current is not None:
+                if column := COLUMN.match(line):
+                    tables[current].add(column[1])
+                if line.rstrip().endswith(b";"):
+                    current = None
+    return {table: {column.decode("utf-8", "replace") for column in columns} for table, columns in tables.items()}
+
+
+def check_dump_tables(project, dump, ask=input, interactive=None):
+    """An unclassified table stops the import: classify it in a terminal, or fail with suggestions."""
+    if not project.settings.get("SCHEMA_DIRECTORY"):
+        return
+    from database_registry import load, resolve, unknown_tables
+    entries = load(project)
+    if not entries:
+        return
+    tables = dump_tables(Path(dump))
+    unknown = unknown_tables(entries, tables)
+    if not unknown:
+        return
+    print(f"The dump has tables the registry does not classify ({len(unknown)}); the import stops before loading anything.")
+    resolve(project, ask, interactive, tables=unknown, columns={table: tables[table] for table in unknown})
+    left = unknown_tables(load(project), unknown)
+    if left:
+        raise ValueError(f"{len(left)} tables are not classified: {', '.join(left[:10])}")
 
 
 def filter_dump(source, sink, skip):

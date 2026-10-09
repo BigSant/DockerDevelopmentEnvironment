@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-from database_import import import_database, plan_import
+from database_import import check_dump_tables, import_database, plan_import
 from database_fixtures import load_fixtures, plan_fixtures
 from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
@@ -430,6 +430,8 @@ def main():
              "schema-hook-install": install_schema_hook}[args.action](project)
         elif args.action in ("db-import", "db-import-plan"):
             plan = plan_import(project, args.dump)
+            # Every dump table must be classified; the plan only reports, the import may ask.
+            check_dump_tables(project, plan[0], interactive=False if args.action == "db-import-plan" else None)
             if args.db_fixtures is not None:
                 plan += plan_fixtures(project, args.db_fixtures)
             if args.action == "db-import-plan":

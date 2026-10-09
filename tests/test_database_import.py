@@ -16,7 +16,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 import database_import
-from database_import import MYSQL_IMPORT, filter_dump, import_database, plan_import, render_hook, skip_rule, stream_filtered
+from database_import import (MYSQL_IMPORT, check_dump_tables, dump_tables, filter_dump, import_database, plan_import,
+                             render_hook, skip_rule, stream_filtered)
 
 
 class ImportFixture(unittest.TestCase):
@@ -210,6 +211,36 @@ class ImportSequenceTest(ImportFixture):
         self.assertEqual([rule(t) for t in ("ps_feed_cache", "ps_old", "ps_orders", "ps_connections", "unknown")],
                          [True, True, False, True, False])
         self.assertIsNone(skip_rule(self.project, full=True))
+
+    def test_a_dump_table_the_registry_does_not_know_stops_the_import(self):
+        self.project.settings.update(SCHEMA_DIRECTORY="database/schema", PROFILE="prestashop")
+        registry = self.root / "database/table-registry.txt"
+        registry.write_text("ps_feed_cache cache empty skip\n")
+        self.dump.write_bytes(b"DROP TABLE IF EXISTS `ps_orders`;\nCREATE TABLE `ps_orders` (\n  `id_order` int,\n"
+                              b"  PRIMARY KEY (`id_order`)\n);\nCREATE TABLE IF NOT EXISTS `zz_old_feed` (\n  `id` int\n);\n"
+                              b"CREATE TABLE `ps_supplier_log` (\n  `id_order` int\n);\nINSERT INTO `ps_orders` VALUES (1);\n"
+                              b"CREATE TABLE `setup_migrations` (\n  `name` varchar(255)\n);\n")
+        self.assertEqual(dump_tables(self.dump), {"ps_orders": {"id_order"}, "zz_old_feed": {"id"},
+                                                  "ps_supplier_log": {"id_order"}, "setup_migrations": {"name"}})
+        with contextlib.redirect_stdout(io.StringIO()) as output, \
+                self.assertRaisesRegex(ValueError, "2 tables are not classified"):
+            check_dump_tables(self.project, self.dump, interactive=False)
+        self.assertIn("zz_old_feed", output.getvalue())
+        self.assertIn("suggested: review empty skip", output.getvalue())
+        self.assertEqual(registry.read_text(), "ps_feed_cache cache empty skip\n", "nothing is written without a person")
+        answers = iter(["i", "e", "feeds empty skip"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            check_dump_tables(self.project, self.dump, ask=lambda prompt: next(answers), interactive=True)
+        self.assertIn("ps_supplier_log", registry.read_text())
+        check_dump_tables(self.project, self.dump, interactive=False)
+        answers = iter(["s"])
+        self.dump.write_bytes(b"CREATE TABLE `zz_other` (`id` int);\n")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "1 tables are not classified"):
+            check_dump_tables(self.project, self.dump, ask=lambda prompt: next(answers), interactive=True)
+
+    def test_without_a_registry_every_dump_table_is_accepted(self):
+        self.dump.write_bytes(b"CREATE TABLE `anything` (`id` int);\n")
+        check_dump_tables(self.project, self.dump, interactive=False)
 
     def test_filtered_stream_reaches_the_client_and_reports_its_failure(self):
         target = self.root / "received.sql"

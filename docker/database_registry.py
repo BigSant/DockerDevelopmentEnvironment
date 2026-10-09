@@ -12,6 +12,8 @@ import sys
 BASE_RULES = ('full', 'slice', 'faker', 'empty', 'drop')
 LIVE_RULES = ('import', 'skip', '-')
 DOCKER_ROOT = Path(__file__).resolve().parent
+# Setup's own bookkeeping (applied migrations) travels with the data and needs no classification.
+SETUP_TABLES = ('setup_migrations',)
 HEADER = ('# Project table registry: table  group  base-rule(full|slice|faker|empty|drop)  live-import(import|skip)\n'
           '# Read before the profile defaults; every table must be classified (make schema-resolve).\n')
 
@@ -57,7 +59,7 @@ def classify(entries, table):
 
 
 def unknown_tables(entries, tables):
-    return [table for table in tables if classify(entries, table) is None]
+    return [table for table in tables if table not in SETUP_TABLES and classify(entries, table) is None]
 
 
 def dropped(entries, tables):
@@ -105,16 +107,21 @@ def table_columns(project, tables):
     return columns
 
 
-def resolve(project, ask=input, interactive=None):
-    """Classify every table the registry does not know: include it, or mark it for a guarded DROP."""
-    from database_schema import database_tables
+def resolve(project, ask=input, interactive=None, tables=None, columns=None):
+    """Classify every table the registry does not know: include it, or mark it for a guarded DROP.
+
+    Without `tables` the database is read; db-import passes the dump's tables and their columns.
+    """
     entries = load(project)
-    tables = unknown_tables(entries, database_tables(project))
+    if tables is None:
+        from database_schema import database_tables
+        tables = database_tables(project)
+    tables = unknown_tables(entries, tables)
     if not tables:
         print('Every database table is classified.')
         return []
     interactive = sys.stdin.isatty() if interactive is None else interactive
-    columns = table_columns(project, tables)
+    columns = table_columns(project, tables) if columns is None else columns
     if not interactive:
         print('Unclassified tables (run make schema-resolve in a terminal, or add them to the registry):')
         for table in tables:
