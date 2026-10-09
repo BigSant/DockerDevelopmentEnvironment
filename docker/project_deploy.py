@@ -290,8 +290,8 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     _, deploy_path = release_settings(project)
     entries = history(project)
     if rollback:
-        # The release before the current one whose deploy completed; a failed one is never a rollback target.
-        completed = [entry for entry in entries[:-1] if not entry.get('failed')]
+        # The latest other release whose deploy completed; a failed one is never a rollback target.
+        completed = [entry for entry in entries[:-1] if not entry.get('failed') and entry['commit'] != entries[-1]['commit']]
         if not completed:
             raise ValueError('No previous deployment to roll back to')
         previous = completed[-1]

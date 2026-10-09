@@ -293,6 +293,10 @@ class GenericDeployTest(unittest.TestCase):
         self.deploy(rollback=True, backup=False)
         self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "rollback skips the failed release")
         self.assertIn("rolling back to g1", self.output.getvalue())
+        self.deploy(ref="g3")
+        self.deploy(ref="g3")
+        self.deploy(rollback=True, backup=False)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "a redeploy of the same commit is not a rollback target")
 
     def test_setup_migrations_run_when_the_project_has_them(self):
         self.generic(SCHEMA_DIRECTORY="schema")
