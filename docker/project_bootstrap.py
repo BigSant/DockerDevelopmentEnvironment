@@ -249,7 +249,7 @@ def initialize_test(project, refresh=False):
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
         # Tool worktrees and setup's own test tools never come from the local checkout; projects add
         # large non-code folders (feed caches, media) with TEST_COPY_EXCLUDE.
-        excludes = ['.git', 'node_modules', '/var/cache', '/var/logs', '/cache', '/.claude', '/.setup-tools',
+        excludes = ['.git', 'node_modules', '/var/cache', '/var/logs', '/cache', '/.claude', '/.setup-tools', '/.setup-tests',
                     *str(project.settings.get('TEST_COPY_EXCLUDE') or '').split()]
         for pattern in excludes:
             if pattern.startswith('-') or '..' in pattern.split('/'):
@@ -270,6 +270,8 @@ def initialize_test(project, refresh=False):
             raise
         for relative in ('var/cache', 'var/logs', 'cache'):
             (destination/relative).mkdir(parents=True, exist_ok=True)
+        from project_testing import copy_project_suite
+        copy_project_suite(project, destination)
         replace_file(marker, b'Isolated test application managed by shared setup.\n', private=True)
         print(f'{"Refreshed" if refresh else "Prepared"} isolated test application: {destination}')
     else:

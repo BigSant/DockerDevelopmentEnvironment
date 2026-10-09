@@ -45,6 +45,8 @@ make phpunit module=prgenericsync filter=ImportTest
 
 `make phpunit` pats randa rinkinius: `phpunit.xml` arba `phpunit.xml.dist` kiekviename modulyje (`modules/<modulis>/` arba `modules/<modulis>/tests/`) ir parduotuvės šaknyje (vardas `shop`). `module=` paleidžia vieną rinkinį, `filter=` perduodamas PHPUnit `--filter`.
 
+**Projekto rinkinys** laikomas aplinkos repozitorijoje, už document root ribų: `tests/phpunit.xml(.dist)` ir testai šalia (`tests/playwright/` lieka e2e). Testinėje kopijoje jis atsiduria `.setup-tests/project/`, todėl parduotuvės failus pasieki per `../../` (pvz. `bootstrap="../../config/config.inc.php"`). Paleidimas: `make phpunit module=project`.
+
 Prieš paleidžiant kodo kopija atnaujinama iš tavo darbinio katalogo, todėl testai mato naujausius pakeitimus. `sync=0` šį žingsnį praleidžia.
 
 PHPUnit versija imama iš rinkinio ar modulio `.tools/phpunit.phar`, modulio `vendor/bin/phpunit` arba parduotuvės `vendor/bin/phpunit`. Jei niekur nėra, setup atsisiunčia PHPUnit PHAR, tinkantį `PHP_VERSION` (pvz. PHP 8.1+ – 10.5).

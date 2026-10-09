@@ -7,6 +7,7 @@ local. The application copy is refreshed incrementally before each run.
 
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import urllib.request
 
@@ -49,8 +50,12 @@ def prepare_tests(project, dataset='dev'):
     return test
 
 
+# The environment repository's tests/ (outside the document root) arrive in the ENV=test copy here.
+PROJECT_SUITE = '.setup-tests/project'
+
+
 def find_suites(web_directory):
-    """PHPUnit configurations of modules (module or module/tests) and of the shop itself."""
+    """PHPUnit configurations of modules (module or module/tests), of the shop and of the project."""
     suites = {}
     candidates = [web_directory, *sorted(path for path in (web_directory / 'modules').glob('*') if path.is_dir())]
     for base in candidates:
@@ -60,7 +65,23 @@ def find_suites(web_directory):
                 key = 'shop' if base == web_directory else base.name
                 suites.setdefault(key, folder / names[0])  # phpunit.xml overrides the .dist default
                 break
+    names = [name for name in SUITE_NAMES if (web_directory / PROJECT_SUITE / name).is_file()]
+    if names:
+        suites['project'] = web_directory / PROJECT_SUITE / names[0]
     return suites
+
+
+def copy_project_suite(project, destination):
+    """Bring the environment repository's PHPUnit suite (tests/, without e2e specs) into the test copy."""
+    source = project.directory / 'tests'
+    target = destination / PROJECT_SUITE
+    if not any((source / name).is_file() for name in SUITE_NAMES):
+        if target.exists():
+            shutil.rmtree(target)
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['rsync', '-a', '--safe-links', '--delete', '--exclude=/playwright', f'{source}/', f'{target}/'],
+                   check=True)
 
 
 def phpunit_binary(project, config, web_directory):

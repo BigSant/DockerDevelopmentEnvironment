@@ -40,6 +40,21 @@ class TestingTest(unittest.TestCase):
         self.assertEqual(suites["beta"].name, "phpunit.xml", "a local phpunit.xml overrides the .dist")
         self.assertEqual(suites["alpha"], self.web / "modules/alpha/phpunit.xml.dist")
 
+    def test_the_environment_repository_suite_reaches_the_test_copy(self):
+        directory = self.root / "docker"
+        (directory / "tests/playwright").mkdir(parents=True)
+        (directory / "tests/phpunit.xml.dist").write_text("<phpunit/>\n")
+        (directory / "tests/Unit/ShopTest.php").parent.mkdir()
+        (directory / "tests/Unit/ShopTest.php").write_text("<?php\n")
+        (directory / "tests/playwright/home.spec.cjs").write_text("// e2e\n")
+        project_testing.copy_project_suite(SimpleNamespace(directory=directory), self.web)
+        self.assertEqual(find_suites(self.web)["project"], self.web / ".setup-tests/project/phpunit.xml.dist")
+        self.assertTrue((self.web / ".setup-tests/project/Unit/ShopTest.php").is_file())
+        self.assertFalse((self.web / ".setup-tests/project/playwright").exists(), "e2e specs stay with Playwright")
+        (directory / "tests/phpunit.xml.dist").unlink()
+        project_testing.copy_project_suite(SimpleNamespace(directory=directory), self.web)
+        self.assertNotIn("project", find_suites(self.web))
+
     def test_phpunit_comes_from_the_suite_module_shop_then_setup(self):
         project = SimpleNamespace(settings={"PHP_VERSION": "8.4"})
         config = self.web / "modules/beta/tests/phpunit.xml"
