@@ -187,6 +187,16 @@ def resolve_policy(settings, environment):
                                            or not 0 < float(settings['CONTAINER_CPUS']) <= 1024):
         raise ValueError('CONTAINER_CPUS must be greater than 0 and at most 1024')
     values['SETUP_DIRECT_CLIENTS'] = '1' if publish_address(values['PUBLISH_ADDRESS']) == 'direct' else '0'
+    # Clients reach directly published ports themselves, so a trusted range that covers them would let
+    # them forge X-Forwarded-For past every allowlist. Only an explicit override keeps such a list.
+    direct_trust = str(settings.get('TRUSTED_PROXIES_DIRECT') or 'off')
+    if direct_trust not in ('on', 'off'):
+        raise ValueError('TRUSTED_PROXIES_DIRECT must be on or off')
+    if values['SETUP_DIRECT_CLIENTS'] == '1' and str(settings.get('TRUSTED_PROXIES') or '').strip() and direct_trust == 'off':
+        raise ValueError(f"TRUSTED_PROXIES is set but PUBLISH_ADDRESS={values['PUBLISH_ADDRESS']} publishes the ports to clients "
+                         'directly: any client inside a trusted range could forge X-Forwarded-For and pass the IP allowlists. '
+                         'Remove TRUSTED_PROXIES, or set TRUSTED_PROXIES_DIRECT=on if the list holds only real proxies '
+                         'that clients cannot use')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*', values['TZ']):
         raise ValueError('TZ must be a zone name such as Europe/Vilnius or UTC')
     if development:

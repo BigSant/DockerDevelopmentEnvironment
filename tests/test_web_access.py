@@ -177,6 +177,27 @@ class RunnerAccessTest(unittest.TestCase):
         self.assertEqual(sorted((p['host_ip'], p['target']) for p in proxy['ports']), [('10.8.0.14', 80), ('10.8.0.14', 443)])
         self.assertEqual(proxy['environment']['SETUP_DIRECT_CLIENTS'], '1')
 
+    def test_trusted_proxies_on_directly_published_ports_need_an_explicit_override(self):
+        # Clients reach these ports themselves: a trusted range that covers them lets them forge X-Forwarded-For.
+        with (self.app / 'env/stage.env').open('a') as env:
+            env.write('TRUSTED_PROXIES=10.8.0.0/24\n')
+        with self.assertRaisesRegex(ValueError, 'TRUSTED_PROXIES.*PUBLISH_ADDRESS=10.8.0.14.*TRUSTED_PROXIES_DIRECT=on'):
+            self.ports('10.8.0.14')
+        with (self.app / 'env/stage.env').open('a') as env:
+            env.write('TRUSTED_PROXIES_DIRECT=yes\n')
+        with self.assertRaisesRegex(ValueError, 'TRUSTED_PROXIES_DIRECT must be on or off'):
+            Project(self.app, 'stage')
+        with (self.app / 'env/stage.env').open('a') as env:
+            env.write('TRUSTED_PROXIES_DIRECT=on\n')
+        _, proxy = self.ports('10.8.0.14')
+        self.assertEqual((proxy['environment']['TRUSTED_PROXIES'], proxy['environment']['SETUP_DIRECT_CLIENTS']), ('10.8.0.0/24', '1'))
+
+    def test_trusted_proxies_behind_a_loopback_host_proxy_need_no_override(self):
+        with (self.app / 'env/local.env').open('a') as env:
+            env.write('TRUSTED_PROXIES=10.20.0.5\n')
+        _, proxy = self.ports('127.0.0.1', 'local')
+        self.assertEqual(proxy['environment']['TRUSTED_PROXIES'], '10.20.0.5')
+
     def test_loopback_addresses_keep_the_host_proxy_mode(self):
         for address in ('127.0.0.1', '::1'):
             with self.subTest(address=address):

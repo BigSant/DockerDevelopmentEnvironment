@@ -120,7 +120,7 @@ fingerprint is outdated; it removes only with `apply=1`.
   its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
   (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy
   arrives through (plus loopback), on any other address nobody (`SETUP_DIRECT_CLIENTS=1`), or
-  `TRUSTED_PROXIES`; upstreams get only the resolved `$remote_addr`, never the client-sent chain; Apache hides dot-paths
+  `TRUSTED_PROXIES` (with direct clients only plus `TRUSTED_PROXIES_DIRECT=on`, else the runner refuses); upstreams get only the resolved `$remote_addr`, never the client-sent chain; Apache hides dot-paths
   (except `.well-known`), `*.sql`, backups and composer files; the application DB user has rights on
   its own database (and `DATABASE_EXTRA_SCHEMAS`) only, root has its own password.
 

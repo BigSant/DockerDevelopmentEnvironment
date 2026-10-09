@@ -67,7 +67,8 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
 | `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
 | `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
-| `TRUSTED_PROXIES` | Tuščias | Iš kurių adresų nginx-proxy priima `X-Forwarded-For` ir `X-Forwarded-Proto`. Tuščias: su `PUBLISH_ADDRESS` ant loopback – tik `127.0.0.1`, `::1` ir projekto Docker tinklo gateway (taip ateina kompiuterio Nginx / DirectAdmin); su kitu adresu – niekas. Nurodytas sąrašas galioja abiem atvejais. |
+| `TRUSTED_PROXIES` | Tuščias | Iš kurių adresų nginx-proxy priima `X-Forwarded-For` ir `X-Forwarded-Proto`. Tuščias: su `PUBLISH_ADDRESS` ant loopback – tik `127.0.0.1`, `::1` ir projekto Docker tinklo gateway (taip ateina kompiuterio Nginx / DirectAdmin); su kitu adresu – niekas. Nurodytas sąrašas su loopback galioja iškart, su kitu adresu – tik kartu su `TRUSTED_PROXIES_DIRECT=on`, kitaip klaida. |
+| `TRUSTED_PROXIES_DIRECT` | `off` | `on` – leisti `TRUSTED_PROXIES`, kai `PUBLISH_ADDRESS` nėra loopback ir klientai jungiasi tiesiai. Nurodyk tik kai sąraše vien tikri proxy, kurių klientai negali naudoti ([Tikras kliento IP](05-servisai.md#ip-apribojimai)). |
 
 IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-apribojimai).
 
