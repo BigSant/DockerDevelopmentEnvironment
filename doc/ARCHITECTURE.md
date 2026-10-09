@@ -95,7 +95,12 @@ fingerprint is outdated; it removes only with `apply=1`.
   `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
-  The database joins that network for the database group, which reads statistics only with the DB monitor
+  HTTP figures come from the named volume `<project>-<env>-http-logs`, mounted read-only: nginx-proxy writes a
+  second copy of the site's access log there (client IPs after the real-IP handling; `/metrics` excluded) and a
+  TCP table snapshot, Apache its site error log through `rotatelogs`, and php-fpm sends PHP messages to Apache
+  (`fastcgi.logging=1`). `docker logs` keep everything; each log holds two files of `METRICS_HTTP_LOG_MB`.
+  Logs are read backwards in chunks only until the window has passed, never loaded whole.
+  The database joins the metrics network for the database group, which reads statistics only with the DB monitor
   account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
 - **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
   its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
@@ -142,7 +147,8 @@ fingerprint is outdated; it removes only with `apply=1`.
 
 `make release ENV=stage|prod` builds the images here from committed setup and writes
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
-installed). A release keeps no host path except the read-only `/proc` of the metrics service.
+installed). A release keeps no host path except the read-only `/proc` of the metrics service (named
+volumes, such as its HTTP log volume, pass through unchanged).
 `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of

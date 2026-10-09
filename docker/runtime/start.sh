@@ -14,4 +14,9 @@ for script in /opt/setup/project/startup/*.sh; do
     [ ! -L "$script" ] || { echo 'Startup hooks must not be symlinks.' >&2; exit 1; }
     sh "$script"
 done
+# SERVICES=metrics: PHP's messages also go to the webserver over FastCGI, so its error log in the HTTP log
+# volume counts them (http_error_type); php-fpm still logs them to docker logs.
+if [ "${SETUP_ENABLE_METRICS:-0}" = 1 ] && [ "${1:-}" = php-fpm ]; then
+    set -- "$@" -d fastcgi.logging=1
+fi
 exec docker-php-entrypoint "$@"

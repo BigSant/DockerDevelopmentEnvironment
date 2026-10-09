@@ -52,6 +52,17 @@ if [[ -n "$env" ]]; then
   echo "[init] ENV_PROFILE set to: ${env}"
 fi
 
+# ── Error log for the metrics service (SERVICES=metrics) ─────────────────────
+# The site's error log goes to the shared HTTP log volume through rotatelogs: two files of
+# METRICS_HTTP_LOG_MB at most, instead of an unbounded file inside the container.
+if [[ "${SETUP_ENABLE_METRICS:-0}" == 1 ]]; then
+  log_mb="${METRICS_HTTP_LOG_MB:-32}"
+  [[ "$log_mb" =~ ^[0-9]+$ ]] || { echo "[init] ERROR: METRICS_HTTP_LOG_MB must be a number" >&2; exit 1; }
+  mkdir -p /var/log/setup-http
+  sed -i -E "s#^([[:space:]]*)ErrorLog[[:space:]].*#\1ErrorLog \"|/usr/local/apache2/bin/rotatelogs -n 2 /var/log/setup-http/error.log ${log_mb}M\"#" "$sites_conf"
+  echo "[init] Error log: /var/log/setup-http/error.log (metrics)"
+fi
+
 # ── Start Apache ──────────────────────────────────────────────────────────────
 echo "[init] Starting Apache httpd..."
 exec httpd-foreground

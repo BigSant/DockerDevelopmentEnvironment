@@ -145,11 +145,12 @@ class DatabaseGroupTest(EndpointMixin, unittest.TestCase):
         self.assertIn("sql_buffer_pool_size", metrics)
 
     def test_active_connections_count_established_tcp_like_netstat(self):
+        # write_connections (test_metrics): every ESTABLISHED (01) line counts, loopback and port 22 included.
         _, metrics = self.scrape()
-        self.assertEqual(metrics["active_connections"][""], 3)
+        self.assertEqual(metrics["active_connections"][""], 13)
         (self.proc / "1/net/tcp6").unlink()
         _, metrics = self.scrape()
-        self.assertEqual(metrics["active_connections"][""], 2)
+        self.assertEqual(metrics["active_connections"][""], 10)
 
     def test_the_viewers_other_database_names_are_served(self):
         _, metrics = self.scrape()

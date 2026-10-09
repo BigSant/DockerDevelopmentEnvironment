@@ -1,5 +1,7 @@
-"""Target /metrics: token and allowlist, system and website groups, Grafana name compatibility; B: real host scrape."""
+"""Target /metrics: token and allowlist, system, website, http and security groups, Grafana name compatibility;
+B: real host scrape and real nginx-proxy log lines."""
 
+import collections
 import contextlib
 import http.server
 import io
@@ -30,9 +32,12 @@ from project_release import release_model
 ENDPOINT = ROOT / "docker/runtime/metrics/index.php"
 PROC = Path(__file__).resolve().parent / "fixtures/metrics-proc"
 DATABASE_FIXTURE = Path(__file__).resolve().parent / "fixtures/metrics-database.json"
+HTTP_LOGS = Path(__file__).resolve().parent / "fixtures/metrics-http"
+# The fixture logs' clock: 2026-10-09 12:34:30 in Europe/Vilnius, so the 5-minute window is [12:29:00, 12:34:00).
+HTTP_NOW = "1791538470"
 TOKEN = "m" * 32
-# Groups the target serves so far; 07 adds http, 08 database, 09 host (and then every group is served).
-IMPLEMENTED = ("system", "website", "database")
+# Groups the target serves so far; 09 adds host (and then every group is served).
+IMPLEMENTED = ("system", "website", "http", "security", "database")
 REMOTE = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n'
           'PROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n'
           'DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n')
@@ -59,6 +64,41 @@ def fetch(base, path="/metrics", token=None):
             return response.status, response.headers.get("Content-Type", ""), response.read().decode()
     except urllib.error.HTTPError as error:
         return error.code, error.headers.get("Content-Type", ""), error.read().decode()
+
+
+def tcp_table(rows, ipv6=False):
+    """A /proc/net/tcp(6) table: rows of (local address, local port, remote address, remote port, state hex)."""
+    def address(text):
+        packed = socket.inet_pton(socket.AF_INET6 if ipv6 else socket.AF_INET, text)
+        # The kernel prints each 32-bit word in host (little-endian) byte order.
+        return b"".join(packed[i:i + 4][::-1] for i in range(0, len(packed), 4)).hex().upper()
+    lines = ["  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"]
+    for number, (local, lport, remote, rport, state) in enumerate(rows):
+        lines.append(f"{number:4}: {address(local)}:{lport:04X} {address(remote)}:{rport:04X} {state} "
+                     "00000000:00000000 00:00000000 00000000   101        0 1234 1 0000000000000000 20 4 30 10 -1")
+    return "\n".join(lines) + "\n"
+
+
+def write_connections(proc, proxy):
+    """Host and nginx-proxy TCP tables: listeners, loopback, the proxy's gateway and other ports are not counted."""
+    host = [("0.0.0.0", 80, "0.0.0.0", 0, "0A")] + [("10.0.0.2", 443, "203.0.113.50", 40000 + i, "01") for i in range(3)]
+    host += [("10.0.0.2", 80, "203.0.113.51", 41000, "06"), ("127.0.0.1", 80, "127.0.0.1", 42000, "01"),
+             ("127.0.0.1", 80, "127.0.0.1", 42001, "01"), ("10.0.0.2", 45000, "93.184.216.34", 80, "01")]
+    host += [("10.0.0.2", 22, "203.0.113.52", 43000 + i, "01") for i in range(4)]
+    host6 = [("::", 443, "::", 0, "0A"), ("::ffff:10.0.0.2", 443, "::ffff:203.0.113.50", 44000, "01"),
+             ("2001:db8::1", 80, "2001:db8::7", 44001, "01"), ("2001:db8::1", 80, "2001:db8::7", 44002, "08"),
+             ("::1", 80, "::1", 44003, "01")]
+    (proc / "1/net/tcp").write_text(tcp_table(host))
+    (proc / "1/net/tcp6").write_text(tcp_table(host6, ipv6=True))
+    published = [("172.20.0.5", 80, "198.51.100.60", 45000 + i, "01") for i in range(5)]
+    published += [("172.20.0.5", 80, "172.20.0.1", 46000 + i, "01") for i in range(6)]
+    published += [("172.20.0.5", 443, "198.51.100.61", 47000, "01"), ("172.20.0.5", 443, "198.51.100.62", 47001, "01")]
+    proxy.mkdir(parents=True, exist_ok=True)
+    (proxy / "tcp").write_text(tcp_table(published))
+    (proxy / "tcp6").write_text(tcp_table([], ipv6=True))
+    (proxy / "route").write_text("Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                                 "eth0\t00000000\t010014AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+                                 "eth0\t000014AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n")
 
 
 def free_port():
@@ -101,14 +141,19 @@ class EndpointMixin:
         shutil.copytree(PROC, self.proc)
         (self.work / "disk").mkdir()
         (self.work / "state").mkdir()
+        # The shared HTTP log volume: nginx-proxy's access log, the webserver's error log, the proxy's TCP snapshot.
+        self.http = self.work / "http"
+        shutil.copytree(HTTP_LOGS, self.http, copy_function=shutil.copy)
+        write_connections(self.proc, self.http / "proxy-net")
 
-    def start(self, **env):
+    def start(self, php=(), **env):
         port = free_port()
         settings = {"METRICS_TOKEN": TOKEN, "METRICS_PROC_ROOT": str(self.proc), "METRICS_DISK_PATH": str(self.work / "disk"),
                     "METRICS_STATE_DIR": str(self.work / "state"), "METRICS_SAMPLE_SECONDS": "0.1",
-                    "METRICS_DISK_WRITE_MB": "1", "METRICS_URLS": "", "METRICS_SUPPORT_LEVEL": "2", **env}
+                    "METRICS_DISK_WRITE_MB": "1", "METRICS_URLS": "", "METRICS_SUPPORT_LEVEL": "2",
+                    "METRICS_HTTP_LOG_DIR": str(self.http), "METRICS_HTTP_NOW": HTTP_NOW, "TZ": "Europe/Vilnius", **env}
         settings.setdefault("METRICS_DATABASE_FIXTURE", str(DATABASE_FIXTURE))
-        server = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env={**os.environ, **settings},
+        server = subprocess.Popen(["php", *php, "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env={**os.environ, **settings},
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
         self.addCleanup(server.terminate)
@@ -223,6 +268,168 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         self.assertNotIn("website_response_status{", body)
 
 
+MOZILLA = "Mozilla/5.0 (X11; Linux x86_64)"
+ERROR_TYPES = ("Access to context", "Abort request processing", "PHP Warning", "PHP Fatal error", "Segmentation fault",
+               "Connection reset")
+
+
+def labelled(metrics, name, label):
+    """{label value: sample value} of one family with a single label."""
+    pattern = re.compile(r'^\{' + label + r'="((?:[^"\\]|\\.)*)"\}$')
+    return {pattern.match(key)[1]: value for key, value in metrics.get(name, {}).items()}
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class HttpGroupTest(EndpointMixin, unittest.TestCase):
+    """The old script's access and error log figures over the last full minutes, read from the end of the logs."""
+
+    def setUp(self):
+        self.prepare()
+
+    def scrape(self, **env):
+        status, _, body = fetch(self.start(**env), token=TOKEN)
+        self.assertEqual(status, 200, body)
+        return parse(body)
+
+    def test_access_log_counts_over_the_last_full_minutes(self):
+        # In the window: 12:29:00 (start), a late-written 12:29:01 behind a 12:28:59 line, the rotated access.log.1,
+        # a +0000 line and 12:33:59; outside: 12:28:59, 12:34:00 (current minute) and the unfinished last line.
+        metrics = self.scrape()
+        self.assertEqual(labelled(metrics, "http_response_codes", "code"), {"200": 5, "304": 1, "400": 1, "404": 1, "500": 1})
+        self.assertEqual(metrics["http_bytes_transferred_total"], {"": 3968})
+        self.assertEqual(labelled(metrics, "http_request_ips", "ip"),
+                         {"198.51.100.1": 4, "198.51.100.2": 2, "198.51.100.3": 1, "198.51.100.4": 1, "2001:db8::5": 1})
+        self.assertEqual(labelled(metrics, "http_request_user_agents", "user_agent"),
+                         {MOZILLA: 5, "curl/8.5.0": 2, "-": 1, "Bot \\\\x22quoted\\\\x22 / 1.0": 1})
+        # Requests per minute: 3, 2, 2, 1, 1 in 12:29 … 12:33.
+        self.assertEqual((metrics["http_requests_per_minute"][""], metrics["http_requests_per_minute_max"][""]), (1.8, 3))
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+
+    def test_error_types_count_each_entry_once_within_the_window(self):
+        # Continuation lines belong to the entry above them: the one before the window is not counted, the
+        # in-window fatal error with its stack trace counts once, two warnings in one entry count once.
+        metrics = self.scrape()
+        self.assertEqual(labelled(metrics, "http_error_type", "type"),
+                         {"Access to context": 0, "Abort request processing": 0, "PHP Warning": 2, "PHP Fatal error": 1,
+                          "Segmentation fault": 1, "Connection reset": 1})
+
+    def test_window_setting_and_missing_logs(self):
+        metrics = self.scrape(METRICS_HTTP_WINDOW_MINUTES="1")
+        self.assertEqual(labelled(metrics, "http_response_codes", "code"), {"500": 1})
+        self.assertEqual(metrics["http_requests_per_minute"][""], 1)
+        self.assertEqual(labelled(metrics, "http_error_type", "type")["PHP Warning"], 1)
+        # The webserver writes its error log only on the first error: no file means no errors.
+        (self.http / "error.log").unlink()
+        metrics = self.scrape()
+        self.assertEqual(set(labelled(metrics, "http_error_type", "type").values()), {0})
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+        # Without the access log (the volume is not mounted) the group is down and serves no request figures.
+        for log in self.http.glob("access.log*"):
+            log.unlink()
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_response_codes", metrics)
+        self.assertNotIn("http_bytes_transferred_total", metrics)
+
+    def test_a_large_log_is_read_from_its_end_within_a_small_memory_limit(self):
+        (self.http / "access.log.1").unlink()
+        old = ('203.0.113.9 - - [09/Oct/2026:11:{:02d}:00 +0300] "GET /old/{:06d} HTTP/1.1" 200 5000 "-" "' + MOZILLA + '"\n')
+        with (self.http / "access.log").open("w") as log:
+            for number in range(250000):
+                log.write(old.format(number * 60 // 250000, number))
+            # One 3 MiB line without a timestamp, then about 20 MiB in the window: 12 clients with 600 … 7200
+            # requests per minute, more than the memory limit would hold as lines.
+            log.write("x" * (3 << 20) + "\n")
+            for minute in range(29, 34):
+                for client in range(1, 13):
+                    for _ in range(client * 600):
+                        log.write(f'198.51.100.{client} - - [09/Oct/2026:12:{minute}:30 +0300] "GET / HTTP/1.1" 200 10 "-" "agent-{client}"\n')
+        self.assertGreater((self.http / "access.log").stat().st_size, 40 << 20)
+        metrics = self.scrape(php=("-d", "memory_limit=16M"))
+        total = sum(client * 600 * 5 for client in range(1, 13))
+        self.assertEqual(labelled(metrics, "http_response_codes", "code"), {"200": total})
+        self.assertEqual(metrics["http_bytes_transferred_total"], {"": total * 10})
+        # The script's head -10: the ten busiest clients and user agents.
+        self.assertEqual(labelled(metrics, "http_request_ips", "ip"), {f"198.51.100.{c}": c * 3000 for c in range(3, 13)})
+        self.assertEqual(labelled(metrics, "http_request_user_agents", "user_agent"), {f"agent-{c}": c * 3000 for c in range(3, 13)})
+        self.assertEqual(metrics["http_requests_per_minute_max"][""], total / 5)
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class SecurityGroupTest(EndpointMixin, unittest.TestCase):
+    """The script's netstat DDoS check: the five peers with the most connections to the web ports."""
+
+    def setUp(self):
+        self.prepare()
+
+    def test_most_connected_peers_from_the_host_and_the_proxy(self):
+        # Host: 203.0.113.50 ×3 on 443 and once over IPv4-mapped IPv6, 2001:db8::7 ×2, 203.0.113.51 ×1 (TIME_WAIT);
+        # listeners, loopback, SSH and outgoing :80 are not counted. Proxy: 198.51.100.60 ×5, its gateway (the
+        # host relaying local requests) is not counted, .61 and .62 ×1. Ties go by address, five are kept.
+        metrics = parse(fetch(self.start(), token=TOKEN)[2])
+        self.assertEqual(labelled(metrics, "ddos_most_connections_ip_count", "ip"),
+                         {"198.51.100.60": 5, "203.0.113.50": 4, "2001:db8::7": 2, "198.51.100.61": 1, "198.51.100.62": 1})
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="security"}'], 1)
+
+    def test_a_stale_or_missing_proxy_snapshot_keeps_the_host_counts_and_clears_up(self):
+        stale = time.time() - 600
+        for table in (self.http / "proxy-net").iterdir():
+            os.utime(table, (stale, stale))
+        base = self.start()
+        metrics = parse(fetch(base, token=TOKEN)[2])
+        self.assertEqual(labelled(metrics, "ddos_most_connections_ip_count", "ip"),
+                         {"203.0.113.50": 4, "2001:db8::7": 2, "203.0.113.51": 1})
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="security"}'], 0)
+        shutil.rmtree(self.http / "proxy-net")
+        metrics = parse(fetch(base, token=TOKEN)[2])
+        self.assertEqual(len(metrics["ddos_most_connections_ip_count"]), 3)
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="security"}'], 0)
+
+
+HTTP_LOGS_SCRIPT = ROOT / "docker/docker/nginx-proxy/conf/http-logs.sh"
+
+
+@unittest.skipUnless(shutil.which("bash"), "bash is required")
+class HttpLogsScriptTest(unittest.TestCase):
+    """nginx-proxy's helper keeps the metrics copy of the access log bounded and snapshots the proxy's TCP table."""
+
+    def test_rotation_reopen_and_connection_snapshot(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        work = Path(temporary.name)
+        logs, net, bin_dir = work / "logs", work / "net", work / "bin"
+        for directory in (logs, net, bin_dir, work / "1/net"):
+            directory.mkdir(parents=True)
+        write_connections(work, net)
+        (bin_dir / "nginx").write_text(f'#!/bin/sh\necho "$*" >> {work}/nginx.calls\n')
+        (bin_dir / "nginx").chmod(0o755)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SETUP_HTTP_LOGS": str(logs),
+               "SETUP_HTTP_PROC_NET": str(net), "METRICS_HTTP_LOG_MB": "1"}
+        once = lambda: subprocess.run(["bash", str(HTTP_LOGS_SCRIPT), "once"], env=env, capture_output=True, text=True, timeout=30)
+        calls = lambda: (work / "nginx.calls").read_text().splitlines() if (work / "nginx.calls").exists() else []
+
+        (logs / "access.log").write_text("small\n")
+        self.assertEqual(once().returncode, 0)
+        self.assertEqual(calls(), [])
+        self.assertEqual({p.name for p in (logs / "proxy-net").iterdir()}, {"tcp", "tcp6", "route"})
+        self.assertEqual((logs / "proxy-net/tcp").read_text(), (net / "tcp").read_text())
+
+        (logs / "access.log").write_text("x" * (1 << 20) + "\n")
+        (logs / "access.log.1").write_text("previous\n")
+        self.assertEqual(once().returncode, 0)
+        self.assertEqual(calls(), ["-s reopen"])
+        self.assertFalse((logs / "access.log").exists())
+        self.assertEqual((logs / "access.log.1").stat().st_size, (1 << 20) + 1)
+        # Until nginx has reopened the log, every pass asks again.
+        once()
+        self.assertEqual(calls(), ["-s reopen", "-s reopen"])
+        (logs / "access.log").write_text("")
+        once()
+        self.assertEqual(len(calls()), 2)
+
+
 class GrafanaCompatibilityTest(EndpointMixin, unittest.TestCase):
     """Every name the existing dashboards and alerts query is served once its group is implemented."""
 
@@ -275,9 +482,11 @@ class ExpositionFormatTest(EndpointMixin, unittest.TestCase):
         # Format: the exposition parses (cardinality report only, no naming lint).
         result = check("--extended", "--lint=none")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr + body)
-        # Naming lint: only the dashboards' own gauge names ending in _total may be reported.
+        # Naming lint: only the dashboards' own gauge names ending in _total or _count may be reported.
         kept = {f'{name} non-counter metrics should not have "_total" suffix'
                 for name in grafana_names.recorded() | grafana_names.VIEWER_ONLY if name.endswith("_total")}
+        kept |= {f'{name} non-histogram and non-summary metrics should not have "_count" suffix'
+                 for name in grafana_names.recorded() if name.endswith("_count")}
         result = check()
         problems = set(filter(None, (result.stdout + result.stderr).splitlines()))
         self.assertEqual(problems - kept, set())
@@ -314,7 +523,8 @@ class SettingsTest(unittest.TestCase):
         app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
         project = Project(app, "stage")
         self.assertEqual(project.process_env["SETUP_ENABLE_METRICS"], "1")
-        services = json.loads(project.capture(["config", "--format", "json"]))["services"]
+        model = json.loads(project.capture(["config", "--format", "json"]))
+        services = model["services"]
         metrics, proxy = services["metrics"], services["nginx-proxy"]
         self.assertNotIn("ports", metrics)
         self.assertEqual(list(metrics["networks"]), ["network_metrics"])
@@ -328,10 +538,24 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual((environment["METRICS_URLS"], environment["METRICS_SUPPORT_LEVEL"], environment["METRICS_DISK_WRITE_MB"]),
                          ("https://demo.example.com/", "0", "100"))
         self.assertEqual(metrics["user"], f"{os.getuid()}:{os.getgid()}")
-        # The release keeps /proc (the same on every Linux target) and maps the data directory.
-        released = release_model(project, "/srv/demo")["services"]["metrics"]["volumes"]
+        # The HTTP log volume: nginx-proxy writes the site's access log and the webserver its error log there,
+        # the metrics service only reads it.
+        logs = mounts["/host/http-logs"]
+        self.assertEqual((logs["type"], logs["read_only"]), ("volume", True))
+        for writer in (proxy, services["webserver"]):
+            shared = {volume["target"]: volume for volume in writer["volumes"]}["/var/log/setup-http"]
+            self.assertEqual((shared["type"], shared["source"], shared.get("read_only", False)), ("volume", logs["source"], False))
+            self.assertEqual((writer["environment"]["SETUP_ENABLE_METRICS"], writer["environment"]["METRICS_HTTP_LOG_MB"]), ("1", "32"))
+        self.assertEqual(model["volumes"][logs["source"]]["name"], f"{project.settings['PROJECT_NAME']}-stage-http-logs")
+        self.assertEqual(environment["METRICS_HTTP_WINDOW_MINUTES"], "5")
+        # The release keeps /proc (the same on every Linux target), maps the data directory and keeps the volume.
+        release = release_model(project, "/srv/demo")
+        released = release["services"]["metrics"]["volumes"]
         self.assertEqual({(v["source"], v["target"]) for v in released if v["type"] == "bind"},
                          {("/proc", "/host/proc"), ("/srv/demo/data/stage", "/host/disk")})
+        self.assertIn((logs["source"], "/host/http-logs"), {(v["source"], v["target"]) for v in released if v["type"] == "volume"})
+        self.assertEqual(release["volumes"], model["volumes"])
+        self.assertEqual(services["php-fpm"]["environment"]["SETUP_ENABLE_METRICS"], "1")
 
     def test_a_writable_or_other_host_mount_is_still_refused_by_the_release(self):
         app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
@@ -348,6 +572,10 @@ class SettingsTest(unittest.TestCase):
                                  ("METRICS_URLS=ftp://demo.example.com/", "METRICS_URLS"),
                                  ("METRICS_URLS='https://a.example.com/ x'", "METRICS_URLS"),
                                  ("METRICS_DISK_WRITE_MB=-1", "METRICS_DISK_WRITE_MB"),
+                                 ("METRICS_HTTP_WINDOW_MINUTES=0", "METRICS_HTTP_WINDOW_MINUTES"),
+                                 ("METRICS_HTTP_WINDOW_MINUTES=61", "METRICS_HTTP_WINDOW_MINUTES"),
+                                 ("METRICS_HTTP_LOG_MB=0", "METRICS_HTTP_LOG_MB"),
+                                 ("METRICS_HTTP_LOG_MB=1g", "METRICS_HTTP_LOG_MB"),
                                  ("METRICS_NETWORK_INTERFACE='eth0;'", "METRICS_NETWORK_INTERFACE")):
             with self.subTest(setting=setting), self.assertRaisesRegex(ValueError, message):
                 Project(self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n{setting}\n"), "stage")
@@ -371,7 +599,8 @@ class MetricsIntegrationTest(unittest.TestCase):
     def docker(self, *args, check=True):
         return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60, check=check).stdout.strip()
 
-    def test_proxy_path_token_allowlist_and_host_numbers(self):
+    def stack(self, **metrics_env):
+        """nginx-proxy (working tree configuration) and the metrics service sharing the HTTP log volume."""
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
         temporary = tempfile.TemporaryDirectory(dir=scratch)
@@ -385,39 +614,47 @@ class MetricsIntegrationTest(unittest.TestCase):
         network = f"setup-metrics-{uuid.uuid4().hex[:8]}"
         self.docker("network", "create", network)
         self.addCleanup(self.docker, "network", "rm", network, check=False)
+        logs = network + "-http-logs"
+        self.docker("volume", "create", logs)
+        self.addCleanup(self.docker, "volume", "rm", "-f", logs, check=False)
         metrics, proxy = network + "-metrics", network + "-proxy"
         self.addCleanup(self.docker, "rm", "-f", metrics, proxy, check=False)
+        settings = {"METRICS_TOKEN": TOKEN, "METRICS_URLS": "http://demo.local/", "METRICS_PROBE_ADDRESS": "",
+                    "METRICS_SUPPORT_LEVEL": "1", "METRICS_DISK_WRITE_MB": "8", "TZ": "UTC", **metrics_env}
         self.docker("run", "-d", "--name", metrics, "--network", network, "--network-alias", "metrics",
                     "--network-alias", "webserver", "--memory", "128m",
                     "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro",
-                    "-v", "/proc:/host/proc:ro", "-v", f"{data}:/host/disk:ro", "-e", f"METRICS_TOKEN={TOKEN}",
-                    "-e", "METRICS_URLS=http://demo.local/", "-e", "METRICS_PROBE_ADDRESS=", "-e", "METRICS_SUPPORT_LEVEL=1",
-                    "-e", "METRICS_DISK_WRITE_MB=8", "--entrypoint", "php", PHP, "-S", "0.0.0.0:9100",
-                    "/opt/setup/runtime/metrics/index.php")
+                    "-v", "/proc:/host/proc:ro", "-v", f"{data}:/host/disk:ro", "-v", f"{logs}:/host/http-logs:ro",
+                    *[arg for key, value in settings.items() for arg in ("-e", f"{key}={value}")],
+                    "--entrypoint", "php", PHP, "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php")
         # The image predates this change: start it with the working tree's proxy configuration.
         install = ("cp /conf/sites.conf /etc/nginx/conf.d/sites.conf && cp /conf/sites.metrics.conf /etc/nginx/templates/setup-metrics.conf"
-                   " && cp /conf/init.sh /conf/access.sh /usr/local/bin/ && exec /usr/local/bin/init.sh demo.local 60")
+                   " && cp /conf/init.sh /conf/access.sh /conf/http-logs.sh /usr/local/bin/ && exec /usr/local/bin/init.sh demo.local 60")
         self.docker("run", "-d", "--name", proxy, "--network", network, "--memory", "128m", "-v", f"{CONF}:/conf:ro",
-                    "-v", f"{certificates}:/etc/ssl/certs:ro",
+                    "-v", f"{certificates}:/etc/ssl/certs:ro", "-v", f"{logs}:/var/log/setup-http", "-e", "TZ=UTC",
                     "-e", "SETUP_ENABLE_METRICS=1", "-e", "SETUP_ENVIRONMENT=prod", "-e", "METRICS_ALLOWED_IPS=203.0.113.10",
-                    "-e", "TRUSTED_PROXIES=127.0.0.1", "--entrypoint", "sh", NGINX, "-c", install)
+                    "-e", "TRUSTED_PROXIES=127.0.0.1", "-e", "SETUP_HTTP_SNAPSHOT_SECONDS=1", "--entrypoint", "sh", NGINX, "-c", install)
+        return network, proxy, metrics
 
-        def scrape(client, token=None):
-            args = ["exec", proxy, "curl", "-sS", "--max-time", "30", "-H", f"X-Forwarded-For: {client}",
-                    "-o", "/dev/stderr", "-w", "%{http_code}"]
-            args += ["-H", f"Authorization: Bearer {token}"] if token else []
-            for _ in range(50):
-                result = subprocess.run(["docker", *args, "http://127.0.0.1/metrics", "-H", "Host: demo.local"],
-                                        capture_output=True, text=True, timeout=60)
-                if result.stdout not in ("", "000", "502"):
-                    return result.stdout, result.stderr
-                time.sleep(0.2)
-            self.fail(self.docker("logs", proxy) + self.docker("logs", metrics))
+    def request(self, proxy, path, client, token=None, agent="setup-test"):
+        """A request through the proxy from inside it (peer 127.0.0.1, a trusted proxy) for a forwarded client."""
+        args = ["exec", proxy, "curl", "-sS", "--max-time", "30", "-H", f"X-Forwarded-For: {client}", "-A", agent,
+                "-o", "/dev/stderr", "-w", "%{http_code}"]
+        args += ["-H", f"Authorization: Bearer {token}"] if token else []
+        for _ in range(50):
+            result = subprocess.run(["docker", *args, f"http://127.0.0.1{path}", "-H", "Host: demo.local"],
+                                    capture_output=True, text=True, timeout=60)
+            if result.stdout not in ("", "000") and (path != "/metrics" or result.stdout != "502"):
+                return result.stdout, result.stderr
+            time.sleep(0.2)
+        self.fail(self.docker("logs", proxy) + self.docker("logs", proxy.replace("-proxy", "-metrics")))
 
-        self.assertEqual(scrape("198.51.100.1", TOKEN)[0], "403")
-        self.assertEqual(scrape("203.0.113.10")[0], "401")
-        self.assertEqual(scrape("203.0.113.10", "wrong" * 8)[0], "401")
-        status, body = scrape("203.0.113.10", TOKEN)
+    def test_proxy_path_token_allowlist_and_host_numbers(self):
+        _, proxy, metrics = self.stack()
+        self.assertEqual(self.request(proxy, "/metrics", "198.51.100.1", TOKEN)[0], "403")
+        self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10")[0], "401")
+        self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10", "wrong" * 8)[0], "401")
+        status, body = self.request(proxy, "/metrics", "203.0.113.10", TOKEN)
         self.assertEqual(status, "200", body)
         values = parse(body)
         meminfo = dict(line.split(":", 1) for line in self.docker("run", "--rm", "--entrypoint", "cat", PHP, "/proc/meminfo").splitlines())
@@ -428,9 +665,101 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.assertGreater(values["disk_size"][""], 0)
         self.assertIn("network_rxkb", values)
         self.assertEqual(values["website_response_status"], {'{url="http://demo.local/"}': 0})
-        self.assertEqual(values["setup_metrics_group_up"], {'{group="system"}': 1, '{group="website"}': 1,
-                                                            '{group="database"}': 0})  # no database in this test
+        self.assertEqual(values["setup_metrics_group_up"],
+                         {'{group="system"}': 1, '{group="website"}': 1, '{group="http"}': 1, '{group="security"}': 1,
+                          '{group="database"}': 0})  # no database in this test
 
+    def test_real_proxy_log_lines_and_connections(self):
+        # The window ends after the current minute, so the requests made now are inside it.
+        network, proxy, metrics = self.stack(METRICS_HTTP_NOW=str(int(time.time()) + 120))
+        sent = [("/", "203.0.113.21", "agent-a")] * 3 + [("/missing", "203.0.113.22", "agent-b")]
+        codes = {self.request(proxy, path, client, agent=agent)[0] for path, client, agent in sent}
+        # Scrapes are not site traffic: /metrics stays in docker logs but out of the metrics copy.
+        self.request(proxy, "/metrics", "203.0.113.10", TOKEN)
+        # Three connections held open from another container on the network (not the proxy's gateway).
+        client = network + "-client"
+        self.addCleanup(self.docker, "rm", "-f", client, check=False)
+        self.docker("run", "-d", "--name", client, "--network", network, "--entrypoint", "bash", NGINX, "-c",
+                    f"exec 3<>/dev/tcp/{proxy}/80 4<>/dev/tcp/{proxy}/80 5<>/dev/tcp/{proxy}/80; sleep 120")
+        client_ip = self.docker("inspect", "-f", f"{{{{(index .NetworkSettings.Networks \"{network}\").IPAddress}}}}", client)
+        values = {}
+        for _ in range(60):
+            values = parse(self.request(proxy, "/metrics", "203.0.113.10", TOKEN)[1])
+            if (labelled(values, "http_request_ips", "ip").get("203.0.113.22")
+                    and labelled(values, "ddos_most_connections_ip_count", "ip").get(client_ip) == 3):
+                break
+            time.sleep(1)
+        self.assertEqual(labelled(values, "http_request_ips", "ip"), {"203.0.113.21": 3, "203.0.113.22": 1})
+        self.assertEqual(labelled(values, "http_request_user_agents", "user_agent"), {"agent-a": 3, "agent-b": 1})
+        self.assertEqual(labelled(values, "ddos_most_connections_ip_count", "ip"), {client_ip: 3})
+        # docker logs still carry every request; the metrics figures match their site lines.
+        lines = [line for line in subprocess.run(["docker", "logs", proxy], capture_output=True, text=True).stdout.splitlines()
+                 if '"GET ' in line]
+        site = [line for line in lines if "/metrics" not in line]
+        self.assertEqual(len(site), 4)
+        self.assertGreater(len(lines), 4)
+        fields = [line.split('" ')[1].split() for line in site]
+        self.assertEqual(labelled(values, "http_response_codes", "code"), dict(collections.Counter(f[0] for f in fields)))
+        self.assertEqual(set(labelled(values, "http_response_codes", "code")), codes)
+        self.assertEqual(values["http_bytes_transferred_total"][""], sum(int(f[1]) for f in fields))
+        self.assertEqual(values["setup_metrics_group_up"]['{group="http"}'], 1)
+        self.assertEqual(values["setup_metrics_group_up"]['{group="security"}'], 1)
+
+    def test_php_fpm_also_sends_php_messages_to_the_webserver(self):
+        def logging(enabled):
+            result = subprocess.run(["docker", "run", "--rm", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
+                                     "-e", f"SETUP_ENABLE_METRICS={enabled}", "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro",
+                                     "--entrypoint", "/bin/sh", PHP, "/opt/setup/runtime/start.sh", "php-fpm", "-i"],
+                                    capture_output=True, text=True, timeout=60)
+            return re.search(r"^fastcgi\.logging => (\w+)", result.stdout, re.M)[1]
+        self.assertEqual((logging(1), logging(0)), ("On", "Off"))
+
+
+APACHE = os.environ.get("SETUP_APACHE_TEST_IMAGE")
+
+
+@unittest.skipUnless(APACHE and NGINX, "Set SETUP_APACHE_TEST_IMAGE and SETUP_NGINX_TEST_IMAGE to built setup images")
+class WebserverErrorLogIntegrationTest(unittest.TestCase):
+    def test_the_site_error_log_goes_to_the_http_log_volume(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        work = Path(temporary.name)
+        (work / "html").mkdir()
+        (work / "html/index.php").write_text("<?php echo 1;")
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=demo.local",
+                        "-keyout", str(work / "domain.key"), "-out", str(work / "domain.crt")], capture_output=True, check=True)
+        for path in [work, *work.rglob("*")]:
+            os.chmod(path, 0o755 if path.is_dir() else 0o644)
+        name = f"setup-metrics-apache-{uuid.uuid4().hex[:8]}"
+        docker = lambda *args: subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60)
+        docker("volume", "create", name)
+        self.addCleanup(docker, "volume", "rm", "-f", name)
+        self.addCleanup(docker, "rm", "-f", name)
+        # The image predates this change: start it with the working tree's init script.
+        started = docker("run", "-d", "--name", name, "-v", f"{work}/html:/var/www/html:ro", "-v", f"{work}:/etc/ssl/certs:ro",
+                         "-v", f"{ROOT}/docker/docker/apache/conf/init.sh:/setup-init.sh:ro", "-v", f"{name}:/var/log/setup-http",
+                         "-e", "TZ=UTC", "-e", "DOMAIN=demo.local", "-e", "SETUP_ENABLE_METRICS=1", "-e", "METRICS_HTTP_LOG_MB=1",
+                         APACHE, "bash", "/setup-init.sh", "demo.local", "/", "prod")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        # No php-fpm on this network: Apache logs the failed FastCGI request in the site's error log.
+        for _ in range(30):
+            status = docker("exec", name, "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/80 && printf 'GET /index.php HTTP/1.0\\r\\n"
+                            "Host: demo.local\\r\\n\\r\\n' >&3 && head -1 <&3").stdout
+            if status:
+                break
+            time.sleep(0.5)
+        self.assertIn(" 50", status)
+        logs = ""
+        for _ in range(20):
+            logs = docker("run", "--rm", "-v", f"{name}:/logs:ro", "--entrypoint", "sh", NGINX, "-c",
+                          "ls -l /logs; cat /logs/error.log").stdout
+            if "[proxy" in logs:
+                break
+            time.sleep(0.5)
+        self.assertRegex(logs, r"-rw-r--r-- .* error\.log")
+        self.assertRegex(logs, r"(?m)^\[\w{3} \w{3} \d{2} [\d:.]+ \d{4}\] \[proxy")
 
 if __name__ == "__main__":
     unittest.main()

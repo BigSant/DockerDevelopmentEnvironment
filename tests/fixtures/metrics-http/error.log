@@ -1,0 +1,12 @@
+[Fri Oct 09 12:27:00.000001 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'httpd -D FOREGROUND'
+[Fri Oct 09 12:28:30.100000 2026] [proxy_fcgi:error] [pid 10:tid 11] [client 198.51.100.1:5000] AH01071: Got error 'PHP message: PHP Fatal error:  before the window in /var/www/html/a.php on line 2'
+PHP Warning:  a continuation line of the entry before the window
+[Fri Oct 09 12:29:10.123456 2026] [proxy_fcgi:error] [pid 10:tid 12] [client 198.51.100.1:5001] AH01071: Got error 'PHP message: PHP Warning:  Undefined variable $x in /var/www/html/a.php on line 3; PHP message: PHP Warning:  Undefined variable $y in /var/www/html/a.php on line 4'
+[Fri Oct 09 12:30:00.500000 2026] [proxy_fcgi:error] [pid 10:tid 13] [client 198.51.100.1:5002] AH01071: Got error 'PHP message: PHP Fatal error:  Uncaught Exception: boom in /var/www/html/b.php:2
+Stack trace:
+#0 {main}
+  thrown in /var/www/html/b.php on line 2'
+[Fri Oct 09 12:31:00.000000 2026] [core:notice] [pid 1:tid 1] AH00052: child pid 99 exit signal Segmentation fault (11)
+[Fri Oct 09 12:32:00.000000 2026] [proxy:error] [pid 10:tid 14] (104)Connection reset by peer: [client 198.51.100.2:5003] AH01102: error reading status line from remote server php-fpm:9000
+[Fri Oct 09 12:33:30.000000 2026] [proxy_fcgi:error] [pid 10:tid 15] [client 198.51.100.2:5004] AH01071: Got error 'PHP message: PHP Warning:  in the window in /var/www/html/c.php on line 9'
+[Fri Oct 09 12:34:05.000000 2026] [proxy_fcgi:error] [pid 10:tid 16] [client 198.51.100.2:5005] AH01071: Got error 'PHP message: PHP Fatal error:  in the current minute in /var/www/html/d.php on line 1'

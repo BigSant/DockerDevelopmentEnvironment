@@ -30,13 +30,14 @@ GROUPS = {
         'uptime', 'disk_write_speed',
     },
     'website': {'website_response_time', 'website_response_status', 'support_level'},
-    # 07: HTTP logs.
+    # 07: HTTP logs, and the security check (most connections per client).
     'http': {'http_response_codes', 'http_bytes_transferred_total', 'http_request_ips', 'http_error_type'},
+    'security': {'ddos_most_connections_ip_count'},
     # 08: database statistics through the monitor account.
     'database': {'database_slow_query_total', 'database_slow_query_time_total', 'database_slow_query_time_average',
                  'sql_buffer_pool_size', 'sql_buffer_used', 'sql_data_cached', 'sql_dirty_pages', 'sql_ram_free'},
-    # 09: connections, security and processes (with containers and cron, which have no dashboard yet).
-    'host': {'ddos_most_connections_ip_count', 'processes_consuming_cpu',
+    # 09: processes (with containers and cron, which have no dashboard yet).
+    'host': {'processes_consuming_cpu',
              'processes_consuming_cpu_total', 'processes_consuming_memory', 'processes_consuming_memory_total'},
 }
 # Names the old viewer also emitted that no dashboard queries yet; served unchanged (incl. _total on gauges).
