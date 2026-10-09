@@ -252,7 +252,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "init", "doctor", "pull", "shell", "app-prepare", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -277,7 +277,7 @@ def main():
         setup_info()
         return 0
     try:
-        if args.action in ("init", "ide-init", "bootstrap"):
+        if args.action in ("init", "ide-init", "bootstrap", "setup"):
             initialize_env(args.docker_directory, args.env)
             from project_bootstrap import ensure_generated_secrets
             ensure_generated_secrets(args.docker_directory, args.env)
@@ -319,6 +319,9 @@ def main():
             refresh_ide(project)
         elif args.action == "init":
             initialize_directories(project)
+        elif args.action == "setup":
+            from project_setup import run_setup
+            project = run_setup(project, args.timeout)
         elif args.action == "app-prepare":
             from project_application import prepare_application
             prepare_application(project)

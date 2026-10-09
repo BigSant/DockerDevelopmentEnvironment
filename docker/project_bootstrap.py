@@ -86,6 +86,38 @@ def certificate_is_valid(certificate, domain):
             hostname.stdout.strip() == f'Hostname {domain} does match certificate')
 
 
+INSTALLED_HELPERS = Path('/usr/local/lib/setup')
+
+
+def host_helper(name):
+    """The root-owned copy installed by setup/install-host (sudoers allows only that copy)."""
+    installed, source = INSTALLED_HELPERS / name, Path(__file__).with_name(name)
+    if installed.is_file():
+        if installed.read_bytes() != source.read_bytes():
+            raise ValueError('The host helpers changed with this setup version; rerun setup/install-host (needs sudo once)')
+        return installed
+    return source
+
+
+def resolves_locally(host):
+    try:
+        addresses = {r[4][0] for r in socket.getaddrinfo(host, None)}
+    except socket.gaierror:
+        return False
+    return bool(addresses) and addresses.issubset({'127.0.0.1', '::1'})
+
+
+def route_exists(domain, port, nginx=Path('/etc/nginx')):
+    """An enabled host Nginx site for the domain already proxies to the project's port."""
+    site = nginx / 'sites-enabled' / f'{domain}.conf'
+    try:
+        text = site.read_text()
+    except OSError:
+        return False
+    return bool(re.search(rf'server_name[^;]*\b{re.escape(domain)}\b', text)) and \
+        f'proxy_pass http://127.0.0.1:{port};' in text
+
+
 def prepare_host(project):
     domain = project.settings.get('DOMAIN', '')
     if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain):
@@ -95,10 +127,10 @@ def prepare_host(project):
     except socket.gaierror:
         addresses = set()
     if not addresses:
-        helper = Path(__file__).with_name('host_entry.py')
+        helper = host_helper('host_entry.py')
         result = subprocess.run(['sudo', '-n', sys.executable, str(helper), domain], capture_output=True, text=True)
         if result.returncode:
-            raise ValueError(f'Local DNS entry is missing. Run: sudo {sys.executable} {helper} {domain}')
+            raise ValueError(f'Local DNS entry is missing. Run setup/install-host once, or: sudo {sys.executable} {helper} {domain}')
     elif not addresses.issubset({'127.0.0.1', '::1'}):
         raise ValueError('DOMAIN resolves outside localhost; use a local development hostname')
     ssl = project.data_directory / 'ssl'
@@ -120,21 +152,26 @@ def prepare_host(project):
             replace_file(certificate, crt.read_bytes())
             replace_file(key, private.read_bytes(), private=True)
     print(f'Local hostname and TLS prepared: {domain}')
-    host_helper = Path(__file__).with_name('host_entry.py')
+    entry_helper = host_helper('host_entry.py')
     for host in ('pma.' + domain, 'mailpit.' + domain):
-        command = ['sudo', '-n', sys.executable, str(host_helper), host]
+        if resolves_locally(host):
+            continue
+        command = ['sudo', '-n', sys.executable, str(entry_helper), host]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
             import shlex
-            raise ValueError('Local service hostname could not be prepared. Run: ' +
-                             shlex.join(['sudo', sys.executable, str(host_helper), host]))
-    helper = Path(__file__).with_name('host_proxy.py')
+            raise ValueError('Local service hostname could not be prepared. Run setup/install-host once, or: ' +
+                             shlex.join(['sudo', sys.executable, str(entry_helper), host]))
+    if route_exists(domain, project.settings['LOCALHOST_PORT']):
+        print(f'Local Nginx route already in place: http://{domain}/')
+        return
+    helper = host_helper('host_proxy.py')
     args = [sys.executable, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
     result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
     if result.returncode:
         import shlex
         raise ValueError('Local Nginx route could not be prepared. ' + result.stderr.strip() +
-                         '\nRun: ' + shlex.join(['sudo', *args]))
+                         '\nRun setup/install-host once, or: ' + shlex.join(['sudo', *args]))
     print(f'Local Nginx route prepared: http://{domain}/')
 
 
