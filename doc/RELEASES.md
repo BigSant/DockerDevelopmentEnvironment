@@ -4,6 +4,30 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## 2.1.0
+
+Servers run without DirectAdmin and generic (non-PrestaShop) projects deploy; both monitoring
+endpoints feed the existing Grafana dashboards. No v2.0.0 project needs to change.
+
+- **Generic projects** (empty `PROFILE`) release and deploy: no PrestaShop steps, `.htaccess` deploys as
+  code, `DEPLOY_PROTECTED_PATHS`, hooks `config/deploy/build.sh` and `config/deploy/after-rsync.sh`,
+  external images (e.g. Meilisearch) in the image lock. Every setup step respects `PROFILE`.
+- **Extra database schemas** with `DATABASE_EXTRA_SCHEMAS`: grants, backup, import and grant restriction
+  cover all of them; `_` in database names is escaped in every grant.
+- **`PUBLISH_ADDRESS`** publishes nginx-proxy on a chosen address (e.g. a VPN interface; default
+  127.0.0.1). Forwarded client addresses are trusted only from the real proxy; `TRUSTED_PROXIES` with a
+  directly published address needs `TRUSTED_PROXIES_DIRECT=on`. **Check DirectAdmin targets after
+  upgrading** (client IPs in allowlists).
+- **Target `/metrics`** (`SERVICES=metrics`, token + allowlist): system, website, HTTP, security,
+  database, host, containers and cron groups under the names the existing Grafana dashboards use.
+- **Deploys** reload php-fpm at the end (`DEPLOY_PHP_RELOAD=off` to skip); rollback skips failed releases.
+- **Secrets** from the process environment (pipeline Deployment variables) reach Compose when env
+  files leave them blank.
+- Stage/prod start without provisioned certificates (nginx-proxy creates a self-signed pair for the
+  internal hop); the MySQL first-start hook runs on bash 4.2 (MySQL 5.7 images).
+
+Images change (php-fpm, nginx-proxy, Apache, metrics): run `make build` / `make release` after upgrading.
+
 ## 2.0.0
 
 One way to run projects from local development to LIVE. Version 1 projects do not run unchanged:
