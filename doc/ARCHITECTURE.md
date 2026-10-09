@@ -21,7 +21,7 @@ setup/
     docker/<service>/                 Dockerfile + docker-compose.yml per service (catalogue)
     profile/<profile>/                image-baked per-profile config (prestashop, akeneo)
     database-profile/<profile>/       NOT baked: default table registry, data-set recipe, safe after-import SQL
-    runtime/                          scripts used inside containers (start, templates, PS adapters, cron, dbmonitor)
+    runtime/                          scripts used inside containers (start, templates, PS adapters, cron, dbmonitor, metrics)
     compatibility.json                PrestaShop line -> supported PHP / MySQL / MariaDB
   templates/                          scaffold sources (minimal, grouped, shared Makefile)
   tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
@@ -57,8 +57,8 @@ Constructing `Project` is the contract every action relies on:
    mariadb; a project `include` of them is refused), the project's optional compose sources, every `SERVICES=` catalogue entry
    (`docker/<name>/docker-compose.yml`), env overrides, then a generated overlay that drops optional
    config mounts whose source is absent (Compose would create them root-owned).
-5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor)
-   require an allowlist; test must be isolated (own code copy, data and DB).
+5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor, metrics)
+   require an allowlist, and metrics a 24+ character `METRICS_TOKEN`; test must be isolated (own code copy, data and DB).
 6. Per-image fingerprints (`setup_release.image_suffixes`): each built image's tag ends in a hash of
    only its own inputs (Dockerfile, COPY sources, build args, profile, parent fingerprint).
 7. Stage/prod: `APP_UID/APP_GID` become the container user; with `DEPLOY_CONTEXT`, exec/ps/logs go
@@ -70,7 +70,7 @@ Constructing `Project` is the contract every action relies on:
 php-fpm-base-<env>-<php>-…      setup/docker/docker/php-fpm/<php>/Dockerfile (extensions incl. memcached/redis, not enabled)
   └─ <project>-php-fpm-core      setup/docker/Dockerfile: profile overlay, optional PrestaShop release, setup runtime
        └─ <project>-php-fpm      project Dockerfile, must start FROM ${SETUP_PHP_IMAGE} (pass-through by default)
-cron, dbmonitor                  reuse the project PHP image
+cron, dbmonitor, metrics         reuse the project PHP image
 mysql / mariadb, webserver (apache), nginx-proxy, pma, mailpit, redis, memcached   one image each
 ```
 
@@ -87,6 +87,14 @@ fingerprint is outdated; it removes only with `apply=1`.
 - **MySQL `init.d`** (`*.sql`, `*.sql.template`, `*.sh`) runs once, when the data directory is created.
 - **PrestaShop config** (`parameters.php` / `settings.inc.php`) is generated from env keys at PHP start;
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
+- **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): Prometheus `/metrics` on the main domain
+  (`location = /metrics` rendered into both site servers), token in the service, allowlist in nginx-proxy.
+  Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
+  query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
+  `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
+  `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
+  the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
+  service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
 - **Security defaults**: published ports bind to 127.0.0.1; nginx-proxy takes the client IP from the
   host proxy (`X-Forwarded-For`) and renders allow/deny per entry point; Apache hides dot-paths
   (except `.well-known`), `*.sql`, backups and composer files; the application DB user has rights on
@@ -123,7 +131,8 @@ fingerprint is outdated; it removes only with `apply=1`.
 
 `make release ENV=stage|prod` builds the images here from committed setup and writes
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
-installed). `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
+installed). A release keeps no host path except the read-only `/proc` of the metrics service.
+`make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path.
 `make deploy ref=TAG` builds the shop release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
@@ -136,6 +145,8 @@ files the previous release shipped, upgrades changed modules, migrates and repor
 `python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB). B tests
 run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
 `SETUP_DIND_IMAGE`, `SETUP_MYSQL_SCHEMA_INTEGRATION=1`, … (see each test's skip reason).
+The metrics exposition is checked with `promtool` (`SETUP_PROMTOOL_IMAGE=prom/prometheus:latest` when it
+is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks the recorded names are current.
 
 ## 9. Rules — do not break these
 

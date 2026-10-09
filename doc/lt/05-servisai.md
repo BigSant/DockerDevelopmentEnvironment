@@ -16,6 +16,7 @@ SERVICES="pma mailpit cron"
 | `mailpit` | Laiškų gaudyklė | UI `https://mailpit.demo.local/`, SMTP `mailpit:1025` projekto tinkle. |
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
 | `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` su token'u. Žr. [DB monitorius](#db-monitorius). |
+| `metrics` | Serverio ir svetainės Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
 | `playwright` | Naršyklės testų įrankis | `make e2e`. |
@@ -46,7 +47,7 @@ make up
 
 `make build` sukuria naujo serviso image'ą, `make up` jį paleidžia. Išjungus servisą, pašalink seną konteinerį: `make down`, tada `make up`.
 
-Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
+Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
 
 ## Drop-in failai: papildyti CORE konfigūraciją
 
@@ -204,13 +205,13 @@ make restart service=nginx-proxy
 
 ## IP apribojimai
 
-Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius) ribojamas nginx-proxy lygyje.
+Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius, `/metrics`) ribojamas nginx-proxy lygyje.
 
 | Raktas | Kam galioja |
 | --- | --- |
 | `ALLOWED_IPS` | Visiems įėjimams, **įskaitant svetainę**. |
 | `SITE_ALLOWED_IPS` | Tik svetainei. |
-| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS` | Tik tam įrankiui. |
+| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja tik `/metrics` keliui, ne visai svetainei. |
 
 Taisyklės:
 
@@ -218,7 +219,7 @@ Taisyklės:
 - Įėjimo sąrašas (`PMA_ALLOWED_IPS`) pakeičia bendrą `ALLOWED_IPS` tam įėjimui.
 - Ne iš sąrašo atėjęs klientas gauna `403`.
 - **Local/test** su tuščiu sąrašu viskas atvira.
-- **Stage/prod** su tuščiu sąrašu svetainė vieša, o įrankiai uždrausti. Be to, runner'is atsisako paleisti `pma`, `mailpit`, `cron`, `dbmonitor` be sąrašo: `pma on prod requires PMA_ALLOWED_IPS or ALLOWED_IPS`.
+- **Stage/prod** su tuščiu sąrašu svetainė vieša, o įrankiai uždrausti. Be to, runner'is atsisako paleisti `pma`, `mailpit`, `cron`, `dbmonitor`, `metrics` be sąrašo: `pma on prod requires PMA_ALLOWED_IPS or ALLOWED_IPS`.
 
 Viešai LIVE parduotuvei `ALLOWED_IPS` nenaudok, nes jis uždarytų ir svetainę. Rašyk įrankių sąrašus:
 
@@ -357,3 +358,79 @@ curl -H "Authorization: Bearer $DBMONITOR_TOKEN" https://dbmonitor.demo.local/
 ```
 
 Be teisingo token'o atsakymas `401`. DB portas nepublikuojamas. Stage/prod be `DBMONITOR_ALLOWED_IPS` ar `ALLOWED_IPS` monitorius nepasileidžia. `performance_schema` kainuoja kelis šimtus MB DB atminties, todėl numatyta `off`.
+
+## Metrikos (Prometheus)
+
+Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Šiandien atiduodamos dvi grupės:
+
+- **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`;
+- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas).
+
+`setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e). HTTP, DB, konteinerių, cron ir procesų grupės prisidės prie to paties serviso.
+
+1. `env/<ENV>.env`:
+
+```dotenv
+SERVICES="metrics"
+METRICS_TOKEN='bent-24-simboliu-atsitiktinis-tokenas'
+METRICS_ALLOWED_IPS="10.8.0.20"            # Prometheus serverio adresas
+METRICS_URLS="https://demo.lt/ https://demo.lt/kontaktai"
+METRICS_SUPPORT_LEVEL=2
+```
+
+2. Pritaikyk (`nginx-proxy` image'as gauna `/metrics` kelią):
+
+```bash
+make build
+make up
+```
+
+3. Patikra:
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://demo.lt/metrics
+```
+
+Be token'o ar su neteisingu – `401`, ne iš sąrašo – `403`, servisas be token'o – `503`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`) ir be 24+ simbolių `METRICS_TOKEN` servisas nepasileidžia.
+
+**Kaip Prometheus skaito.** Kelias yra pagrindiniame domene, ne atskirame subdomene, todėl tinka abu taikiniai:
+
+- **DirectAdmin** (viešas domenas): DirectAdmin baigia TLS ir perduoda užklausą į nginx-proxy, šis IP tikrina pagal `X-Forwarded-For`. Sąraše – tik Prometheus adresas.
+- **VPN** (`PUBLISH_ADDRESS` – VPN sąsajos adresas, be DirectAdmin): Prometheus jungiasi per VPN `http://` ir domeno vardu (Prometheus serveryje vardas turi rodyti į VPN adresą, pvz. `/etc/hosts`).
+
+```yaml
+scrape_configs:
+  - job_name: 'demo'                  # tas pats vardas, kurį dashboard'o $job kintamasis jau naudoja
+    scheme: https                     # VPN taikiniui: http
+    metrics_path: /metrics
+    scrape_interval: 5m
+    scrape_timeout: 1m
+    authorization:
+      credentials_file: /etc/prometheus/tokens/demo
+    static_configs:
+      - targets: ['demo.lt']
+```
+
+Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat 1 1` / `sar 1 1`) plius kiekvieno `METRICS_URLS` adreso patikra (iki 20 s), todėl `scrape_timeout` palik didesnį už numatytą 10 s.
+
+**Serverio, ne konteinerio skaičiai.** Servisas naudoja projekto PHP image'ą, veikia projekto vartotoju ir turi tik du papildomus prijungimus, abu tik skaitymui:
+
+- serverio `/proc` → `/host/proc`: CPU, RAM, apkrova ir uptime `/proc` yra viso serverio; tinklo skaitikliai skaitomi iš `/host/proc/1/net/dev` (serverio tinklo vardų erdvė, ne konteinerio). Release'as šį prijungimą palieka, nes `/proc` yra kiekviename Linux taikinyje;
+- projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi.
+
+Portų servisas nepublikuoja ir projekto tinkle nėra (jį pasiekia tik nginx-proxy).
+
+**Prasmė ir vienetai** (kaip seno scripto, įskaitant jo keistenybes, kad dashboard'ai rodytų tą patį):
+
+| Metrikos | Šaltinis | Vienetai, pastabos |
+| --- | --- | --- |
+| `cpu_usage_*` | `mpstat -P ALL 1 1` | %, `cpu="all"` ir kiekvienas branduolys |
+| `ram_*` | `free` | KiB; `ram_used` = total − free − buff/cache |
+| `disk_*`, `disk_inodes_*` | `df -k`, `df -i` projekto duomenų disko | KiB ir vnt.; `*_available_percentage` yra `Use%` (užimta dalis), kaip anksčiau |
+| `io_usage_*`, `iousage_usr`, `ip_usage_nice` | `iostat -x` avg-cpu | % nuo serverio paleidimo; vardai su klaidomis palikti, nes juos naudoja dashboard'as |
+| `network_*` | `sar -n DEV 1 1` | paketai/s, KiB/s; sąsaja – `METRICS_NETWORK_INTERFACE`, kitaip numatytojo maršruto |
+| `uptime`, `uptime_average_load_*` | `uptime` | s; `uptime_average_load_10min` yra 5 min apkrova (seno parserio vardas) |
+| `disk_write_speed` | `dd … conv=fdatasync` | kaip seno parserio (`MB/s × 1024`); `METRICS_DISK_WRITE_MB` konteinerio laikiname kataloge (Docker diske), ne dažniau nei kas valandą |
+| `website_response_*` | `curl -L` | s ir HTTP kodas; `0` – neatsakė ar netinkamas sertifikatas |
+
+**Svetainės patikra** eina iš metrikų konteinerio per jo atskirą tinklą: projekto tinkle domenas rodo tiesiai į nginx-proxy, o patikra turi praeiti tą patį kelią kaip lankytojas (DirectAdmin ir jo sertifikatas). Jei serveris negali pasiekti savo viešo adreso arba vardas yra tik VPN, nurodyk `METRICS_PROBE_ADDRESS` (pvz. `10.8.0.14`): jungiamasi ten, o `Host` ir SNI lieka iš URL. Sertifikato data nuskaitoma netikrinant jo, todėl pasibaigęs sertifikatas taip pat parodomas.

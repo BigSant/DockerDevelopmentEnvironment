@@ -34,6 +34,7 @@ services:
       SETUP_ENABLE_MAILPIT: ${SETUP_ENABLE_MAILPIT:-0}
       SETUP_ENABLE_CRON: ${SETUP_ENABLE_CRON:-0}
       SETUP_ENABLE_DBMONITOR: ${SETUP_ENABLE_DBMONITOR:-0}
+      SETUP_ENABLE_METRICS: ${SETUP_ENABLE_METRICS:-0}
       # Client IP allowlists per web entry point (empty = open locally, tools denied on stage/prod).
       ALLOWED_IPS: ${ALLOWED_IPS:-}
       SITE_ALLOWED_IPS: ${SITE_ALLOWED_IPS:-}
@@ -41,6 +42,7 @@ services:
       MAILPIT_ALLOWED_IPS: ${MAILPIT_ALLOWED_IPS:-}
       CRON_ALLOWED_IPS: ${CRON_ALLOWED_IPS:-}
       DBMONITOR_ALLOWED_IPS: ${DBMONITOR_ALLOWED_IPS:-}
+      METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro

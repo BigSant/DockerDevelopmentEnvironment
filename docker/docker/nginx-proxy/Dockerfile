@@ -10,6 +10,7 @@ COPY /docker/nginx-proxy/conf/sites.pma.conf /etc/nginx/templates/setup-pma.conf
 COPY /docker/nginx-proxy/conf/sites.mailpit.conf /etc/nginx/templates/setup-mailpit.conf
 COPY /docker/nginx-proxy/conf/sites.cron.conf /etc/nginx/templates/setup-cron.conf
 COPY /docker/nginx-proxy/conf/sites.dbmonitor.conf /etc/nginx/templates/setup-dbmonitor.conf
+COPY /docker/nginx-proxy/conf/sites.metrics.conf /etc/nginx/templates/setup-metrics.conf
 
 COPY /docker/nginx-proxy/conf/init.sh /usr/local/bin/init.sh
 COPY /docker/nginx-proxy/conf/access.sh /usr/local/bin/access.sh
