@@ -32,6 +32,9 @@ DEFAULTS = {
     'DATABASE_PERFORMANCE_SCHEMA': 'off',
     'MEMCACHED_CACHE_MB': '',
     'REDIS_MAXMEMORY_MB': '',
+    # Where nginx-proxy publishes its ports: loopback behind DirectAdmin / the host Nginx,
+    # or one interface address (e.g. a VPN) that clients reach directly.
+    'PUBLISH_ADDRESS': '127.0.0.1',
 }
 
 # <SERVICE>_MEMORY / <SERVICE>_CPUS with local-machine defaults; stage/prod set them per server.
@@ -131,6 +134,19 @@ def choice(settings, name, allowed):
     return value
 
 
+def publish_address(value):
+    """'proxy' for loopback (a host proxy forwards clients), 'direct' for an interface clients reach themselves."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        address = None
+    if address is None or address.is_unspecified or '%' in value:
+        raise ValueError(f'PUBLISH_ADDRESS must be one IPv4 or IPv6 address of this host such as 127.0.0.1 or '
+                         f'a VPN interface address, without port, CIDR or zone (0.0.0.0/:: would publish on '
+                         f'every interface); got {value!r}')
+    return 'proxy' if address.is_loopback else 'direct'
+
+
 def resolve_policy(settings, environment):
     # An empty setting means 'not set': the default applies.
     values = {key: str(settings.get(key) or default) for key, default in DEFAULTS.items()}
@@ -170,6 +186,7 @@ def resolve_policy(settings, environment):
     if settings.get('CONTAINER_CPUS') and (not re.fullmatch(r'\d+(?:\.\d+)?', str(settings['CONTAINER_CPUS']))
                                            or not 0 < float(settings['CONTAINER_CPUS']) <= 1024):
         raise ValueError('CONTAINER_CPUS must be greater than 0 and at most 1024')
+    values['SETUP_DIRECT_CLIENTS'] = '1' if publish_address(values['PUBLISH_ADDRESS']) == 'direct' else '0'
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*', values['TZ']):
         raise ValueError('TZ must be a zone name such as Europe/Vilnius or UTC')
     if development:

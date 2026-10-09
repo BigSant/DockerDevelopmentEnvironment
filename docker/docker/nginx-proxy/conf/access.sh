@@ -40,11 +40,38 @@ for name in site pma mailpit cron dbmonitor metrics; do
     } > "$output/$name.conf"
 done
 
-# Requests reach this proxy only through the host (ports bound to 127.0.0.1) or the
-# Docker network, so the forwarded client address from those peers is trusted.
-TRUSTED_PROXIES="${TRUSTED_PROXIES:-127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}"
-trusted="$(addresses TRUSTED_PROXIES)"
+# Who may tell this proxy the client address (X-Forwarded-For) and scheme (X-Forwarded-Proto):
+# - TRUSTED_PROXIES, when set, in either mode;
+# - ports on 127.0.0.1 (default): the host proxy (DirectAdmin / local Nginx), which reaches the
+#   container through Docker's port proxy as the network gateway, plus loopback. Not the whole
+#   private ranges: other containers and networks must not forward a client address;
+# - ports on another address (SETUP_DIRECT_CLIENTS=1, e.g. a VPN): nobody. Clients connect
+#   directly and a forwarded header is theirs to invent.
+gateways() {
+    local interface destination gateway flags rest
+    while read -r interface destination gateway flags rest; do
+        # Default route with RTF_GATEWAY; /proc/net/route stores the IPv4 address little-endian.
+        if [[ "$destination" == 00000000 && "$gateway" =~ ^[0-9A-Fa-f]{8}$ && "$gateway" != 00000000 ]] &&
+           (( 0x$flags & 2 )); then
+            printf '%d.%d.%d.%d\n' "0x${gateway:6:2}" "0x${gateway:4:2}" "0x${gateway:2:2}" "0x${gateway:0:2}"
+        fi
+    done < <(tail -n +2 "${SETUP_ROUTE_FILE:-/proc/net/route}" 2>/dev/null)
+}
+if [[ -n "${TRUSTED_PROXIES:-}" ]]; then
+    trusted="$(addresses TRUSTED_PROXIES)"
+elif [[ "${SETUP_DIRECT_CLIENTS:-0}" == 1 ]]; then
+    trusted=""
+else
+    TRUSTED_PROXIES="127.0.0.1 ::1 $(gateways | sort -u | tr '\n' ' ')"
+    trusted="$(addresses TRUSTED_PROXIES)"
+fi
 {
-    printf 'set_real_ip_from %s;\n' $trusted
-    printf 'real_ip_header X-Forwarded-For;\nreal_ip_recursive on;\n'
+    if [[ -n "$trusted" ]]; then
+        printf 'set_real_ip_from %s;\n' $trusted
+        printf 'real_ip_header X-Forwarded-For;\nreal_ip_recursive on;\n'
+    fi
+    # The peer that connected, before X-Forwarded-For: only a trusted one may set the scheme.
+    printf 'geo $realip_remote_addr $setup_trusted_proxy {\n    default 0;\n'
+    [[ -z "$trusted" ]] || printf '    %s 1;\n' $trusted
+    printf '}\n'
 } > "$real_ip"

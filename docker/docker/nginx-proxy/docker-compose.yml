@@ -44,11 +44,14 @@ services:
       DBMONITOR_ALLOWED_IPS: ${DBMONITOR_ALLOWED_IPS:-}
       METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # 1 = ports on a non-loopback PUBLISH_ADDRESS: clients connect directly, their X-Forwarded-* are not trusted.
+      SETUP_DIRECT_CLIENTS: ${SETUP_DIRECT_CLIENTS:-0}
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/nginx-proxy/:/etc/nginx/project.d/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/nginx-proxy/${ENV}/:/etc/nginx/project.d.env/:ro
-    # Reachable only through the host proxy (local Nginx / DirectAdmin), never directly.
+    # 127.0.0.1 (default): reachable only through the host proxy (local Nginx / DirectAdmin).
+    # A non-loopback PUBLISH_ADDRESS (e.g. the VPN interface) serves clients on that network directly.
     ports:
       - ${PUBLISH_ADDRESS:-127.0.0.1}:${LOCALHOST_PORT}:80
       - ${PUBLISH_ADDRESS:-127.0.0.1}:${LOCALHOST_PORT_SSL}:443

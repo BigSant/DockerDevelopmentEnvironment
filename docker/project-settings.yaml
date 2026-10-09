@@ -35,6 +35,8 @@ services:
       PROFILE: ${PROFILE-}
       LOCALHOST_PORT: ${LOCALHOST_PORT-0}
       LOCALHOST_PORT_SSL: ${LOCALHOST_PORT_SSL-0}
+      # Host address nginx-proxy publishes both ports on; empty = 127.0.0.1 (behind DirectAdmin / the host Nginx).
+      PUBLISH_ADDRESS: ${PUBLISH_ADDRESS-}
       DATA_DIRECTORY: ${DATA_DIRECTORY-}
       APP_SOURCE_DIRECTORY: ${APP_SOURCE_DIRECTORY-}
       SCHEMA_DIRECTORY: ${SCHEMA_DIRECTORY-}
