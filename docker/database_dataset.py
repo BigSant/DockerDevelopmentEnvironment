@@ -59,7 +59,8 @@ def load_recipe(project):
             line = raw.strip()
             if not line or line.startswith('#'):
                 continue
-            line = line.replace('{p}', prefix(project))
+            from database_registry import expand_prefix
+            line = expand_prefix(line, f'{path.name}:{number}', prefix(project))
             if line.startswith('@products '):
                 products = products or line[len('@products '):].strip()
                 continue
@@ -157,6 +158,24 @@ def slice_condition(table, columns, products, recipe):
     raise ValueError(f'Slice table {table} has no id_product column; add a condition for it to database/data/recipe.txt')
 
 
+def product_sample_needed(entries, tables, recipe):
+    """Whether any table's rows follow the @products sample: a slice rule or a recipe condition using {products}."""
+    from database_registry import classify
+    for table in tables:
+        rule = (classify(entries, table) or ('', '', '', ''))[2]
+        if rule == 'slice' or (rule not in ('empty', 'drop') and '{products}' in (recipe(table) or '')):
+            return True
+    return False
+
+
+def legacy_password_key(project, directory):
+    """The dev-only cookie key a PrestaShop 1.6 set hashes its passwords with; None for every other application."""
+    from project_prestashop import is_prestashop
+    if not is_prestashop(project) or not str(project.settings.get('PS_VERSION', '')).startswith('1.6'):
+        return None
+    return dataset_key(directory)
+
+
 def dataset_key(directory):
     """PS 1.6 hashes passwords with the cookie key: the set has its own dev-only key, committed with it.
 
@@ -172,7 +191,7 @@ def dataset_key(directory):
 
 def build_dataset(project, name='dev'):
     """Write the data set files from the local DB; returns {file name: bytes}."""
-    from database_registry import classify, load, prefix
+    from database_registry import classify, load, registry_file
     from database_schema import registry_exclusions
     if project.environment != 'local':
         raise ValueError('Build the base data set from the local LIVE copy (ENV=local)')
@@ -180,12 +199,18 @@ def build_dataset(project, name='dev'):
     tables = database_tables(project)
     registry_exclusions(project, tables, require_classified=True)
     entries = load(project)
+    if not entries:
+        # A PrestaShop project starts from the profile registry; any other application brings its own.
+        raise ValueError(f'The data set follows the table registry, and {registry_file(project)} has no tables yet: '
+                         'classify them with make schema-resolve')
     sample_sql, recipe = load_recipe(project)
-    if not sample_sql:
-        raise ValueError('The recipe needs an @products line selecting the product sample')
-    ids = [line for line in mysql_query(project, sample_sql.rstrip(';') + ';\n').split() if line.isdigit()]
+    ids = []
+    if product_sample_needed(entries, tables, recipe):
+        if not sample_sql:
+            raise ValueError('The recipe needs an @products line selecting the product sample')
+        ids = [line for line in mysql_query(project, sample_sql.rstrip(';') + ';\n').split() if line.isdigit()]
     products = '(' + (','.join(ids) or '0') + ')'
-    legacy_key = dataset_key(directory) if str(project.settings.get('PS_VERSION', '')).startswith('1.6') else None
+    legacy_key = legacy_password_key(project, directory)
     columns, keys = table_metadata(project)
     groups, summary = {}, []
     for table in sorted(tables):
@@ -227,8 +252,16 @@ def build_dataset(project, name='dev'):
     rows = sum(count for _, _, count in summary)
     print(f'Data set {name}: {len(ids)} sample products, {sum(1 for s in summary if s[2])} tables, {rows} rows, '
           f'{raw / 1048576:.1f} MB ({packed / 1048576:.1f} MB gzip) in {directory}')
-    print(f'Dev login: employee<id>@example.test / {DEV_PASSWORD} (every customer: customer<id>@example.test).')
+    print(dev_login_hint(project))
     return files
+
+
+def dev_login_hint(project):
+    from project_prestashop import is_prestashop
+    if is_prestashop(project):
+        return f'Dev login: employee<id>@example.test / {DEV_PASSWORD} (every customer: customer<id>@example.test).'
+    return f'Anonymised password columns hold the bcrypt hash of {DEV_PASSWORD}.'
+
 
 
 def dataset_files(project, name):
@@ -303,7 +336,9 @@ def load_dataset(project, name='dev', replace=False, backup=False):
             drop_all_tables(project)
         execute_sql(project, [Path(combined.name), *hooks], first_is_dump=True)
     legacy = dataset_directory(project, name) / 'dataset.env'
-    if legacy.is_file() and f'PS_COOKIE_KEY={project.settings.get("PS_COOKIE_KEY", "")}\n' not in legacy.read_text():
+    from project_prestashop import is_prestashop
+    if is_prestashop(project) and legacy.is_file() and \
+            f'PS_COOKIE_KEY={project.settings.get("PS_COOKIE_KEY", "")}\n' not in legacy.read_text():
         print(f'Warning: dev logins of this PrestaShop 1.6 set need PS_COOKIE_KEY from {legacy} in env/local.env.')
     after_load(project)
-    print(f'Data set {name} loaded. Dev login: employee<id>@example.test / {DEV_PASSWORD}')
+    print(f'Data set {name} loaded. {dev_login_hint(project)}')

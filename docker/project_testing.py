@@ -54,15 +54,16 @@ def prepare_tests(project, dataset='dev'):
 PROJECT_SUITE = '.setup-tests/project'
 
 
-def find_suites(web_directory):
-    """PHPUnit configurations of modules (module or module/tests), of the shop and of the project."""
+def find_suites(web_directory, prestashop):
+    """PHPUnit configurations of the application (`shop` for PrestaShop, else `app`), of PrestaShop modules
+    (module or module/tests) and of the project. modules/ is an ordinary folder of a generic application."""
     suites = {}
-    candidates = [web_directory, *sorted(path for path in (web_directory / 'modules').glob('*') if path.is_dir())]
-    for base in candidates:
+    modules = sorted(path for path in (web_directory / 'modules').glob('*') if path.is_dir()) if prestashop else []
+    for base in [web_directory, *modules]:
         for folder in (base, base / 'tests'):
             names = [name for name in SUITE_NAMES if (folder / name).is_file()]
             if names:
-                key = 'shop' if base == web_directory else base.name
+                key = ('shop' if prestashop else 'app') if base == web_directory else base.name
                 suites.setdefault(key, folder / names[0])  # phpunit.xml overrides the .dist default
                 break
     names = [name for name in SUITE_NAMES if (web_directory / PROJECT_SUITE / name).is_file()]
@@ -121,13 +122,15 @@ def run_phpunit(project, module=None, test_filter=None, sync=True):
     test = test_project(project)
     if sync and local.environment == 'local':
         initialize_test(local, refresh=True)
-    suites = find_suites(test.web_directory)
+    from project_prestashop import is_prestashop
+    suites = find_suites(test.web_directory, is_prestashop(test))
     if module:
         if module not in suites:
             raise ValueError(f'No PHPUnit suite for {module}; found: {", ".join(sorted(suites)) or "none"}')
         suites = {module: suites[module]}
     if not suites:
-        print('No PHPUnit suites found (phpunit.xml or phpunit.xml.dist in a module, its tests/ folder or the shop).')
+        print('No PHPUnit suites found (phpunit.xml or phpunit.xml.dist in the application, the environment '
+              'repository tests/' + (', a module or its tests/ folder' if is_prestashop(test) else '') + ').')
         return []
     failed = []
     for name, config in sorted(suites.items()):

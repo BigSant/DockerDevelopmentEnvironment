@@ -24,7 +24,18 @@ def registry_file(project):
 
 
 def prefix(project):
-    return project.settings.get('PS_DATABASE_PREFIX') or 'ps_'
+    """The PrestaShop table prefix behind {p}; None for a generic project, whose tables are named in full."""
+    from project_prestashop import is_prestashop
+    return (project.settings.get('PS_DATABASE_PREFIX') or 'ps_') if is_prestashop(project) else None
+
+
+def expand_prefix(line, source, table_prefix):
+    if '{p}' not in line:
+        return line
+    if table_prefix is None:
+        from project_prestashop import generic_refusal
+        raise generic_refusal(f'The table prefix {{p}} in {source}')
+    return line.replace('{p}', table_prefix)
 
 
 def parse(text, source, table_prefix):
@@ -37,7 +48,7 @@ def parse(text, source, table_prefix):
         if len(fields) != 4 or fields[2] not in BASE_RULES or fields[3] not in LIVE_RULES:
             raise ValueError(f'{source}:{number}: expected "table group base live" with base in {BASE_RULES} '
                              f'and live in import/skip')
-        entries.append((fields[0].replace('{p}', table_prefix), fields[1], fields[2], fields[3]))
+        entries.append((expand_prefix(fields[0], f'{source}:{number}', table_prefix), fields[1], fields[2], fields[3]))
     return entries
 
 

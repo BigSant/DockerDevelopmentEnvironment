@@ -25,6 +25,19 @@ Paleidžiamas PHP-FPM
 | Akeneo | `PROFILE=akeneo` | Akeneo PHP image'o papildymai. Pilnas Akeneo įdiegimas neautomatizuotas. |
 | Symfony, Laravel, savas PHP | `PROFILE=` (arba `generic`) | PS veiksmų nėra. Aplikacija skaito env pati arba per startup scriptą. |
 
+**Profilio taisyklė.** Kiekvienas setup žingsnis, skaitantis ar keičiantis aplikacijos dalykus, žiūri į `PROFILE`. Ne `prestashop` profilis (tuščias, `generic`, `akeneo`) PrestaShop dalykų neskaito ir neliečia:
+
+| Žingsnis | Generic projekte |
+| --- | --- |
+| `setup` / `bootstrap` | PS raktai negeneruojami, `app-prepare` nieko nedaro. |
+| `PS_RELEASE=on`, `PS_RELEASE_PATHS`, `PS_ADMIN_DIR` | Atmetama: `… belongs to PrestaShop; set PROFILE=prestashop …`. PS release į image'ą nepatenka. |
+| PHP startas, `up`, `restart`, `check`, `doctor` | PS konfigūracijos failas netikrinamas ir nekuriamas. |
+| `db-import`, `db-load`, `test-prepare` | PS saugūs numatytieji ir parduotuvės politika nevykdomi; projekto after-import SQL vykdomi. `${DB_PREFIX}` ir `${PS_SSL}` SQL'e atmetami. |
+| Lentelių registras, rinkinio receptas | `{p}` (PS prefiksas) atmetamas – lentelės rašomos pilnais vardais. `@products` reikia tik tada, kai yra `slice` lentelių. |
+| `test-prepare` kopija | `var/cache`, `var/logs`, `cache` kopijuojami kaip kiti failai (PS juos kuria tuščius). |
+| `phpunit`, IDE | `modules/` – paprastas katalogas: rinkiniai tik `app` (aplikacijos šaknis) ir `project` (`tests/`). |
+| `runtime-info` | `PS_*` jungiklių nerodo. |
+
 ## PrestaShop konfigūracijos failas
 
 PrestaShop konfigūracijos failas generuojamas iš šablono ir env. Jo nereikia gauti iš kolegos.

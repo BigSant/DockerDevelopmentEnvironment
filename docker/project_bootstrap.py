@@ -220,6 +220,9 @@ def bootstrap(project):
     return project
 
 
+PRESTASHOP_CACHE_FOLDERS = ('var/cache', 'var/logs', 'cache')
+
+
 def initialize_test(project, refresh=False):
     from project import Project
     if project.environment != 'local':
@@ -248,9 +251,12 @@ def initialize_test(project, refresh=False):
     if not destination.exists() or refresh:
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
         # Tool worktrees and setup's own test tools never come from the local checkout; projects add
-        # large non-code folders (feed caches, media) with TEST_COPY_EXCLUDE.
-        excludes = ['.git', 'node_modules', '/var/cache', '/var/logs', '/cache', '/.claude', '/.setup-tools', '/.setup-tests',
-                    *str(project.settings.get('TEST_COPY_EXCLUDE') or '').split()]
+        # large non-code folders (feed caches, media) with TEST_COPY_EXCLUDE. The cache folders are
+        # PrestaShop's: the copy starts with them empty; a generic application's tree is copied as it is.
+        from project_prestashop import is_prestashop
+        cache_folders = PRESTASHOP_CACHE_FOLDERS if is_prestashop(project) else ()
+        excludes = ['.git', 'node_modules', *('/' + folder for folder in cache_folders), '/.claude', '/.setup-tools',
+                    '/.setup-tests', *str(project.settings.get('TEST_COPY_EXCLUDE') or '').split()]
         for pattern in excludes:
             if pattern.startswith('-') or '..' in pattern.split('/'):
                 raise ValueError(f'TEST_COPY_EXCLUDE entries are paths inside the shop: {pattern}')
@@ -268,7 +274,7 @@ def initialize_test(project, refresh=False):
         except BaseException:
             if not marker.exists(): shutil.rmtree(destination)
             raise
-        for relative in ('var/cache', 'var/logs', 'cache'):
+        for relative in cache_folders:
             (destination/relative).mkdir(parents=True, exist_ok=True)
         from project_testing import copy_project_suite
         copy_project_suite(project, destination)

@@ -187,6 +187,11 @@ is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks 
 7. Tests run only against ENV=test; deploys never delete files the code does not track, nor protected paths.
 8. Every setup step that reads or changes application-specific things follows `PROFILE`; an empty
    (generic) profile never reads or touches PrestaShop things (`ps_module`, module upgrades, PS paths).
+   Checked per step (`project_prestashop.is_prestashop`): keys, PHP start/`check`/`doctor` adapter,
+   `PS_RELEASE*`/`PS_ADMIN_DIR` (refused), `app-prepare`, safe after-import SQL, `${DB_PREFIX}`/`${PS_SSL}`
+   and the registry/recipe `{p}` (refused), shop policy after a load, PS 1.6 data-set key, cache-clear,
+   test-copy cache folders, `modules/*` PHPUnit suites and IDE excludes. `tests/test_generic_profile.py`
+   runs a generic project through setup, db-import, test-prepare and ide-init and records every Docker call.
 9. Forwarded client headers are trusted only from a proxy that really sits in front: never from clients
    that reach a non-loopback `PUBLISH_ADDRESS` directly, never from the whole private ranges; upstreams get
    only nginx-proxy's resolved client address.

@@ -18,6 +18,16 @@ FILE_NAMES = {'PS_COOKIE_KEY': ('cookie_key', '_COOKIE_KEY_'), 'PS_COOKIE_IV': (
               'PS_API_PRIVATE_KEY': ('api_private_key', None), 'PS_API_PUBLIC_KEY': ('api_public_key', None)}
 
 
+def is_prestashop(project):
+    """The profile rule: only PROFILE=prestashop (or ps) reads or changes PrestaShop things; anything else is generic."""
+    settings = getattr(project, 'settings', project)
+    return settings.get('PROFILE') in ('ps', 'prestashop')
+
+
+def generic_refusal(what):
+    return ValueError(f'{what} belongs to PrestaShop; set PROFILE=prestashop, or remove it from this generic project')
+
+
 def legacy(ps_version):
     return ps_version.startswith('1.6')
 

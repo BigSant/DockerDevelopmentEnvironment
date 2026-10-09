@@ -48,20 +48,30 @@ def dump_schemas(path):
         return {schema for line in source if (schema := used_schema(line)) is not None}
 
 
+# Hook values of the PrestaShop profile; a generic project's SQL has no table prefix or shop SSL flag.
+PRESTASHOP_HOOK_VALUES = ("DB_PREFIX", "PS_SSL")
+
+
 def hook_values(project):
     """Values an after-import hook may use; each is validated so it cannot carry SQL or shell syntax."""
+    from project_prestashop import is_prestashop
     domain = project.settings.get("SQL_DOMAIN") or project.settings.get("DOMAIN", "")
-    prefix = project.settings.get("PS_DATABASE_PREFIX") or "ps_"
-    return {
-        "DOMAIN": (domain, r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", "a valid DOMAIN hostname"),
-        "DB_PREFIX": (prefix, r"[A-Za-z0-9_]+", "PS_DATABASE_PREFIX of letters, digits and _"),
-        "PS_SSL": ("0" if project.settings.get("PS_SSL") == "off" else "1", r"[01]", "PS_SSL on or off"),
-    }
+    values = {"DOMAIN": (domain, r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", "a valid DOMAIN hostname")}
+    if is_prestashop(project):
+        prefix = project.settings.get("PS_DATABASE_PREFIX") or "ps_"
+        values["DB_PREFIX"] = (prefix, r"[A-Za-z0-9_]+", "PS_DATABASE_PREFIX of letters, digits and _")
+        values["PS_SSL"] = ("0" if project.settings.get("PS_SSL") == "off" else "1", r"[01]", "PS_SSL on or off")
+    return values
 
 
 def render_hook(project, path):
     contents = path.read_bytes()
-    for name, (value, pattern, description) in hook_values(project).items():
+    values = hook_values(project)
+    for name in PRESTASHOP_HOOK_VALUES:
+        if name not in values and ("${" + name + "}").encode() in contents:
+            from project_prestashop import generic_refusal
+            raise generic_refusal(f"${{{name}}} in {path.name}")
+    for name, (value, pattern, description) in values.items():
         token = ("${" + name + "}").encode()
         if token in contents:
             if not re.fullmatch(pattern, value):
