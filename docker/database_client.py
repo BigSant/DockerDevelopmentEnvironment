@@ -46,6 +46,9 @@ else
     if "$dump_client" --help 2>/dev/null | grep -q 'get-server-public-key'; then dump_options="$dump_options --get-server-public-key"; fi
     if "$dump_client" --help 2>/dev/null | grep -q 'column-statistics'; then dump_options="$dump_options --column-statistics=0"; fi
 fi
+database="$1"
+shift
+# Extra mysqldump options follow the database name: --ignore-table=..., --no-data, table names.
 exec "$dump_client" $dump_options --protocol=TCP --host=127.0.0.1 --single-transaction --quick --hex-blob \\
-    --routines --events --triggers --no-tablespaces --user="$MYSQL_USER" "$1"
+    --routines --events --triggers --no-tablespaces --user="$MYSQL_USER" "$database" "$@"
 '''

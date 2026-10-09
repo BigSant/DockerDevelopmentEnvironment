@@ -11,6 +11,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
+from database_client import DUMP
 from database_import import filter_dump
 
 IMAGE = os.environ.get("SETUP_MYSQL_IMAGE")
@@ -63,6 +64,22 @@ class SkippedTableImportIntegrationTest(unittest.TestCase):
             expected = "0" if database == "filtered" else "2"
             self.assertEqual(self.query(database, "SELECT COUNT(*) FROM ps_connections;"), [expected])
             self.assertEqual(skipped, {"ps_connections"} if database == "filtered" else set())
+
+    def test_registry_backup_keeps_structure_of_skipped_tables_without_their_data(self):
+        self.query("shop", "CREATE TABLE ps_orders (id int PRIMARY KEY); INSERT INTO ps_orders VALUES (1);"
+                           "CREATE TABLE ps_connections (id int PRIMARY KEY); INSERT INTO ps_connections VALUES (1),(2);"
+                           "GRANT ALL ON shop.* TO 'shop'@'%';")
+        dump = b""
+        for options in (["--ignore-table=shop.ps_connections"], ["--no-data", "--skip-routines", "--skip-events", "ps_connections"]):
+            result = subprocess.run(["docker", "exec", self.name, "sh", "-c", DUMP, "database-backup", "shop", *options],
+                                    capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            dump += result.stdout
+        self.query("", "CREATE DATABASE restored;")
+        loaded = self.client("restored", dump)
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        self.assertEqual(self.query("restored", "SELECT COUNT(*) FROM ps_orders;"), ["1"])
+        self.assertEqual(self.query("restored", "SELECT COUNT(*) FROM ps_connections;"), ["0"])
 
 
 if __name__ == "__main__":

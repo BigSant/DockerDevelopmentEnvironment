@@ -30,6 +30,10 @@ SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'redis', 'playwright
 RUNTIME_PROFILES = {'cron': 'cron'}
 # Web tools that stage/prod start only behind a client IP allowlist.
 ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron')
+# With DEPLOY_CONTEXT, stage/prod containers run on the target: exec/ps/logs go there, builds
+# and model rendering stay on this build machine, and lifecycle commands use the release model.
+LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
+RELEASE_COMPOSE_COMMANDS = ('up', 'down', 'run', 'create', 'start', 'rm')
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
 
 
@@ -128,6 +132,8 @@ class Project:
             if not (str(settings['APP_UID']).isdigit() and str(settings.get('APP_GID', '')).isdigit()):
                 raise ValueError('APP_UID and APP_GID must both be numeric ids of the account on the server')
             self.process_env.update(HOST_UID=str(settings['APP_UID']), HOST_GID=str(settings['APP_GID']))
+        if environment in ('stage', 'prod') and settings.get('DEPLOY_CONTEXT'):
+            self.process_env['DOCKER_CONTEXT'] = settings['DEPLOY_CONTEXT']
         try:
             policy = resolve_policy(settings, environment)
         except MissingLimits as error:
@@ -218,8 +224,19 @@ class Project:
         selected = getattr(self, "profiles", None) if profiles is None else profiles
         return {**self.process_env, **({"COMPOSE_PROFILES": selected} if selected is not None else {})}
 
+    def compose_env(self, args, profiles=None):
+        """Environment for one Compose command: images build here, running containers live on the target."""
+        env = self.child_env(profiles)
+        context = env.get("DOCKER_CONTEXT")
+        if context and args and args[0] in LOCAL_COMPOSE_COMMANDS:
+            env.pop("DOCKER_CONTEXT")
+        elif context and args and args[0] in RELEASE_COMPOSE_COMMANDS:
+            raise ValueError(f"ENV={self.environment} runs on {context} from the release model; "
+                             f"use make deploy-images ENV={self.environment} instead of compose {args[0]}")
+        return env
+
     def capture(self, args, profiles=None):
-        result = subprocess.run(self.command + args, env=self.child_env(profiles),
+        result = subprocess.run(self.command + args, env=self.compose_env(args, profiles),
                                 capture_output=True, text=True)
         if result.returncode:
             # Compose errors can include interpolated credentials; keep diagnostics private.
@@ -229,7 +246,7 @@ class Project:
     def run(self, args, profiles=None):
         if self.environment == 'test' and profiles is not None:
             self.validate_test_isolation(profiles)
-        subprocess.run(self.command + args, env=self.child_env(profiles), check=True)
+        subprocess.run(self.command + args, env=self.compose_env(args, profiles), check=True)
 
     def model(self):
         return json.loads(self.capture(["config", "--format", "json"], profiles="*"))
@@ -260,7 +277,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -277,6 +294,10 @@ def main():
     parser.add_argument('--no-sync', action='store_true', help='phpunit: do not refresh the test application copy first')
     parser.add_argument('--allow-dirty', action='store_true', help='release: allow uncommitted setup changes (not for real releases)')
     parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
+    parser.add_argument('--release-ref', help='deploy: shop tag or commit to deploy')
+    parser.add_argument('--no-backup', action='store_true', help='deploy: skip the pre-deploy DB backup')
+    parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
+    parser.add_argument('--name', help='module-pull: module directory name')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
@@ -328,7 +349,8 @@ def main():
             from database_grants import restrict_grants
             restrict_grants(project)
         elif args.action == 'db-backup':
-            backup_database(project, args.output)
+            # Server backups follow the table registry: structure of every table, data of imported ones.
+            backup_database(project, args.output, registry=project.environment in ('stage', 'prod'))
         elif args.action == "ide-init":
             initialize_ide(project, args.docker_server, args.ide_config_directory)
         elif args.action == "ide-refresh":
@@ -389,6 +411,12 @@ def main():
         elif args.action == "deploy-images":
             from project_release import deploy_images
             deploy_images(project, transfer=not args.no_transfer)
+        elif args.action == "deploy":
+            from project_deploy import deploy_code
+            deploy_code(project, args.release_ref, backup=not args.no_backup, rollback=args.rollback)
+        elif args.action == "module-pull":
+            from project_deploy import module_pull
+            module_pull(project, args.name)
         elif args.action == "phpunit":
             from project_testing import run_phpunit
             run_phpunit(project, args.module, args.test_filter, sync=not args.no_sync)

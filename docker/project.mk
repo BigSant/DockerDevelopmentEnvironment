@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: image-prune db-restrict-grants setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images
+.PHONY: image-prune db-restrict-grants setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -51,6 +51,8 @@ help:
 	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
 	@echo 'release ENV=stage|prod: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
+	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the shop code, back up, rsync, upgrade, migrate'
+	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
 
 setup init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
@@ -85,6 +87,12 @@ db-fixtures-plan db-fixtures-load:
 
 release:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(allow_dirty)),--allow-dirty,)
+
+deploy:
+	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 0,$(backup)),--no-backup,) $(if $(filter 1,$(rollback)),--rollback,)
+
+module-pull:
+	@$(RUN_PROJECT) $@ --name $(call quote,$(name))
 
 deploy-images:
 	@$(RUN_PROJECT) $@ $(if $(filter 0,$(transfer)),--no-transfer,)

@@ -1,0 +1,296 @@
+"""Code deploy: build a release of the shop on this machine and carry it to the target with rsync.
+
+make deploy ENV=stage|prod [ref=TAG] [backup=0] [rollback=1]
+  1. release: git archive of the shop ref, composer install --no-dev and PS_RELEASE_PATHS in the
+     release PHP image, the project's config/deploy/build.sh (assets) if present;
+  2. a DB backup of the target to this machine, following the table registry (backup=0 skips);
+  3. rsync of the code without --delete: files that exist only on the target (writable paths,
+     module vendors installed there, modules not in the code) stay; a file is removed only when the
+     previously deployed release had it and this one does not (release manifests);
+  4. module upgrades, pending migrations, a schema report and a cache clear on the target.
+rollback=1 deploys the previous release again; the database comes back from the backup by hand.
+"""
+
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+
+# PrestaShop paths written by the shop itself; a deploy never overwrites or deletes them.
+WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/xml/', '/config/themes/',
+            '/translations/', '/mails/', '/app/config/parameters.php', '/config/settings.inc.php',
+            '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
+            '/modules/*/var/', '/.htaccess', '/robots.txt', '/sitemap*.xml', '/.setup-tools/',
+            # Checkouts and tool folders, never part of a release.
+            '/.git/', '/.claude/', '/.idea/')
+KEEP_RELEASES = 3
+MODULE_VERSION = re.compile(r"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
+
+
+def deploy_directory(project):
+    from project_release import release_directory
+    return release_directory(project)
+
+
+def history(project):
+    path = deploy_directory(project) / 'deployments.json'
+    return json.loads(path.read_text()) if path.is_file() else []
+
+
+def record(project, entry):
+    entries = history(project) + [entry]
+    path = deploy_directory(project) / 'deployments.json'
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries, indent=2) + '\n')
+
+
+def shop_commit(project, ref):
+    shop = project.root / 'app/public' if not (project.web_directory / '.git').exists() else project.web_directory
+    result = subprocess.run(['git', '-C', str(shop), 'rev-parse', '--verify', '--end-of-options', ref + '^{commit}'],
+                            capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError(f'The shop repository has no commit {ref!r}; deploy a tag or commit of {shop}')
+    return shop, result.stdout.strip()
+
+
+def php_image(project):
+    image = project.model()['services']['php-fpm']['image']
+    if subprocess.run(['docker', 'image', 'inspect', image], capture_output=True).returncode:
+        raise ValueError(f'The release image {image} is missing; run make release ENV={project.environment} first')
+    return image
+
+
+def in_release_image(project, release, command):
+    image = php_image(project)
+    subprocess.run(['docker', 'run', '--rm', '--network', 'host', '--user', f'{project.process_env["HOST_UID"]}:'
+                    f'{project.process_env["HOST_GID"]}', '-e', 'COMPOSER_HOME=/tmp/composer', '-v', f'{release}:/var/www/html',
+                    '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
+
+
+def build_code(project, ref):
+    """The release directory for one shop commit, built once and reused (rollback, redeploy)."""
+    shop, commit = shop_commit(project, ref)
+    release = deploy_directory(project) / 'code' / commit[:12]
+    if (release / '.setup-release').is_file():
+        print(f'Release {commit[:12]} already built: {release}')
+        return release, commit
+    if release.exists():
+        shutil.rmtree(release)
+    release.mkdir(parents=True)
+    print(f'==> exporting {ref} ({commit[:12]}) from {shop}', flush=True)
+    archive = subprocess.Popen(['git', '-C', str(shop), 'archive', '--format=tar', commit], stdout=subprocess.PIPE)
+    subprocess.run(['tar', '-x', '-C', str(release)], stdin=archive.stdout, check=True)
+    archive.stdout.close()
+    if archive.wait():
+        raise ValueError(f'git archive of {commit[:12]} failed')
+    composer = project.directory / 'config/composer'
+    if (composer / 'composer.json').is_file():
+        for name in ('composer.json', 'composer.lock'):
+            if (composer / name).is_file():
+                shutil.copy2(composer / name, release / name)
+    if (release / 'composer.json').is_file():
+        print('==> composer install --no-dev', flush=True)
+        in_release_image(project, release, 'composer install --no-dev --optimize-autoloader --no-interaction --no-progress')
+    from project_application import plan_application
+    commands, _ = plan_application(project)
+    for command in commands:
+        in_release_image(project, release, command)
+    hook = project.directory / 'config/deploy/build.sh'
+    if hook.is_file():
+        print('==> config/deploy/build.sh', flush=True)
+        _run_hook(project, release, hook)
+    write_manifest(project, release, commit)
+    (release / '.setup-release').write_text(json.dumps({'ref': ref, 'commit': commit}) + '\n')
+    prune_releases(project, keep=release)
+    return release, commit
+
+
+def manifest_path(project, commit):
+    return deploy_directory(project) / 'manifests' / f'{commit[:12]}.txt'
+
+
+def write_manifest(project, release, commit):
+    """Every file the release ships; the next deploy removes what it drops from this list only."""
+    files = sorted(path.relative_to(release).as_posix() for path in release.rglob('*')
+                   if (path.is_file() or path.is_symlink()) and not path.name.startswith('.setup-'))
+    target = manifest_path(project, commit)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(''.join(f'{name}\n' for name in files))
+    return files
+
+
+def removed_files(project, previous, current):
+    """Files of the previously deployed release that the new one no longer ships (never writable paths)."""
+    from fnmatch import fnmatch
+    if not previous or not manifest_path(project, previous).is_file():
+        return []
+    before = set(manifest_path(project, previous).read_text().split('\n')) - {''}
+    after = set(manifest_path(project, current).read_text().split('\n')) - {''}
+    writable = lambda name: any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*')
+                                for pattern in WRITABLE)
+    return sorted(name for name in before - after if not writable(name))
+
+
+def delete_on_target(ssh, path, names):
+    if not names:
+        return
+    if ssh:
+        listing = ''.join(f'{name}\0' for name in names).encode()
+        subprocess.run(['ssh', ssh, f'cd {shlex.quote(path)} && xargs -0 rm -f --'], input=listing, check=True)
+        return
+    for name in names:
+        (Path(path) / name).unlink(missing_ok=True)
+
+
+def _run_hook(project, release, hook):
+    """Project build step (assets, translations) inside the release image, on the release copy."""
+    script = release / '.setup-build.sh'
+    shutil.copy2(hook, script)
+    try:
+        in_release_image(project, release, 'sh /var/www/html/.setup-build.sh')
+    finally:
+        script.unlink(missing_ok=True)
+
+
+def prune_releases(project, keep):
+    releases = sorted((path for path in (deploy_directory(project) / 'code').iterdir() if path.is_dir()),
+                      key=lambda path: path.stat().st_mtime, reverse=True)
+    used = {entry['commit'][:12] for entry in history(project)[-KEEP_RELEASES:]} | {keep.name}
+    for path in releases[KEEP_RELEASES:]:
+        if path.name not in used:
+            shutil.rmtree(path)
+
+
+def target_location(project, deploy_path):
+    """rsync destination of the shop code: ssh host:path, or a local path when DEPLOY_SSH is empty."""
+    relative = project.web_directory.relative_to(project.root).as_posix()
+    path = f'{deploy_path}/{relative}'
+    ssh = project.settings.get('DEPLOY_SSH') or ''
+    if ssh and not re.fullmatch(r'[A-Za-z0-9._-]+@[A-Za-z0-9.-]+', ssh):
+        raise ValueError('DEPLOY_SSH must look like user@host')
+    return ssh, path
+
+
+def target_modules(ssh, path):
+    if ssh:
+        result = subprocess.run(['ssh', ssh, 'ls', '-1', shlex.quote(path + '/modules')], capture_output=True, text=True)
+        return set(result.stdout.split()) if result.returncode == 0 else set()
+    folder = Path(path) / 'modules'
+    return {child.name for child in folder.iterdir() if child.is_dir()} if folder.is_dir() else set()
+
+
+def rsync_command(release, ssh, path, protected):
+    excludes = [*WRITABLE, '/.setup-release', *(f'/modules/{name}/' for name in sorted(protected))]
+    destination = f'{ssh}:{path}/' if ssh else f'{path}/'
+    # --checksum: archive mtimes are commit times, so size + mtime cannot tell two releases apart.
+    # No --delete: the target holds files the code does not track (module vendors, built assets).
+    return ['rsync', '-a', '--checksum', '--human-readable', '--stats', *(f'--exclude={pattern}' for pattern in excludes),
+            f'{release}/', destination]
+
+
+def module_versions(release):
+    versions = {}
+    for main in sorted((release / 'modules').glob('*/*.php')):
+        if main.stem != main.parent.name:
+            continue
+        match = MODULE_VERSION.search(main.read_text(errors='replace'))
+        if match:
+            versions[main.stem] = match[1]
+    return versions
+
+
+def upgrade_modules(project, release):
+    """Run the upgrade of every installed module whose code version is newer than the database's."""
+    from database_schema import mysql_query
+    if str(project.settings.get('PS_VERSION', '')).startswith('1.6'):
+        print('PrestaShop 1.6 has no module upgrade command; upgrade changed modules from the back office.')
+        return []
+    prefix = project.settings.get('PS_DATABASE_PREFIX') or 'ps_'
+    installed = dict(line.split('\t') for line in mysql_query(project, f'SELECT name, version FROM `{prefix}module`;\n').splitlines()
+                     if '\t' in line)
+    changed = [name for name, version in module_versions(release).items()
+               if name in installed and newer(version, installed[name])]
+    for name in changed:
+        print(f'==> upgrading module {name} {installed[name]} -> {module_versions(release)[name]}', flush=True)
+        project.run(['exec', '-T', 'php-fpm', 'php', 'bin/console', 'prestashop:module', 'upgrade', name])
+    return changed
+
+
+def newer(candidate, current):
+    parse = lambda value: [int(part) if part.isdigit() else part for part in re.split(r'[.\-]', value)]
+    try:
+        return parse(candidate) > parse(current)
+    except TypeError:
+        return candidate != current
+
+
+def deploy_code(project, ref=None, backup=True, rollback=False):
+    from project_release import release_settings
+    _, deploy_path = release_settings(project)
+    entries = history(project)
+    if rollback:
+        if len(entries) < 2:
+            raise ValueError('No previous deployment to roll back to')
+        previous = entries[-2]
+        release = deploy_directory(project) / 'code' / previous['commit'][:12]
+        if not (release / '.setup-release').is_file():
+            raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')
+        ref, commit = previous['ref'], previous['commit']
+        print(f'==> rolling back to {ref} ({commit[:12]}); restore the database from the pre-deploy backup if needed')
+    else:
+        if not ref:
+            raise ValueError('Name the shop release to deploy: make deploy ENV=... ref=TAG')
+        release, commit = build_code(project, ref)
+    ssh, path = target_location(project, deploy_path)
+    on_target = target_modules(ssh, path)
+    protected = sorted(on_target - {child.name for child in (release / 'modules').iterdir() if child.is_dir()}) \
+        if (release / 'modules').is_dir() else []
+    backup_file = None
+    if backup:
+        from database_backup import backup_database
+        print('==> backing up the target database (table registry)', flush=True)
+        backup_file = backup_database(project, registry=True)
+    print(f'==> rsync {release} -> {ssh + ":" if ssh else ""}{path}', flush=True)
+    subprocess.run(rsync_command(release, ssh, path, protected), check=True)
+    if not manifest_path(project, commit).is_file():
+        write_manifest(project, release, commit)
+    removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
+    delete_on_target(ssh, path, removed)
+    if removed:
+        print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
+    elif not entries:
+        print('First deploy: nothing removed on the target (files it already had stay).')
+    for name in protected:
+        print(f'Warning: module {name} exists only on the target and was left as is; '
+              f'make module-pull ENV={project.environment} name={name} brings it into the code.')
+    upgrade_modules(project, release)
+    from database_migrations_guarded import migrate, migrations_directory
+    if project.settings.get('SCHEMA_DIRECTORY') and migrations_directory(project).is_dir():
+        migrate(project)
+    if project.settings.get('SCHEMA_DIRECTORY'):
+        from database_schema import schema_report
+        schema_report(project)
+    project.run(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
+    record(project, {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                     'rollback': rollback, 'backup': str(backup_file) if backup_file else None})
+    print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
+    return commit
+
+
+def module_pull(project, name):
+    """Copy a module that exists only on the target into the local shop checkout."""
+    from project_release import release_settings
+    if not re.fullmatch(r'[A-Za-z0-9_]+', name or ''):
+        raise ValueError('Name the module: make module-pull ENV=... name=MODULE')
+    _, deploy_path = release_settings(project)
+    ssh, path = target_location(project, deploy_path)
+    local = project.root / 'app/public/modules' / name
+    if local.exists():
+        raise ValueError(f'{local} already exists; the code copy wins')
+    source = f'{ssh}:{path}/modules/{name}/' if ssh else f'{path}/modules/{name}/'
+    subprocess.run(['rsync', '-a', '--exclude=/cache/', '--exclude=/var/', source, f'{local}/'], check=True)
+    print(f'Pulled module {name} into {local}; review and commit it to the shop repository.')
+    return local
