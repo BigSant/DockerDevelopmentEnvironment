@@ -49,7 +49,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `PROJECT_NAME` | Privalomas | Konteinerių, tinklo ir image'ų vardų pagrindas. Mažosios raidės, skaitmenys, `_`, `-`. Laikyk `common.env`. |
 | `PROJECT_DISPLAY_NAME` | Tuščias | PhpStorm projekto pavadinimas. Be jo išsaugomas `.idea/.name` arba naudojamas `PROJECT_NAME`. |
 | `PROFILE` | Tuščias (bendras PHP) | `prestashop` įjungia PS veiksmus, `akeneo` – Akeneo image'o papildymus. Kitas vardas veikia kaip bendras PHP. |
-| `SERVICES` | Tuščias | Papildomi CORE servisai per tarpus: `pma mailpit cron dbmonitor memcached redis playwright php-phpstan php-cs php-doctrine-migrations`. Nežinomas vardas – klaida. Žr. [servisai](05-servisai.md#servisų-katalogas-services). |
+| `SERVICES` | Tuščias | Papildomi CORE servisai per tarpus: `pma mailpit cron dbmonitor metrics memcached redis playwright php-phpstan php-cs php-doctrine-migrations`. Nežinomas vardas – klaida. Žr. [servisai](05-servisai.md#servisų-katalogas-services). |
 | `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
 | `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
 
@@ -66,7 +66,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `WEBSERVICE_TIMEOUT` | `90` | Nginx proxy užklausos laikas sekundėmis. |
 | `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
 | `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
-| `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
+| `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
 | `TRUSTED_PROXIES` | `127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16` | Iš kurių adresų nginx-proxy priima `X-Forwarded-For`. |
 
 IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-apribojimai).
@@ -85,6 +85,20 @@ IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-aprib
 | `DATABASE_MONITOR_USER` | `<DATABASE_NAME>_monitor` | DB monitoriaus vartotojas, žr. [DB monitorius](05-servisai.md#db-monitorius). |
 | `DATABASE_MONITOR_PASSWORD` | Tuščias | Jo slaptažodis, bent 16 simbolių. |
 | `DBMONITOR_TOKEN` | Tuščias | Bearer token'as DB monitoriaus endpoint'ui, bent 24 simboliai. |
+
+## Metrikos (Prometheus)
+
+Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheus).
+
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `METRICS_TOKEN` | Tuščias | Bearer token'as `/metrics`, bent 24 simboliai. Stage/prod be jo servisas nepasileidžia. |
+| `METRICS_ALLOWED_IPS` | Tuščias | Prometheus serverio adresas (IP/CIDR). Be jo ar `ALLOWED_IPS` stage/prod servisas nepasileidžia. |
+| `METRICS_URLS` | `https://<DOMAIN>/` | Tikrinami URL per tarpus (seno scripto `--urls`): atsakymo laikas ir būsena. |
+| `METRICS_PROBE_ADDRESS` | Tuščias | IP, į kurį jungiasi URL patikra vietoj DNS (kaip `curl --connect-to`), pvz. VPN adresas. |
+| `METRICS_NETWORK_INTERFACE` | Numatytojo maršruto sąsaja | Serverio tinklo sąsaja `network_*` metrikoms (seno scripto `network_interface`). |
+| `METRICS_SUPPORT_LEVEL` | `0` | Projekto palaikymo lygis 0–9 (`support_level`), pagal jį alert'ai parenka, ką pranešti. |
+| `METRICS_DISK_WRITE_MB` | `100` | Disko rašymo testo dydis (`disk_write_speed`), kartą per valandą. `0` išjungia. |
 
 ## Laikas ir derinimas
 

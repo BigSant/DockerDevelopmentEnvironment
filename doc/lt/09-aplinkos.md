@@ -18,7 +18,8 @@ Konteinerių ir tinklo varduose yra aplinka (`demo-local-…`, `demo-test-…`),
 Tas pats CORE veikia visose aplinkose, bet stage/prod turi griežtesnes taisykles. Komanda sustoja su klaida, jei:
 
 - nenurodyti keturių pagrindinių servisų limitai `PHP_MEMORY`, `PHP_CPUS`, `DATABASE_MEMORY`, `DATABASE_CPUS`, `WEBSERVER_MEMORY`, `WEBSERVER_CPUS`, `PROXY_MEMORY`, `PROXY_CPUS`. Klaidos pranešimas pasiūlo reikšmes pagal Docker host'o dydį ([resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui));
-- įjungtas `pma`, `mailpit`, `cron` ar `dbmonitor`, bet nėra jo IP sąrašo ([IP apribojimai](05-servisai.md#ip-apribojimai));
+- įjungtas `pma`, `mailpit`, `cron`, `dbmonitor` ar `metrics`, bet nėra jo IP sąrašo ([IP apribojimai](05-servisai.md#ip-apribojimai));
+- įjungtas `metrics`, bet `METRICS_TOKEN` trumpesnis nei 24 simboliai;
 - nurodytas `XDEBUG_MODE` (stage/prod image'uose Xdebug nėra);
 - release'ui nenurodyti `APP_UID`, `APP_GID`, `DEPLOY_PATH` (ir `DEPLOY_CONTEXT` siuntimui į serverį);
 - nurodytas `DEPLOY_CONTEXT`, bet nėra `APP_UID`/`APP_GID` (bet kuri komanda).

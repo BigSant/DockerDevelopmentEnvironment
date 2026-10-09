@@ -1,0 +1,51 @@
+services:
+  # Prometheus /metrics of the target (the server running this project's containers), names kept
+  # from the existing monitoring script so the Grafana dashboards and alerts work unchanged.
+  # Reached as <domain>/metrics through nginx-proxy (METRICS_ALLOWED_IPS / ALLOWED_IPS) with a bearer token.
+  metrics:
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+    container_name: ${PROJECT_NAME}-${ENV}-metrics
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["php", "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php"]
+    # Own network: the project network aliases DOMAIN to nginx-proxy, while the website probe must
+    # reach the public front (DirectAdmin) or METRICS_PROBE_ADDRESS like the old script's curl did.
+    networks:
+      - network_metrics
+    mem_limit: ${METRICS_MEMORY}
+    cpus: ${METRICS_CPUS}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      METRICS_URLS: ${METRICS_URLS}
+      METRICS_PROBE_ADDRESS: ${METRICS_PROBE_ADDRESS:-}
+      METRICS_NETWORK_INTERFACE: ${METRICS_NETWORK_INTERFACE:-}
+      METRICS_SUPPORT_LEVEL: ${METRICS_SUPPORT_LEVEL}
+      METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB}
+    volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
+      # the host network counters are read from /proc/1/net (the host's network namespace).
+      - type: bind
+        source: /proc
+        target: /host/proc
+        read_only: true
+      # Only statfs() of the filesystem holding the project data (df -k / df -i); nothing is read.
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}
+        target: /host/disk
+        read_only: true
+
+  nginx-proxy:
+    networks:
+      network_metrics: {}
+
+networks:
+  network_metrics:
+    driver: bridge
+    name: ${PROJECT_NAME}-${ENV}-metrics-network
