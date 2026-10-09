@@ -81,6 +81,17 @@ class SettingsTest(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, message):
                 monitor_account(SimpleNamespace(settings={**settings, **change}, environment="local"))
 
+    def test_the_application_user_from_the_env_files_is_refused_as_monitor(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            with contextlib.redirect_stdout(io.StringIO()):
+                app = scaffold("monitor-user", temporary)
+            with (app / "env/local.env").open("a") as env:
+                env.write("DATABASE_USER=shopuser\nDATABASE_MONITOR_USER=shopuser\nDATABASE_MONITOR_PASSWORD=" + "x" * 20 + "\n")
+            with self.assertRaisesRegex(ValueError, "its own account"):
+                monitor_account(Project(app))
+
     def test_performance_schema_switch(self):
         self.assertEqual(resolve_policy({}, "local")["DATABASE_PERFORMANCE_SCHEMA"], "off")
         self.assertEqual(resolve_policy({"DATABASE_PERFORMANCE_SCHEMA": "on"}, "local")["DATABASE_PERFORMANCE_SCHEMA"], "on")

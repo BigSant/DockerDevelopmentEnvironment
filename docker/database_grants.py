@@ -8,8 +8,9 @@ RESTRICT = r'''
 set -eu
 client=$(command -v mariadb || command -v mysql)
 run() {  # run USER PASSWORD SQL — socket first (root@localhost), then TCP ('%' accounts)
-    MYSQL_PWD="$2" "$client" --protocol=socket --user="$1" --batch --skip-column-names mysql -e "$3" 2>/dev/null ||
-    MYSQL_PWD="$2" "$client" --protocol=TCP --host=127.0.0.1 --user="$1" --batch --skip-column-names mysql -e "$3"
+    # SQL goes on stdin: statements carry passwords, which a command line would show in ps.
+    printf '%s\n' "$3" | MYSQL_PWD="$2" "$client" --protocol=socket --user="$1" --batch --skip-column-names mysql 2>/dev/null ||
+    printf '%s\n' "$3" | MYSQL_PWD="$2" "$client" --protocol=TCP --host=127.0.0.1 --user="$1" --batch --skip-column-names mysql
 }
 # Pre-v2 databases may have any historical root password, but the application user then
 # held CREATE USER and GRANT OPTION globally, so it can perform the change itself.
@@ -57,17 +58,18 @@ MONITOR = r'''
 set -eu
 client=$(command -v mariadb || command -v mysql)
 user=$(printf "%s" "$1" | sed "s/'/''/g")
-# The password arrives on stdin, never on a command line.
+# The password arrives on stdin and reaches the client on stdin, never on a command line.
 IFS= read -r raw_password
 password=$(printf "%s" "$raw_password" | sed "s/'/''/g")
-MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$client" --protocol=TCP --host=127.0.0.1 --user=root --batch mysql -e "
+MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$client" --protocol=TCP --host=127.0.0.1 --user=root --batch mysql <<SQL
 SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
 CREATE USER IF NOT EXISTS '$user'@'%' IDENTIFIED BY '$password';
 ALTER USER '$user'@'%' IDENTIFIED BY '$password';
 REVOKE ALL PRIVILEGES, GRANT OPTION FROM '$user'@'%';
 GRANT PROCESS ON *.* TO '$user'@'%';
 GRANT SELECT ON performance_schema.* TO '$user'@'%';
-GRANT SELECT, EXECUTE ON sys.* TO '$user'@'%';"
+GRANT SELECT, EXECUTE ON sys.* TO '$user'@'%';
+SQL
 echo "Monitor account $1 reads performance_schema, sys and the process list only."
 '''
 
