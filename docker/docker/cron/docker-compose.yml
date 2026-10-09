@@ -5,18 +5,9 @@ services:
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     profiles:
       - cron
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        sh /opt/setup/runtime/render-templates.sh /usr/local/etc/php/project.d /usr/local/etc/php/project.r /usr/local/etc/php/project.d.env /usr/local/etc/php/project.r.env
-        : > /tmp/crontab
-        for f in /etc/cron.d/crontab /etc/cron.d/crontab.${ENV}; do
-          if [ -f "$$f" ]; then
-            cat "$$f" >> /tmp/crontab
-            echo "" >> /tmp/crontab
-          fi
-        done
-        exec supercronic /tmp/crontab
+    # supercronic runs the git crontab, every job wrapped to record its runs; a thin UI on :8080
+    # (reached through nginx-proxy) shows jobs, history and "run now".
+    entrypoint: ["/bin/sh", "/opt/setup/runtime/cron/cron-start.sh"]
     depends_on:
       php-fpm:
         condition: service_healthy
@@ -34,6 +25,9 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ}
+      ENV: ${ENV}
+      CRON_HISTORY_DIR: /var/lib/setup-cron
+      CRON_HISTORY_KEEP: ${CRON_HISTORY_KEEP:-100}
       # Xdebug 3 reads XDEBUG_MODE itself (debug | off | debug,profile ...); restart to apply.
       XDEBUG_MODE: ${XDEBUG_MODE}
       # Match php-fpm so cron jobs run PHP with the same per-project overrides.
@@ -59,6 +53,8 @@ services:
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
       - ${PROJECT_WEB_DIRECTORY}:/var/www/html
-      - ${PROJECT_CONFIG_DIRECTORY}/cron:/etc/cron.d:ro
+      # Writable only where the UI may edit it (local/test); servers change the crontab through git.
+      - ${PROJECT_CONFIG_DIRECTORY}/cron:/etc/cron.d:${SETUP_CRON_CONFIG_ACCESS:-ro}
+      - ${PROJECT_DATA_DIRECTORY}/cron/:/var/lib/setup-cron/
       - ${PROJECT_DOCKER_DIRECTORY}/config/php/:/usr/local/etc/php/project.d/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/php/${ENV}/:/usr/local/etc/php/project.d.env/:ro

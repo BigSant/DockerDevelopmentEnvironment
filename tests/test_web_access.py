@@ -101,6 +101,18 @@ class RunnerAccessTest(unittest.TestCase):
         self.assertEqual(proxy['ALLOWED_IPS'], '203.0.113.10')
         self.assertEqual(proxy['SITE_ALLOWED_IPS'], '198.51.100.0/24')
 
+    def test_cron_ui_is_guarded_and_edits_its_crontab_only_locally(self):
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('SERVICES=cron\n')
+        with self.assertRaisesRegex(ValueError, 'cron on stage requires CRON_ALLOWED_IPS or ALLOWED_IPS'):
+            Project(self.app, 'stage')
+        with (self.app / 'env/stage.env').open('a') as env:
+            env.write('CRON_ALLOWED_IPS=203.0.113.10\n')
+        stage = Project(self.app, 'stage')
+        self.assertEqual((stage.process_env['SETUP_ENABLE_CRON'], stage.process_env['SETUP_CRON_CONFIG_ACCESS']), ('1', 'ro'))
+        local = Project(self.app)
+        self.assertEqual((local.process_env['SETUP_ENABLE_CRON'], local.process_env['SETUP_CRON_CONFIG_ACCESS']), ('1', 'rw'))
+
     def test_local_tools_start_without_a_list_and_ports_bind_to_localhost(self):
         services = json.loads(Project(self.app).capture(['config', '--format', 'json']))['services']
         self.assertEqual(services['nginx-proxy']['environment']['SETUP_ENABLE_MAILPIT'], '1')

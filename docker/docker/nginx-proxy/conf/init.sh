@@ -9,6 +9,7 @@ sh /usr/local/bin/render-templates.sh /etc/nginx/project.d /etc/nginx/project.r 
 /usr/local/bin/access.sh
 if [[ "${SETUP_ENABLE_PMA:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-pma.conf >> /etc/nginx/conf.d/sites_env.conf; fi
 if [[ "${SETUP_ENABLE_MAILPIT:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-mailpit.conf >> /etc/nginx/conf.d/sites_env.conf; fi
+if [[ "${SETUP_ENABLE_CRON:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-cron.conf >> /etc/nginx/conf.d/sites_env.conf; fi
 if [[ "${CACHE_MODE:-off}" == off ]]; then
     sed -i -E 's/^[[:space:]]*open_file_cache[[:space:]].*/    open_file_cache off;/' /etc/nginx/nginx.conf
 fi

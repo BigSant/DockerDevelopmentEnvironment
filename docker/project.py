@@ -29,7 +29,7 @@ SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'memcached', 'redis', 'playwright
 # Long-running catalogue services start with `up`; the others are tools started by their command.
 RUNTIME_PROFILES = {'cron': 'cron'}
 # Web tools that stage/prod start only behind a client IP allowlist.
-ALLOWLISTED_TOOLS = ('pma', 'mailpit')
+ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron')
 ENV_KEY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:]", re.M)
 
 
@@ -194,7 +194,10 @@ class Project:
                 if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
                     raise ValueError(f'{tool} on {environment} requires {tool.upper()}_ALLOWED_IPS or ALLOWED_IPS')
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
-                                SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0')
+                                SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0',
+                                SETUP_ENABLE_CRON='1' if 'cron' in active else '0',
+                                # The cron UI edits the crontab only where git is not the deploy path.
+                                SETUP_CRON_CONFIG_ACCESS='rw' if environment in ('local', 'test') else 'ro')
         # One fingerprint per built image, computed from that image's own inputs only.
         self.image_suffixes = image_suffixes(profile, self.model()['services'])
         self.process_env.update({suffix_variable(name): value for name, value in self.image_suffixes.items()})

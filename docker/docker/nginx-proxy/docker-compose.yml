@@ -32,6 +32,7 @@ services:
       CACHE_MODE: ${CACHE_MODE:-off}
       SETUP_ENABLE_PMA: ${SETUP_ENABLE_PMA:-0}
       SETUP_ENABLE_MAILPIT: ${SETUP_ENABLE_MAILPIT:-0}
+      SETUP_ENABLE_CRON: ${SETUP_ENABLE_CRON:-0}
       # Client IP allowlists per web entry point (empty = open locally, tools denied on stage/prod).
       ALLOWED_IPS: ${ALLOWED_IPS:-}
       SITE_ALLOWED_IPS: ${SITE_ALLOWED_IPS:-}

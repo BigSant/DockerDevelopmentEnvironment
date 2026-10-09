@@ -153,7 +153,7 @@ def prepare_host(project):
             replace_file(key, private.read_bytes(), private=True)
     print(f'Local hostname and TLS prepared: {domain}')
     entry_helper = host_helper('host_entry.py')
-    for host in ('pma.' + domain, 'mailpit.' + domain):
+    for host in ('pma.' + domain, 'mailpit.' + domain, 'cron.' + domain):
         if resolves_locally(host):
             continue
         command = ['sudo', '-n', sys.executable, str(entry_helper), host]
