@@ -96,3 +96,98 @@ class WebAccessIntegrationTest(unittest.TestCase):
         for allowed in ('999.1.2.3', '127.0.0.1/99', '203.0.113.1; allow all;'):
             name = self.start('prod', allowed)
             self.assertNotEqual(self.docker('wait', name), '0')
+
+
+@unittest.skipUnless(IMAGE, 'Set SETUP_NGINX_TEST_IMAGE to a built shared nginx-proxy image')
+class PublishedPortsIntegrationTest(unittest.TestCase):
+    """Who may forward a client address, through ports Docker really publishes on the host."""
+
+    def docker(self, *args):
+        return subprocess.run(['docker', *args], capture_output=True, text=True,
+                              timeout=60, check=True).stdout.strip()
+
+    def setUp(self):
+        scratch = ROOT / '.test-work'
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+                        '-subj', '/CN=demo.local', '-keyout', str(self.root / 'domain.key'),
+                        '-out', str(self.root / 'domain.crt')], capture_output=True, check=True, timeout=15)
+        self.network = 'setup-publish-test-' + uuid.uuid4().hex[:12]
+        self.docker('network', 'create', self.network)
+        self.addCleanup(self.docker, 'network', 'rm', self.network)
+        # A non-loopback address of this host (the VPN interface on the pilot server).
+        self.address = os.environ.get('SETUP_PUBLISH_TEST_ADDRESS') or self.docker(
+            'network', 'inspect', 'bridge', '--format', '{{(index .IPAM.Config 0).Gateway}}')
+        self.backend = self.network + '-backend'
+        # The backend echoes what the upstream (Apache/PHP) would be told.
+        (self.root / 'backend.conf').write_text(
+            'events {}\nhttp { server { listen 80; location / {\n'
+            '    return 200 "for=$http_x_forwarded_for proto=$http_x_forwarded_proto"; } } }\n')
+        self.addCleanup(self.docker, 'rm', '-f', self.backend)
+        self.docker('run', '-d', '--name', self.backend, '--network', self.network,
+                    '--network-alias', 'pma', '--network-alias', 'webserver', '--memory', '64m',
+                    '-v', f'{self.root}/backend.conf:/test.conf:ro', '--entrypoint', 'nginx',
+                    IMAGE, '-c', '/test.conf', '-g', 'daemon off;')
+
+    def start(self, address, direct, allowed):
+        name = self.network + '-' + uuid.uuid4().hex[:6]
+        self.addCleanup(self.docker, 'rm', '-f', name)
+        self.docker('run', '-d', '--name', name, '--network', self.network, '--memory', '64m',
+                    '-p', f'{address}::80', '-v', f'{self.root}:/etc/ssl/certs:ro',
+                    '-e', 'SETUP_ENABLE_PMA=1', '-e', 'SETUP_ENVIRONMENT=prod', '-e', f'SETUP_DIRECT_CLIENTS={direct}',
+                    '-e', f'PMA_ALLOWED_IPS={allowed}', '-e', f'SITE_ALLOWED_IPS={allowed}',
+                    IMAGE, '/usr/local/bin/init.sh', 'demo.local', '60')
+        port = self.docker('port', name, '80/tcp').splitlines()[0].rsplit(':', 1)[1]
+        return name, address, port
+
+    def request(self, proxy, host='pma.demo.local', forwarded=None, proto=None):
+        name, address, port = proxy
+        args = ['curl', '--noproxy', '*', '-sS', '--max-time', '3', '--resolve', f'{host}:{port}:{address}',
+                '-w', ' %{http_code}']
+        if forwarded:
+            args += ['-H', f'X-Forwarded-For: {forwarded}']
+        if proto:
+            args += ['-H', f'X-Forwarded-Proto: {proto}']
+        for _ in range(50):
+            result = subprocess.run([*args, f'http://{host}:{port}/'], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and not result.stdout.endswith(' 502'):
+                body, code = result.stdout.rsplit(' ', 1)
+                return code, body if code == '200' else ''
+            time.sleep(.2)
+        self.fail(self.docker('logs', name))
+
+    def test_direct_clients_cannot_spoof_an_allowlisted_address(self):
+        proxy = self.start(self.address, 1, '203.0.113.10')
+        for host in ('pma.demo.local', 'demo.local'):
+            for forwarded in ('203.0.113.10', '198.51.100.1, 203.0.113.10', '203.0.113.10, 203.0.113.10'):
+                with self.subTest(host=host, forwarded=forwarded):
+                    self.assertEqual(self.request(proxy, host, forwarded), ('403', ''))
+            self.assertEqual(self.request(proxy, host), ('403', ''))
+
+    def test_direct_clients_are_allowed_by_their_own_address_and_their_headers_are_replaced(self):
+        # The peer Docker presents for this host's requests (an empty list leaves the site open).
+        peer = self.request(self.start(self.address, 1, ''), 'demo.local')[1].split()[0].removeprefix('for=')
+        proxy = self.start(self.address, 1, peer)
+        self.assertEqual(self.request(proxy), ('200', f'for={peer} proto=http'))
+        self.assertEqual(self.request(proxy, forwarded='203.0.113.10', proto='https'), ('200', f'for={peer} proto=http'))
+
+    def test_the_host_proxy_on_loopback_forwards_the_client_address(self):
+        # DirectAdmin / the host Nginx connect to 127.0.0.1 and append the client they saw.
+        proxy = self.start('127.0.0.1', 0, '203.0.113.10')
+        self.assertEqual(self.request(proxy, forwarded='203.0.113.10', proto='https'),
+                         ('200', 'for=203.0.113.10 proto=https'))
+        self.assertEqual(self.request(proxy, forwarded='203.0.113.10, 198.51.100.1'), ('403', ''))
+        self.assertEqual(self.request(proxy), ('403', ''))
+
+    def test_other_containers_cannot_forward_a_client_address_on_loopback(self):
+        name, _, _ = self.start('127.0.0.1', 0, '203.0.113.10')
+        self.request((name, '127.0.0.1', self.docker('port', name, '80/tcp').splitlines()[0].rsplit(':', 1)[1]),
+                     forwarded='203.0.113.10')
+        address = self.docker('inspect', name, '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+        code = self.docker('exec', self.backend, 'curl', '--noproxy', '*', '-sS', '--max-time', '3', '-o', '/dev/null',
+                           '-w', '%{http_code}', '--resolve', f'pma.demo.local:80:{address}',
+                           '-H', 'X-Forwarded-For: 203.0.113.10', 'http://pma.demo.local/')
+        self.assertEqual(code, '403')

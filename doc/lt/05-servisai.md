@@ -238,7 +238,12 @@ ALLOWED_IPS="203.0.113.10 198.51.100.0/24"
 
 Pakeitus sąrašą: `make restart service=nginx-proxy` (stage/prod su `DEPLOY_CONTEXT` – per [deploy-images](09-aplinkos.md#imageai-serveryje)).
 
-**Tikras kliento IP.** Konteinerio portai rišami tik prie `127.0.0.1`, todėl į projektą patenkama tik per kompiuterio Nginx arba serverio web serverį. nginx-proxy priima `X-Forwarded-For` tik iš `TRUSTED_PROXIES` adresų (numatyta: localhost ir privatūs tinklai), Apache `mod_remoteip` pasitiki tais pačiais tinklais. Todėl PHP mato tikrą kliento IP, o HTTPS žymą – iš `X-Forwarded-Proto`. Į leidžiamų klientų sąrašą proxy adreso nedėk: taip įleistum visus už jo esančius lankytojus.
+**Tikras kliento IP.** Kam nginx-proxy leidžia pasakyti kliento adresą (`X-Forwarded-For`) ir schemą (`X-Forwarded-Proto`), priklauso nuo [`PUBLISH_ADDRESS`](03-nustatymai.md#adresai-ir-prieiga):
+
+- **`127.0.0.1` (numatyta, DirectAdmin ir kompiuteris).** Į projektą patenkama tik per kompiuterio Nginx arba DirectAdmin. Jie jungiasi per Docker portą ir konteineriui atrodo kaip projekto tinklo gateway, todėl nginx-proxy pasitiki tik juo ir `127.0.0.1`/`::1`. Kiti konteineriai ir tinklai kliento adreso perduoti negali.
+- **Kitas adresas (pvz. VPN serveris be DirectAdmin).** Klientai jungiasi tiesiai, todėl jų atsiųstos `X-Forwarded-*` antraštės ignoruojamos: sąrašai tikrinami pagal tikrą jungties adresą, o schema yra ta, kuria atėjo užklausa. Be šito VPN klientas su suklastota `X-Forwarded-For` praeitų PMA, Mailpit, cron, DB monitoriaus ir `/metrics` sąrašus. Sąraše nurodyk VPN klientų adresus (pvz. `10.8.0.0/24`). Užklausos iš paties serverio ateina kaip Docker tinklo gateway.
+
+`TRUSTED_PROXIES` nurodo pasitikimus proxy rankomis (abiem atvejais), pvz. kai VPN tinkle prieš projektą stovi kitas proxy. Toliau Apache gauna tik nginx-proxy nustatytą kliento adresą, ne kliento atsiųstą grandinę, todėl PHP (ir PrestaShop `getRemoteAddr`) mato tą patį IP. Į leidžiamų klientų sąrašą proxy adreso nedėk: taip įleistum visus už jo esančius lankytojus.
 
 ## Redis ir Memcached
 

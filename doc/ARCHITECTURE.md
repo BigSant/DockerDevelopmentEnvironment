@@ -95,8 +95,11 @@ fingerprint is outdated; it removes only with `apply=1`.
   `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
-- **Security defaults**: published ports bind to 127.0.0.1; nginx-proxy takes the client IP from the
-  host proxy (`X-Forwarded-For`) and renders allow/deny per entry point; Apache hides dot-paths
+- **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
+  its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
+  (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy
+  arrives through (plus loopback), on any other address nobody (`SETUP_DIRECT_CLIENTS=1`), or
+  `TRUSTED_PROXIES`; upstreams get only the resolved `$remote_addr`, never the client-sent chain; Apache hides dot-paths
   (except `.well-known`), `*.sql`, backups and composer files; the application DB user has rights on
   its own database (and `DATABASE_EXTRA_SCHEMAS`) only, root has its own password.
 
@@ -183,3 +186,6 @@ is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks 
    and the registry/recipe `{p}` (refused), shop policy after a load, PS 1.6 data-set key, cache-clear,
    test-copy cache folders, `modules/*` PHPUnit suites and IDE excludes. `tests/test_generic_profile.py`
    runs a generic project through setup, db-import, test-prepare and ide-init and records every Docker call.
+9. Forwarded client headers are trusted only from a proxy that really sits in front: never from clients
+   that reach a non-loopback `PUBLISH_ADDRESS` directly, never from the whole private ranges; upstreams get
+   only nginx-proxy's resolved client address.
