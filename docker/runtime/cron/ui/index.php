@@ -3,6 +3,15 @@
 // Reached only through nginx-proxy with the CRON_ALLOWED_IPS / ALLOWED_IPS allowlist; no docker.sock.
 require __DIR__ . '/../compose.php';
 
+// Other containers on the project network (e.g. an SSRF in the shop) would bypass the allowlist:
+// answer only nginx-proxy, or loopback for checks inside this container.
+$peer = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+$proxy = gethostbynamel(getenv('CRON_UI_PROXY') ?: 'nginx-proxy') ?: array();
+if (!in_array($peer, array_merge(array('127.0.0.1', '::1'), $proxy), true)) {
+    http_response_code(403);
+    exit("Reach the cron UI through nginx-proxy.\n");
+}
+
 $history = getenv('CRON_HISTORY_DIR') ?: '/var/lib/setup-cron';
 $editable = in_array(getenv('ENV'), array('local', 'test'), true);
 $tokenFile = getenv('CRON_UI_TOKEN_FILE') ?: '/tmp/cron-ui-token';

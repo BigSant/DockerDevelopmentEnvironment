@@ -22,4 +22,9 @@ cat "$log"
 # Keep the newest runs per job.
 keep="${CRON_HISTORY_KEEP:-100}"
 ls -1t "$directory" | tail -n +"$((keep + 1))" | while read -r old; do rm -f "$directory/$old"; done
+# The run index stays bounded too: past twice its size it keeps the newest half.
+limit=$((keep * 100))
+if [ "$(wc -l < "$base/history.jsonl")" -gt "$((limit * 2))" ]; then
+    tail -n "$limit" "$base/history.jsonl" > "$base/history.jsonl.$$" && mv "$base/history.jsonl.$$" "$base/history.jsonl"
+fi
 exit "$code"

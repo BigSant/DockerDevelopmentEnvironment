@@ -40,6 +40,8 @@ class CrontabTest(unittest.TestCase):
                          [("*/15 * * * *", "php bin/console a:b", 4), ("@daily", "php cron.php --x 'y z'", 5)])
         again = php(f"echo json_encode(cronJobs({json.dumps('0 3 * * * php bin/console a:b')}, 'crontab'));")
         self.assertEqual(again[0]["id"], jobs[0]["id"], "the id follows the command, not the schedule")
+        twice = php(f"echo json_encode(cronJobs({json.dumps('0 3 * * * php a.php' + chr(10) + '0 15 * * * php a.php')}, 'crontab'));")
+        self.assertNotEqual(twice[0]["id"], twice[1]["id"], "one command on two schedules keeps two histories")
 
     def test_problems_name_the_line(self):
         text = "61 * * * * php a.php\n* * * * *\n@sometimes php b.php\n0 1 * * MON-FRI php c.php\n"
@@ -98,6 +100,9 @@ class RunWrapperTest(unittest.TestCase):
             self.run_job("true", keep="2")
             time.sleep(1.05)
         self.assertEqual(len(list((self.history / "runs/abc123def456").iterdir())), 2)
+        (self.history / "history.jsonl").write_text("{}\n" * 401)
+        self.run_job("true", keep="2")
+        self.assertEqual(len((self.history / "history.jsonl").read_text().splitlines()), 200, "the run index stays bounded")
         bad = subprocess.run(["sh", str(CRON / "cron-run.sh"), "../x", "scheduled", "true"], capture_output=True, text=True)
         self.assertEqual(bad.returncode, 64)
 
@@ -117,22 +122,24 @@ class CronUiTest(unittest.TestCase):
         (self.root / "bin/supercronic").write_text("#!/bin/sh\nexit 0\n")
         (self.root / "bin/supercronic").chmod(0o755)
 
-    def start(self, environment):
+    def start(self, environment, host="127.0.0.1"):
         with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
+            probe.bind((host, 0))
             port = probe.getsockname()[1]
         env = {**os.environ, "ENV": environment, "TZ": "Europe/Vilnius", "CRON_DIRECTORY": str(self.root / "cron.d"),
                "CRON_HISTORY_DIR": str(self.root / "history"), "CRON_RUN": str(CRON / "cron-run.sh"),
                "CRON_CRONTAB": str(self.root / "crontab.wrapped"), "CRON_UI_TOKEN_FILE": str(self.root / "token"),
                "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
-        server = subprocess.Popen(["php", "-S", f"127.0.0.1:{port}", str(CRON / "ui/index.php")], env=env,
+        server = subprocess.Popen(["php", "-S", f"{host}:{port}", str(CRON / "ui/index.php")], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
         self.addCleanup(server.terminate)
-        self.base = f"http://127.0.0.1:{port}"
+        self.base = f"http://{host}:{port}"
         for _ in range(50):
             try:
                 self.get("/")
+                return
+            except urllib.error.HTTPError:
                 return
             except OSError:
                 time.sleep(0.1)
@@ -175,6 +182,17 @@ class CronUiTest(unittest.TestCase):
         self.assertIn("view", self.get(f"/history?job={job}"))
         self.assertIn("nightly", self.get(f"/log?job={job}&file={run['log']}"))
         self.assertEqual(self.post("/run", {"job": job, "token": "wrong"})[0], 403)
+
+    def test_only_nginx_proxy_or_loopback_reaches_the_ui(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))  # no traffic: only picks the outgoing interface
+            address = probe.getsockname()[0]
+        if address.startswith("127."):
+            self.skipTest("no non-loopback interface")
+        self.start("local", host=address)
+        with self.assertRaises(urllib.error.HTTPError) as refused:
+            self.get("/")
+        self.assertEqual(refused.exception.code, 403)
 
     def test_server_ui_only_shows(self):
         self.start("prod")

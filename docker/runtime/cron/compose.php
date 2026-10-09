@@ -18,10 +18,15 @@ function cronFiles($directory = CRON_DIRECTORY, $environment = null)
     return $files;
 }
 
-/** Jobs of one crontab text: id, schedule, command, line; null schedule marks an unsupported line. */
+/**
+ * Jobs of one crontab text: id, schedule, command, line; null schedule marks an unsupported line.
+ * The id follows the command, so history survives a schedule change; a command repeated in the
+ * same file (other schedules) gets its occurrence number, so its runs are not mixed up.
+ */
 function cronJobs($text, $source)
 {
     $jobs = array();
+    $seen = array();
     foreach (preg_split('/\r?\n/', $text) as $number => $line) {
         $trimmed = trim($line);
         if ($trimmed === '' || $trimmed[0] === '#' || preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $trimmed)) continue;
@@ -34,7 +39,9 @@ function cronJobs($text, $source)
             $schedule = implode(' ', array_slice($parts, 0, 5));
             $command = isset($parts[5]) ? $parts[5] : '';
         }
-        $jobs[] = array('id' => substr(sha1($command), 0, 12), 'schedule' => $schedule, 'command' => $command,
+        $seen[$command] = isset($seen[$command]) ? $seen[$command] + 1 : 1;
+        $key = $seen[$command] === 1 ? $command : $command . "\0" . $seen[$command];
+        $jobs[] = array('id' => substr(sha1($key), 0, 12), 'schedule' => $schedule, 'command' => $command,
                         'source' => $source, 'line' => $number + 1);
     }
     return $jobs;

@@ -323,7 +323,7 @@ Kas vyksta:
 - local/test leidžia redaguoti crontab'ą: pakeitimas patikrinamas `supercronic -test`, išsaugomas `config/cron/` ir iš karto pritaikomas. Pakeitimą commit'ink;
 - stage/prod crontab'ą tik rodo: serveryje jis keičiamas tik per Git.
 
-Atskiro prisijungimo sąsaja neturi. Prieigą riboja `CRON_ALLOWED_IPS` / `ALLOWED_IPS`, o stage/prod be sąrašo cron nepasileidžia.
+Atskiro prisijungimo sąsaja neturi. Prieigą riboja `CRON_ALLOWED_IPS` / `ALLOWED_IPS`, o stage/prod be sąrašo cron nepasileidžia. Sąsaja atsako tik nginx-proxy: kiti projekto tinklo konteineriai (pvz. parduotuvė) gauna 403.
 
 ## DB monitorius
 
