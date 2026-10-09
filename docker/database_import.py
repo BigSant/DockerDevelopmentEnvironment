@@ -16,15 +16,63 @@ import gzip
 import shutil
 
 
+DOCKER_ROOT = Path(__file__).resolve().parent
+# INSERT/REPLACE statements of mysqldump and phpMyAdmin dumps; the table name is the first quoted name.
+INSERT = re.compile(rb"^(?:INSERT|REPLACE)(?:\s+(?:IGNORE|LOW_PRIORITY|DELAYED|HIGH_PRIORITY))*\s+(?:INTO\s+)?`((?:[^`]|``)+)`", re.I)
+
+
+def hook_values(project):
+    """Values an after-import hook may use; each is validated so it cannot carry SQL or shell syntax."""
+    domain = project.settings.get("SQL_DOMAIN") or project.settings.get("DOMAIN", "")
+    prefix = project.settings.get("PS_DATABASE_PREFIX") or "ps_"
+    return {
+        "DOMAIN": (domain, r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", "a valid DOMAIN hostname"),
+        "DB_PREFIX": (prefix, r"[A-Za-z0-9_]+", "PS_DATABASE_PREFIX of letters, digits and _"),
+        "PS_SSL": ("0" if project.settings.get("PS_SSL") == "off" else "1", r"[01]", "PS_SSL on or off"),
+    }
+
+
 def render_hook(project, path):
     contents = path.read_bytes()
-    if b"${DOMAIN}" in contents:
-        domain = project.settings.get("SQL_DOMAIN") or project.settings.get("DOMAIN", "")
-        # Only a domain/optional port is accepted, never shell or SQL syntax.
-        if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", domain):
-            raise ValueError("SQL hooks using ${DOMAIN} require a valid DOMAIN hostname")
-        contents = contents.replace(b"${DOMAIN}", domain.encode("ascii"))
+    for name, (value, pattern, description) in hook_values(project).items():
+        token = ("${" + name + "}").encode()
+        if token in contents:
+            if not re.fullmatch(pattern, value):
+                raise ValueError(f"SQL hooks using ${{{name}}} require {description}")
+            contents = contents.replace(token, value.encode("ascii"))
     return contents
+
+
+def skip_rule(project, full=False):
+    """Tables whose LIVE data the registry says not to import, or None to import everything."""
+    if full or not project.settings.get("SCHEMA_DIRECTORY"):
+        return None
+    from database_registry import classify, load
+    entries = load(project)
+    if not entries:
+        return None
+    return lambda table: (classify(entries, table) or ("", "", "", "import"))[3] in ("skip", "-")
+
+
+def filter_dump(source, sink, skip):
+    """Copy a dump without the data statements of skipped tables; returns the skipped table names.
+
+    Structure statements are kept, so a skipped table exists and is empty. A multi-line INSERT is
+    skipped up to the line that ends the statement.
+    """
+    skipped, skipping = set(), False
+    for line in source:
+        if skipping:
+            skipping = not line.rstrip().endswith(b";")
+            continue
+        if line[:1] in (b"I", b"i", b"R", b"r") and (match := INSERT.match(line)):
+            table = match[1].replace(b"``", b"`").decode("utf-8", "replace")
+            if skip(table):
+                skipped.add(table)
+                skipping = not line.rstrip().endswith(b";")
+                continue
+        sink.write(line)
+    return skipped
 
 
 def progress_meter():
@@ -48,6 +96,33 @@ def stream_sql(project, command, handle, meter=None):
         raise subprocess.CalledProcessError(status, [meter])
 
 
+def stream_filtered(project, command, handle, skip, meter=None):
+    progress = None
+    if meter:
+        size = os.fstat(handle.fileno()).st_size - handle.tell()
+        progress = subprocess.Popen([meter, "-s", str(size)], stdin=handle, stdout=subprocess.PIPE)
+    client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
+    skipped = set()
+    try:
+        skipped = filter_dump(progress.stdout if progress else handle, client.stdin, skip)
+    except BrokenPipeError:
+        pass  # The client stopped early; its exit status reports why.
+    finally:
+        try:
+            client.stdin.close()
+        except BrokenPipeError:
+            pass
+        status = client.wait()
+        if progress:
+            progress.stdout.close()
+            meter_status = progress.wait()
+    if status:
+        raise subprocess.CalledProcessError(status, command[:1])
+    if progress and meter_status:
+        raise subprocess.CalledProcessError(meter_status, [meter])
+    return skipped
+
+
 def plan_import(project, dump):
     if not dump:
         raise ValueError("Specify a dump with file=/path/to/dump.sql")
@@ -64,11 +139,29 @@ def plan_import(project, dump):
     if configured and not directory.is_dir():
         raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
     hooks = []
+    safe = project.environment != "prod"
+    profile = DOCKER_ROOT / "database-profile/prestashop/after-import"
+    if safe and project.settings.get("PROFILE") in ("ps", "prestashop"):
+        # Safe defaults first (shop URL, payment sandboxes), so project scripts can refine them.
+        hooks += sorted(profile.glob("*.sql"))
     for group in ("common", project.environment) if directory.is_dir() else ():
         for path in sorted((directory / group).glob("*.sql")):
             resolved = path.resolve()
             if not resolved.is_relative_to(directory) or not resolved.is_file():
                 raise ValueError(f"SQL hook must be a file inside {directory}: {path.name}")
+            hooks.append(resolved)
+    integrations = {path.stem: path for path in sorted((directory / "integrations").glob("*.sql"))} if directory.is_dir() else {}
+    enabled = str(project.settings.get("INTEGRATIONS_ENABLED") or "").split()
+    unknown = sorted(set(enabled) - integrations.keys())
+    if unknown:
+        raise ValueError(f"INTEGRATIONS_ENABLED names unknown integrations: {', '.join(unknown)}; "
+                         f"available: {', '.join(integrations) or 'none'}")
+    for name, path in integrations.items() if safe else ():
+        # Each script switches one external integration off; INTEGRATIONS_ENABLED keeps it on.
+        resolved = path.resolve()
+        if not resolved.is_relative_to(directory) or not resolved.is_file():
+            raise ValueError(f"SQL hook must be a file inside {directory}: {path.name}")
+        if name not in enabled:
             hooks.append(resolved)
     plan = [source, *hooks]
     # Preflight every input before any database operation, including hook readability.
@@ -90,8 +183,22 @@ def plan_import(project, dump):
     return plan
 
 
-def import_database(project, plan, backup=False):
-    execute_sql(project, plan, first_is_dump=True, backup=backup)
+def import_database(project, plan, backup=False, full=False):
+    """Dump (without skipped table data) -> after-import SQL -> migrations -> shop policy -> schema report."""
+    skipped = execute_sql(project, plan, first_is_dump=True, backup=backup, skip=skip_rule(project, full))
+    if skipped:
+        print(f"Data not imported for {len(skipped)} tables (registry live rule skip; full=1 imports all): "
+              + ", ".join(sorted(skipped)[:10]) + (" ..." if len(skipped) > 10 else ""))
+    after_load(project)
+    print("Dump and after-import SQL completed.")
+
+
+def after_load(project):
+    """Everything that follows loading data: pending migrations, shop policy and a schema report."""
+    if project.settings.get("SCHEMA_DIRECTORY"):
+        from database_migrations_guarded import migrate, migrations_directory
+        if migrations_directory(project).is_dir():
+            migrate(project)
     if project.settings.get('PROFILE') in ('ps', 'prestashop'):
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if 'php-fpm' in running:
@@ -100,11 +207,13 @@ def import_database(project, plan, backup=False):
             project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'policy'])
             project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
             project.run(['restart', 'php-fpm'])
-    print("Dump and after-import SQL completed.")
+    if project.settings.get("SCHEMA_DIRECTORY"):
+        from database_schema import schema_report
+        schema_report(project)
 
 
-def execute_sql(project, plan, *, first_is_dump=False, backup=False):
-    """Pre-open all inputs and serialize imports/fixtures with the same DB lock."""
+def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
+    """Pre-open all inputs and serialize imports/fixtures with the same DB lock; returns skipped tables."""
     output = project.directory / ".generated"
     output.mkdir(mode=0o700, exist_ok=True)
     if first_is_dump:
@@ -145,8 +254,13 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False):
             command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_IMPORT,
                                          "database-import", project.settings["DATABASE_NAME"]]
             meter = progress_meter() if first_is_dump else None
+            skipped = set()
             for index, (path, handle) in enumerate(inputs):
                 dump = index == 0 and first_is_dump
                 print(f"{'Import' if dump else 'SQL'}: {path}", flush=True)
                 # A failing dump or hook stops the sequence; no later SQL runs.
-                stream_sql(project, command, handle, meter if dump else None)
+                if dump and skip:
+                    skipped = stream_filtered(project, command, handle, skip, meter)
+                else:
+                    stream_sql(project, command, handle, meter if dump else None)
+            return skipped

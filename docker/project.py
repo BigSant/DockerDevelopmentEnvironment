@@ -261,6 +261,7 @@ def main():
     parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     parser.add_argument('--backup', action='store_true', help='Create a private backup before importing')
+    parser.add_argument('--full', action='store_true', help='db-import: import the data of every table, ignoring registry skip rules')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
@@ -367,7 +368,7 @@ def main():
                 for step in plan:
                     print(step)
             else:
-                import_database(project, plan, backup=args.backup)
+                import_database(project, plan, backup=args.backup, full=args.full)
         elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
             plan = plan_fixtures(project, args.db_fixtures)
             print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")

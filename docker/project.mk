@@ -39,6 +39,7 @@ help:
 	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
 	@echo 'db-restrict-grants: one-time: own database privileges only, separate root password (pre-v2 databases)'
 	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
+	@echo 'db-import file=dump.sql full=1: also import the data of tables the registry marks skip'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: pre-commit hook that exports the schema and stops a commit that changes it'
 	@echo 'schema-resolve: classify database tables the table registry does not know (include / drop)'
@@ -70,7 +71,7 @@ doctrine-diff:
 
 db-import db-import-plan:
 	$(if $(filter undefined,$(origin fixtures)),,$(error Use db-fixtures=SET instead of fixtures=SET))
-	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
+	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(full)),--full,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))

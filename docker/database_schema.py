@@ -245,6 +245,28 @@ def commit_schema(project):
     print(f"Schema matches the commit ({len(actual) - 1} tables).")
 
 
+def schema_report(project):
+    """After a load: warn where the DB differs from the branch snapshot; never fails the load."""
+    directory = schema_directory(project)
+    if not (directory / MANIFEST).is_file():
+        return []
+    try:
+        actual = read_schema(project)
+    except ValueError as error:
+        print(f"Warning: schema report skipped: {error}")
+        return []
+    snapshot = {path.name: path.read_bytes() for path in directory.iterdir() if managed_file(path.name)}
+    differences = [line for line in schema_differences(snapshot, actual) if not line.endswith(MANIFEST)]
+    if not differences:
+        print(f"Schema matches the branch snapshot ({len(actual) - 1} tables).")
+        return []
+    print(f"Warning: the DB differs from the branch snapshot in {len(differences)} places "
+          "(tables only in the DB came with the dump: LIVE-only, or not yet in this branch):")
+    for line in differences:
+        print("  " + line.replace("not staged", "only in the DB").replace("no longer in DB", "missing in the DB"))
+    return differences
+
+
 def check_schema(project):
     directory = schema_directory(project)
     staged = staged_schema(directory)

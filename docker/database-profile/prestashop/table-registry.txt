@@ -1,6 +1,7 @@
 # Shared PrestaShop table classification (the project registry is read first and wins).
 # {p} is the table prefix (PS_DATABASE_PREFIX, default ps_). Columns:
 #   table  group  base-rule(full|slice|faker|empty|drop)  live-import(import|skip)
+# Groups: index tables are rebuildable but needed by a working shop, so a LIVE import keeps them.
 # Generated from the PrestaShop 9 db_structure.sql plus common native module tables;
 # module and project tables not listed here must be classified in the project registry.
 {p}accessory                                        catalog    slice  import
@@ -68,7 +69,7 @@
 {p}group                                            config     full   import
 {p}group_lang                                       config     full   import
 {p}group_reduction                                  config     full   import
-{p}product_group_reduction_cache                    cache      empty  skip
+{p}product_group_reduction_cache                    index      empty  import
 {p}product_carrier                                  catalog    slice  import
 {p}guest                                            cache      empty  skip
 {p}hook                                             config     full   import
@@ -129,14 +130,14 @@
 {p}range_price                                      config     full   import
 {p}range_weight                                     config     full   import
 {p}search_engine                                    config     full   import
-{p}search_index                                     cache      empty  skip
-{p}search_word                                      cache      empty  skip
+{p}search_index                                     index      empty  import
+{p}search_word                                      index      empty  import
 {p}specific_price                                   catalog    slice  import
 {p}state                                            config     full   import
 {p}supplier                                         config     full   import
 {p}supplier_lang                                    config     full   import
 {p}tag                                              config     full   import
-{p}tag_count                                        cache      empty  skip
+{p}tag_count                                        index      empty  import
 {p}tax                                              config     full   import
 {p}tax_lang                                         config     full   import
 {p}timezone                                         config     full   import
@@ -231,9 +232,9 @@
 {p}referrer                                         config     full   import
 {p}referrer_cache                                   cache      empty  skip
 {p}referrer_shop                                    config     full   import
-{p}layered_price_index                              cache      empty  skip
-{p}layered_product_attribute                        cache      empty  skip
-{p}layered_filter_block                             cache      empty  skip
+{p}layered_price_index                              index      empty  import
+{p}layered_product_attribute                        index      empty  import
+{p}layered_filter_block                             index      empty  import
 {p}layered_category                                 config     full   import
 {p}layered_filter                                   config     full   import
 {p}layered_filter_shop                              config     full   import

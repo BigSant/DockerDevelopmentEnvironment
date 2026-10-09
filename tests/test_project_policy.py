@@ -37,6 +37,11 @@ class PolicyTest(unittest.TestCase):
             policy=resolve_policy({'PHP_MEMORY':'1g','PHP_CPUS':'1','DATABASE_MEMORY':'2g','DATABASE_CPUS':'1','WEBSERVER_MEMORY':'256m','WEBSERVER_CPUS':'1','PROXY_MEMORY':'128m','PROXY_CPUS':'0.5'} if env in ('stage','prod') else {},env)
             self.assertEqual(policy['CACHE_MODE'], 'off' if env in ('local','test') else 'on')
             self.assertEqual(policy['MAIL_MODE'], 'preserve' if env=='prod' else 'off')
+        self.assertEqual(resolve_policy({'SERVICES':'pma mailpit'},'local')['MAIL_MODE'],'mailpit')
+        with self.assertRaisesRegex(ValueError,'requires mailpit in SERVICES'):
+            resolve_policy({'MAIL_MODE':'mailpit'},'local')
+        with self.assertRaisesRegex(ValueError,'INTEGRATIONS_ENABLED'):
+            resolve_policy({'INTEGRATIONS_ENABLED':'gtm;rm'},'local')
         local=Project(self.app);before=local.model()
         with (self.app/'env/local.env').open('a') as file: file.write('CACHE_MODE=on\nCOMPOSE_PROFILES=redis\n')
         hybrid=Project(self.app);after=hybrid.model()
@@ -45,12 +50,12 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual(hybrid.data_directory,local.data_directory)
         self.assertEqual(after['services']['php-fpm']['image'],before['services']['php-fpm']['image'])
         php=after['services']['php-fpm']['environment']
-        self.assertEqual((php['CACHE_MODE'],php['PHP_OPCACHE'],php['MAIL_MODE']),('on','on','off'))
+        self.assertEqual((php['CACHE_MODE'],php['PHP_OPCACHE'],php['MAIL_MODE']),('on','on','mailpit'))
         self.assertEqual(php['DATABASE_PASSWORD'],'secret-only')
         self.assertEqual(hybrid.process_env['BUILD_ENV'],'local')
         self.assertIn('redis',json.loads(hybrid.capture(['config','--format','json']))['services'])
         stage=Project(self.app,'stage')
-        self.assertEqual((stage.settings['PHP_OPCACHE'],stage.settings['MAIL_MODE']),('on','off'))
+        self.assertEqual((stage.settings['PHP_OPCACHE'],stage.settings['MAIL_MODE']),('on','mailpit'))
 
     def test_individual_cache_overrides_and_explicit_debug_validation(self):
         policy=resolve_policy({'CACHE_MODE':'on','PHP_OPCACHE':'off','PS_SMARTY_COMPILE':'check'},'local')

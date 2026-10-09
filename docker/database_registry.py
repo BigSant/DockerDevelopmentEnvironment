@@ -45,7 +45,7 @@ def load(project):
     if project_file.is_file():
         entries += parse(project_file.read_text(), project_file.name, prefix(project))
     profile = project.settings.get('PROFILE')
-    defaults = DOCKER_ROOT / 'profile' / ('prestashop' if profile in ('ps', 'prestashop') else str(profile)) / 'table-registry.txt'
+    defaults = DOCKER_ROOT / 'database-profile' / ('prestashop' if profile in ('ps', 'prestashop') else str(profile)) / 'table-registry.txt'
     if profile and defaults.is_file():
         entries += parse(defaults.read_text(), str(defaults.relative_to(DOCKER_ROOT)), prefix(project))
     return entries

@@ -11,6 +11,8 @@ DEFAULTS = {
     'PHP_OPCACHE_VALIDATE_TIMESTAMPS': 'auto', 'PHP_OPCACHE_REVALIDATE_FREQ': '0',
     'PS_SMARTY_CACHE': 'auto', 'PS_SMARTY_COMPILE': 'auto', 'PS_ASSET_CACHE': 'auto',
     'PS_OBJECT_CACHE': 'auto', 'MAIL_MODE': 'auto', 'HTTP_FORCE_HTTPS': 'auto',
+    # After a DB import: shop SSL flag, and the external integrations left enabled (local/test/stage).
+    'PS_SSL': 'on', 'INTEGRATIONS_ENABLED': '',
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
     # One time zone for PHP, the database, web servers and cron.
     'TZ': 'Europe/Vilnius',
@@ -142,8 +144,14 @@ def resolve_policy(settings, environment):
         values['PS_SMARTY_COMPILE'] = 'check' if values['CACHE_MODE'] == 'off' else 'never'
     if choice(values, 'PS_OBJECT_CACHE', ('auto', 'preserve', 'off', 'on')) == 'auto':
         values['PS_OBJECT_CACHE'] = 'off' if values['CACHE_MODE'] == 'off' else 'preserve'
-    if choice(values, 'MAIL_MODE', ('auto', 'off', 'preserve')) == 'auto':
-        values['MAIL_MODE'] = 'preserve' if environment == 'prod' else 'off'
+    if choice(values, 'MAIL_MODE', ('auto', 'off', 'preserve', 'mailpit')) == 'auto':
+        mailpit = 'mailpit' in str(settings.get('SERVICES') or '').split()
+        values['MAIL_MODE'] = 'preserve' if environment == 'prod' else 'mailpit' if mailpit else 'off'
+    elif values['MAIL_MODE'] == 'mailpit' and 'mailpit' not in str(settings.get('SERVICES') or '').split():
+        raise ValueError('MAIL_MODE=mailpit requires mailpit in SERVICES')
+    choice(values, 'PS_SSL', ('on', 'off'))
+    if not re.fullmatch(r'[a-z0-9_-]*(?: [a-z0-9_-]+)*', ' '.join(values['INTEGRATIONS_ENABLED'].split())):
+        raise ValueError('INTEGRATIONS_ENABLED lists integration names (letters, digits, - and _) separated by spaces')
     if choice(values, 'HTTP_FORCE_HTTPS', ('auto', 'off', 'on')) == 'auto':
         values['HTTP_FORCE_HTTPS'] = 'off' if development else 'on'
     for name in ('PHP_OPCACHE_REVALIDATE_FREQ', 'MIN_FREE_DISK_MB', 'BACKUP_KEEP_LAST', 'CONTAINER_LOG_MAX_FILES'):
