@@ -23,6 +23,8 @@ import shlex
 import shutil
 import subprocess
 
+from project_prestashop import is_prestashop
+
 # PrestaShop paths written by the shop itself; a PrestaShop deploy never overwrites or deletes them.
 # Paths the shop repository tracks (mails/, translations/, config/xml/) are code like any other file.
 PRESTASHOP_WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/themes/',
@@ -35,10 +37,6 @@ PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
 AFTER_RSYNC_HOOK = 'config/deploy/after-rsync.sh'
 KEEP_RELEASES = 3
 MODULE_VERSION = re.compile(r"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
-
-
-def is_prestashop(project):
-    return project.settings.get('PROFILE') in ('ps', 'prestashop')
 
 
 def protected_paths(project):
