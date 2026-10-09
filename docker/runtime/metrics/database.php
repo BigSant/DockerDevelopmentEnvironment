@@ -15,7 +15,7 @@ function metrics_database_rows($name)
 {
     $queries = array(
         'server' => 'SELECT @@performance_schema AS performance_schema, @@max_connections AS max_connections,'
-            . ' @@innodb_page_size AS page_size',
+            . ' @@innodb_page_size AS page_size, VERSION() AS version',
         'status' => "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected', 'Threads_running',"
             . " 'Innodb_buffer_pool_pages_dirty')",
         'buffer_pool' => 'SELECT SUM(POOL_SIZE) AS pool_size, SUM(DATABASE_PAGES) AS database_pages,'

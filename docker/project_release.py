@@ -17,8 +17,9 @@ SETUP_ROOT = DOCKER_ROOT.parent
 LOCK_NAME = 'images.lock.json'
 # Setup files that images now contain; their local mounts are dropped from a release.
 BAKED_MOUNTS = {'/opt/setup/runtime'}
-# Host system paths that exist on every Linux target; kept read-only in a release (the metrics service).
-HOST_MOUNTS = {('/proc', '/host/proc')}
+# Host system paths that exist on every Linux target; kept read-only in a release (the metrics service and its
+# Docker collector, which has no network and only reads the Docker API).
+HOST_MOUNTS = {('/proc', '/host/proc'), ('/var/run/docker.sock', '/var/run/docker.sock')}
 
 
 def release_directory(project):

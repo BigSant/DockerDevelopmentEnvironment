@@ -211,6 +211,9 @@ class Project:
         # Selected catalogue services load right after the project's base sources.
         for name in services:
             self.command += ["-f", str(DOCKER_ROOT / "docker" / name / "docker-compose.yml")]
+        # The metrics service reads the cron history only when the project runs cron.
+        if 'metrics' in services and 'cron' in services:
+            self.command += ["-f", str(DOCKER_ROOT / "docker/metrics/cron.yml")]
         extras = []
         for entry in shlex.split(settings["EXTRA_COMPOSE_FILES"]):
             extra = (self.directory / entry).resolve()

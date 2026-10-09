@@ -114,7 +114,8 @@ services:
       DATABASE_MONITOR_PASSWORD: ${DATABASE_MONITOR_PASSWORD-}
       DBMONITOR_TOKEN: ${DBMONITOR_TOKEN-}
       # Target /metrics (SERVICES=metrics): token, probed URLs, probe address, interface, support level, disk test size,
-      # HTTP log window (minutes) and the size of each HTTP log file the metrics service reads.
+      # HTTP log window (minutes), the size of each HTTP log file the metrics service reads and how often (seconds)
+      # the Docker collector reads the containers.
       METRICS_TOKEN: ${METRICS_TOKEN-}
       METRICS_URLS: ${METRICS_URLS-}
       METRICS_PROBE_ADDRESS: ${METRICS_PROBE_ADDRESS-}
@@ -123,6 +124,7 @@ services:
       METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB-}
       METRICS_HTTP_WINDOW_MINUTES: ${METRICS_HTTP_WINDOW_MINUTES-}
       METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB-}
+      METRICS_DOCKER_INTERVAL: ${METRICS_DOCKER_INTERVAL-}
       MEMCACHED_CACHE_MB: ${MEMCACHED_CACHE_MB-}
       REDIS_MAXMEMORY_MB: ${REDIS_MAXMEMORY_MB-}
       REDIS_MEMORY: ${REDIS_MEMORY-}
