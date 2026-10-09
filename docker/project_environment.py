@@ -91,7 +91,7 @@ def doctor(project):
     if version.returncode or not match or tuple(map(int, match.groups())) < (2, 24, 4):
         raise ValueError("Docker Compose 2.24.4 or newer is required")
     model = json.loads(project.capture(["config", "--format", "json"]))
-    issues = set()
+    issues, notes = set(), []
     private = project.env_files[-1]
     if private.stat().st_mode & 0o077:
         issues.add(f"Private env permissions are too broad; chmod 600 {private}")
@@ -133,14 +133,21 @@ def doctor(project):
     proxy = model["services"].get("nginx-proxy", {})
     for mount in proxy.get("volumes", []):
         if mount["target"] == "/etc/ssl/certs":
-            for filename in ("domain.crt", "domain.key"):
-                certificate = Path(mount["source"]) / filename
+            pair = [Path(mount["source"]) / filename for filename in ("domain.crt", "domain.key")]
+            # A server without a pair gets a self-signed one from nginx-proxy (TLS ends at DirectAdmin
+            # or the VPN serves HTTP); locally mkcert provides it, and half a pair is always wrong.
+            if getattr(project, 'environment', 'local') in ('stage', 'prod') and not any(path.exists() for path in pair):
+                notes.append(f"No certificate in {pair[0].parent}: nginx-proxy serves a self-signed pair on 443.")
+                continue
+            for certificate in pair:
                 if not certificate.is_file() or not os.access(certificate, os.R_OK):
                     issues.add(f"Missing or unreadable TLS file: {certificate}; provision host certificates")
     if issues:
         raise ValueError("Environment is not ready:\n  " + "\n  ".join(sorted(issues)))
     print(f"Ready: {project.name}; Docker {engine.stdout.strip()}, Compose {version.stdout.strip()}.")
     print("Active service sources, local images, host ports, mount directories and TLS files checked.")
+    for note in notes:
+        print(note)
     if getattr(project, 'settings', {}).get('PROFILE') in ('ps', 'prestashop'):
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if 'php-fpm' in running:

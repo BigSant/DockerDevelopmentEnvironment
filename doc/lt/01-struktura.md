@@ -111,7 +111,7 @@ demo/
 │       └── test/app, test/data        # Izoliuota ENV=test kodo kopija ir duomenys
 └── data/
     ├── mysql/ arba mariadb/           # Pasirinkto DB variklio failai
-    ├── ssl/                           # domain.crt ir domain.key
+    ├── ssl/                           # domain.crt ir domain.key (stage/prod gali būti tuščias)
     ├── profiling/                     # Xdebug profiliai ir trace
     ├── mailpit/, cron/, redis/        # Įjungtų servisų duomenys
     └── stage/, prod/                  # Serverių aplinkų duomenys

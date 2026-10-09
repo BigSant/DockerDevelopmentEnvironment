@@ -38,7 +38,9 @@ forsena/
     config/<service>/  optional drop-ins per container (php, apache, nginx-proxy, mysql, cron, …)
     database/          schema/ (snapshot), migrations/, table-registry.txt, after-import/, data/<set>/, fixtures/
     public/            the shop's own repository (never managed by setup)
-  data/                runtime data (DB files, Mailpit, cron history, TLS, profiling)
+  data/                runtime data (DB files, Mailpit, cron history, TLS, profiling); nginx-proxy alone
+                       reads ssl/ (Apache is plain HTTP); an empty stage/prod ssl/ gets a self-signed pair
+                       generated inside the container, a provisioned or half pair is never replaced
 ```
 
 ## 2. The runner

@@ -114,6 +114,28 @@ class ProjectEnvironmentTest(unittest.TestCase):
             prepare(self.root)
         self.assertEqual(list(outside.iterdir()), [])
 
+    def test_doctor_accepts_a_server_without_certificates_but_not_half_a_pair(self):
+        # On stage/prod nginx-proxy generates a self-signed pair when data/<env>/ssl is empty.
+        certificates = self.root / "data/prod/ssl"
+        certificates.mkdir(parents=True)
+        private = self.root / "prod.env"
+        private.write_text("DOMAIN=example.test\n")
+        private.chmod(0o600)
+        model = {"services": {"nginx-proxy": {"image": "available", "volumes": [
+            {"type": "bind", "source": str(certificates), "target": "/etc/ssl/certs", "read_only": True}]}}}
+        project = SimpleNamespace(name="example-prod", environment="prod", env_files=[private], directory=self.directory,
+                                  data_directory=self.root / "data/prod", settings={}, capture=lambda args: json.dumps(model))
+        available = lambda *arguments: SimpleNamespace(
+            returncode=0, stdout="5.0.2" if arguments[:2] == ("compose", "version") else "29.2.1")
+        with patch("project_environment.docker", side_effect=available), \
+                patch("project_environment.owned_ports", return_value=set()):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                doctor(project)
+            self.assertIn("self-signed", output.getvalue())
+            (certificates / "domain.crt").write_text("present")
+            with self.assertRaisesRegex(ValueError, "domain.key"):
+                doctor(project)
+
     def test_doctor_reports_conflicting_port_and_missing_tls_without_secrets(self):
         private = self.initialize()
         certificates = self.root / "data/ssl"

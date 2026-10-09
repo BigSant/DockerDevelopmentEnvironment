@@ -37,6 +37,5 @@ services:
       - network_app
     volumes:
       - ${PROJECT_WEB_DIRECTORY}:/var/www/html/
-      - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/apache/:/usr/local/apache2/conf/project/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/apache/${ENV}/:/usr/local/apache2/conf/project.env/:ro

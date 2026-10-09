@@ -92,6 +92,50 @@ class WebAccessIntegrationTest(unittest.TestCase):
             self.assertEqual(self.status(trusted, scheme, forwarded='203.0.113.10, 198.51.100.1'), '403')
             self.assertEqual(self.status(trusted, scheme), '403')
 
+    def start_tls(self, certificates):
+        """The worktree's init.sh with a given data/<env>/ssl directory (empty = nothing provisioned)."""
+        name = self.network + '-' + uuid.uuid4().hex[:6]
+        self.addCleanup(self.docker, 'rm', '-f', name)
+        self.docker('run', '-d', '--name', name, '--network', self.network, '--memory', '64m',
+                    '-v', f'{certificates}:/etc/ssl/certs:ro',
+                    '-v', f'{ROOT}/docker/docker/nginx-proxy/conf/init.sh:/usr/local/bin/init.sh:ro',
+                    '-e', 'SETUP_ENVIRONMENT=prod', IMAGE, 'bash', '/usr/local/bin/init.sh', 'demo.local', '60')
+        return name
+
+    def served_certificate(self, name):
+        self.assertEqual(self.status(name, 'https', 'demo.local'), '200')
+        return self.docker('exec', name, 'sh', '-c', 'openssl s_client -connect 127.0.0.1:443 -servername demo.local '
+                           '</dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256 -subject -ext subjectAltName')
+
+    def test_without_provisioned_certificates_https_uses_a_generated_pair(self):
+        empty = self.root / 'empty'
+        empty.mkdir()
+        name = self.start_tls(empty)
+        served = self.served_certificate(name)
+        self.assertIn('demo.local', served)
+        self.assertIn('*.demo.local', served)
+        self.assertEqual(self.status(name, 'http', 'demo.local'), '200')
+        self.assertEqual(list(empty.iterdir()), [], 'the mounted directory must stay untouched')
+        self.assertEqual(self.docker('exec', name, 'stat', '-c', '%U %a', '/etc/nginx/ssl-generated/domain.key'), 'root 600')
+        # A restart keeps the same pair.
+        self.docker('restart', name)
+        self.assertEqual(self.served_certificate(name), served)
+
+    def test_a_provisioned_pair_is_served_and_never_replaced(self):
+        expected = subprocess.run(['openssl', 'x509', '-in', str(self.root / 'domain.crt'), '-noout', '-fingerprint', '-sha256'],
+                                  capture_output=True, text=True, check=True).stdout.split('=', 1)[1].strip()
+        name = self.start_tls(self.root)
+        self.assertIn(expected, self.served_certificate(name))
+        self.assertEqual(self.docker('exec', name, 'sh', '-c', 'ls /etc/nginx/ssl-generated 2>/dev/null | wc -l'), '0')
+
+    def test_half_a_provisioned_pair_stops_nginx(self):
+        half = self.root / 'half'
+        half.mkdir()
+        (half / 'domain.crt').write_bytes((self.root / 'domain.crt').read_bytes())
+        name = self.start_tls(half)
+        self.assertNotEqual(self.docker('wait', name), '0')
+        self.assertIn('domain.key', subprocess.run(['docker', 'logs', name], capture_output=True, text=True).stderr)
+
     def test_invalid_ip_or_cidr_stops_nginx(self):
         for allowed in ('999.1.2.3', '127.0.0.1/99', '203.0.113.1; allow all;'):
             name = self.start('prod', allowed)

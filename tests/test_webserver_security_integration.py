@@ -50,3 +50,27 @@ class WebserverSecurityIntegrationTest(unittest.TestCase):
                 self.assertEqual(status(path), '404', path)
             for path in ('/index.html', '/.well-known/acme-challenge/token', '/img/logo.txt'):
                 self.assertEqual(status(path), '200', path)
+
+    def test_apache_starts_without_certificates(self):
+        # Apache serves plain HTTP behind nginx-proxy; a server's data/<env>/ssl may be empty.
+        scratch = ROOT / '.test-work'
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            docroot = Path(temporary) / 'html'
+            docroot.mkdir()
+            (docroot / 'index.html').write_text('content\n')
+            os.chmod(temporary, 0o755); os.chmod(docroot, 0o755); os.chmod(docroot / 'index.html', 0o644)
+            name = 'setup-apache-' + uuid.uuid4().hex[:8]
+            subprocess.run(['docker', 'run', '-d', '--rm', '--name', name, '--memory', '128m', '-v', f'{docroot}:/var/www/html:ro',
+                            '-v', f'{ROOT}/docker/docker/apache/conf/init.sh:/usr/local/bin/init.sh:ro',
+                            '-e', 'TZ=UTC', '-e', 'SETUP_ENV=prod', '-e', 'PROJECT_NAME=demo', '-e', 'DOMAIN=demo.local', APACHE,
+                            'bash', '/usr/local/bin/init.sh', 'demo.local', '/', 'prod'], check=True, capture_output=True)
+            self.addCleanup(subprocess.run, ['docker', 'rm', '-f', name], capture_output=True)
+            for _ in range(30):
+                result = subprocess.run(['docker', 'run', '--rm', '--network', f'container:{name}', '--entrypoint', 'curl',
+                                         CLIENT, '-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://127.0.0.1/index.html'],
+                                        capture_output=True, text=True)
+                if result.stdout == '200':
+                    return
+                time.sleep(.5)
+            self.fail(subprocess.run(['docker', 'logs', name], capture_output=True, text=True).stderr)

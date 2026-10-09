@@ -37,4 +37,27 @@ sed -i "s/{DOMAIN}/$domain/g" /etc/nginx/conf.d/sites_env.conf
 sed -i "s/0; #{TIMEOUT}/$timeout;/g" /etc/nginx/conf.d/sites.conf
 sed -i "s/0; #{TIMEOUT}/$timeout;/g" /etc/nginx/conf.d/sites_env.conf
 
+# TLS: data/<env>/ssl holds the pair (mkcert locally, a real certificate where one is provisioned).
+# A server that terminates TLS elsewhere (DirectAdmin) or serves plain HTTP (VPN) has none: then a
+# self-signed pair is generated once per container, root-only, so the 443 listener still starts.
+# A provisioned pair is never touched; half a pair is an error, not a reason to generate.
+provisioned=/etc/ssl/certs
+generated=/etc/nginx/ssl-generated
+if [[ -e $provisioned/domain.crt || -e $provisioned/domain.key ]]; then
+  if [[ ! -r $provisioned/domain.crt || ! -r $provisioned/domain.key ]]; then
+    echo "[init] ERROR: $provisioned needs both domain.crt and domain.key (data/<env>/ssl)" >&2
+    exit 1
+  fi
+else
+  if [[ ! -s $generated/domain.crt || ! -s $generated/domain.key ]]; then
+    (umask 077 && mkdir -p "$generated" &&
+      openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$domain" \
+        -addext "subjectAltName=DNS:$domain,DNS:*.$domain" \
+        -keyout "$generated/domain.key" -out "$generated/domain.crt" 2>/dev/null)
+    chmod 600 "$generated/domain.key"
+    echo "[init] TLS: no certificate in data/<env>/ssl; generated a self-signed pair for $domain"
+  fi
+  sed -i "s#$provisioned/domain\.#$generated/domain.#g" /etc/nginx/conf.d/sites.conf /etc/nginx/conf.d/sites_env.conf
+fi
+
 exec nginx -g "daemon off;"
