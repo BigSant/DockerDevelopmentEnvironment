@@ -39,6 +39,8 @@ services:
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}
+      # Created and granted to MYSQL_USER on first start, like MYSQL_DATABASE (init.sh).
+      DATABASE_EXTRA_SCHEMAS: ${DATABASE_EXTRA_SCHEMAS-}
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/mariadb/:/var/lib/mysql
       - ${PROJECT_DOCKER_DIRECTORY}/config/mariadb/:/etc/mysql/project.d/:ro

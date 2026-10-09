@@ -1,5 +1,30 @@
 """Select the installed MySQL/MariaDB client without leaking connection values."""
 
+import re
+
+# Schema names stay plain so they can appear in SQL, shell and grant patterns without quoting rules.
+SCHEMA_NAME = re.compile(r'[A-Za-z0-9_]{1,64}')
+SYSTEM_SCHEMAS = ('mysql', 'sys', 'information_schema', 'performance_schema')
+
+
+def extra_schemas(settings):
+    """DATABASE_EXTRA_SCHEMAS as a list: schemas besides DATABASE_NAME that belong to the project.
+
+    The application user owns them like the main database; backup, import and the grant
+    restriction cover them, while the schema snapshot, table registry and data set stay on the main one.
+    """
+    names = str(settings.get('DATABASE_EXTRA_SCHEMAS') or '').split()
+    for name in names:
+        if not SCHEMA_NAME.fullmatch(name) or name.lower() in SYSTEM_SCHEMAS:
+            raise ValueError(f'DATABASE_EXTRA_SCHEMAS: {name!r} is not allowed; use 1-64 letters, digits or _ '
+                             'and no system schema')
+    if len(set(names)) != len(names):
+        raise ValueError('DATABASE_EXTRA_SCHEMAS lists a schema twice')
+    if settings.get('DATABASE_NAME') in names:
+        raise ValueError('DATABASE_EXTRA_SCHEMAS must not repeat DATABASE_NAME')
+    return names
+
+
 CLIENT = '''
 set -eu
 if [ "$MYSQL_DATABASE" != "$1" ]; then

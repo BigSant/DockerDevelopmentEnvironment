@@ -18,6 +18,7 @@ from project_environment import doctor, initialize_directories, initialize_env, 
 from project_ide import initialize_ide, refresh_ide
 from project_health import start_project
 from database_backup import backup_database
+from database_client import extra_schemas
 from setup_release import image_suffixes, setup_info, suffix_variable
 from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolve_policy, suggested_limits, validate_configuration
 
@@ -173,6 +174,7 @@ class Project:
             raise ValueError(f"Set DATABASE_ROOT_PASSWORD in {private_env} (make bootstrap generates one locally)")
         if settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
             raise ValueError("DATABASE_ROOT_PASSWORD must differ from DATABASE_PASSWORD")
+        extra_schemas(settings)
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")
