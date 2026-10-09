@@ -17,6 +17,7 @@ from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
 from project_ide import initialize_ide, refresh_ide
 from project_health import start_project
+from project_metrics import require_token, resolve_metrics
 from database_backup import backup_database
 from database_client import extra_schemas
 from setup_release import image_suffixes, setup_info, suffix_variable
@@ -25,12 +26,12 @@ from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolv
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 # Optional CORE services a project enables with SERVICES=...; the four core services always run.
-SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'dbmonitor', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
+SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'dbmonitor', 'metrics', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
                      'php-doctrine-migrations')
 # Long-running catalogue services start with `up`; the others are tools started by their command.
 RUNTIME_PROFILES = {'cron': 'cron'}
 # Web tools that stage/prod start only behind a client IP allowlist.
-ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor')
+ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'metrics')
 # With DEPLOY_CONTEXT, stage/prod containers run on the target: exec/ps/logs go there, builds
 # and model rendering stay on this build machine, and lifecycle commands use the release model.
 LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
@@ -184,6 +185,7 @@ class Project:
         if unknown:
             raise ValueError(f"Unknown SERVICES entry: {', '.join(unknown)}; available: {' '.join(SERVICE_CATALOGUE)}")
         self.services = services
+        self.process_env.update(resolve_metrics(settings, environment))
         if profiles is None:
             selected = [p for p in re.split(r'[,\s]+', settings["PROFILES"]) if p]
             selected += [RUNTIME_PROFILES[name] for name in services if name in RUNTIME_PROFILES]
@@ -222,10 +224,13 @@ class Project:
             for tool in ALLOWLISTED_TOOLS:
                 if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
                     raise ValueError(f'{tool} on {environment} requires {tool.upper()}_ALLOWED_IPS or ALLOWED_IPS')
+            if 'metrics' in active:
+                require_token(settings, environment)
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0',
                                 SETUP_ENABLE_CRON='1' if 'cron' in active else '0',
-                                SETUP_ENABLE_DBMONITOR='1' if 'dbmonitor' in active else '0')
+                                SETUP_ENABLE_DBMONITOR='1' if 'dbmonitor' in active else '0',
+                                SETUP_ENABLE_METRICS='1' if 'metrics' in active else '0')
         # One fingerprint per built image, computed from that image's own inputs only.
         self.image_suffixes = image_suffixes(profile, self.model()['services'])
         self.process_env.update({suffix_variable(name): value for name, value in self.image_suffixes.items()})
