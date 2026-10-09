@@ -16,10 +16,12 @@ MANIFEST = "schema.manifest.json"
 HOOK_MARKER = "# Shared setup schema pre-commit hook v2"
 PREVIOUS_HOOK_MARKERS = ("# Shared setup schema pre-commit hook v1",)
 from database_client import READ as MYSQL_READ
-TABLES_SQL = "SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY BINARY TABLE_NAME;\n"
+# setup_migrations records applied migrations; it belongs to setup, not to the project schema.
+TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
+              "AND TABLE_NAME <> 'setup_migrations' ORDER BY BINARY TABLE_NAME;\n")
 
 
-def mysql_query(project, sql):
+def mysql_query(project, sql, timeout=60):
     database = project.settings["DATABASE_NAME"]
     if not database:
         raise ValueError("DATABASE_NAME is required for schema commands")
@@ -27,7 +29,7 @@ def mysql_query(project, sql):
                                  "schema-read", database]
     try:
         result = subprocess.run(command, input=sql.encode(), capture_output=True,
-                                env=project.child_env(), timeout=60)
+                                env=project.child_env(), timeout=timeout)
     except subprocess.TimeoutExpired as error:
         raise ValueError("Schema read timed out; no successful check or export was made") from error
     if result.returncode:
@@ -222,7 +224,8 @@ def schema_differences(staged, actual):
 
 
 def commit_schema(project):
-    """Pre-commit: export the schema, require every table to be classified, stop if it changed."""
+    """Pre-commit: export the schema, require classification and a finished migration, stop if anything is open."""
+    from database_migrations_guarded import commit_problems, write_draft
     directory = schema_directory(project)
     try:
         database_tables(project)
@@ -231,13 +234,14 @@ def commit_schema(project):
         return
     actual = read_schema(project, require_classified=True)
     export_schema(project, actual)
-    differences = schema_differences(staged_schema(directory), actual)
-    if differences:
-        from database_migrations_guarded import write_draft
-        draft = write_draft(project, differences)
-        raise ValueError("The database schema changed; the commit was stopped for review:\n  " + "\n  ".join(differences)
-                         + (f"\nA guarded migration draft was written: {draft}" if draft else "")
-                         + f"\nReview, then git add -A {directory} (and the migration) and commit again.")
+    staged = staged_schema(directory)
+    problems = [f"schema {line}" for line in schema_differences(staged, actual)]
+    problems += commit_problems(project, staged if not problems else actual)
+    if problems:
+        draft = write_draft(project, actual)
+        raise ValueError("The commit was stopped for review:\n  " + "\n  ".join(problems)
+                         + (f"\nGuarded migration draft: {draft}" if draft else "")
+                         + f"\nReview, then git add -A {directory.parent} and commit again.")
     print(f"Schema matches the commit ({len(actual) - 1} tables).")
 
 
