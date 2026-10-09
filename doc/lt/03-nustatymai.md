@@ -1,206 +1,236 @@
 # 3. Nustatymų žinynas
 
-[Turinys](README.md) · [Atgal](02-pradzia.md) · [Toliau: Compose](04-compose-ir-dockerfile.md)
+[Turinys](README.md) · [Atgal](02-pradzia.md) · [Toliau: Compose ir Dockerfile](04-compose-ir-dockerfile.md)
 
 ## Kur rašyti reikšmę
 
-Pavyzdys: visur reikia PHP 8.1, bet DB slaptažodis vietoje ir prod skirtingas.
-
-`env/common.env`:
-
-```dotenv
-PROJECT_NAME=demo
-PHP_VERSION=8.1
-PROFILE=prestashop
-```
-
-`env/local.env`:
-
-```dotenv
-DOMAIN=demo.localhost
-LOCALHOST_PORT=31820
-LOCALHOST_PORT_SSL=31821
-DATABASE_NAME=demo
-DATABASE_USER=demo
-DATABASE_PASSWORD='vietinis-pavyzdys-pakeisk'
-```
-
-`env/prod.env`:
-
-```dotenv
-DOMAIN=parduotuve.example.com
-LOCALHOST_PORT=80
-LOCALHOST_PORT_SSL=443
-DATABASE_NAME=demo_prod
-DATABASE_USER=demo_prod
-DATABASE_PASSWORD='atskiras-prod-pavyzdys-pakeisk'
-```
-
-Čia pateikta reikšmių atskyrimo iliustracija. Vien `prod.env` neparuošia gamybinio serverio, TLS, DB teisių ir aplikacijos – [prod paruošimas aprašytas atskirai](09-aplinkos.md).
-
-`ENV=test` neskaito `local.env`. Eiliškumas yra:
+Reikšmės skaitomos šia tvarka, vėlesnė pakeičia ankstesnę:
 
 ```text
 setup/docker/.env → projekto env/common.env → projekto env/<ENV>.env
 ```
 
-Vėlesnė reikšmė pakeičia ankstesnę. Runner išvalo iš shell tuos raktus, kurie deklaruoti skaitomuose env failuose, ir pats nustato techninius kelius. Todėl projekto nustatymus laikyk failuose. `make PHP_VERSION=8.3 up` nėra dokumentuotas PHP versijos keitimo būdas; keisk env ir perstatyk atvaizdą.
+- `env/common.env` – bendri projekto nustatymai visoms aplinkoms. Commit'inamas, slaptažodžių jame nėra.
+- `env/<ENV>.env` – vienos aplinkos reikšmės ir slaptažodžiai (`local.env`, `test.env`, `stage.env`, `prod.env`). Į Git nededami. Vietoj jų commit'inami `*.env.example` be slaptažodžių.
+- `ENV=test` skaito `test.env`, o ne `local.env`.
 
-Naujam projektui `COMPOSE_PROFILES` nereikalingas. Servisus aprašyk YAML: servisas be `profiles:` paleidžiamas, kai jo YAML įtrauktas. Aplinkos papildymus laikyk `compose/local.yaml` ar `compose/prod.yaml`.
+Pavyzdys: visur PHP 8.4, bet DB slaptažodis kiekvienoje aplinkoje savas.
 
-Env nėra shell scriptas. Nerašyk ten `$(komanda)`, nenaudok `source env/local.env`. Slaptažodžiams su `$` saugiau naudoti viengubas kabutes. Savus sudėtingus simbolius patikrink per `make check`; paslapčių nekopijuok iš išplėsto Compose į pokalbius. Interpoliavimo taisyklės: [Docker dotenv žinynas](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
+`env/common.env`:
 
-PHP ir JS/CSS įrankių versijų pavyzdžiai bei naudojimas pateikti
-[atskirame skyriuje](13-php-ir-build-irankiai.md). `NPM_CONFIG_CACHE` (numatyta
-`/tmp/setup-npm-cache`) ir `COMPOSER_HOME` (numatyta `/tmp/setup-composer`)
-keičia šių įrankių rašomų failų vietas PHP konteineryje.
+```dotenv
+PROJECT_NAME=demo
+PROFILE=prestashop
+PS_VERSION=9.0.2
+PHP_VERSION=8.4
+SERVICES="pma"
+```
+
+`env/local.env`:
+
+```dotenv
+DOMAIN=demo.local
+DATABASE_NAME=demo
+DATABASE_USER=demo
+DATABASE_PASSWORD='vietinis-pavyzdys-pakeisk'
+SERVICES="pma mailpit"
+```
+
+Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Taip Bitbucket Pipelines perduoda slaptažodžius, kurių nėra jokiame faile (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)).
+
+Env failas nėra shell scriptas: nerašyk `$(komanda)` ir nenaudok `source env/local.env`. Slaptažodžiams su `$` naudok viengubas kabutes. Reikšmes su tarpais (pvz. `SERVICES`) rašyk kabutėse. Taisyklės: [Docker dotenv interpoliacija](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
+
+Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/project-settings.yaml), ir raktus, kuriuos Compose aprašai naudoja tiesiogiai. Visi jie surašyti žemiau.
 
 ## Tapatybė, profilis ir servisai
 
-Lentelių „numatyta“ reiškia dabartinį bendrą setup, jeigu projektas nieko nepakeitė. „Tuščia“ nereiškia, kad reikšmė visada neprivaloma.
-
-| Raktas | Numatyta / leidžiama | Ką daro ir kur naudoti |
+| Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `PROJECT_NAME` | Bendrame faile tuščias; būtinas. Mažosios `a-z`, skaitmenys, `_`, `-`, pirmas simbolis raidė/skaitmuo | Projekto konteinerių, tinklo ir atvaizdų vardų pagrindas. Pvz. `forsena`; laikyk `common.env`. Pakeitus atsiras kitas Compose projektas. |
-| `PROFILE` | Tuščias; bendras PHP | `prestashop` įjungia PS veiksmus. `akeneo` pasirenka Akeneo atvaizdų papildymus. Tuščias – bendras PHP. Kitas vardas savaime nesukuria integracijos. |
-| `COMPOSE_PROFILES` | Tuščias; pasirenkama Compose galimybė | Kableliais atskirti pasirenkami servisų profiliai: `redis,mailpit`. Gali būti tuščias. Neprideda YAML apraše nesančio serviso. |
-| `PROJECT_COMPOSE_FILES` | Tuščias; grouped šablone `compose/qa.yaml compose/doctrine.yaml compose/redis.yaml` | Papildomų YAML sąrašas per tarpus, skaitomas iš kairės į dešinę. Keliai nuo Makefile katalogo, turi likti jame. |
+| `PROJECT_NAME` | Privalomas | Konteinerių, tinklo ir image'ų vardų pagrindas. Mažosios raidės, skaitmenys, `_`, `-`. Laikyk `common.env`. |
+| `PROJECT_DISPLAY_NAME` | Tuščias | PhpStorm projekto pavadinimas. Be jo išsaugomas `.idea/.name` arba naudojamas `PROJECT_NAME`. |
+| `PROFILE` | Tuščias (bendras PHP) | `prestashop` įjungia PS veiksmus, `akeneo` – Akeneo image'o papildymus. Kitas vardas veikia kaip bendras PHP. |
+| `SERVICES` | Tuščias | Papildomi CORE servisai per tarpus: `pma mailpit cron dbmonitor memcached redis playwright php-phpstan php-cs php-doctrine-migrations`. Nežinomas vardas – klaida. Žr. [servisai](05-servisai.md#servisų-katalogas-services). |
+| `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
+| `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
 
-`PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, o `PROFILES=redis` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
+`PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, `SERVICES` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
 
-## Adresai, HTTP ir patikros
+## Adresai ir prieiga
 
-| Raktas | Numatyta | Ką keisti ir konkretus pavyzdys |
+| Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `DOMAIN` | Tuščias, HTTP aplinkai būtinas | Hostname be `http://`, be porto ir kelio: `demo.localhost`. Bootstrap tikrina, ar jis veda į šį kompiuterį. |
-| `LOCALHOST_PORT` | `0` | Kompiuterio HTTP portas, praktiškai rinkis laisvą `1..65535`; bootstrap `0` pakeičia laisvu. Pvz. `31820`. |
-| `LOCALHOST_PORT_SSL` | `0` | Kompiuterio HTTPS portas. Pvz. `31821`; turi nesikirsti su kitais projektais. |
-| `DOCUMENT_ROOT` | `/` | Poaplankis **aplikacijos checkout viduje**. `public` reiškia `/var/www/html/public`, o ne kitą host katalogą. |
-| `WEBSERVICE_TIMEOUT` | `90` sekundžių | Nginx proxy užklausos timeout, pvz. `300` ilgam importui per HTTP. Tai ne `make up` laukimo laikas. |
-| `WHITELISTED_IP` | `allow all;` | Perduodamas Nginx inicializatoriui. Esamame proxy pagrindiniame šablone nėra veikiančio bendro IP filtro vietos: vien šios reikšmės nelaikyk prieigos ribojimu. Ribojimą dėk į konkretų Nginx server/location config. |
-| `SQL_DOMAIN` | `DOMAIN`, jei kintamasis nenustatytas | Tik SQL `${DOMAIN}` pakeitimui. Gali būti `demo.test.localhost:31830`, nors `DOMAIN` turi likti be porto. Tuščia reikšmė SQL vykdyme taip pat grįžta prie `DOMAIN`. |
+| `DOMAIN` | Tuščias | Hostname be `http://`, porto ir kelio: `demo.local`. Lokaliai jį parenka `make bootstrap`, testui – `<vardas>.test.local`. |
+| `LOCALHOST_PORT`, `LOCALHOST_PORT_SSL` | `0` | Projekto HTTP ir HTTPS portai kompiuteryje. `0` – `make bootstrap` parenka laisvą porą. Naršyklėje porto rašyti nereikia. |
+| `PUBLISH_ADDRESS` | `127.0.0.1` | Adresas, prie kurio rišami portai. Projektas pasiekiamas tik per kompiuterio Nginx arba serverio web serverį. |
+| `DOCUMENT_ROOT` | `/` | Poaplankis aplikacijos viduje, kurį aptarnauja Apache, pvz. `public`. |
+| `WEBSERVICE_TIMEOUT` | `90` | Nginx proxy užklausos laikas sekundėmis. |
+| `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
+| `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
+| `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
+| `TRUSTED_PROXIES` | `127.0.0.1 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16` | Iš kurių adresų nginx-proxy priima `X-Forwarded-For`. |
 
-`make up` laukia Docker sveikatos patikrų, bet HTTP užklausų į aplikaciją nesiunčia.
+IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-apribojimai).
 
-## DB prisijungimai ir failų savininkai
+## Duomenų bazė
 
-| Raktas | Numatyta | Paskirtis / atnaujinimas |
+| Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `DATABASE_NAME` | Tuščias, DB komandoms būtinas | Pvz. `demo`; laikyk aplinkos faile. Turi sutapti su veikiančio DB konteinerio `MYSQL_DATABASE`. |
-| `DATABASE_USER` | Tuščias | Aplikacijos DB vartotojas. Pirmą kartą kuriamas inicializuojant tuščią DB. |
-| `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB slaptažodis. Bendras dev Compose tą pačią reikšmę naudoja ir `MYSQL_ROOT_PASSWORD`. Esamos DB slaptažodžio pakeitimas env faile jo serverio viduje nepakeičia. |
-| `DATABASE_HOST` | `127.0.0.1` | Istorinis DB konteinerio nustatymas: MySQL gauna `MYSQL_HOST`, MariaDB – `MYSQL_ROOT_HOST`. Tai **ne** įprastas PHP → DB adresas. |
-| `APP_DATABASE_HOST` | `database` | PHP runtime gauna kaip `DATABASE_HOST`. Keisk tik jei aplikacija sąmoningai jungiasi kitur; PS testinė aplinka reikalauja `database`. |
-| `APP_DATABASE_PORT` | `3306` | PHP runtime `DATABASE_PORT`. Tai DB vidinis portas, ne naršyklės ar hosto persiųstas portas. PS tikrina `1..65535`. |
-| `DATABASE_UID` | Dabartinio vartotojo UID | Bendras **MySQL** servisas leidžia parinkti pastovų duomenų savininką. Pvz. `1001`. Katalogo teisės turi atitikti. |
-| `DATABASE_GID` | Dabartinio vartotojo GID | MySQL grupė. MariaDB šių dviejų override nenaudoja; jos `user` keičiamas Compose. |
+| `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB ir jos vartotojas. Vartotojas gauna teises **tik į savo DB**. Sukuriami pirmą kartą paleidžiant tuščią DB. |
+| `DATABASE_ROOT_PASSWORD` | Privalomas | Atskiras root slaptažodis, turi skirtis nuo `DATABASE_PASSWORD`. Local/test sugeneruoja `make init` / `make bootstrap`. |
+| `APP_DATABASE_HOST`, `APP_DATABASE_PORT` | `database`, `3306` | Kur jungiasi PHP. Keisk tik jei aplikacija sąmoningai jungiasi kitur. |
+| `DATABASE_HOST` | `127.0.0.1` (bendrame `.env`) | DB konteinerio vartotojo host'o nustatymas (MySQL `MYSQL_HOST`, MariaDB `MYSQL_ROOT_HOST`). Tai ne PHP adresas. |
+| `DATABASE_UID`, `DATABASE_GID` | Tavo vartotojo ID | Tik MySQL: DB failų savininkas. |
+| `DATABASE_BUFFER_POOL` | Apskaičiuojama | InnoDB buffer pool, žr. [resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui). |
+| `DATABASE_PERFORMANCE_SCHEMA` | `off` | `on` įjungia MySQL `performance_schema` (DB monitoriui). Kainuoja kelis šimtus MB atminties. |
+| `DATABASE_MONITOR_USER` | `<DATABASE_NAME>_monitor` | DB monitoriaus vartotojas, žr. [DB monitorius](05-servisai.md#db-monitorius). |
+| `DATABASE_MONITOR_PASSWORD` | Tuščias | Jo slaptažodis, bent 16 simbolių. |
+| `DBMONITOR_TOKEN` | Tuščias | Bearer token'as DB monitoriaus endpoint'ui, bent 24 simboliai. |
 
-Bendri pirmojo DB starto scriptai suteikia dev aplikacijos vartotojui plačias teises, kad veiktų vietinės migracijos. `ENV=prod` pats jų nesusiaurina. Gamybiniam naudojimui atskirai paruošk DB paskyras ir savo inicializavimo politiką.
+## Laikas ir derinimas
 
-## PrestaShop debug
-
-Šie laukai veikia tik su `PROFILE=prestashop`. Bendras PHP servisas juos jau perduoda konteineriui; papildomo Compose aprašo nereikia.
-
-| Env raktas | Numatytoji reikšmė | Ką rašyti ir kas įvyksta |
+| Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `PS_DEBUG_MODE` | Runner palieka tuščią, naujas grouped šablonas nustato `off` | `off` išjungia debug; `on` įjungia visoms užklausoms ir CLI; `ip` įjungia tik leidžiamiems HTTP klientų IP, CLI išjungia. Tuščias arba nepateiktas raktas palieka esamą `defines.inc.php` nevaldomą ir **neatšaukia ankstesnio pakeitimo**. |
-| `PS_DEBUG_IPS` | Tuščias | Kableliais atskirti tikslūs IPv4 / IPv6 adresai, pvz. `192.0.2.10,2001:db8::10`. Su `ip` būtinas bent vienas. Tarpai aplink adresus leidžiami; domenai, portai, CIDR (`/24`) ir tušti sąrašo elementai atmetami. Su `off` / `on` sąrašas tik patikrinamas, prieigos neriboja; su tuščiu režimu ignoruojamas. |
+| `TZ` | `Europe/Vilnius` | Viena laiko zona visiems konteineriams, PHP `date.timezone`, DB ir cron. |
+| `XDEBUG_MODE` | `debug` (local/test) | `off` arba sąrašas per kablelį iš `develop`, `coverage`, `debug`, `gcstats`, `profile`, `trace`. Pritaikoma su `make restart`. Stage/prod šis raktas atmetamas. |
+| `PS_DEBUG_MODE` | Tuščias | Tik PS: `off`, `on`, `ip`. Žr. [PS debug](06-aplikacija.md#prestashop-debug). |
+| `PS_DEBUG_IPS` | Tuščias | Tikslūs IPv4/IPv6 adresai per kablelį, kai `PS_DEBUG_MODE=ip`. |
 
-Režimo vardai rašomi mažosiomis raidėmis, be papildomų tarpų. `true`, `false`, `1`, `0` nėra režimų vardai. Netinkama konfigūracija sustabdo PS paruošimą prieš DB prisijungimų failo pakeitimą.
+## PrestaShop
 
-Nustatymus taikyk su `make up` (kitai aplinkai – `make up ENV=prod`). Jie keičiami paleidžiant PHP, ne kuriant image. Visas paruošimas, realios situacijos ir proxy paaiškinimas yra [aplikacijos skyriuje](06-aplikacija.md#f-prestashop-debug-iš-env).
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `PS_VERSION` | Privalomas PS profiliui | Parduotuvės kodo versija, pvz. `9.0.2`. Pagal ją parenkamas konfigūracijos failo formatas. Nesutapimas su kodu – klaida. |
+| `PS_COOKIE_KEY`, `PS_COOKIE_IV` | Tuščias | Parduotuvės raktai, visoms versijoms. |
+| `PS_RIJNDAEL_KEY`, `PS_RIJNDAEL_IV` | Tuščias | Tik PS 1.6. |
+| `PS_NEW_COOKIE_KEY`, `PS_SECRET` | Tuščias | PS 1.7, 8, 9. |
+| `PS_API_PRIVATE_KEY`, `PS_API_PUBLIC_KEY` | Tuščias | Tik PS 9, PEM raktai base64 forma. |
+| `PS_DATABASE_PREFIX` | `ps_` | Lentelių prefiksas. |
+| `PS_LOCALE` | `en-US` | Kuriamo `parameters.php` `locale` reikšmė. |
+| `PS_RELEASE` | `off` | `on` – oficialus PS release saugomas PHP image'e. |
+| `PS_RELEASE_PATHS` | Tuščias | Katalogai per tarpus, kopijuojami iš release į parduotuvę, pvz. `vendor` arba `admin`. Reikia `PS_RELEASE=on`. |
+| `PS_RELEASE_SHA256` | Tuščias | PS 1.6 release zip kontrolinė suma. |
+| `PS_ADMIN_DIR` | Tuščias | Kuo pervadinti release `admin` katalogą kopijuojant. |
+| `PS_SSL` | `on` | Ką after-import įrašo į `PS_SSL_ENABLED` ir `PS_SSL_ENABLED_EVERYWHERE` ne prod aplinkose. |
+| `SETUP_COMPATIBILITY_CHECK` | Įjungta | `off` išjungia PS ir PHP versijų patikrą (fork'ams, pvz. thirty bees). |
+
+Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stage/prod raktai ateina iš serverio env arba Bitbucket Deployment variables. Plačiau: [aplikacijos skyrius](06-aplikacija.md).
+
+## Duomenų bazė kaip kodas ir importas
+
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `SCHEMA_DIRECTORY` | Tuščias | Schemos snapshot'o katalogas nuo projekto šaknies, pvz. `app/database/schema`. Be jo neveikia schema, registras, migracijos ir rinkiniai. |
+| `POST_IMPORT_SQL_DIRECTORY` | `database/after-import` šalia Makefile | Kitas after-import katalogas nuo projekto šaknies. |
+| `FIXTURES_DIRECTORY` | Tuščias | Fixtures katalogas nuo projekto šaknies, pvz. `app/database/fixtures`. |
+| `INTEGRATIONS_ENABLED` | Tuščias | Integracijos, kurias po užkėlimo palikti įjungtas, per tarpus. |
+| `MAIL_MODE` | `auto` | `auto`, `off`, `mailpit`, `preserve`. Žr. [paštas](12-cache-ir-hibridines-aplinkos.md#paštas-mail_mode). |
+
+Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` skaičiuojami nuo projekto šaknies (`demo/`), o `PROJECT_COMPOSE_FILES` – nuo `demo/app/`.
+
+## Testai ir kodo kokybė
+
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `TEST_COPY_EXCLUDE` | Tuščias | Keliai parduotuvėje per tarpus, kurių nekopijuoti į `ENV=test` kopiją, pvz. `/modules/prgenericsync/cache`. |
+| `PHPSTAN_BASELINE_FILE` | Tuščias | Konteinerio kelias, kur `make phpstan-baseline` rašo baseline. |
+| `PLAYWRIGHT_COMMAND` | `npx playwright test` | `make e2e` komanda. |
+| `DOCTRINE_PHP_VERSION` | `8.3` | Doctrine migracijų įrankio PHP versija. |
+
+## Serveriai, release ir deploy
+
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `APP_UID`, `APP_GID` | Tuščias | Stage/prod: hosting'o (DirectAdmin) vartotojo skaitiniai ID. Konteineriai veikia šiuo vartotoju. Release'ui privalomi. |
+| `DEPLOY_CONTEXT` | Tuščias | Docker context'o vardas taikinio serveriui. Su juo stage/prod konteineriai valdomi serveryje. |
+| `DEPLOY_SSH` | Tuščias | `vartotojas@host`, kur `rsync` siunčia parduotuvės kodą. Tuščias – vietinis kelias. |
+| `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
+
+Stage/prod dar privalomi keturių pagrindinių servisų limitai, žr. [resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui).
+
+## Kodo ir duomenų keliai
+
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `APP_SOURCE_DIRECTORY` | `app/public`; test – `app/.generated/test/app`; stage/prod – `app/<aplinka>/public` | Aplikacijos kodo vieta nuo projekto šaknies. Turi likti projekte; testui – `.generated/test` viduje. |
+| `DATA_DIRECTORY` | `data`; test – `app/.generated/test/data`; stage/prod – `data/<aplinka>` | Duomenų katalogas nuo projekto šaknies. Kitas kelias reiškia kitus DB failus. |
+
+## Cache, resursai ir log'ai
+
+Šių raktų reikšmės ir pirmenybė aprašytos [12 skyriuje](12-cache-ir-hibridines-aplinkos.md): `CACHE_MODE`, `PHP_OPCACHE`, `PHP_APCU`, `PHP_OPCACHE_VALIDATE_TIMESTAMPS`, `PHP_OPCACHE_REVALIDATE_FREQ`, `PS_SMARTY_CACHE`, `PS_SMARTY_COMPILE`, `PS_ASSET_CACHE`, `PS_OBJECT_CACHE`, `CACHE_CLEAR_COMMAND`, `<SERVISAS>_MEMORY`, `<SERVISAS>_CPUS`, `PHP_FPM_*`, `MEMCACHED_CACHE_MB`, `REDIS_MAXMEMORY_MB`, `CONTAINER_LOG_MAX_SIZE`, `CONTAINER_LOG_MAX_FILES`, `MIN_FREE_DISK_MB`, `BACKUP_KEEP_LAST`.
+
+## PHP užklausų ribos
+
+| Raktas | Numatyta | Pavyzdys |
+| --- | --- | --- |
+| `PHP_MEMORY_LIMIT` | `512M` | `1024M`: vienos PHP užklausos atmintis. |
+| `PHP_MAX_EXECUTION_TIME` | `30` | `300`: sekundės vienai HTTP užklausai. |
+| `PHP_UPLOAD_MAX_FILESIZE` | `20M` | `64M`: vieno įkeliamo failo dydis. |
+| `PHP_POST_MAX_SIZE` | `20M` | `70M`: visos POST užklausos dydis. |
+
+Šios reikšmės nustatomos FPM pool'e, todėl vien `.ini` pakeitimas HTTP ribos gali nepakeisti. CLI `php -i` gali rodyti kitą reikšmę.
+
+## Cron
+
+| Raktas | Numatyta | Ką daro |
+| --- | --- | --- |
+| `CRON_HISTORY_KEEP` | `100` | Kiek paskutinių kiekvienos užduoties paleidimų log'ų laikyti. |
 
 ## Programų versijos
 
-Šiuos raktus paprastai laikyk `common.env`. Keitimo seka: `make check` → `make build` → `make up`. DB variklio versijos keitimas papildomai reikalauja suderinamo duomenų perkėlimo; nepakanka perstatyti konteinerį.
+Paprastai laikomos bendrame setup `.env`. Projektas gali perrašyti bet kurią `common.env` faile. Keitimo seka: `make check` → `make build` → `make up`.
 
-| Raktas | Dabartinis default | Ką pasirenka |
+| Raktas | Numatyta | Ką pasirenka |
 | --- | --- | --- |
-| `PHP_VERSION` | `8.1` | PHP Dockerfile katalogą. Šaltiniuose yra `5.6`, `7.0`–`7.4`, `8.0`–`8.5`; tai negarantuoja, kad senas receptas šiandien susikurs be papildomų pataisų. |
-| `XDEBUG_VERSION` | `3.1.5` | Xdebug plėtinio versiją. Turi derėti su pasirinktu PHP; PS 1.6 nereikia automatiškai priskirti šio default. |
-| `COMPOSER_VERSION` | `2.7.6` | Composer atvaizdo/programos versiją. Taip pat turi derėti su PHP. |
-| `NODE_VERSION` | `22.23.1` | Per nvm į PHP bazinį atvaizdą diegiamą Node versiją. |
-| `NPM_VERSION` | `10.9.8` | Npm versija PHP 8.x atvaizde. |
-| `WEBPACK_VERSION` / `WEBPACK_CLI_VERSION` | `5.94.0` / `5.1.4` | Globalūs įrankiai; nekeičia projekto `package-lock.json`. |
-| `NVM_VERSION` / `NVM_INSTALL_SHA256` | `v0.40.4` / žr. bendrą `.env` | NVM diegiklio versija ir SHA-256. Keičiamos kartu. |
-| `SUPERCRONIC_VERSION` / `SUPERCRONIC_SHA1SUM` | `0.2.29` / žr. bendrą `.env` | Cron vykdyklės versija ir patikros suma. Keičiamos kartu. |
-| `APCU_VERSION` | `5.1.28` | APCu versiją tuose PHP receptuose, kurie ją naudoja; neįjungia papildomo serviso. |
-| `PHPSTAN_PHAR_VERSION` | `1.12.33` | Į PHP atvaizdą kepamo PHPStan PHAR versiją. Tai ne atskiro QA serviso versija. |
-| `PHP_PHPSTAN_VERSION` | `2.2.2-php8.1` | Atskiro `php-phpstan` įrankio bazinio atvaizdo tag. |
-| `PHP_CS_VERSION` | `3.95.10-php8.1` | `php-cs` / PHP-CS-Fixer atvaizdo tag. |
-| `DOCTRINE_MIGRATIONS_VERSION` | `3.8` | Dockerfile naudoja Composer apribojimą `^3.8`, todėl tai ne užfiksuotas patch leidimas. |
-| `NGINX_VERSION` | `1.26.0` | Nginx proxy bazinio atvaizdo versiją. |
-| `APACHE_VERSION` | `2.4.59` | Apache bazinio atvaizdo versiją. |
-| `MYSQL_VERSION` | `8.4.0` | MySQL versiją, kai pagrinde pasirinktas MySQL aprašas. |
-| `MARIADB_VERSION` | `11.3.2` | MariaDB versiją, kai pagrinde pasirinktas MariaDB aprašas. Vien raktas MySQL nepakeičia MariaDB. |
-| `PMA_VERSION` | `5.2.3` | Pasirenkamo phpMyAdmin versiją. |
-| `MAILPIT_VERSION` | `1.18.3` | Pasirenkamo Mailpit versiją. |
-| `MEMCACHED_VERSION` | `1.6.45` | Pasirenkamo Memcached versiją; servisas įjungiamas tik YAML `include`. |
-| `MEMCACHED_MEMORY` | `128` | Memcached cache dydis MB (`memcached -m`). |
-| `PLAYWRIGHT_VERSION` | `1.61.1` | Naršyklių atvaizdo ir į jį diegiamo `@playwright/test` versiją. Jos turi sutapti. |
-| `REDIS_VERSION` | Bendrame setup nėra; grouped šablone `7.4` | Pasirenkamo `redis:<versija>-alpine` atvaizdo tag. Jis atsisiunčiamas su `make pull`, ne gaminamas bendru Dockerfile. |
+| `PHP_VERSION` | `8.1` | PHP Dockerfile katalogą: `5.6`, `7.0`–`7.4`, `8.0`–`8.5`. Rašyk šaką (`8.4`), ne patch versiją. |
+| `XDEBUG_VERSION` | `3.1.5` | Xdebug versiją. Turi derėti su PHP. |
+| `COMPOSER_VERSION` | `2.7.6` | Composer versiją PHP image'e. |
+| `APCU_VERSION` | `5.1.28` | APCu plėtinio versiją. |
+| `NODE_VERSION`, `NPM_VERSION` | `22.23.1`, `10.9.8` | Node ir npm PHP 8.x image'e. |
+| `WEBPACK_VERSION`, `WEBPACK_CLI_VERSION` | `5.94.0`, `5.1.4` | Globalūs Webpack įrankiai. |
+| `NVM_VERSION`, `NVM_INSTALL_SHA256` | `v0.40.4`, žr. `.env` | Keičiami kartu. |
+| `SUPERCRONIC_VERSION`, `SUPERCRONIC_SHA1SUM` | `0.2.29`, žr. `.env` | Cron vykdyklė, keičiami kartu. |
+| `PHPSTAN_PHAR_VERSION` | `1.12.33` | PHPStan PHAR PHP image'e. |
+| `PHP_PHPSTAN_VERSION` | `2.2.2-php8.1` | `php-phpstan` serviso image'o tag'as. |
+| `PHP_CS_VERSION` | `3.95.10-php8.1` | `php-cs` serviso image'o tag'as. |
+| `DOCTRINE_MIGRATIONS_VERSION` | `3.8` | Doctrine migracijų įrankis. |
+| `NGINX_VERSION` | `1.26.0` | nginx-proxy. |
+| `APACHE_VERSION` | `2.4.59` | Apache. |
+| `MYSQL_VERSION` | `8.4.0` | MySQL, kai `compose/base.yaml` naudoja MySQL. |
+| `MARIADB_VERSION` | `11.3.2` | MariaDB, kai `compose/base.yaml` naudoja MariaDB. |
+| `PMA_VERSION` | `5.2.3` | phpMyAdmin. |
+| `MAILPIT_VERSION` | `1.18.3` | Mailpit. |
+| `MEMCACHED_VERSION` | `1.6.45` | Memcached. |
+| `REDIS_VERSION` | `7.4` | Redis. |
+| `PLAYWRIGHT_VERSION` | `1.61.1` | Playwright image'as ir `@playwright/test`. |
+| `NPM_CONFIG_CACHE`, `COMPOSER_HOME` | `/tmp/setup-npm-cache`, `/tmp/setup-composer` | npm podėlio ir Composer namų katalogai PHP konteineryje. |
 
-Čia užrašytos repozitorijos reikšmės, o ne rekomendacija kiekvienam projektui visada rinktis būtent jas. CI patikrintos konfigūracijos ir DB komandų versijos aprašytos [atnaujinimų skyriuje](10-kasdienis-darbas.md).
+DB variklio versijos keitimui neužtenka perkurti konteinerio: reikia suderinamo duomenų perkėlimo (dump ir importas į naują tuščią katalogą).
 
-## PHP HTTP ribos
+## Kintamieji, kuriuos nustato runner'is
 
-| Raktas | Default | Pavyzdys ir matavimo vienetas |
-| --- | --- | --- |
-| `PHP_MEMORY_LIMIT` | `512M` | `1024M`: vieno HTTP PHP vykdymo atminties riba. |
-| `PHP_MAX_EXECUTION_TIME` | `30` | `300`: sekundės HTTP PHP vykdymui. |
-| `PHP_UPLOAD_MAX_FILESIZE` | `20M` | `64M`: vieno įkeliamo failo riba. |
-| `PHP_POST_MAX_SIZE` | `20M` | `70M`: visos POST užklausos riba; turi tilpti failas ir kiti formos duomenys. |
+Šiuos vardus gali naudoti Compose `${...}` išraiškose. Į env failus jų nerašyk.
 
-Šios reikšmės naudojamos FPM pool `php_admin_value`. Vien `.ini` pakeitimas gali nepakeisti HTTP ribos, nes pool ją nustato atskirai. CLI `php -i` gali rodyti kitą reikšmę nei HTTP. [Servisų skyriuje](05-servisai.md) parodyta, kaip valdyti abu.
-
-## Projekto keliai ir QA komandos
-
-| Raktas | Default | Reikšmės pavyzdys / paaiškinimas |
-| --- | --- | --- |
-| `APP_SOURCE_DIRECTORY` | Vietoje `app/public`; testui ir kitoms aplinkoms atskiri default | Kelias nuo `<projektas>/`, pvz. `app/kodas`. Turi likti projekte; testui – `.generated/test` viduje. |
-| `DATA_DIRECTORY` | Vietoje `data`; kitoms aplinkoms atskiri default | Kelias nuo `<projektas>/`, pvz. `data/local-v2`. Nekeisk jo kaip slapto DB „atnaujinimo“: kitas kelias reiškia kitus failus. |
-| `POST_IMPORT_SQL_DIRECTORY` | Tuščias: naudojamas `database/after-import` šalia projekto Makefile; jei jo nėra, importuojamas tik dump | Kitas kelias nuo `<projektas>/`, pvz. `app/db/hooks`; nurodytas katalogas turi egzistuoti, tušti common/aplinkos katalogai leidžiami. |
-| `SCHEMA_DIRECTORY` | Tuščias; būtinas schema komandoms | `app/database/schema`; hook veikia repozitorijoje, kuriai priklauso šis katalogas. |
-| `FIXTURES_DIRECTORY` | Tuščias; būtinas fixture komandoms | `app/database/fixtures`; rinkinys parenkamas komandos argumentu. |
-| `PHPSTAN_BASELINE_FILE` | Tuščias; grouped šablone `/tmp/phpstan/baselines/phpstan.neon` | **Konteinerio absoliutus kelias**, į kurį `make phpstan-baseline` rašo baseline. Reikia atitinkamo writable mount. |
-| `PLAYWRIGHT_COMMAND` | `npx playwright test`; grouped turi ir `--config=/e2e/config/playwright.config.cjs` | Argumentų eilutė, ne shell scriptas. Su `&&` dviejų komandų nepaleisi. |
-
-Prisimink du skirtingus atskaitos taškus: `SCHEMA_DIRECTORY=app/database/schema` skaičiuojamas nuo `forsena/`, o `PROJECT_COMPOSE_FILES=compose/redis.yaml` – nuo `forsena/app/`.
-
-## Techniniai kintamieji, kuriuos paruošia runner
-
-Šiuos vardus naudok Compose `${...}` išraiškose. Paprastai jų nerašyk į env ir nebandyk nukreipti vieno projekto į kito duomenis.
-
-| Kintamasis | Reikšmė `forsena/app`, `ENV=local` atveju |
+| Kintamasis | Reikšmė projektui `demo`, `ENV=local` |
 | --- | --- |
-| `ROOT_DIRECTORY` | `/home/tomas/Projects/setup/docker` – bendrų Docker šaltinių vieta. |
-| `PROJECT_DIRECTORY` | `/home/tomas/Projects/forsena` – projekto šaknis. |
-| `PROJECT_APP_DIRECTORY` | `…/forsena/app`. |
-| `PROJECT_DOCKER_DIRECTORY` | Makefile katalogas, čia taip pat `…/forsena/app`. |
-| `PROJECT_CONFIG_DIRECTORY` | `…/forsena/app/config`; istoriniame `root` išdėstyme gali skirtis nuo Docker config vietos. |
-| `PROJECT_WEB_DIRECTORY` | Pasirinktos aplikacijos kelias; vietoje `…/app/public`. |
-| `PROJECT_DATA_DIRECTORY` | Pasirinktos aplinkos duomenų bazinis kelias; vietoje `…/forsena/data`. |
-| `DOCKERFILE_DIRECTORY` | Projekto Makefile katalogas, jei jame yra `Dockerfile`; kitu atveju bendras `setup/docker`. |
-| `ENV` | Make pasirinkimas: `local`, `test`, `stage`, `prod`. |
-| `BUILD_ENV` | `test` atveju `local`; kitu atveju sutampa su `ENV`. |
-| `IMAGE_ENV` | Tokia pati taisyklė kaip `BUILD_ENV`; testas gali naudoti vietinius atvaizdus. |
-| `HOST_UID`, `HOST_GID` | Komandą vykdančio vartotojo skaitiniai ID. |
-| `SETUP_IMAGE_SUFFIX_<SERVISAS>` | Kiekvieno image'o fingerprint'as (`-s` + 12 hex) iš to image'o įvesčių; runner'is nustato pats. |
-| `PHP_INI_SCAN_DIR` | PHP/cron servisų environment nurodyti papildomi ini paieškos katalogai. Savavališkas jo pakeitimas gali išjungti projekto `.ini` skaitymą. |
-| `COMPOSE_DISABLE_ENV_FILE` | `true`; atsitiktinis shell vietos `.env` netampa papildomu šaltiniu. |
-| `BUILDX_NO_DEFAULT_ATTESTATIONS` | `1`; runner nustatyta build parinktis. |
-| `BUILDX_METADATA_PROVENANCE` | `disabled`; runner nustatyta build parinktis. |
+| `ROOT_DIRECTORY` | `…/setup/docker` – bendrų Docker šaltinių vieta. |
+| `PROJECT_DIRECTORY` | `…/demo` – projekto šaknis. |
+| `PROJECT_APP_DIRECTORY`, `PROJECT_DOCKER_DIRECTORY` | `…/demo/app`. |
+| `PROJECT_CONFIG_DIRECTORY` | `…/demo/app/config`. |
+| `PROJECT_WEB_DIRECTORY` | Pasirinktos aplinkos kodas, čia `…/demo/app/public`. |
+| `PROJECT_DATA_DIRECTORY` | Pasirinktos aplinkos duomenys, čia `…/demo/data`. |
+| `ENV` | `local`, `test`, `stage` arba `prod`. |
+| `BUILD_ENV`, `IMAGE_ENV` | `local`, kai `ENV=test`; kitaip sutampa su `ENV`. |
+| `HOST_UID`, `HOST_GID` | Tavo vartotojo ID; stage/prod – `APP_UID`/`APP_GID`. |
+| `SETUP_IMAGE_SUFFIX_<SERVISAS>` | Kiekvieno image'o fingerprint'as. |
 
-`BASE_IMAGE` yra projekto Dockerfile build argumentas, kurį grouped `compose/common.yaml` surenka iš PHP bazinio atvaizdo vardo. `PROFILES` ir `EXTRA_COMPOSE_FILES` yra vidiniai `project-settings.yaml` laukai, atitinkantys pasirenkamus `COMPOSE_PROFILES` ir `PROJECT_COMPOSE_FILES`.
-
-Runner pašalina iš shell `COMPOSE_PROJECT_NAME`, `COMPOSE_FILE`, `COMPOSE_ENV_FILES` ir `ENV_FILE`, kad svetimo projekto eksportai nepasirinktų kitos aplinkos. [Make ir CLI argumentai](11-komandos-ir-klaidos.md) aprašyti atskirai.
+Drop-in `.template` failuose kiekviename CORE konteineryje dar prieinami `DOMAIN`, `PROJECT_NAME` ir `SETUP_ENV`, DB konteineryje – ir `DATABASE_NAME`, `DATABASE_USER`. Žr. [drop-in failai](05-servisai.md#template-failai).
 
 ## Savas parametras tik vienam projektui
 
-Situacija: tavo aplikacijai reikia `INTEGRATION_URL`.
+Situacija: aplikacijai reikia `INTEGRATION_URL`.
 
-1. Į `env/local.env` įrašyk `INTEGRATION_URL=https://sandbox.example.com`.
-2. Į esamą `compose/common.yaml` PHP servisą įdėk:
+1. `env/local.env` įrašyk `INTEGRATION_URL=https://sandbox.example.com`.
+2. `compose/common.yaml` perduok jį PHP konteineriui:
 
 ```yaml
 services:
@@ -209,40 +239,7 @@ services:
       INTEGRATION_URL: ${INTEGRATION_URL:?Įrašyk INTEGRATION_URL}
 ```
 
-3. Aplikacijoje arba jos paruošimo scripte skaityk `getenv('INTEGRATION_URL')`.
-4. Vykdyk `make check` ir `make up`.
+3. Aplikacijoje skaityk `getenv('INTEGRATION_URL')`.
+4. Paleisk `make check` ir `make restart service=php-fpm`.
 
-Vien env eilutė nėra automatinis perdavimas PHP. Šis aiškus prijungimas leidžia vienam projektui turėti savą konfigūraciją nekeičiant bendro setup.
-
-## Cache, resursų ir hibridinių aplinkų nustatymai
-
-Visi papildomi runtime jungikliai, jų reikšmės ir pirmenybė aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#visi-šio-sluoksnio-nustatymai). Aplinkos vardas ir cache režimas parenkami nepriklausomai.
-
-`make bootstrap` automatiškai paruošia kompiuterio Nginx maršrutą iš `http://<DOMAIN>/` ir HTTPS į projekto HTTP portą. Atskiro env jungiklio nėra; pats projekto failų kūrimas host konfigūracijos nekeičia.
-
-`PROJECT_DISPLAY_NAME`: neprivalomas PhpStorm vardo pakeitimas per env. Generatorius
-šio lauko nekuria. Be jo `make ide-init` ir `make bootstrap` išsaugo esamą
-`.idea/.name`; jei IDE vardo nėra, naudoja `PROJECT_NAME`.
-`create-project MelgaMCP` į env įrašo `PROJECT_NAME=melga-mcp`, o į `.idea/.name` –
-`MelgaMCP`. Docker naudoja `melga-mcp`, DB vardas ir vartotojas – `melga_mcp`.
-
-Naujai kuriamo projekto `env/common.env` yra tik `PROJECT_NAME`. Privačiame env iš pradžių yra tik
-`DOMAIN` ir trys DB prisijungimų reikšmės. Portus įrašo `make bootstrap`.
-Atvaizdų žymos pagal build konfigūraciją apskaičiuojamos automatiškai.
-
-`DOCTRINE_PHP_VERSION`: pasirinktinio Doctrine įrankio PHP versija, numatyta `8.3`. Ji nepriklauso nuo aplikacijos `PHP_VERSION`; DBAL 4 reikia PHP 8.2 arba naujesnio. Keičiant įrankio versiją perstatyk `make doctrine-build`.
-
-## FPM procesai
-
-Visi šie raktai yra pasirenkami ir keičiami per projekto env; naujų failų ar
-Dockerfile papildymų nereikia.
-
-| Raktas | Numatyta | Paskirtis |
-| --- | --- | --- |
-| `PHP_FPM_MAX_CHILDREN` | `4` | Didžiausias vienu metu veikiančių PHP darbuotojų skaičius. |
-| `PHP_FPM_START_SERVERS` | `1` | Procesų skaičius paleidimo metu. |
-| `PHP_FPM_MIN_SPARE_SERVERS` | `1` | Mažiausias laikomų laisvų procesų skaičius. |
-| `PHP_FPM_MAX_SPARE_SERVERS` | `2` | Didžiausias laikomų laisvų procesų skaičius. |
-| `PHP_FPM_MAX_REQUESTS` | `500` | Užklausų skaičius iki proceso pakeitimo; `0` išjungia ribą. |
-
-Pavyzdžiai ir ribų derinimas: [servisų konfigūracija](05-servisai.md).
+Vien env eilutė į konteinerį nepatenka: ją reikia aiškiai perduoti per Compose. Ar reikšmė tikrai perduota, gali patikrinti [config/environment.json](12-cache-ir-hibridines-aplinkos.md#aplikacijos-env-reikalavimai).

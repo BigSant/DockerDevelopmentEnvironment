@@ -1,617 +1,148 @@
-# Architecture & Structure (LLM reference)
+# Architecture (setup v2)
 
-> **Audience:** an LLM or engineer maintaining this repository. It describes *how the
-> system works* and *where everything lives*, so changes can be made safely.
->
-> ⚠️ **MAINTENANCE RULE — read before editing.** This document is the source of truth for
-> the Docker logic. **Whenever you change that logic — any `Dockerfile`, `docker-compose.yml`,
-> `Makefile`, the profile system, the config cascade, `new_host.sh`, or service selection —
-> update this document in the *same* change.** Add new files under `doc/` if a topic grows
-> too large for this one. Stale docs are worse than no docs.
-
----
+Reference for agents and maintainers: structure, contracts and the rules that keep projects safe.
+The user guide is Lithuanian (`doc/lt/`); this file is the only English document.
 
 ## 1. What this repository is
 
-A generator and orchestrator for **per-project local (and prod/stage) PHP environments**,
-optimised for **PrestaShop** and **Akeneo** projects. One central `setup/` repository serves
-*every* project on the machine: each project gets an isolated multi-container stack (its own
-DB, TLS, cron, mail catcher, QA tooling), wired up by a thin per-project `Makefile` that
-points back here.
+One shared checkout (`~/Projects/setup`) builds and runs an isolated Docker stack per PHP project
+(PrestaShop 1.6–9, Akeneo or generic PHP). Projects keep only their own settings and sources; every
+recipe, image and command lives here. Nothing is copied into projects except what `create-project`
+scaffolds once.
 
-## Runtime workflow and release boundary
-
-The runner defaults to generic PHP, with explicit `PROFILE=prestashop`
-for PrestaShop integration. Image fingerprints are automatic; no project API or
-image-version switches are needed. Optional Compose profiles have no environment
-defaults. Project YAML determines which services are present; services without a
-`profiles:` restriction start normally. Native profile selection is still supported.
-
-The minimal creator writes only identity, domain and DB credentials to env files.
-The original IDE name is stored separately in `.idea/.name`. It performs no port allocation or host provisioning.
-Local/test bootstrap assigns ports and prepares DNS, TLS and host Nginx routes.
-`project_health.py` performs Compose `up --wait` without application HTTP probes.
-`doctor` includes PS configuration/DB checks only for explicit PS profiles.
-Generic profiles never require PS files. `docker/runtime/start.sh`
-prepares PS 1.6 defines or newer PHP parameters, merges per-project overrides,
-then runs `config/startup/*.sh` and execs PHP-FPM. Unchanged configuration leaves
-caches intact. All scripts are read-only runtime mounts; no secrets enter builds.
-
-`project_bootstrap.py` provides local/test onboarding, private placeholder setup,
-port allocation, TLS/hostname checks and IDE initialization. `test-init` makes a
-separate app copy and env; optional refresh stops only that test stack. Test app,
-DB and TLS paths stay under `.generated/test`, while test containers/networks use
-ENV=test and reuse local images via IMAGE_ENV/BUILD_ENV. Stage/prod defaults now
-use their own app/<env>/public and data/<env> paths. Explicit existing deployment
-paths need review; local paths are preserved. Successful runner commands refresh
-an existing IDE Compose bridge automatically.
-
-`database_client.py` selects MySQL or MariaDB tools. `database_backup.py` writes
-exclusive, private, atomic .sql/.sql.gz logical backups. Import validates gzip
-before execution and can back up under its existing operation lock before loading
-a dump. `SQL_DOMAIN` supports a test canonical hostname/port separately from the
-container's DOMAIN. `db-prepare` starts only the selected DB for initial seeding.
-
-VERSION/API reporting and source/profile fingerprints are in `setup_release.py`;
-CI covers PHP 5.6/7.4/8.1/8.5 and disposable MySQL/MariaDB. See
-[environment workflow](ENVIRONMENT_WORKFLOW.md) and [release process](RELEASES.md).
-
-## Reusable source workflow
-
-`prepare_project.py` distributes `templates/grouped/` and the shared
-`templates/project/Makefile` into new `<project>/docker` directories by default.
-`--layout app` consolidates sources directly into `<project>/app`, beside the
-application checkout `<project>/app/public`. With the default `--layout auto`,
-existing app/root/legacy source locations are detected (in that order) and
-preserved; an ordinary `public/` directory alone is not a source marker.
-`--from-legacy` still targets root unless a target layout is explicit. Existing
-source layouts are preserved; `--layout legacy` defaults to the flat
-`templates/project/` sources. `--sources flat|grouped` explicitly selects the
-layout of a new target, never converts existing sources in place. It can preflight and prepare multiple
-projects, writes only missing files, refuses incompatible bootstrap files and
-preserves existing project settings. `--from-legacy` copies private environment
-files and container config, but never promotes an expanded `docker-compose.yml`
-to an original source. Custom Dockerfiles and old environment overlays require
-review instead of silently copying incomplete build contexts or stale paths.
-
-The identical project Makefile includes `docker/project.mk` from the one shared
-`setup` checkout. All target logic stays in `project.mk` / `project.py`; the
-project's `compose/base.yaml` (flat: `compose.yaml`) includes the shared `docker/docker-compose.yml`.
-`PROJECT_DOCKER_DIRECTORY` identifies the current config checkout, while app,
-data and tooling paths retain their established layout. The same bootstrap
-works from all three supported source locations. The project root stays
-`<project>` for consolidated app sources, so DB/TLS/cache remain in `<project>/data`
-and the application mount remains `<project>/app/public`. Schema/import paths
-are generated relative to that root, e.g. `app/database/schema`. Explicit `SETUP_DIRECTORY` and
-`PROJECT_DIRECTORY` arguments handle nonstandard checkout locations.
-
-`project.py` invokes Docker Compose directly, layering the shared `.env`, the
-public project `env/common.env`, and its private `env/<environment>.env`
-(flat compatibility: `.env` and `.env.<environment>`). Compose parses
-quoting, interpolation and multiline values. A small `project-settings.yaml`
-model resolves the project name and profile selection as JSON. Declared env
-keys are removed from the inherited process environment before parsing, and
-runner-owned paths and Compose identity are passed explicitly, so shell exports
-from another project cannot silently override configured values. Project
-settings should be changed in their files or through documented runner flags.
-
-Profile precedence is explicit `PROFILES` / `--profiles`, then a project's
-`COMPOSE_PROFILES` (including empty), then `COMPOSE_PROFILES_<ENV>`. Validation
-and rendering include all profiles; runtime uses the selected set. Optional
-`compose.override.yaml` and `compose.<env>.override.yaml` customize included
-services using native Compose merging. [Docker include/override semantics](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/).
-
-Make runtime commands always read these original files. `make config` writes a mode-0600
-snapshot to `.generated/compose.<env>.yaml` using an invocation-owned temporary
-file and atomic replacement. It never overwrites a source or consumes an old
-snapshot. Different projects do not share generated inputs; simultaneous
-renders of the same project cannot expose partial files. `check` creates no
-snapshot. `project_environment.py` implements `init` (exclusive mode-0600 private
-env creation and missing writable data/config directories) and `doctor`
-(Engine/Compose availability, selected images, ports, mounts, private settings
-and TLS file presence). `pull` selects external images, excluding every image built by any declared
-service (including PHP image reuse by cron), then uses `--ignore-buildable`;
-`shell` opens sh in the running PHP service. See [command limits](ENVIRONMENT_COMMANDS.md). `build` builds images explicitly; `up` uses `--no-build --pull never --wait` without application HTTP probes.
-QA targets are ephemeral. The wrapper has a separate explicit SQL importer;
-it does not call the legacy interactive DB importer.
-
-`project_ide.py` adds `ide-init` and `ide-refresh`. Initialization merges PhpStorm
-project/module metadata, PHP language level and a project-local Compose interpreter,
-Git mappings and managed Shell Script run configurations. Existing personal
-components are retained; changed files are backed up privately under `.generated/`.
-It reads existing Linux PhpStorm Docker connections without changing global IDE
-settings. A shared startup task runs only `ide-init`, after project trust.
-The native interpreter uses `EXEC` against an already running `php-fpm` service.
-
-PhpStorm is the explicit exception to the original-source invocation rule: its
-native Compose integration consumes `.generated/phpstorm-compose.<env>.yaml`,
-an atomic mode-0600 rendering of the selected runtime model. The interpreter
-passes the same project name and profiles and disables implicit `.env` loading.
-Initialization/startup refresh this private file; normal Make targets never use
-it. After editing env/Compose sources, refresh before invoking native IDE tools.
-Neither IDE initialization nor refresh starts services or imports data. Only
-curated portable `.idea` files are shared; workspace, expanded Compose values
-and backups remain local. See [PhpStorm setup](PHPSTORM.md).
-
-PrestaShop projects can explicitly opt into runtime connection synchronization:
-mount `docker/config/prestashop/update-parameters.php` read-only and invoke it in
-the PHP entrypoint before `docker-php-entrypoint`, passing DB values as runtime
-environment variables. This is not enabled for every project/profile and does
-not require rebuilding an image. The updater requires the shop's existing
-`app/config/parameters.php`, preserves non-connection parameters (including
-encryption keys and table prefix), and atomically writes a private file only
-when one of the five DB connection values changes. It applies Symfony percent
-escaping and clears `var/cache/dev` and `var/cache/prod` before replacement,
-including compiled containers and legacy parameter caches. Unchanged restarts
-preserve the warmed cache. Invalid settings fail startup before PHP-FPM runs.
-See [PrestaShop runtime parameters](PRESTASHOP_PARAMETERS.md).
-
-`database_fixtures.py` implements `db-fixtures-plan` and `db-fixtures-load`. The project
-sets `FIXTURES_DIRECTORY` relative to its root and explicitly selects a data set
-(`set=local`, `set=test`, or another directory name), independently of Docker
-`ENV`. The plan is ordered `common/*.sql` followed by `<set>/*.sql`; absent sets
-and linked groups/files are rejected. An empty existing set is a no-op. The shared
-`database_import.execute_sql` pre-opens inputs, renders validated `${DOMAIN}`
-substitutions and streams SQL under the same project/environment lock as imports.
-Each file uses a separate MySQL session; failures stop later files without a
-global rollback. There is no implicit reset or execution history. Grouped templates
-provide empty common/local/test directories and the resolved fixture path.
-See [SQL fixtures](DATABASE_FIXTURES.md).
-
-`database_import.py` implements `db-import-plan` and `db-import`. Both require
-an explicit nonempty `.sql` or validated `.sql.gz` dump and `DATABASE_NAME`. Hooks come from the
-project-relative `POST_IMPORT_SQL_DIRECTORY`; when it is unset, from `database/after-import/`
-beside the project Makefile, and a missing default directory means dump only. An explicitly
-configured directory must exist. New grouped templates use `database/after-import/`
-beside `database/schema/` and `database/fixtures/`, without an intermediate SQL
-directory. Existing projects' explicit paths remain supported; preparation does
-not migrate them automatically. Database server settings still belong to
-`config/mysql/` or `config/mariadb/`, with environment overrides in subdirectories.
-The importer preflights all inputs, selects `common/*.sql`
-followed by `<environment>/*.sql` in filename order, and rejects hooks escaping
-the configured directory. Planning prints paths without touching the DB. When `pv` is installed
-and stderr is a terminal, only the dump is streamed through `pv -s <size>` for progress (after
-decompression for `.sql.gz`); a failing `pv` stops the import before hooks run.
-An optional `db-fixtures=<set>` appends the fixture plan after these hooks, validates
-it before starting the dump, and executes everything under one lock. Without that
-explicit option, imports retain their existing behavior.
-Import holds a nonblocking project/environment lock under `.generated/` and
-opens all inputs before streaming to `docker compose exec -T database`.
-The MySQL client uses credentials already present in that running container,
-and rejects a database-name mismatch. A dump or hook failure stops subsequent
-files. There is no implicit drop/create, transaction rollback, migration run,
-compressed-dump support or retry. Arbitrary dump/SQL content executes with the
-DB user's privileges; the caller must choose a dump for the configured DB.
-
-After-import hook SQL may contain the literal `${DOMAIN}` marker. It is
-replaced using the Compose-resolved `DOMAIN`, validated as a hostname
-with an optional port. This preserves legacy project domain resets without
-shell evaluation or general dotenv interpolation. Validation/rendering happens
-before the first DB write. Rendered hook inputs use private temporary file
-descriptors under `.generated/`, closed/removed when the import ends. Dump
-bytes and on-disk hook sources are unchanged.
-
-Projects can relocate QA and schema inputs using ordinary Compose volume
-overrides. `PHPSTAN_BASELINE_FILE` selects a mounted container path for the
-explicit `phpstan-baseline` target; regular analysis does not rewrite it.
-`PLAYWRIGHT_COMMAND` selects the default E2E invocation (defaults to
-`npx playwright test`); `cmd` overrides it. `doctrine cmd=status` invokes an
-explicitly added `php-doctrine-migrations` service under the `doctrine` profile,
-without starting dependencies. Projects must define the CLI entrypoint and
-connection/migration configuration. None of these commands migrate an existing
-project's source folders implicitly.
-
-`database_schema.py` adds `schema-export`, `schema-check` and explicit
-`schema-hook-install`. `SCHEMA_DIRECTORY` selects a project subdirectory in the
-source repository. The reader uses the running DB container's MySQL client and
-credentials for metadata queries, collecting `SHOW CREATE TABLE` for base
-tables only. It omits the mutable table AUTO_INCREMENT counter, writes one SQL
-file per table plus a manifest, and never queries row data. The check compares
-with Git index blobs, preserving alternate indexes used by Git commits, and
-fails on drift or unavailable DBs. It does not rewrite/stage files or run
-migrations. The local hook installer preserves existing hooks/managers and
-never edits global Git configuration. See [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)
-for activation, repository ownership, normalization and limitations.
-
-`project_ports.py`, called by `new_host.sh` before host mutations, scans both
-layouts, reuses an existing pair and rejects conflicting duplicate layouts.
-Matching old/new pairs are allowed while migration is being prepared. It
-checks configured reservations, not arbitrary host listeners; host provisioning
-should remain sequential. `new_host.sh` still generates the legacy wrapper for
-unprepared new hosts. Preparation and host provisioning are separate operations.
-
-The older `docker/Makefile` / `Makefile.local` entry points remain available to
-existing projects. The historical build-flow sections below describe those
-entry points; their shared `/tmp` generation has not been converted. Projects
-using that older path must continue to serialize generation/build operations.
-The service, image and container configuration rules apply to both runners.
-
-See [PROJECT_TEMPLATES.md](PROJECT_TEMPLATES.md) for distribution and migration.
-Run `python3 -m unittest discover -s tests -v` for real Compose config tests
-(no Docker Engine mutations): both layouts, native overrides, dotenv semantics,
-empty profiles, parallel rendering, idempotent preparation and port allocation.
-
-### Grouped project sources
-
-The shared runner also accepts `env/common.env`, `env/<environment>.env` and
-`compose/base.yaml`. In this layout it loads `compose/common.yaml`, explicit
-component files and `compose/<environment>.yaml` after the base. Root-level
-`.env` / `compose.yaml` and grouped sources cannot coexist in one config
-directory; ambiguous layouts fail before Compose operations. The existing
-preparer still emits the root-level template, so existing projects are not
-migrated implicitly.
-
-`PROJECT_COMPOSE_FILES` is an optional whitespace-separated list of project
-Compose paths, such as `compose/redis.yaml`, parsed with shell-style quoting
-without executing a shell. Each path must be an existing file within the
-project Docker directory. Files load in the specified order after common
-overrides and before the single selected environment override. This setting
-works in both source layouts. `project-settings.yaml` resolves it through
-Compose's native dotenv parser along with project identity and profiles.
-
-A project `Dockerfile` stays at the Docker directory root. Shared service
-definitions already use it as the project build context when present. The
-project's common Compose override can provide `BASE_IMAGE` and select
-`env-local` / `env-prod` stages. Secrets remain runtime environment values;
-project Dockerfiles must not copy private env files into the build context.
-The port allocator recognizes `docker/env/local.env` and
-`app/docker/env/local.env` in addition to the older locations.
-
-## 2. Two-repository model
-
-| Location | Role |
-|---|---|
-| `setup/` (this repo) | Central definitions: Dockerfiles, base `docker-compose.yml`, `.env` defaults, `Makefile`, profiles, `new_host.sh`. |
-| `~/Projects/<domain>/` | A generated project. Contains the app code, data, and a thin `app/docker/Makefile` (a copy of `Makefile.local`) that delegates to the central `Makefile`. |
-
-### Central repo layout (`setup/`)
 ```
-new_host.sh                 Host provisioning (ports, dirs, mkcert, host nginx, /etc/hosts)
-index_counter               (obsolete — ports are now allocated by scanning projects' .env.local)
-doc/                        This documentation
-docker/
-  docker-compose.yml        Base compose: includes every service, defines the network
-  .env                      Default versions + tuning + COMPOSE_PROFILES default
-  Dockerfile                Per-project php-fpm image (FROM php-fpm-base-…) + PROFILE overlay
-  Makefile                  Orchestration (env merge, compose merge, build, up/down, db-init)
-  Makefile.local            Copied into each project as app/docker/Makefile (thin wrapper)
-  qt                        yq v4 binary (renamed) — used to deep-merge compose files
-  docker/<service>/         Per-service docker-compose.yml + Dockerfile + conf/
-    php-fpm/<version>/       Per-PHP-version base Dockerfile + php.ini/php-fpm.conf/xdebug.ini
-  profile/<profile>/<service>/conf/   Profile-specific config (prestashop, akeneo)
-  config/                   Central defaults: nginx/, sql/, phpstan/, php-cs/
-```
-
-### Per-project layout (`~/Projects/<domain>/`)
-```
-app/
-  public/                  Web root (mounted into php-fpm/apache as /var/www/html)
-  config/                  App/tooling config: phpstan/, php-cs/, playwright/, cron/
+setup/
+  create-project, create_project.py   new project scaffold / wizard
+  install-host, install_host.py       once per machine: packages, root-owned host helpers, sudoers rule
   docker/
-    Makefile               Thin wrapper → central Makefile
-    .env                   PROJECT_NAME
-    .env.local             DOMAIN, ports, DB creds, optional COMPOSE_PROFILES override
-    config/<service>/      Per-project CONTAINER config overrides (see §8)
-      <service>/<env>/     ENV-specific container config overrides
-data/                      Persistent: mysql/, ssl/, mailpit/, phpstan/, php-cs/, profiling/
-backup/<date>/
+    project.py, project.mk            the runner and the Make front end every project includes
+    project-settings.yaml             the list of project settings (only these reach the runner)
+    project_*.py, database_*.py       runner modules (policy, bootstrap, IDE, testing, release, deploy, DB)
+    docker/<service>/                 Dockerfile + docker-compose.yml per service (catalogue)
+    profile/<profile>/                image-baked per-profile config (prestashop, akeneo)
+    database-profile/<profile>/       NOT baked: default table registry, data-set recipe, safe after-import SQL
+    runtime/                          scripts used inside containers (start, templates, PS adapters, cron, dbmonitor)
+    compatibility.json                PrestaShop line -> supported PHP / MySQL / MariaDB
+  templates/                          scaffold sources (minimal, grouped, shared Makefile)
+  tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
 ```
 
-> **Distinction:** `app/config/` = *application/tooling* config (phpstan, php-cs, playwright,
-> cron jobs). `app/docker/config/` = *container/infrastructure* config overrides (mysql, php,
-> apache, nginx-proxy). Keep them separate.
-
-## 3. The two-step flow
-
-1. **`./new_host.sh <domain>`** (host-level, needs `sudo`; run as a normal user):
-   allocates a free localhost port pair (base `3000`; the lowest free pair is found by
-   scanning existing projects' `.env.local`, so ports of removed projects are reclaimed —
-   no monotonic counter). An existing project keeps its current pair. Then creates the
-   project directory skeleton, generates an mkcert cert for `<domain>.local` + `*.<domain>.local`,
-   writes a **host nginx** reverse-proxy vhost (`/etc/nginx/sites-available/…`) pointing
-   `<domain>.local`, `pma.…`, `mailpit.…` at `127.0.0.1:<port>`, and adds `/etc/hosts` entries.
-2. **`make up`** in `app/docker/` → delegates to the central `Makefile`:
-   `config-local` → `build-local` → `up-local`.
-
-## 4. Request path
+A project (example `~/Projects/forsena`):
 
 ```
-Browser
-  → HOST nginx        (:300X, TLS via mkcert)          [managed by new_host.sh, host-level]
-    → nginx-proxy     (container, only one with published ports, terminates TLS again)
-      → apache         (webserver, serves static + proxies PHP via FastCGI)
-        → php-fpm:9000 (FastCGI)
-```
-For prod/stage there is no host nginx; `nginx-proxy` is the public entry. The double layer
-keeps **local ≈ prod parity** with one compose stack.
-
-## 5. Image model (critical)
-
-Most images are **shared across projects**, versioned by tag — NOT per project:
-- `nginx-proxy-${ENV}-${NGINX_VERSION}`, `webserver-apache-${ENV}-${APACHE_VERSION}`,
-  `mysql-${ENV}-${MYSQL_VERSION}`, `pma-${ENV}-${PMA_VERSION}`, `mailpit-${ENV}-${MAILPIT_VERSION}`,
-  `php-phpstan-…`, `php-cs-…`, `playwright-…`.
-- `php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}` — the shared PHP
-  base, built **once per machine**, reused by every project. **It MUST stay profile-agnostic**
-  (its tag has no project/profile) — never bake profile- or project-specific config into it.
-
-Only **`php-fpm`** is per-project: image `${PROJECT_NAME}-php-fpm-${ENV}`, built from the
-top-level `docker/Dockerfile` (`FROM php-fpm-base-…`). **Project- and profile-specific PHP
-layers belong here**, not in the base.
-
-> **Consequence / gotcha:** because mysql/apache/etc. images are shared by version, baking a
-> PROFILE into them works cleanly only when all projects share the same profile (the common
-> all-PrestaShop case). Profile divergence across projects on the same versions would conflict
-> on the shared image. PHP avoids this (per-project image). Per-project *runtime* config (§8)
-> is always isolated regardless.
-
-### Process user & file ownership
-`php-fpm`, `cron`, and `mysql` run as the **host user** — `user: "${HOST_UID:-1000}:${HOST_GID:-1000}"`
-in compose, with `HOST_UID`/`HOST_GID` injected by the Makefile from `id -u`/`id -g`. (`mysql` uses
-`user: "${DATABASE_UID:-${HOST_UID:-1000}}:${DATABASE_GID:-${HOST_GID:-1000}}"` — the same host-user
-default, but a prod/stage deploy can pin a fixed DB service account by setting `DATABASE_UID`/`DATABASE_GID`
-in the project `.env.${ENV}`; those are project vars, so they win over the Makefile-injected
-`HOST_UID`/`HOST_GID`.) So files
-php-fpm/cron write to the bind-mounted web dir (cache, logs, uploads, generated files) are
-owned by the host user, **not root**. The php-fpm base image therefore carries **no** pool
-`user`/`group` directive (php-fpm runs workers as the launching uid) and no `usermod -u 0`
-remap. `apache` and `nginx-proxy` keep a root master (needed to bind :80/:443) but never write
-to the project bind mounts — only php-fpm/cron do — so they create no root-owned project files.
-> Migration note: a project whose `app/public` already contains root-owned files from an older
-> root-based image may need a one-time `sudo chown -R $(id -u):$(id -g) app/public data`.
-
-## 6. Build orchestration (`docker/Makefile`)
-
-- **`generate-env-file`** builds `/tmp/.env`: root `.env` ← project `.env` ← project
-  `.env.${env}`, merged with `sort -u -t= -k1,1` (project entries listed first → they win),
-  then appends computed paths (`ROOT_DIRECTORY`, `PROJECT_*`, `ENV`, `DOCKERFILE_DIRECTORY`).
-- **`generate-compose-yml`** copies the base `docker-compose.yml` to `/tmp`, then deep-merges
-  (`qt '. *= load(…)'`) the project's `docker-compose.yml` and `docker-compose.${env}.yml`
-  if present. `qt` is yq v4 (auto-downloaded by `load-qt`).
-- **`build-docker-compose`**: builds `php-fpm-base` first (`COMPOSE_PROFILES=build_only`),
-  then `docker compose build` for the selected runtime profiles.
-- **Build hygiene & hardening defaults:** each per-version php-fpm `Dockerfile` installs apt packages
-  in a single `RUN apt-get update && apt-get install -y --no-install-recommends … && rm -rf /var/lib/apt/lists/*`
-  layer (smaller image, better cache), and every fetched binary is checksum-verified — supercronic
-  (`sha1sum -c`), nvm `install.sh` (`sha256sum -c`, pinned tag), and `qt`/yq in the Makefile (`sha256sum -c`).
-  Keep this when adding packages or bumping versions. (5.6 keeps apt commented out, and 8.2 still carries
-  a malformed yarn `RUN` — both pre-existing, left untouched.) `nginx-proxy`/`nginx` set `server_tokens off`
-  so the version is not leaked in the `Server` header.
-- **Version pinning (reproducible rebuilds):** base images and baked tools are pinned to exact versions
-  via `docker/.env`, not floating tags. Pinned to the currently-installed versions: `APCU_VERSION`
-  (`pecl install apcu-${APCU_VERSION}`, 8.x only), `NODE_VERSION` (exact patch via `nvm install`),
-  `PHPSTAN_PHAR_VERSION` (the `phpstan.phar` baked into every php-fpm image — was the floating `:1` tag),
-  and `PHP_PHPSTAN_VERSION`/`PHP_CS_VERSION` (exact, were `2-php8.1`/`3-php8.1`). `APCU_VERSION` and
-  `PHPSTAN_PHAR_VERSION` are declared as `ARG` in **every** per-version php-fpm Dockerfile (consumed by the
-  8.x apcu install / the pre-`FROM` phpstan COPY stage) and passed through the `php-fpm-base` compose
-  `args:`. Known gaps, intentionally left:
-  1. `php:${PHP_VERSION}-fpm` stays a **minor** tag on purpose — it keeps receiving PHP/Debian security
-     patches on rebuild; pin the exact patch (or a `@sha256` digest) only if bit-for-bit reproducibility is
-     required (it would also freeze security fixes).
-  2. `npm install -g webpack webpack-cli` does **not** persist under the build's `/bin/sh` (it works under
-     `bash`), so webpack is effectively absent from the image — pre-existing; fix the RUN shell before
-     relying on webpack, then pin it.
-  3. the baked `phpstan.phar` is 1.x while the `php-phpstan` service is 2.x — unify when convenient.
-  4. `php-doctrine-migrations` (disabled service) still uses `^${DOCTRINE_MIGRATIONS_VERSION}` + an
-     unconstrained `doctrine/dbal` — pin when the service is activated.
-- **`run-docker-compose`** resolves `COMPOSE_PROFILES`: uses the `profile=` make-var when set
-  (e.g. `build_only`, or `ALL_PROFILES` for the config snapshot), otherwise reads
-  `COMPOSE_PROFILES` from the merged `/tmp/.env` (the project's selection). It also exports
-  `BUILDX_NO_DEFAULT_ATTESTATIONS=1` (skips the attestation manifest) **and**
-  `BUILDX_METADATA_PROVENANCE=disabled` (skips "resolving provenance for metadata file").
-  Both are needed: that provenance/attestation work is slow and can hang on
-  `docker compose build`, and adds no value for local images.
-- **`db-init`** (project: `make db [file=dump.sql]`) generates the env + compose files, then hands
-  off to **`docker/db-init.sh`**, which **interactively prompts** (Enter accepts the default) for the
-  target database (default: `DATABASE_NAME` from `.env`), whether to drop & recreate it
-  (default: **yes**), and whether to run init SQL (default: **yes**) — rather than taking
-  `database=`/`drop=`/`initialize=` make parameters (removed). It imports the
-  optional `file=` dump (through `pv` when available) as the app user and runs `config/sql/init.sql` +
-  `init.${env}.sql` via `envsubst`. The central `config/sql/` ships defaults: `init.local.sql`
-  (disables SSL, points mail at the local catcher) and `init.prod.sql` (enforces `PS_SSL_ENABLED*`,
-  leaves the dump's real mail config intact). ⚠️ These templates use a `%{DOMAIN}` placeholder that
-  `envsubst` (which expands `${VAR}`) does **not** substitute — a pre-existing convention; a project's
-  own `app/config/sql/` files must use `${DOMAIN}` if they rely on the envsubst pass.
-- **Startup ordering:** `database` (probe: `mysqladmin ping -h 127.0.0.1`) and `php-fpm`
-  (probe: `php` opening the FastCGI port) have healthchecks; dependents (`webserver`, `cron`,
-  `pma`, `php-phpstan`, `php-cs`) gate on them via `depends_on: condition: service_healthy`.
-  `nginx-proxy` and `playwright` depend on `webserver` order-only (apache has no healthcheck —
-  it binds :80 as root and needs no readiness gate beyond php-fpm).
-
-## 7. Multi-environment & profiles (build-time)
-
-- **ENV** (`local|prod|stage`): every Dockerfile has `FROM base as env-local|env-prod|env-stage`;
-  compose selects `target: env-${ENV}`. Only `env-local` adds Xdebug. Xdebug uses
-  `start_with_request=trigger` (xdebug 3) / `remote_autostart=0` (xdebug 2), **not** `yes`:
-  it activates only on an explicit trigger — CLI: `XDEBUG_TRIGGER=1`; web: an Xdebug-helper
-  browser extension or `XDEBUG_SESSION` cookie — not automatically on every request. This is
-  **required**: with auto-start, any build-time `php`/`composer` step (e.g. a project Dockerfile
-  that installs a PHP extension, like joldija's gd) hangs trying to reach
-  `host.docker.internal:9003`, which is unreachable during `docker build`.
-- **PROFILE** (`prestashop|akeneo|""`, default `prestashop` in `.env`): wired into **mysql,
-  apache, php-fpm** at build time. Mechanism (identical pattern in each):
-  `COPY /profile/ /tmp/profile/`, then apply only files that exist for the selected
-  PROFILE / ENV (`[ -s ]` guard), into the service's config dir with `zz-`/`zzz-` prefixes
-  so they override the base config. `PROFILE=""` and missing files are no-ops.
-  - mysql: `profile/<p>/mysql/conf/my.cnf` → `conf.d/zz-profile.cnf`; `my.${ENV}.cnf` → `zzz-profile-env.cnf`
-  - apache: `profile/<p>/apache/conf/httpd.custom.conf` → `conf/profile/` (via `IncludeOptional`)
-  - php-fpm: the shared `profile/apply-php-profile.sh` is called by both the standard
-    Dockerfile and project Dockerfiles through a named `profiles` context. It applies
-    `profile/<p>/php-fpm/conf/php.ini` → `conf.d/zz-profile.ini`; `php.${ENV}.ini` → `zzz-profile-env.ini`; optional `pool.conf` → `php-fpm.d/zz-profile.conf`
-  - Profile content is currently documented/commented (zero behaviour change until enabled).
-  - `nginx` (the commented-out alternative webserver) uses the older `config/nginx/${PROFILE}/`
-    location; the active stack uses apache.
-
-## 8. Per-project config override + ENV layering (runtime)
-
-Each file-config service mounts a per-project config dir at runtime from
-`${PROJECT_DOCKER_DIRECTORY}/config/<service>/`, loaded **after** base+profile so the project
-wins. **No rebuild, isolated to that project.** Two levels:
-- `config/<service>/*`        → always loaded
-- `config/<service>/${ENV}/*` → loaded only when ENV matches (mounted via `${ENV}` interpolation)
-
-| Service | host base / env dir | container target(s) | load mechanism |
-|---|---|---|---|
-| mysql | `config/mysql/`, `…/${ENV}/` | `/etc/mysql/project.d[.env]/` | `!includedir` (appended to `/etc/my.cnf` after `conf.d`) |
-| php-fpm, cron | `config/php/`, `…/${ENV}/` | `/usr/local/etc/php/project.d[.env]/` | `PHP_INI_SCAN_DIR=":…/project.d:…/project.d.env"` |
-| apache | `config/apache/`, `…/${ENV}/` | `…/conf/project[.env]/` | `IncludeOptional` (after the profile include) |
-| nginx-proxy | `config/nginx-proxy/`, `…/${ENV}/` | `/etc/nginx/project.d[.env]/` | `include` in `nginx.conf` http{} (after `conf.d`) |
-
-`pma` and `mailpit` have no file-include config system; they are configured by **env vars**
-and overridden per project (and per env) through `.env` / `.env.${ENV}` — the same layering
-principle, applied to environment variables rather than mounted files.
-
-### Full config cascade (lowest → highest precedence)
-```
-image base config  <  profile  <  profile-env  <  project base  <  project-env
+forsena/
+  app/                 environment repository (forsena_docker)
+    Makefile           includes setup/docker/project.mk
+    env/common.env     shared settings (git);  env/<env>.env private settings (not in git)
+    compose/           optional Compose overrides (base, per env)
+    config/<service>/  optional drop-ins per container (php, apache, nginx-proxy, mysql, cron, …)
+    database/          schema/ (snapshot), migrations/, table-registry.txt, after-import/, data/<set>/, fixtures/
+    public/            the shop's own repository (never managed by setup)
+  data/                runtime data (DB files, Mailpit, cron history, TLS, profiling)
 ```
 
-## 9. Service selection (`COMPOSE_PROFILES`)
+## 2. The runner
 
-QA tools and cron retain Compose profiles (`phpcs`, `phpstan`, `cron`, `playwright`).
-PMA and Mailpit have no profiles: their inclusion in project YAML determines whether
-and in which environment they run. The full legacy shared Compose source includes
-both. Core services (`nginx-proxy`, `webserver`/apache, `php-fpm`, `database`/mysql)
-also have no profile. New minimal projects include only these four core services.
+`make <action>` → `project.py --docker-directory app --project-directory <root> --env <ENV> <action>`.
+Constructing `Project` is the contract every action relies on:
 
-- Shared defaults enable no optional profiles. The current runner uses explicit
-  `PROFILES=...` first, then an optional native `COMPOSE_PROFILES` value from env.
-  New projects generate neither. Services without `profiles:` run when their YAML
-  is included; use `compose/local.yaml` or `compose/prod.yaml` for environment additions.
-- The following `ALL_PROFILES` details refer to the retained legacy Makefile.
-- `ALL_PROFILES` (in the Makefile) lists every profile and is used only when rendering the
-  full project compose snapshot (`config-docker-compose`), so the snapshot stays complete.
-- This is the **service-selection** half of per-env separation; the other env-gated mechanisms
-  are: Xdebug (build-time `env-local` target only, §7), the `init.<env>.sql` DB seeds (§6/§11),
-  and TLS certs — `new_host.sh`/mkcert generates `*.local` certs for **local only**; prod/stage
-  must supply a real cert into `data/ssl/domain.{crt,key}` (mkcert is never invoked outside local).
+1. Env files: `setup/docker/.env` (versions) → `env/common.env` → `env/<env>.env`. Shell environment
+   wins over files (Compose precedence), which is how pipeline secrets arrive.
+2. Settings: only the keys in `project-settings.yaml` are read. A new setting must be added there.
+3. Policy (`project_policy.resolve_policy`): defaults, validation and derived values: cache modes,
+   MAIL_MODE (mailpit when the service runs), TZ, resources (`<SERVICE>_MEMORY/_CPUS` → buffer pool,
+   FPM pool, memcached/redis memory), PS_SSL, DATABASE_PERFORMANCE_SCHEMA. Results go into the process
+   environment used for Compose interpolation.
+4. Compose files: the project's compose sources, every `SERVICES=` catalogue entry
+   (`docker/<name>/docker-compose.yml`), env overrides, then a generated overlay that drops optional
+   config mounts whose source is absent (Compose would create them root-owned).
+5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor)
+   require an allowlist; test must be isolated (own code copy, data and DB).
+6. Per-image fingerprints (`setup_release.image_suffixes`): each built image's tag ends in a hash of
+   only its own inputs (Dockerfile, COPY sources, build args, profile, parent fingerprint).
+7. Stage/prod: `APP_UID/APP_GID` become the container user; with `DEPLOY_CONTEXT`, exec/ps/logs go
+   to that Docker context while build/config stay local, and up/down/run are refused (use the release).
 
-## 10. Services catalog
+## 3. Images
 
-| Service (compose name) | Role | Image | Profile | Project config |
-|---|---|---|---|---|
-| `nginx-proxy` | TLS termination, public entry (only published ports) | shared | core | `config/nginx-proxy/` |
-| `webserver` (apache) | static + FastCGI → php-fpm | shared | core | `config/apache/` |
-| `database` (mysql) | MySQL 8.4, data in `data/mysql` | shared | core | `config/mysql/` |
-| `php-fpm` | app runtime (+Xdebug in local) | **per-project** | core | `config/php/` |
-| `cron` | supercronic over project crontab | reuses php-fpm image | `cron` | `config/php/` + `app/config/cron` |
-| `pma` | phpMyAdmin | shared | none; selected by YAML include | env vars |
-| `mailpit` | mail catcher | shared | none; selected by YAML include | env vars |
-| `memcached` | object cache on `memcached:11211`, no host port; never included by default | shared | none; selected by YAML include | `MEMCACHED_VERSION`, `MEMCACHED_MEMORY` |
-| `php-phpstan` | static analysis (idle, exec on demand) | shared | `phpstan` | `app/config/phpstan` (seeded default) |
-| `php-cs` | PHP-CS-Fixer (idle) | shared | `phpcs` | `app/config/php-cs` (seeded default) |
-| `playwright` | E2E tests (idle) | shared | `playwright` | `app/config/playwright` |
+```
+php-fpm-base-<env>-<php>-…      setup/docker/docker/php-fpm/<php>/Dockerfile (extensions incl. memcached/redis, not enabled)
+  └─ <project>-php-fpm-core      setup/docker/Dockerfile: profile overlay, optional PrestaShop release, setup runtime
+       └─ <project>-php-fpm      project Dockerfile, must start FROM ${SETUP_PHP_IMAGE} (pass-through by default)
+cron, dbmonitor                  reuse the project PHP image
+mysql / mariadb, webserver (apache), nginx-proxy, pma, mailpit, redis, memcached   one image each
+```
 
-Commented-out in the base compose: `php-doctrine-migrations`, `mariadb`, `nginx`.
-`mariadb` is kept at **full parity with `mysql`** (same profile wiring, per-project config
-cascade under `config/mariadb/`, deterministic `01-init-app-user.sh`, host-user, healthcheck
-via `mariadb-admin ping`) — both define service `database`, so switching DB engine is just a
-matter of which include is active. MariaDB uses `IDENTIFIED BY` (mysql_native_password), not
-`caching_sha2_password`, and its config root is `/etc/mysql/my.cnf`.
+The setup runtime is baked into the PHP image (targets need no setup checkout) and bind-mounted over
+it locally. `make image-prune` lists setup images (labels `setup.*`) that nothing uses or whose
+fingerprint is outdated; it removes only with `apply=1`.
 
-### QA tool default-config seeding
-`php-phpstan` and `php-cs` bake a default config (from `docker/config/phpstan/phpstan.neon`
-and `docker/config/php-cs/.php-cs-fixer.php`) into `/opt/…`. Their entrypoint copies it into
-the project's mounted config dir on first run **only if absent**, so the project then owns and
-may edit it.
+## 4. Container contracts
 
-### Running QA / test tools (no idle containers)
-`php-phpstan`, `php-cs` and `playwright` are **never** in a `COMPOSE_PROFILES` default, so
-`make up` never starts them. Run them **ephemerally** rather than as idle (`tail -f /dev/null`)
-containers — RAM is then used only while a check actually runs, and the container is removed
-afterwards:
+- **Drop-ins**: each container reads project files at a fixed level (PHP ini, Apache global/vhost,
+  nginx http/server/location, MySQL cnf + `init.d`, redis). Files ending `.template` are rendered at
+  start by `runtime/render-templates.sh` with strict `${VAR}` substitution from the container env.
+  An unknown variable is a start error. CORE files are never edited by projects.
+- **MySQL `init.d`** (`*.sql`, `*.sql.template`, `*.sh`) runs once, when the data directory is created.
+- **PrestaShop config** (`parameters.php` / `settings.inc.php`) is generated from env keys at PHP start;
+  a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
+- **Security defaults**: published ports bind to 127.0.0.1; nginx-proxy takes the client IP from the
+  host proxy (`X-Forwarded-For`) and renders allow/deny per entry point; Apache hides dot-paths
+  (except `.well-known`), `*.sql`, backups and composer files; the application DB user has rights on
+  its own database only, root has its own password.
 
-| Project wrapper | Central target → command |
-|---|---|
-| `make phpstan` | `docker compose run --rm --no-deps --entrypoint make php-phpstan $(PHPSTAN_CMD)` |
-| `make phpcs`   | `docker compose run --rm --no-deps --entrypoint make php-cs $(PHPCS_CMD)` |
-| `make e2e`     | `docker compose run --rm --entrypoint sh playwright -c "$(E2E_CMD)"` |
+## 5. Database as code
 
-`run` enables the service on demand even though its profile is inactive (verified); the static
-tools use `--no-deps` (no DB/php-fpm needed). Override the inner command with `cmd=`
-(e.g. `make phpstan cmd=git-analysis`, `make phpcs cmd=fix`) and the env with `QA_ENV=stage`.
-First run of a tool builds its (shared) image once. Putting these in `COMPOSE_PROFILES` still
-works but leaves them idling — prefer the ephemeral targets.
-> The `make phpstan`/`phpcs`/`e2e` **wrappers** live in `Makefile.local`, so only projects
-> (re)provisioned after this change get them. `Makefile.local` now resolves the central docker dir
-> **dynamically** (`DOCKER_DIRECTORY ?= $(abspath $(ROOT_DIRECTORY)/../setup/docker)` — projects are
-> siblings of `setup/`; override `DOCKER_DIRECTORY=…` if not), so `new_host.sh` no longer does the
-> `{docker_dir}` path substitution and **existing projects update with a plain
-> `cp setup/docker/Makefile.local app/docker/Makefile`** (or call the central target directly).
+- `database/schema/`: one normalised `CREATE TABLE` per table plus a manifest; the pre-commit hook
+  (`make schema-hook-install`) exports it, stops the commit on change and drafts a guarded migration.
+  It only warns when the DB is unreachable.
+- `table-registry.txt` (project first, then `database-profile/<profile>/`): every table has
+  `group base-rule(full|slice|faker|empty|drop) live-rule(import|skip)`. Unknown tables stop commits,
+  imports and data-set builds; `make schema-resolve` classifies them.
+- Migrations (`database/migrations/*.sql`) are idempotent: `CREATE TABLE IF NOT EXISTS`, columns and
+  keys only after an information_schema check, DROP/RENAME as `-- TODO:` for a person. A commit that
+  changes the snapshot needs a staged migration without TODO. Applied ones are recorded in
+  `setup_migrations` (outside the snapshot).
+- Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
+  project scripts, integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
+  policy → schema report (warning only). `db-import` skips the data of `skip` tables unless `full=1`.
+- Base data set (`make db-dataset`, local only): registry rules + recipe (product sample, slice
+  conditions), personal columns faked, credentials blanked, rows sorted by key, one row per line.
+  The output is deterministic. `make db-load set=dev` loads snapshot + set + fixtures.
 
-## 11. MySQL initialisation
+## 6. Environments
 
-A single deterministic init script `docker/mysql/conf/init.sh` → `01-init-app-user.sh`. It
-runs SQL directly against the init server (`set -euo pipefail`, fails loudly) to create the
-app user `@localhost` + `@%` (`caching_sha2_password`) with `ALL PRIVILEGES ON *.* WITH GRANT
-OPTION`. No self-modifying init files. (Historical `grant.sql` / `initialize_exporter.sql`
-and the unused `MYSQLD_EXPORTER_PASSWORD` were removed — there is no mysqld_exporter service.
-If DB metrics are ever needed, add a real `mysqld-exporter` service and inject its credentials
-via env at that point; do not commit a password.)
+| ENV | Code | Notes |
+|---|---|---|
+| local | `app/public` | developer stack; tools open without allowlist |
+| test | `.generated/test/app` copy | own DB/containers; `make test-prepare`, `make phpunit`, e2e only here |
+| stage / prod | release on the target | limits, allowlists and `APP_UID` required; started from the release model |
 
-## 12. Invariants — do not break these
+## 7. Release and deploy (D model)
 
-1. `php-fpm-base` image must remain **profile- and project-agnostic** (shared by version).
-2. Profile config goes in `profile/<profile>/<service>/conf/`; selected at **build** time with
-   the `[ -s ]`-guarded `COPY /profile/` + conditional copy pattern. `PROFILE=""` must be a no-op.
-3. Per-project runtime overrides go in `app/docker/config/<service>/[<env>/]` and must load
-   **after** base+profile (`zz`/`project.d`/`IncludeOptional`-after-profile ordering).
-4. Core services carry **no** `profiles:` tag; optional ones do.
-5. `new_host.sh` creates `app/docker/config/{mysql,mariadb,php,apache,nginx-proxy}/local/` —
-   keep this list in sync with the services that have a project config mount.
-6. The mysql/php-fpm/apache compose files already pass `PROFILE`/`ENV` build-args; the
-   Dockerfiles must declare the matching `ARG`.
-7. `php-fpm`/`cron`/`mysql` run as the host user via compose `user:` (`HOST_UID`/`HOST_GID`
-   from the Makefile; `mysql` allows a `DATABASE_UID`/`DATABASE_GID` override for a fixed prod/stage
-   service account — see §5). Keep the php-fpm pool free of a `user`/`group` directive and do **not**
-   reintroduce `usermod -u 0 -o www-data` or pool `user=root` — they cause root-owned files.
-   (The per-version php-fpm `Dockerfile`/`php-fpm.conf` de-root change is applied to **all twelve**
-   versions: 5.6, 7.0–7.4, 8.0–8.5.)
-8. `pma` DB credentials (`PMA_USER`/`PMA_PASSWORD`) are passed at **runtime** via compose
-   `environment:`, never as build-args or `ENV` in the image — the pma image is shared, so
-   per-project secrets must not be baked into it.
-9. Shared images (any whose tag has no `${PROJECT_NAME}` — mysql, mariadb, apache, nginx-proxy,
-   pma, mailpit, phpstan, php-cs, playwright, php-fpm-base) must receive only **global**
-   build-args (versions, `ENV`, `PROFILE`). Project-specific content (creds, paths like
-   `PROJECT_DIRECTORY`, `DOMAIN`) is provided at **runtime** via `environment:`/volume mounts,
-   never as build-args — otherwise it bakes into (or churns) the shared image. Only the
-   per-project `php-fpm` image (`${PROJECT_NAME}-php-fpm-${ENV}`) may carry project-built layers.
-10. Keep Xdebug at `start_with_request=trigger` / `remote_autostart=0`. Do **not** set it back
-    to `yes`/`1` — that makes every build-time `php`/`composer` invocation on the `env-local`
-    base hang on `host.docker.internal` (unreachable during build).
-11. The php-fpm **status page is intentionally disabled** in every version Dockerfile (FPM has no
-    per-path ACL of its own). Do not re-add the `pm.status_path = /fpm_stub_status` sed. If a project
-    needs `pm.status` monitoring, enable it there behind a webserver route restricted to the internal
-    network (the inactive `nginx/default.conf` shows the pattern: `allow 172.16.0.0/12; deny all;`).
+`make release ENV=stage|prod` builds the images here from committed setup and writes
+`.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
+installed). `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
+the release model there. The model is rendered at deploy time and piped, never stored, because it
+holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path.
+`make deploy ref=TAG` builds the shop release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
+`config/deploy/build.sh`), backs up the target DB by registry, rsyncs without `--delete`, removes only
+files the previous release shipped, upgrades changed modules, migrates and reports.
+`rollback=1` redeploys the previous release.
 
-## 13. Verification notes (how changes were validated)
+## 8. Tests
 
-- mysql cascade: build image, init container, `SHOW VARIABLES` confirm project.d.env > project.d > conf.d.
-- php: `PHP_INI_SCAN_DIR` ordering via `php -i` (base php.ini < project.d < project.d.env).
-- apache: `httpd -t` (Syntax OK).
-- nginx-proxy: `nginx -t` passes only after placeholder substitution (`init.sh`), resolvable
-  upstreams (`--add-host webserver/pma/mailpit`), and an existing cert — these are runtime
-  deps, not config errors. Standalone `nginx -t` will *expectedly* fail on them.
+`python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB). B tests
+run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
+`SETUP_DIND_IMAGE`, `SETUP_MYSQL_SCHEMA_INTEGRATION=1`, … (see each test's skip reason).
 
-The host port allocator also scans `app/env/local.env` and `app/.env.local`,
-so consolidated projects reserve their ports for host provisioning and new projects.
+## 9. Rules — do not break these
 
-## Doctrine diff from committed schema
-
-`database_migrations.py` implements opt-in `make doctrine-diff [ref=HEAD]` for local
-DBs. It resolves the snapshot repository's immutable commit, validates the manifest,
-and reads live table DDL. `schema-diff.php` in the Doctrine image compares two
-restored schemas using DBAL 4 and verifies generated SQL in a disposable database.
-The DB uses the running database image ID, no network/project mounts/init scripts,
-and temporary storage. Only the worker shares its network namespace. The worker
-receives exported DDL and a read-only `migrations.php` mount, not a connection file
-or live DB credentials. This config must be self-contained.
-Neither the canonical schema nor the Git index is changed. Only a reviewed-by-user
-migration file is to be committed afterward; generation does not constitute review.
-Uncommitted/divergent migration files block overlap; identical input reuses its file.
-Both schema and migrations must be in one Git repository. The Doctrine metadata
-table is excluded. Failed DDL roundtrip verification refuses to produce a migration.
-The optional tool uses `DOCTRINE_PHP_VERSION` (default 8.3), independently of app PHP,
-and its Composer home is `/opt/doctrine`. Minimal project creation adds nothing.
-See [the operational workflow](DATABASE_MIGRATIONS.md), including local version
-registration after a manual DDL change and the limitation to base tables.
+1. Never write to a project's `public/` (the shop repository) except the documented `app-prepare` paths.
+2. Never touch a project database implicitly: `setup`, `up`, `bootstrap` and tests leave it alone; data
+   changes only through explicit db-* commands, and destructive ones need `replace=1` / a backup.
+3. Secrets stay in private env files or the process environment, never in committed or generated files.
+4. A new setting goes into `project-settings.yaml`; a new image input changes only that image's fingerprint.
+5. Optional project directories are never created empty; missing optional mounts are dropped.
+6. Stage/prod refuse to start without limits, allowlists for tools, and (for releases) `APP_UID`.
+7. Tests run only against ENV=test; deploys never delete files the code does not track.

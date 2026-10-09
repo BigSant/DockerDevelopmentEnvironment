@@ -1,140 +1,194 @@
-# 6. Aplikacijos konfigūracija: PS ir kiti projektai
+# 6. Aplikacija: PrestaShop ir kiti projektai
 
-[Turinys](README.md) · [Atgal](05-servisai.md) · [Toliau: DB](07-duomenu-baze.md)
+[Turinys](README.md) · [Atgal](05-servisai.md) · [Toliau: duomenų bazė](07-duomenu-baze.md)
 
 ## Kas vyksta paleidžiant PHP
 
 ```text
-Konteineris gauna env
+PHP drop-in failai (.template) paverčiami
     ↓
-Jei PROFILE=prestashop: atpažįstamas ir atnaujinamas PS config
+Jei PROFILE=prestashop: patikrinama PS_VERSION, paruošiamas konfigūracijos failas,
+pritaikomi debug, cache ir pašto nustatymai
     ↓
-Vykdomi projekto config/startup/*.sh abėcėlės tvarka
+Vykdomi config/startup/*.sh pagal vardą
     ↓
 Paleidžiamas PHP-FPM
 ```
 
-Šie veiksmai atliekami **paleidimo metu**, nes prisijungimai skiriasi tarp local, test ir prod. Jų nekepame į Dockerfile. Hook klaida sustabdo PHP paleidimą, todėl neteisingai paruošta aplikacija nepradeda priimti užklausų.
+Šie veiksmai vyksta kiekvieno PHP starto metu, nes prisijungimai skiriasi tarp aplinkų. Klaida sustabdo startą, todėl blogai paruošta aplikacija užklausų nepriima. `make up` ir `make restart` PrestaShop konfigūraciją dar patikrina vienkartiniame konteineryje prieš perkurdami veikiančius servisus.
 
-## Kaip pasirinkti aplikaciją
+## Aplikacijos rūšis
 
-| Situacija | `env/common.env` | Kas bus automatiškai daroma |
+| Aplikacija | `env/common.env` | Kas daroma automatiškai |
 | --- | --- | --- |
-| PrestaShop | `PROFILE=prestashop` | PS konfigūracijos paruošimas ir PS DB patikra. |
-| Tas pats senu vardu | `PROFILE=prestashop` | Toks pats PS veikimas. |
-| Akeneo | `PROFILE=akeneo` | Bendri Akeneo atvaizdo papildymai; PS failai neliečiami. Pilnas Akeneo įdiegimas nėra automatinis. |
-| Symfony, Laravel, savas PHP | `PROFILE=` | PS veiksmų nėra. Aplikacija pati skaito env arba naudoja projekto hook. |
+| PrestaShop 1.6–9 | `PROFILE=prestashop` | Konfigūracijos failas iš env, versijos patikra, debug, cache ir pašto politika, `PS_RELEASE_PATHS`, DB saugūs numatytieji po importo. |
+| Akeneo | `PROFILE=akeneo` | Akeneo PHP image'o papildymai. Pilnas Akeneo įdiegimas neautomatizuotas. |
+| Symfony, Laravel, savas PHP | `PROFILE=` (arba `generic`) | PS veiksmų nėra. Aplikacija skaito env pati arba per startup scriptą. |
 
-`make doctor` tik PS profiliui papildomai perskaito jo konfigūracijos failą ir tikrina PDO prisijungimą, jei PHP konteineris veikia. HTTP užklausų setup nesiunčia.
+## PrestaShop konfigūracijos failas
 
-## A. Naujesnis PS ir parameters.php
+PrestaShop konfigūracijos failas generuojamas iš šablono ir env. Jo nereikia gauti iš kolegos.
 
-Situacija: atkuriama esama parduotuvė, kurios konfigūracija yra `public/app/config/parameters.php`.
+| `PS_VERSION` | Failas | Raktai env faile |
+| --- | --- | --- |
+| `1.6.x` | `config/settings.inc.php` | `PS_COOKIE_KEY`, `PS_COOKIE_IV`, `PS_RIJNDAEL_KEY`, `PS_RIJNDAEL_IV` |
+| `1.7.x`, `8.x` | `app/config/parameters.php` | `PS_COOKIE_KEY`, `PS_COOKIE_IV`, `PS_NEW_COOKIE_KEY`, `PS_SECRET` |
+| `9.x` | `app/config/parameters.php` | Kaip 1.7/8, plius `PS_API_PRIVATE_KEY`, `PS_API_PUBLIC_KEY` (PEM, base64) |
 
-1. Turėk originalų tos parduotuvės `parameters.php`, įskaitant jos `secret`, cookie raktus, lentelių prefiksą ir kitus reikalingus laukus.
-2. Pasirink `PROFILE=prestashop`.
-3. Aplinkos env užpildyk `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`. Bendras PHP prisijungimo adresas – `database:3306`.
-4. Paleisk `make up` po DB paruošimo/importo.
+`env/common.env`:
 
-Setup esamame `parameters` masyve keičia tik šiuos prisijungimo raktus ir tavo aiškiai nurodytus papildymus:
+```dotenv
+PROFILE=prestashop
+PS_VERSION=9.0.2
+```
 
-| PHP raktas | Iš kur ateina |
+Kaip tai veikia:
+
+- **`PS_VERSION` turi sutapti su kodu.** Jei kode yra kita versija, PHP nepasileidžia: `PS_VERSION=… does not match the shop code`. Taip pastebi pamirštą atnaujinimą.
+- **Failo nėra** – jis sukuriamas iš šablono su DB prisijungimu (`DATABASE_*`), raktais (`PS_*`), `PS_DATABASE_PREFIX` (numatyta `ps_`) ir `PS_LOCALE`. Jei trūksta privalomo rakto, `make check` sustoja: `No app/config/parameters.php yet and no keys to create it: set …`.
+- **Failas yra** – DB prisijungimas ir raktai jame atnaujinami iš env. Raktas, kurio env nėra, lieka toks, koks faile. Kiti laukai išsaugomi.
+- PHP prie DB jungiasi `database:3306` (`APP_DATABASE_HOST`, `APP_DATABASE_PORT`).
+
+**Iš kur raktai:**
+
+- **local/test:** `make init` / `make bootstrap` (taigi ir `make setup`) įrašo trūkstamus raktus į privatų env failą. Jei parduotuvėje jau yra konfigūracijos failas, raktai nukopijuojami iš jo, kitaip sugeneruojami taip, kaip juos generuoja PS diegimo programa. Švari aplinka veikia be LIVE raktų.
+- **stage/prod:** raktai niekada negeneruojami. Jie ateina iš serverio env arba Bitbucket Deployment variables. Prod naudoja esamus LIVE raktus: be jų, pvz., Forsenoje neišsišifruotų mokėjimo modulio duomenys.
+- **PS 1.6:** visi slaptažodžiai priklauso nuo `PS_COOKIE_KEY`. Užkeliant LIVE dump'ą lokaliai reikia LIVE `PS_COOKIE_KEY` privačiame `local.env`.
+
+## PrestaShop ir PHP suderinamumas
+
+Setup turi suderinamumo lentelę [compatibility.json](../../docker/compatibility.json): PS šaka → tinkamos PHP, MySQL ir MariaDB versijos. Ją naudoja `./create-project` (siūlo tik tinkamas versijas) ir `make check`.
+
+| PS šaka | PHP |
 | --- | --- |
-| `database_host` | PHP runtime `DATABASE_HOST`, numatytai `APP_DATABASE_HOST=database`. |
-| `database_port` | PHP runtime `DATABASE_PORT`, numatytai `APP_DATABASE_PORT=3306`. |
-| `database_name` | `DATABASE_NAME`. |
-| `database_user` | `DATABASE_USER`. |
-| `database_password` | `DATABASE_PASSWORD`. |
+| 1.6, 1.7.0–1.7.4 | 5.6, 7.0, 7.1 |
+| 1.7.5–1.7.6 | 5.6–7.2 |
+| 1.7.7 | 7.1–7.3 |
+| 1.7.8 | 7.1–7.4 |
+| 8.0–8.2 | 7.2–8.1 |
+| 9.0 | 8.1–8.4 |
+| 9.1 | 8.1–8.5 |
 
-Kiti esami laukai išsaugomi. Pasikeitus turiniui failas pakeičiamas atominiu pervadinimu, prieiga nustatoma `0600`, išvalomi `var/cache/dev` ir `var/cache/prod`. Jei reikšmės tos pačios, failas ir cache be reikalo neperrašomi. Nestandartinius ar kitur esančius cache tvarko pats projektas.
+```bash
+make check
+```
 
-Symfony tipo parametrų `%` simboliai automatiškai escape'inami į `%%`. Override faile rašyk tikrą norimą tekstą su vienu `%`; antrą escape atlieka updater.
+Nesuderinama PHP versija yra klaida, nesuderinama DB versija – tik įspėjimas. Fork'ams (pvz. thirty bees) patikrą išjungia `SETUP_COMPATIBILITY_CHECK=off`.
 
-## B. Tik vienam PS projektui reikia papildomo parametro
+## Oficialus PrestaShop release
 
-Situacija: tavo modulis skaito `supplier_api_url` ir `supplier_import_enabled` iš PS parametrų.
+Švariame parduotuvės clone'e gali trūkti failų, kurių Git neseka, pvz. `vendor/` ar `admin` katalogo. Juos gali paimti iš oficialaus release:
+
+```dotenv
+PS_RELEASE=on
+PS_RELEASE_PATHS=vendor
+```
+
+- `PS_RELEASE=on` kuriant PHP image'ą įdeda `PS_VERSION` release į `/opt/prestashop/release/<versija>`. PS 1.7+ release imamas iš oficialaus `prestashop/prestashop` image'o, PS 1.6 – iš GitHub zip (`PS_RELEASE_SHA256` gali užfiksuoti jo kontrolinę sumą).
+- `make setup` žingsnis `app-prepare` nukopijuoja **tik** `PS_RELEASE_PATHS` katalogus. Kiekvienas katalogas sinchronizuojamas pilnai: senas turinys pašalinamas ir nukopijuojamas release turinys.
+- `admin` kopijuojant pervadinamas į `PS_ADMIN_DIR`, jei jis nurodytas.
+- `install/` niekada nekopijuojamas. Katalogas, kuriame yra parduotuvės Git sekamų failų, atmetamas: release niekada neperrašo sekamo kodo.
+- Kopijuojama tik `make setup` metu lokaliai ir build serveryje ruošiant deploy'aus release'ą, niekada konteinerio starto metu. Todėl pašalinti moduliai „neprisikelia“, o `install/` negrįžta.
+
+Pakeitus `PS_RELEASE` ar `PS_VERSION`, paleisk `make setup`.
+
+### Savas composer.json
+
+Jei projektas keičia branduolio priklausomybes, jo `composer.json` ir `composer.lock` laikomi aplinkos repozitorijoje `config/composer/`. `make setup` juos nukopijuoja į parduotuvę ir paleidžia `composer install` (stage/prod – be dev paketų). Tada release `vendor/` nekopijuojamas, net jei jis nurodytas `PS_RELEASE_PATHS`.
+
+## Papildomi PS parametrai
+
+Situacija: tavo modulis skaito `supplier_api_url` iš PS parametrų.
 
 `env/local.env`:
 
 ```dotenv
 SUPPLIER_API_URL=https://sandbox.example.com/api
-SUPPLIER_IMPORT_ENABLED=1
 ```
 
-`compose/common.yaml` papildymas:
+`compose/common.yaml`:
 
 ```yaml
 services:
   php-fpm:
     environment:
       SUPPLIER_API_URL: ${SUPPLIER_API_URL:?Įrašyk tiekėjo API adresą}
-      SUPPLIER_IMPORT_ENABLED: ${SUPPLIER_IMPORT_ENABLED:-0}
 ```
 
-`config/prestashop/parameters.override.php`:
+`config/prestashop/parameters.override.php` (PS 1.7+):
 
 ```php
 <?php
 return array(
     'supplier_api_url' => getenv('SUPPLIER_API_URL'),
-    'supplier_import_enabled' => getenv('SUPPLIER_IMPORT_ENABLED') === '1',
 );
 ```
+
+PS 1.6 naudoja `config/prestashop/settings.override.php` su konstantomis, pvz. `'_SUPPLIER_API_URL_' => getenv('SUPPLIER_API_URL')`, tik skaliarinės reikšmės.
 
 ```bash
 make check
-make up
-make doctor
+make restart service=php-fpm
 ```
 
-Patikra: aplikacijos modulis turi matyti savo aplinkai parinktą adresą ir jungiklį. Setup neprideda modulio, kuris šiuos naujus vardus skaitytų – vardai turi sutapti su tavo aplikacijos logika.
+DB prisijungimo raktų override faile rašyti negalima: jie imami tik iš env. Pašalinus override failą anksčiau įrašytas raktas iš konfigūracijos neištrinamas: funkcijai išjungti aiškiai nustatyk `false`.
 
-Override gali pridėti arba pakeisti papildomus raktus. Raktų vardai turi prasidėti raide ar `_`, toliau leidžiamos raidės, skaitmenys ir `_`; reikšmėms naudok tekstą, skaičių, boolean, `null` ar paprastus masyvus. DB prisijungimo raktai rezervuoti env ir override faile atmetami.
+## PrestaShop debug
 
-Failo pašalinimas **neištrina** anksčiau į `parameters.php` įrašyto papildomo rakto. Jei funkciją išjungi, aiškiai nustatyk `false`; jei reikia visai pašalinti raktą, atlik projekto konfigūracijos migraciją.
+Debug režimą valdo `_PS_MODE_DEV_` konstanta faile `public/config/defines.inc.php`. Setup ją keičia pagal env:
 
-Nėra automatinio `parameters.local.override.php` pasirinkimo. Skirtingas reikšmes perduok per env, kaip pavyzdyje, arba sąmoningai prijunk kitą failą aplinkos Compose apraše.
-
-## C. PS 1.6 ir settings.inc.php
-
-Situacija: senoje parduotuvėje nėra `app/config/parameters.php`, jos prisijungimai yra `public/config/settings.inc.php`.
-
-Setup atpažįsta seną formatą ir keičia:
-
-| Konstanta | Reikšmė |
+| `PS_DEBUG_MODE` | Kas vyksta |
 | --- | --- |
-| `_DB_SERVER_` | DB hostas; jei portas ne 3306, prijungiamas `:portas`. |
-| `_DB_NAME_` | DB vardas. |
-| `_DB_USER_` | DB vartotojas. |
-| `_DB_PASSWD_` | DB slaptažodis. |
+| `off` | Debug išjungtas. |
+| `on` | Debug įjungtas visiems lankytojams ir CLI. |
+| `ip` | Debug tik užklausoms iš `PS_DEBUG_IPS` adresų, CLI – išjungtas. |
+| tuščias | Setup failo neliečia ir ankstesnio pakeitimo neatšaukia. |
 
-Išsaugomi kiti aprašymai, komentarai, `_DB_PREFIX_`, cookie ir šifravimo raktai. Parseris ieško `define(...)`, o ne aklai keičia panašų tekstą komentaruose. Pasikartojantis valdomas `define` laikomas klaida. Trūkstamus valdomus `define` updater gali pridėti į esamą failą.
+Bendras saugus pasirinkimas `env/common.env`:
 
-Papildomos tik to projekto konstantos – `config/prestashop/settings.override.php`:
-
-```php
-<?php
-return array(
-    '_SUPPLIER_IMPORT_ENABLED_' => getenv('SUPPLIER_IMPORT_ENABLED') === '1',
-    '_SUPPLIER_API_URL_' => getenv('SUPPLIER_API_URL'),
-);
+```dotenv
+PS_DEBUG_MODE=off
+PS_DEBUG_IPS=
 ```
 
-Env perdavimas toks pats kaip ankstesniame pavyzdyje. PS 1.6 override naudok skaliarines reikšmes, ne masyvus. Atskiro modernios konfigūracijos failo setup nekuria. Keičiantis senam config, išvalomi klasės ir palaikomi Smarty/cachefs cache; apsauginiai `index.php` ir `.htaccess` paliekami.
+Tik savo kompiuteryje `env/local.env`:
 
-**Konfigūracijos palaikymas nėra pilno PS 1.6 atvaizdo garantija.** CI su PHP 5.6 patikrina failo atnaujinimą ir hook veikimą. Esamame PHP 5.6 Dockerfile dalis plėtinių diegimo komandų pakomentuota; jo sukūrimą, reikiamus plėtinius, Composer/Xdebug ir DB suderinamumą reikia patikrinti konkrečiai parduotuvei. Vien `PHP_VERSION=5.6` šiame leidime nėra patikrintas pilnas naujos PS 1.6 parduotuvės įdiegimas.
+```dotenv
+PS_DEBUG_MODE=on
+```
 
-## D. Ankstyva PS versija turi parameters.yml
+```bash
+make restart service=php-fpm
+```
 
-Jei parduotuvė turi `app/config/parameters.yml`, bet neturi `parameters.php`, updater sustoja su aiškia žinute. Jis neperrašo YAML ir nelaiko modernaus `settings.inc.php` suderinamumo failo PS 1.6 konfigūracija.
+Kad klaidas matytų tik konkretus žmogus (pvz. demonstracinėje aplinkoje):
 
-Sprendimas: su tos aplikacijos įrankiais konvertuoti konfigūraciją į palaikomą formatą arba projektui sąmoningai parašyti savą paruošimą. Neišjunk PS profilio vien tam, kad paslėptum neparuoštos konfigūracijos klaidą, ir nepakeisk jos tuščiu pavyzdžiu be parduotuvės raktų.
+```dotenv
+PS_DEBUG_MODE=ip
+PS_DEBUG_IPS=192.0.2.10,2001:db8::10
+```
 
-## E. Kita aplikacija nori savo sugeneruoto runtime.php
+`PS_DEBUG_IPS` – tikslūs IPv4/IPv6 adresai per kablelį, be portų ir CIDR. Su `ip` sąrašas privalomas. PHP lygina `REMOTE_ADDR`, kurį Apache gauna iš patikimo proxy (žr. [tikras kliento IP](05-servisai.md#ip-apribojimai)). Išjungimui visada rašyk `off` – vien eilutės ištrynimas gali palikti paveldėtą reikšmę. `defines_custom.inc.php` neturi iš anksto apibrėžti `_PS_MODE_DEV_`. `PS_DEBUG_MODE` nustatytas be `config/defines.inc.php` yra klaida.
 
-Situacija: tavo PHP aplikacija skaito `config/runtime.php`; ji nėra PS. Norime jį sugeneruoti iš env kiekvieną startą.
+## Kitos aplikacijos ir startup scriptai
 
-Common env turi `PROFILE=`. `compose/common.yaml`:
+### Startup scriptai
+
+`config/startup/*.sh` vykdomi kiekvieną PHP startą pagal failo vardą, prieš PHP-FPM:
+
+- naudok numeraciją `010-…`, `020-…`;
+- scriptai vykdomi su `sh` (ne Bash), executable bito nereikia;
+- scriptas gali būti vykdomas daug kartų, todėl turi būti kartojamas saugiai;
+- klaida sustabdo PHP startą;
+- `config/` konteineryje matomas kaip `/opt/setup/project` ir yra tik skaitomas: generuojamus failus rašyk į aplikacijos katalogą;
+- symlink scriptai atmetami;
+- DB dump'ų ir fixtures iš startup scriptų nekrauk – tam yra `db-*` komandos.
+
+### Pavyzdys: kita aplikacija sugeneruoja savo runtime.php
+
+Situacija: tavo PHP aplikacija (ne PS) skaito `config/runtime.php`.
+
+`compose/common.yaml`:
 
 ```yaml
 services:
@@ -156,127 +210,21 @@ php /opt/setup/project/myapp/prepare.php
 
 ```php
 <?php
-$directory = '/var/www/html/config';
-if (!is_dir($directory) && !mkdir($directory, 0755, true)) {
-    throw new RuntimeException('Nepavyko paruošti aplikacijos config katalogo.');
-}
 $values = array(
     'mode' => getenv('APP_MODE'),
     'integration_url' => getenv('INTEGRATION_URL'),
+    'cache_enabled' => getenv('CACHE_MODE') === 'on',
 );
 $contents = "<?php\nreturn " . var_export($values, true) . ";\n";
-$target = $directory . '/runtime.php';
-if (is_file($target) && file_get_contents($target) === $contents) {
-    exit(0);
+$target = '/var/www/html/config/runtime.php';
+if (!is_file($target) || file_get_contents($target) !== $contents) {
+    file_put_contents($target, $contents, LOCK_EX);
 }
-$temporary = tempnam($directory, '.runtime-');
-if ($temporary === false) {
-    throw new RuntimeException('Nepavyko sukurti laikino config failo.');
-}
-try {
-    if (!chmod($temporary, 0600)
-        || file_put_contents($temporary, $contents) !== strlen($contents)
-        || !rename($temporary, $target)) {
-        throw new RuntimeException('Nepavyko išsaugoti runtime config.');
-    }
-} finally {
-    if (is_file($temporary)) {
-        unlink($temporary);
-    }
-}
-```
-
-Tai naujam tavo valdomam config failui skirtas pavyzdys, ne savavališko esamo framework config perrašymo receptas. Aplikacijoje `require` grąžins masyvą. Sugeneruotą `config/runtime.php` ignoruok **aplikacijos Git repozitorijoje**, o `config/myapp/prepare.php` ir hook versijuok aplinkos repozitorijoje.
-
-Vykdyk `make check`, `make up` ir patikrink aplikacijos funkciją. Tuščias PS profilis užtikrina, kad PS failų nėra ieškoma. `APP_MODE` perduodame aiškiai – vien runner `ENV` vardas savaime nėra kiekvieno konteinerio env.
-
-## F. PrestaShop debug iš env
-
-Debug režimas parodo daugiau klaidų informacijos. Jį valdo PS konstanta `_PS_MODE_DEV_`, esanti aplikacijos `config/defines.inc.php`. Mūsų `app/` struktūroje visas kelias yra **`public/config/defines.inc.php`**. Tai kitas katalogas nei aplinkos `config/php/`, kuriame laikomi PHP `.ini` failai.
-
-Tas pats bendras updater veikia PS 1.6 ir naujesniems PS projektams su palaikoma DB konfigūracija. Pasirink `PROFILE=prestashop`, turėk originalų tos parduotuvės `defines.inc.php` ir jos prisijungimų failą. Kitų profilių failai neliečiami.
-
-### Situacija 1: vietoje kuri modulį ir nori matyti klaidas
-
-`env/common.env` bendrą saugų pasirinkimą palik:
-
-```dotenv
-PROFILE=prestashop
-PS_DEBUG_MODE=off
-PS_DEBUG_IPS=
-```
-
-Tik savo `env/local.env` pridėk:
-
-```dotenv
-PS_DEBUG_MODE=on
-```
-
-Iš aplinkos katalogo paleisk:
-
-```bash
-make up
-make doctor
-```
-
-`on` reiškia, kad debug galioja **visiems** šios aplinkos lankytojams ir CLI komandoms. IP sąrašas šiame režime neriboja lankytojų. Tai PS klaidų režimas; Xdebug derintuvo ir `_PS_DEBUG_PROFILING_` jis neįjungia.
-
-### Situacija 2: klaidas turi matyti tik konkretus žmogus
-
-Pavyzdžiui, demonstracinę parduotuvę peržiūri klientas, o programuotojas klaidas turi matyti tik iš savo biuro. Tos aplinkos env faile:
-
-```dotenv
-PS_DEBUG_MODE=ip
-PS_DEBUG_IPS=192.0.2.10,2001:db8::10
-```
-
-Adresai čia yra dokumentacijos pavyzdžiai: pakeisk juos tikrais konkrečių klientų adresais. Vietiniam tiesioginiam prisijungimui gali tikti `127.0.0.1,::1`, bet su Docker/proxy serveris gali matyti kitą adresą. Tuščias sąrašas neleidžiamas. Palaikomi tik tikslūs adresai, ne tinklų intervalai.
-
-Paleisk `make up` pasirinktai aplinkai. PHP kiekvienai HTTP užklausai atskirai palygins serverio `REMOTE_ADDR` su sąrašu. Leidžiamam adresui debug bus įjungtas, kitiems išjungtas. Lygiaverčiai IPv6 užrašai sutampa; IPv4 `127.0.0.1` ir IPv4-mapped IPv6 `::ffff:127.0.0.1` laikomi atskirais adresais, todėl prireikus įrašyk abu. CLI ir phpdbg režimu `ip` visada išjungia debug, net jei procesui kas nors priskiria `REMOTE_ADDR`.
-
-**Kai naudojamas proxy.** `REMOTE_ADDR` turi būti tikras kliento adresas, kurį paruošia patikimai sukonfigūruotas web serveris. PHP kodas pats neskaito `X-Forwarded-For` ar `X-Real-IP`. Bendrame Apache dabar įjungtas `mod_remoteip`, pasitikintis `172.16.0.0/12`; konkrečioje infrastruktūroje pasitikėjimą reikia apriboti tik tikrais proxy. Jeigu visi lankytojai atrodo kaip vienas Docker gateway ar proxy adresas, jo įtraukimas į leidžiamų adresų sąrašą leistų debug visiems už jo esantiems žmonėms. Pirmiausia sutvarkyk tikro kliento adreso perdavimą per visą proxy grandinę.
-
-Patikra: iš leidžiamo ir neleidžiamo kliento patikrink `_PS_MODE_DEV_` bei klaidų rodymą savo bandymų aplinkoje. Vien CLI patikra `ip` režimo HTTP veikimo neparodo. Proxy patikrai iš neleidžiamo kliento papildomai siųsk suklastotą `X-Forwarded-For` su leidžiamu adresu: debug turi likti išjungtas. IP ribojimas nėra prisijungimo sistema; bendrą viešą IP naudojantys žmonės turės vienodą rezultatą.
-
-### Situacija 3: užbaigei derinimą arba ruoši prod
-
-`env/prod.env` arba kitos derinamos aplinkos faile aiškiai nustatyk:
-
-```dotenv
-PS_DEBUG_MODE=off
-PS_DEBUG_IPS=
 ```
 
 ```bash
-make up ENV=prod
-make doctor ENV=prod
+make check
+make restart service=php-fpm
 ```
 
-Local atveju `ENV=prod` nerašyk. Vien eilutės ištrynimas ne visada išjungia debug: gali būti paveldėtas common pasirinkimas. Jei režimas galiausiai tuščias, updater visai neliečia esamo failo, net jei anksčiau į jį įrašė `true`. Išjungimui visada naudok `off` ir paleisk `make up`.
-
-### Kas konkrečiai pakeičiama ir kas išsaugoma
-
-- Keičiamas tik esamo `define('_PS_MODE_DEV_', ...)` reikšmės argumentas. `off` įrašo `false`, `on` – `true`, o `ip` – kiekvienos užklausos metu įvertinamą IP patikrą. Likusios konstantos ir aplinkinis failo turinys išsaugomi.
-- Failas pakeičiamas atominiu pervadinimu, išsaugant jo prieigos teises. Nepasikeitęs rezultatas neperrašomas; vien debug pakeitimas DB parametrų ir aplikacijos cache nevalo. PS pats pasirenka debug/prod veikimą, o PHP-FPM startas atnaujina jo procesus.
-- Reikia vieno įprasto, vardą tekstu nurodančio `define`. Trūkstamas, pasikartojantis aprašas arba symlink yra klaida. Updater nekuria naujo PS sisteminio failo nuo nulio ir neprideda debug konstantos failo gale, kai PS jau būtų ją panaudojęs.
-- `defines_custom.inc.php` ar kitas ankstesnis aplikacijos kodas neturi iš anksto apibrėžti `_PS_MODE_DEV_`: PHP jau apibrėžtos konstantos nepakeičia. Tokį ankstesnį debug valdymą pašalink prieš pereidamas prie env.
-- Administravimo skydelis ar PS atnaujinimas gali vėl pakeisti `defines.inc.php`. Env yra mūsų paleidimo konfigūracija: naujas PHP startas pritaiko ją iš naujo. Jei env nepasikeitė, konteinerį perkrauk Docker/PhpStorm įrankiu. `docker restart` tinka tik jau konteineryje esantiems env, o po **env failo pakeitimo** reikia `make up`.
-- Failas yra aplikacijos prijungtame kataloge. Jeigu jis versijuojamas aplikacijos Git, matysi vietinį pakeitimą. Aplinkai sugeneruotos IP taisyklės nekelk kaip bendro aplikacijos pakeitimo. Aplinkos env pavyzdžius versijuok, tikrą `local.env` / `prod.env` laikyk privačiai.
-- Tą patį aplikacijos katalogą naudojantys procesai skaito tą patį failą. Skirtingiems local/test/prod režimams reikia atskirų aplikacijos kopijų; šiam setup `test-init` jas atskiria. Read-only produkcinio kodo atveju šis startup updater netinka be atskiro writable konfigūracijos sprendimo.
-
-Elgsenos šaltiniai: [PS 1.6 debug konstantos ir klaidų valdymas](https://github.com/PrestaShop/PrestaShop/blob/1.6.1.24/config/defines.inc.php), [PHP serverio kintamieji](https://www.php.net/manual/en/reserved.variables.server.php). Mūsų env vardai ir jų vertimas aprašyti pagal šio setup kodą, tai nėra pačio PrestaShop standartiniai env vardai.
-
-## Hook taisyklės
-
-- Tiesioginiai `config/startup/*.sh` vykdomi failų vardų tvarka. Naudok `010-…`, `020-…`, `100-…`.
-- Scriptai paleidžiami su `sh`, todėl jiems nereikia executable bito. Bash sintaksė, pvz. `[[ ... ]]`, netinka be atskiro Bash kvietimo.
-- Hook gali būti vykdomas daug kartų. Nekurk naujo vartotojo ar nedubliuok DB įrašo kiekvieną startą.
-- SQL dump ir fixtures turi atskiras Make komandas. Jų nekrauk iš hook kiekvieną PHP restartą.
-- Konfigūracijos mount `/opt/setup/project` yra read-only. Sugeneruotą aplikacijos failą rašyk į jos writable vietą, ne į šaltinio hook katalogą.
-- Nuorodos į symlink hook failus atmetamos. PS updater taip pat saugo valdomus konfigūracijos/cache kelius nuo symlink.
-- Pakeitęs tik hook turinį, perkrauk PHP: paprastas nepakeisto Compose `up` nebūtinai sukelia naują startą.
-- Jei projekte perrašytas PHP `entrypoint`, įsitikink, kad jis iškviečia bendrą `/opt/setup/runtime/start.sh` arba sąmoningai turi visą reikalingą savo paruošimą.
-
-## Cache ir laiškų politika
-
-Dabartinis setup taip pat tvarko PS objektų cache parametrą bei pasirinktus Smarty/CSS/JS ir laiškų DB nustatymus. Visos taisyklės ir jų pirmenybė aprašyti [12 skyriuje](12-cache-ir-hibridines-aplinkos.md#kas-tiksliai-keičiama-prestashop). Kito framework aplikacijos cache išjungimą turi įgyvendinti projekto adapteris.
+Sugeneruotą `config/runtime.php` ignoruok **aplikacijos** Git repozitorijoje, o `config/startup/` ir `config/myapp/` versijuok aplinkos repozitorijoje. `CACHE_MODE` ir `MAIL_MODE` PHP konteineris jau gauna, todėl kitos aplikacijos adapteris gali juos išversti į savo nustatymus (žr. [cache ir paštas](12-cache-ir-hibridines-aplinkos.md)).
