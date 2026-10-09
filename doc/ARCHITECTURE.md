@@ -142,7 +142,9 @@ run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_T
 1. Never write to a project's `public/` (the shop repository) except the documented `app-prepare` paths.
 2. Never touch a project database implicitly: `setup`, `up`, `bootstrap` and tests leave it alone; data
    changes only through explicit db-* commands, and destructive ones need `replace=1` / a backup.
-3. Secrets stay in private env files or the process environment, never in committed or generated files.
+3. Secrets stay in private env files, the process environment, or private (0600) generated files that local
+   tools need (the IDE Compose file under `.generated/`); never in committed files, server-side files or
+   command lines. Server deploys pipe the model and never store it.
 4. A new setting goes into `project-settings.yaml`; a new image input changes only that image's fingerprint.
 5. Optional project directories are never created empty; missing optional mounts are dropped.
 6. Stage/prod refuse to start without limits, allowlists for tools, and (for releases) `APP_UID`.

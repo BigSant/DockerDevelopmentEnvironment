@@ -31,6 +31,9 @@ the last v1-compatible commit is `f9c4da9`.
 
 ### Kept on purpose
 
+- The PrestaShop configuration file is generated at PHP start (only when missing; afterwards only changed
+  connection values are written), not in `app-prepare`: stage/prod targets have no `app-prepare` step and
+  receive the keys only as container environment. An unchanged env leaves `public/` untouched on restart.
 - `make doctrine*` stays for applications that already run Doctrine migrations; guarded SQL migrations
   (`database/migrations`) are the default for shop schema changes.
 - `db-fixtures-*` load extra SQL on top of a data set; `make db-load` applies the same fixtures itself.
