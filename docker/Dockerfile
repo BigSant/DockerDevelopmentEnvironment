@@ -28,6 +28,7 @@ RUN sh /tmp/profile/apply-php-profile.sh "${PROFILE}" "${ENV}" && rm -rf /tmp/pr
 # Rendered copies of the read-only project PHP drop-ins (written at start by any UID).
 RUN mkdir -m 0777 -p /usr/local/etc/php/project.r /usr/local/etc/php/project.r.env
 
+
 # Optional official PrestaShop release, kept in the image for PS_RELEASE_PATHS and comparison.
 # It is never copied into the project automatically; make setup copies only the listed paths.
 ARG PS_RELEASE=off
@@ -53,6 +54,10 @@ RUN set -eu; mkdir -p /opt/prestashop/release; \
         test -f "$target/index.php"; \
     fi; \
     rm -rf /opt/prestashop/release-image
+
+# Setup runtime (start, templates, PrestaShop adapters, cron) travels in the image so a release
+# target needs no setup checkout; local development mounts the checkout over it.
+COPY /runtime/ /opt/setup/runtime/
 
 FROM base AS env-local
 FROM base AS env-prod

@@ -123,6 +123,11 @@ class Project:
         if profile == 'ps': profile = 'prestashop'
         settings['PROFILE'] = profile
         self.process_env['PROFILE'] = profile
+        if environment in ('stage', 'prod') and settings.get('APP_UID'):
+            # Server containers run as the hosting account (e.g. the DirectAdmin user), not the builder.
+            if not (str(settings['APP_UID']).isdigit() and str(settings.get('APP_GID', '')).isdigit()):
+                raise ValueError('APP_UID and APP_GID must both be numeric ids of the account on the server')
+            self.process_env.update(HOST_UID=str(settings['APP_UID']), HOST_GID=str(settings['APP_GID']))
         try:
             policy = resolve_policy(settings, environment)
         except MissingLimits as error:
@@ -255,7 +260,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -270,6 +275,8 @@ def main():
     parser.add_argument('--module', help='phpunit: run only this module suite (or shop)')
     parser.add_argument('--filter', dest='test_filter', help='phpunit: --filter pattern')
     parser.add_argument('--no-sync', action='store_true', help='phpunit: do not refresh the test application copy first')
+    parser.add_argument('--allow-dirty', action='store_true', help='release: allow uncommitted setup changes (not for real releases)')
+    parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
@@ -376,6 +383,12 @@ def main():
         elif args.action == "test-sync":
             from project_bootstrap import initialize_test
             initialize_test(project, refresh=(project.directory / '.generated/test/initialized').is_file())
+        elif args.action == "release":
+            from project_release import build_release
+            build_release(project, allow_dirty=args.allow_dirty)
+        elif args.action == "deploy-images":
+            from project_release import deploy_images
+            deploy_images(project, transfer=not args.no_transfer)
         elif args.action == "phpunit":
             from project_testing import run_phpunit
             run_phpunit(project, args.module, args.test_filter, sync=not args.no_sync)
