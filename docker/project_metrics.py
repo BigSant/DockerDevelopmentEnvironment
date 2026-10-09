@@ -10,7 +10,7 @@ DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRI
             'METRICS_HTTP_LOG_MB': '32', 'METRICS_DOCKER_INTERVAL': '15'}
 
 
-def resolve_metrics(settings, environment):
+def resolve_metrics(settings):
     """Values the metrics service receives; empty METRICS_URLS probes the project's own domain."""
     values = {key: str(settings.get(key) or default) for key, default in DEFAULTS.items()}
     urls = str(settings.get('METRICS_URLS') or '').split()

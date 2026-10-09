@@ -215,7 +215,7 @@ class Project:
         if unknown:
             raise ValueError(f"Unknown SERVICES entry: {', '.join(unknown)}; available: {' '.join(SERVICE_CATALOGUE)}")
         self.services = services
-        self.process_env.update(resolve_metrics(settings, environment))
+        self.process_env.update(resolve_metrics(settings))
         if profiles is None:
             selected = [p for p in re.split(r'[,\s]+', settings["PROFILES"]) if p]
             selected += [RUNTIME_PROFILES[name] for name in services if name in RUNTIME_PROFILES]

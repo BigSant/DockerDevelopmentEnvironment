@@ -9,6 +9,7 @@ services:
         source: ${PROJECT_DATA_DIRECTORY}/cron
         target: /host/cron-history
         read_only: true
+      # Optional like the cron service's /etc/cron.d: project_mounts.py drops it when app/config/cron is missing.
       - type: bind
         source: ${PROJECT_CONFIG_DIRECTORY}/cron
         target: /host/cron-config
