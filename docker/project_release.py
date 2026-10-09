@@ -23,8 +23,8 @@ def release_directory(project):
     return project.directory / '.generated/release' / project.environment
 
 
-def setup_version(allow_dirty=False):
-    """The setup checkout the release is built from; a release never comes from uncommitted setup."""
+def setup_version(allow_dirty=False, tagged=False):
+    """The setup checkout the release is built from; never uncommitted, and for prod exactly a release tag."""
     result = subprocess.run(['git', '-C', str(SETUP_ROOT), 'describe', '--tags', '--always', '--dirty'],
                             capture_output=True, text=True)
     if result.returncode:
@@ -32,6 +32,9 @@ def setup_version(allow_dirty=False):
     version = result.stdout.strip()
     if version.endswith('-dirty') and not allow_dirty:
         raise ValueError(f'Setup has uncommitted changes ({version}); commit or tag it before a release')
+    if tagged and not allow_dirty and not re.fullmatch(r'v\d+\.\d+\.\d+', version):
+        raise ValueError(f'ENV=prod releases build from a setup release tag; setup is at {version}. '
+                         'Check out the tag (git -C setup checkout vX.Y.Z) first')
     return version
 
 
@@ -134,7 +137,7 @@ def trivy_report(images):
 def build_release(project, allow_dirty=False):
     """Build the images for ENV=stage/prod here and write the lock file and release compose model."""
     _, deploy_path = release_settings(project, remote=False)
-    version = setup_version(allow_dirty)
+    version = setup_version(allow_dirty, tagged=project.environment == 'prod')
     print(f'==> building {project.environment} images from setup {version}', flush=True)
     project.run(['build', 'php-fpm-base'], profiles='build_only')
     project.run(['build', 'php-fpm-core'], profiles='build_only')

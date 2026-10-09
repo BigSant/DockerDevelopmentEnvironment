@@ -76,6 +76,13 @@ class ReleaseTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'uncommitted changes'):
                 setup_version()
             self.assertEqual(setup_version(allow_dirty=True), 'v2.0.0-3-gabc1234-dirty')
+        ahead = subprocess.CompletedProcess([], 0, 'v2.0.0-3-gabc1234\n', '')
+        with patch('project_release.subprocess.run', return_value=ahead):
+            self.assertEqual(setup_version(), 'v2.0.0-3-gabc1234', 'stage may build from any committed setup')
+            with self.assertRaisesRegex(ValueError, 'ENV=prod releases build from a setup release tag'):
+                setup_version(tagged=True)
+        with patch('project_release.subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'v2.0.0\n', '')):
+            self.assertEqual(setup_version(tagged=True), 'v2.0.0')
 
     def test_deploy_streams_images_to_the_context_and_starts_the_model(self):
         project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=shop-stage\n')
