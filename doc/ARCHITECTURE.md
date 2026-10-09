@@ -134,11 +134,21 @@ fingerprint is outdated; it removes only with `apply=1`.
 installed). A release keeps no host path except the read-only `/proc` of the metrics service.
 `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
-holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path.
-`make deploy ref=TAG` builds the shop release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
-`config/deploy/build.sh`), backs up the target DB by registry, rsyncs without `--delete`, removes only
-files the previous release shipped, upgrades changed modules, migrates and reports.
-`rollback=1` redeploys the previous release.
+holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of
+active services (no `build`, e.g. `getmeili/meilisearch` from a project compose file) are pulled when
+missing and locked (`images` + `external` digests) so `docker save` ships them; a release with an image
+that is not on the build machine stops before writing the lock.
+`make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
+`config/deploy/build.sh` with `HOME`/npm/Composer caches in `/tmp`), backs up the target DB by registry,
+rsyncs without `--delete`, removes only files the previous release shipped and never a protected path,
+runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy and records
+it as `failed`, so later removals and `rollback=1` follow the code the target really holds),
+upgrades changed modules, runs setup migrations when the project has them, reports and clears caches.
+Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
+`.htaccess`, `robots.txt`, `sitemap*.xml`) only for PrestaShop, plus tool folders and
+`DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
+`module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
+`rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
 
 ## 8. Tests
 
@@ -159,4 +169,6 @@ is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks 
 4. A new setting goes into `project-settings.yaml`; a new image input changes only that image's fingerprint.
 5. Optional project directories are never created empty; missing optional mounts are dropped.
 6. Stage/prod refuse to start without limits, allowlists for tools, and (for releases) `APP_UID`.
-7. Tests run only against ENV=test; deploys never delete files the code does not track.
+7. Tests run only against ENV=test; deploys never delete files the code does not track, nor protected paths.
+8. Every setup step that reads or changes application-specific things follows `PROFILE`; an empty
+   (generic) profile never reads or touches PrestaShop things (`ps_module`, module upgrades, PS paths).

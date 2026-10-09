@@ -63,7 +63,7 @@ PrestaShop parduotuvės `vendor/` gali atsirasti dviem būdais (žr. [aplikacijo
 - `PS_RELEASE=on` ir `PS_RELEASE_PATHS=vendor` – nukopijuojamas iš oficialaus release;
 - projekto `config/composer/composer.json` ir `composer.lock` – `make setup` juos nukopijuoja į parduotuvę ir paleidžia `composer install`.
 
-Deploy'aus metu build serveris vykdo `composer install --no-dev` release image'e, o asset'us gali surinkti projekto `config/deploy/build.sh`.
+Deploy'aus metu build serveris vykdo `composer install --no-dev` release image'e, o asset'us (pvz. `npm ci && npm run build`) gali surinkti projekto `config/deploy/build.sh`. Jis veikia kaip `APP_UID` be namų katalogo, todėl `HOME`, npm ir Composer podėliai yra `/tmp`.
 
 Prieš keisdamas PHP versiją seno projekto `composer.lock` patikrink naujame PHP image'e:
 
