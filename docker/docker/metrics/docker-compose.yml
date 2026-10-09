@@ -22,6 +22,9 @@ services:
     environment:
       TZ: ${TZ}
       ENV: ${ENV}
+      # php -S serves one request at a time; workers (PHP >= 7.4, ignored before) keep a slow probe
+      # (website, database) from blocking the next scrape. The DB digest snapshot is flock()ed.
+      PHP_CLI_SERVER_WORKERS: "4"
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       METRICS_URLS: ${METRICS_URLS}
       METRICS_PROBE_ADDRESS: ${METRICS_PROBE_ADDRESS:-}

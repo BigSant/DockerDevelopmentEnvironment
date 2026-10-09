@@ -95,6 +95,7 @@ fingerprint is outdated; it removes only with `apply=1`.
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
 - **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): Prometheus `/metrics` on the main domain
   (`location = /metrics` rendered into both site servers), token in the service, allowlist in nginx-proxy.
+  The service is `php -S` with `PHP_CLI_SERVER_WORKERS=4` (PHP >= 7.4), so a slow probe does not block scrapes.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with

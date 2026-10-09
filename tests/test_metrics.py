@@ -224,6 +224,22 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
     def setUp(self):
         self.prepare()
 
+    def test_a_slow_scrape_does_not_block_the_next_one(self):
+        # The service runs php -S; without PHP_CLI_SERVER_WORKERS it answers one request at a time.
+        compose = (ROOT / "docker/docker/metrics/docker-compose.yml").read_text()
+        workers = re.search(r'PHP_CLI_SERVER_WORKERS: "(\d+)"', compose)
+        self.assertTrue(workers and int(workers[1]) >= 3, "the metrics service runs several php -S workers")
+        base = self.start(METRICS_SAMPLE_SECONDS="1", PHP_CLI_SERVER_WORKERS=workers[1])
+        results = []
+        started = time.monotonic()
+        scrapes = [threading.Thread(target=lambda: results.append(fetch(base, token=TOKEN)[0])) for _ in range(3)]
+        for scrape in scrapes:
+            scrape.start()
+        for scrape in scrapes:
+            scrape.join(30)
+        self.assertEqual(results, [200, 200, 200])
+        self.assertLess(time.monotonic() - started, 2.5, "three 1-second scrapes ran side by side")
+
     def test_without_a_configured_token_it_refuses_to_serve(self):
         for token in ("", "short"):
             base = self.start(METRICS_TOKEN=token)
@@ -598,6 +614,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual((environment["METRICS_URLS"], environment["METRICS_SUPPORT_LEVEL"], environment["METRICS_DISK_WRITE_MB"]),
                          ("https://demo.example.com/", "0", "100"))
         self.assertEqual(metrics["user"], f"{os.getuid()}:{os.getgid()}")
+        self.assertEqual(environment["PHP_CLI_SERVER_WORKERS"], "4", "slow probes must not block scrapes")
         # The HTTP log volume: nginx-proxy writes the site's access log and the webserver its error log there,
         # the metrics service only reads it.
         logs = mounts["/host/http-logs"]

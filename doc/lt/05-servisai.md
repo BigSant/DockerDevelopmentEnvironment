@@ -378,6 +378,8 @@ Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/
 
 `setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e).
 
+Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER_WORKERS`, PHP 7.4+): lėtas svetainės ar DB patikrinimas neblokuoja kito scrape'o. Su senesniu PHP užklausos aptarnaujamos po vieną.
+
 1. `env/<ENV>.env`:
 
 ```dotenv
