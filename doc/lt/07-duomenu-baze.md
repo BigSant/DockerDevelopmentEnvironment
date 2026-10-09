@@ -106,7 +106,7 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 
 | Laukas | Reikšmės |
 | --- | --- |
-| lentelė | Vardas. `{p}` – prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`), `*` – bet kokia seka. |
+| lentelė | Vardas. `{p}` – PrestaShop prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`; generic projekte atmetamas), `*` – bet kokia seka. |
 | grupė | Laisvas vardas, pvz. `config`, `catalog`, `customers`, `orders`, `cache`. Pagal jį grupuojami rinkinio failai. |
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
 | LIVE importas | `import` – importuoti duomenis; `skip` – importuoti tik struktūrą. |
@@ -162,7 +162,7 @@ INTEGRATIONS_ENABLED="tecdoc"
 
 Tada užkelk DB iš naujo. Nežinomas vardas yra klaida. Forsenoje integracijos yra `couriers`, `gtm`, `omnisend`, `suppliers`, `tecdoc`.
 
-**After-import SQL.** Savo SQL dėk į `database/after-import/common/` arba `database/after-import/<ENV>/`, failus numeruok vienodo ilgio numeriais (`010-…`, `020-…`). Juose galima naudoti `${DOMAIN}`, `${DB_PREFIX}` ir `${PS_SSL}`:
+**After-import SQL.** Savo SQL dėk į `database/after-import/common/` arba `database/after-import/<ENV>/`, failus numeruok vienodo ilgio numeriais (`010-…`, `020-…`). Juose galima naudoti `${DOMAIN}`, o `PROFILE=prestashop` projekte – ir `${DB_PREFIX}` bei `${PS_SSL}` (generic projekte jie atmetami, nes PS prefikso ir SSL vėliavos ten nėra):
 
 ```sql
 UPDATE `${DB_PREFIX}configuration` SET `value` = '0' WHERE `name` = 'MYMODULE_LIVE_MODE';
@@ -210,7 +210,7 @@ git add database/data/dev
 `make db-dataset` veikia tik `ENV=local` ir reikalauja pilno registro. Kas daroma:
 
 - kiekviena lentelė apdorojama pagal registro rinkinio taisyklę (`full`, `slice`, `faker`, `empty`, `drop`);
-- `slice` lentelėms imama prekių imtis pagal receptą. Numatytasis receptas paima 2000 aktyvių prekių. Projekto receptas `database/data/recipe.txt` laimi prieš [profilio](../../docker/database-profile/prestashop/data-recipe.txt): `@products SELECT …` eilutė parenka imtį, kitos eilutės `lentelė sąlyga` – sąlygas lentelėms be `id_product` stulpelio;
+- `slice` lentelėms imama prekių imtis pagal receptą. Numatytasis receptas paima 2000 aktyvių prekių. Projekto receptas `database/data/recipe.txt` laimi prieš [profilio](../../docker/database-profile/prestashop/data-recipe.txt): `@products SELECT …` eilutė parenka imtį (reikia tik kai yra `slice` lentelių arba sąlygų su `{products}`, todėl generic projektas gali be jos), kitos eilutės `lentelė sąlyga` – sąlygas lentelėms be `id_product` stulpelio;
 - asmens duomenų stulpeliai gauna pastovias dev reikšmes, kontaktai pakeičiami visur, konfigūracijos slaptažodžiai ir raktai išvalomi (jungikliai lieka);
 - darbuotojų ir klientų slaptažodis – `dev12345` (bcrypt);
 - failai grupuojami pagal registro grupę (`config.sql`, `catalog.sql`, `customers.sql`…), eilutės rūšiuojamos pagal pirminį raktą po vieną eilutėje. Pakartotinis kūrimas iš tos pačios DB duoda tuos pačius baitus, todėl diff'ai maži.

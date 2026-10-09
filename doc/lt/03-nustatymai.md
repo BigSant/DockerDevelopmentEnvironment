@@ -121,7 +121,7 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | `PS_API_PRIVATE_KEY`, `PS_API_PUBLIC_KEY` | Tuščias | Tik PS 9, PEM raktai base64 forma. |
 | `PS_DATABASE_PREFIX` | `ps_` | Lentelių prefiksas. |
 | `PS_LOCALE` | `en-US` | Kuriamo `parameters.php` `locale` reikšmė. |
-| `PS_RELEASE` | `off` | `on` – oficialus PS release saugomas PHP image'e. |
+| `PS_RELEASE` | `off` | `on` – oficialus PS release saugomas PHP image'e. Tik `PROFILE=prestashop`: generic projektas su `on`, `PS_RELEASE_PATHS` ar `PS_ADMIN_DIR` sustoja klaida. |
 | `PS_RELEASE_PATHS` | Tuščias | Katalogai per tarpus, kopijuojami iš release į parduotuvę, pvz. `vendor` arba `admin`. Reikia `PS_RELEASE=on`. |
 | `PS_RELEASE_SHA256` | Tuščias | PS 1.6 release zip kontrolinė suma. |
 | `PS_ADMIN_DIR` | Tuščias | Kuo pervadinti release `admin` katalogą kopijuojant. |
@@ -146,7 +146,7 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `TEST_COPY_EXCLUDE` | Tuščias | Keliai parduotuvėje per tarpus, kurių nekopijuoti į `ENV=test` kopiją, pvz. `/modules/prgenericsync/cache`. |
+| `TEST_COPY_EXCLUDE` | Tuščias | Keliai parduotuvėje per tarpus, kurių nekopijuoti į `ENV=test` kopiją, pvz. `/modules/prgenericsync/cache`. PrestaShop kopija visada praleidžia `var/cache`, `var/logs`, `cache`; generic aplikacijos savo cache katalogus išvardina čia. |
 | `PHPSTAN_BASELINE_FILE` | Tuščias | Konteinerio kelias, kur `make phpstan-baseline` rašo baseline. |
 | `PLAYWRIGHT_COMMAND` | `npx playwright test` | `make e2e` komanda. |
 | `DOCTRINE_PHP_VERSION` | `8.3` | Doctrine migracijų įrankio PHP versija. |

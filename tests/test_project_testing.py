@@ -35,7 +35,7 @@ class TestingTest(unittest.TestCase):
         self.addCleanup(output.__exit__, None, None, None)
 
     def test_suites_of_modules_their_tests_folder_and_the_shop(self):
-        suites = find_suites(self.web)
+        suites = find_suites(self.web, prestashop=True)
         self.assertEqual(sorted(suites), ["alpha", "beta", "shop"])
         self.assertEqual(suites["beta"].name, "phpunit.xml", "a local phpunit.xml overrides the .dist")
         self.assertEqual(suites["alpha"], self.web / "modules/alpha/phpunit.xml.dist")
@@ -48,12 +48,12 @@ class TestingTest(unittest.TestCase):
         (directory / "tests/Unit/ShopTest.php").write_text("<?php\n")
         (directory / "tests/playwright/home.spec.cjs").write_text("// e2e\n")
         project_testing.copy_project_suite(SimpleNamespace(directory=directory), self.web)
-        self.assertEqual(find_suites(self.web)["project"], self.web / ".setup-tests/project/phpunit.xml.dist")
+        self.assertEqual(find_suites(self.web, prestashop=True)["project"], self.web / ".setup-tests/project/phpunit.xml.dist")
         self.assertTrue((self.web / ".setup-tests/project/Unit/ShopTest.php").is_file())
         self.assertFalse((self.web / ".setup-tests/project/playwright").exists(), "e2e specs stay with Playwright")
         (directory / "tests/phpunit.xml.dist").unlink()
         project_testing.copy_project_suite(SimpleNamespace(directory=directory), self.web)
-        self.assertNotIn("project", find_suites(self.web))
+        self.assertNotIn("project", find_suites(self.web, prestashop=True))
 
     def test_phpunit_comes_from_the_suite_module_shop_then_setup(self):
         project = SimpleNamespace(settings={"PHP_VERSION": "8.4"})
@@ -104,7 +104,8 @@ class TestingTest(unittest.TestCase):
             if "/var/www/html/modules/beta/tests/phpunit.xml" in arguments:
                 raise subprocess.CalledProcessError(1, arguments)
 
-        test = SimpleNamespace(environment="test", web_directory=self.web, settings={"PHP_VERSION": "8.4"}, run=run)
+        test = SimpleNamespace(environment="test", web_directory=self.web, settings={"PHP_VERSION": "8.4", "PROFILE": "prestashop"},
+                               run=run)
         with patch("project_testing.setup_phpunit", return_value="/var/www/html/.setup-tools/phpunit-10.5.phar"):
             self.assertEqual(run_phpunit(test, "alpha", "Import"), ["alpha"])
             self.assertEqual(calls[0], ["exec", "-T", "-w", "/var/www/html", "-e", "SYMFONY_DEPRECATIONS_HELPER=weak",

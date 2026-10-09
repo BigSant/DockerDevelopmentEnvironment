@@ -43,7 +43,7 @@ make phpunit module=prgenericsync
 make phpunit module=prgenericsync filter=ImportTest
 ```
 
-`make phpunit` pats randa rinkinius: `phpunit.xml` arba `phpunit.xml.dist` kiekviename modulyje (`modules/<modulis>/` arba `modules/<modulis>/tests/`) ir parduotuvės šaknyje (vardas `shop`). `module=` paleidžia vieną rinkinį, `filter=` perduodamas PHPUnit `--filter`.
+`make phpunit` pats randa rinkinius: `phpunit.xml` arba `phpunit.xml.dist` kiekviename modulyje (`modules/<modulis>/` arba `modules/<modulis>/tests/`) ir parduotuvės šaknyje (vardas `shop`). Generic projekte (`PROFILE` ne `prestashop`) `modules/` – paprastas katalogas: rinkinys ieškomas tik aplikacijos šaknyje arba jos `tests/` (vardas `app`). `module=` paleidžia vieną rinkinį, `filter=` perduodamas PHPUnit `--filter`.
 
 **Projekto rinkinys** laikomas aplinkos repozitorijoje, už document root ribų: `tests/phpunit.xml(.dist)` ir testai šalia (`tests/playwright/` lieka e2e). Testinėje kopijoje jis atsiduria `.setup-tests/project/`, todėl parduotuvės failus pasieki per `../../` (pvz. `bootstrap="../../config/config.inc.php"`). Paleidimas: `make phpunit module=project`.
 

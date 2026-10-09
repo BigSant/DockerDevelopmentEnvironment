@@ -157,7 +157,9 @@ def ide_plan(project, server):
         for source in list(content.findall("sourceFolder")):
             if source.get("url", "").endswith("/examples/php-redis/database/doctrine/versions") and not (project.directory / "examples/php-redis/database/doctrine/versions").exists():
                 content.remove(source)
-        for relative in (".generated", "public/var/cache", "public/var/logs"):
+        from project_prestashop import is_prestashop
+        # PrestaShop's cache and log folders; a generic application decides its own excludes in the IDE.
+        for relative in (".generated", *(("public/var/cache", "public/var/logs") if is_prestashop(project) else ())):
             url = f"file://$PROJECT_DIR$/{relative}"
             if content.find(f"excludeFolder[@url='{url}']") is None:
                 ET.SubElement(content, "excludeFolder", url=url)
@@ -229,8 +231,9 @@ def ide_plan(project, server):
         ET.SubElement(run, "method", v="2")
         outputs[relative] = xml_bytes(root)
     if test is not None:
+        from project_prestashop import is_prestashop
         from project_testing import find_suites
-        for name, config in sorted(find_suites(test.web_directory).items()):
+        for name, config in sorted(find_suites(test.web_directory, is_prestashop(test)).items()):
             relative = f".idea/runConfigurations/setup_phpunit_{re.sub(r'[^A-Za-z0-9_]', '_', name)}.xml"
             label = f"PHPUnit: {name}"
             contents = read(relative)

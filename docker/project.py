@@ -158,7 +158,14 @@ class Project:
         self.process_env.update(PROJECT_DATA_DIRECTORY=str(self.data_directory), PROJECT_WEB_DIRECTORY=str(self.web_directory))
         if (self.directory / "Dockerfile").is_file():
             validate_project_dockerfile(self.directory / "Dockerfile")
-        # Release source for the CORE PHP layer (see docker/Dockerfile).
+        # Release source for the CORE PHP layer (see docker/Dockerfile): PrestaShop only.
+        if profile != 'prestashop':
+            from project_prestashop import generic_refusal
+            for key in ("PS_RELEASE_PATHS", "PS_ADMIN_DIR"):
+                if settings[key]:
+                    raise generic_refusal(key)
+            if settings["PS_RELEASE"] == "on":
+                raise generic_refusal("PS_RELEASE=on")
         release_on = settings["PS_RELEASE"] == "on"
         if settings["PS_RELEASE"] not in ("", "on", "off"):
             raise ValueError("PS_RELEASE must be on or off")
@@ -343,9 +350,11 @@ def main():
         project = Project(args.docker_directory, args.env, args.project_directory, args.profiles)
         if args.action == 'runtime-info':
             from project_policy import DEFAULTS
+            from project_prestashop import is_prestashop
             print(f'Environment: {project.environment}; project: {project.name}; profile: {project.settings["PROFILE"] or "generic"}')
             for key in DEFAULTS:
-                print(f'{key}={project.settings[key]}')
+                if is_prestashop(project) or not key.startswith('PS_'):
+                    print(f'{key}={project.settings[key]}')
         elif args.action == 'image-prune':
             from project_images import prune_images
             prune_images(project, args.apply, args.cache)
