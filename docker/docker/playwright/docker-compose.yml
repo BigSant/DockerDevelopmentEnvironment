@@ -23,7 +23,10 @@ services:
       - network_app
     environment:
       BASE_URL: https://${DOMAIN}
+      PLAYWRIGHT_TEST_DIR: /e2e/tests
+      PLAYWRIGHT_DATA_DIR: /e2e/data
+    # e2e runs only in ENV=test: config and specs are shared read-only, results go to the data directory.
     volumes:
-      - ${PROJECT_CONFIG_DIRECTORY}/playwright/:/e2e/config/
-      - ${PROJECT_APP_DIRECTORY}/tests/playwright/:/e2e/tests/
+      - ${PROJECT_CONFIG_DIRECTORY}/playwright/:/e2e/config/:ro
+      - ${PROJECT_APP_DIRECTORY}/tests/playwright/:/e2e/tests/:ro
       - ${PROJECT_DATA_DIRECTORY}/playwright/:/e2e/data/

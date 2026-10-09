@@ -145,6 +145,13 @@ define('_DB_PREFIX_', 'custom_');
         override.write_text('services:\n  database:\n    volumes:\n      - ${PROJECT_DIRECTORY}/data/mysql:/var/lib/mysql\n')
         with self.assertRaisesRegex(ValueError, 'writable mount'): Project(app, 'test')
         override.unlink()
+        # e2e runs only in ENV=test: the shared Playwright config and specs are mounted read-only there.
+        common = (app/'env/common.env').read_text()
+        (app/'env/common.env').write_text(common + 'PROJECT_COMPOSE_FILES=\n')
+        e2e = Project(app, 'test')
+        e2e.validate_test_isolation('playwright')
+        self.assertEqual(e2e.model()['services']['playwright']['environment']['PLAYWRIGHT_DATA_DIR'], '/e2e/data')
+        (app/'env/common.env').write_text(common)
         with test.env_files[-1].open('a') as file: file.write('APP_SOURCE_DIRECTORY=app/public\n')
         with self.assertRaisesRegex(ValueError,'Test data and code'): Project(app,'test')
 
