@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path[:0] = [str(ROOT), str(ROOT/'docker')]
 from prepare_project import prepare
 from project import Project
@@ -27,13 +29,19 @@ class PolicyTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()): prepare(self.root, layout='app')
         self.app=self.root/'app'
         for env in ('local','test','stage','prod'):
-            (self.app/f'env/{env}.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=shop\nDATABASE_PASSWORD=secret-only\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\nCOMPOSE_PROFILES=\n')
+            remote = 'ALLOWED_IPS=203.0.113.10\n' if env in ('stage','prod') else ''
+            (self.app/f'env/{env}.env').write_text(REMOTE_LIMITS + 'DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=shop\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=secret-only\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\nCOMPOSE_PROFILES=\n'+remote)
 
     def test_defaults_and_hybrids_do_not_change_identity_mail_or_images(self):
         for env in ('local','test','stage','prod'):
-            policy=resolve_policy({},env)
+            policy=resolve_policy({'PHP_MEMORY':'1g','PHP_CPUS':'1','DATABASE_MEMORY':'2g','DATABASE_CPUS':'1','WEBSERVER_MEMORY':'256m','WEBSERVER_CPUS':'1','PROXY_MEMORY':'128m','PROXY_CPUS':'0.5'} if env in ('stage','prod') else {},env)
             self.assertEqual(policy['CACHE_MODE'], 'off' if env in ('local','test') else 'on')
             self.assertEqual(policy['MAIL_MODE'], 'preserve' if env=='prod' else 'off')
+        self.assertEqual(resolve_policy({'SERVICES':'pma mailpit'},'local')['MAIL_MODE'],'mailpit')
+        with self.assertRaisesRegex(ValueError,'requires mailpit in SERVICES'):
+            resolve_policy({'MAIL_MODE':'mailpit'},'local')
+        with self.assertRaisesRegex(ValueError,'INTEGRATIONS_ENABLED'):
+            resolve_policy({'INTEGRATIONS_ENABLED':'gtm;rm'},'local')
         local=Project(self.app);before=local.model()
         with (self.app/'env/local.env').open('a') as file: file.write('CACHE_MODE=on\nCOMPOSE_PROFILES=redis\n')
         hybrid=Project(self.app);after=hybrid.model()
@@ -42,12 +50,19 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual(hybrid.data_directory,local.data_directory)
         self.assertEqual(after['services']['php-fpm']['image'],before['services']['php-fpm']['image'])
         php=after['services']['php-fpm']['environment']
-        self.assertEqual((php['CACHE_MODE'],php['PHP_OPCACHE'],php['MAIL_MODE']),('on','on','off'))
+        self.assertEqual((php['CACHE_MODE'],php['PHP_OPCACHE'],php['MAIL_MODE']),('on','on','mailpit'))
         self.assertEqual(php['DATABASE_PASSWORD'],'secret-only')
         self.assertEqual(hybrid.process_env['BUILD_ENV'],'local')
         self.assertIn('redis',json.loads(hybrid.capture(['config','--format','json']))['services'])
         stage=Project(self.app,'stage')
-        self.assertEqual((stage.settings['PHP_OPCACHE'],stage.settings['MAIL_MODE']),('on','off'))
+        self.assertEqual((stage.settings['PHP_OPCACHE'],stage.settings['MAIL_MODE']),('on','mailpit'))
+
+    def test_import_and_test_switches_reach_the_settings(self):
+        with (self.app/'env/local.env').open('a') as file:
+            file.write('INTEGRATIONS_ENABLED="gtm tecdoc"\nPS_SSL=off\nPS_DATABASE_PREFIX=fs_\nTEST_COPY_EXCLUDE=/modules/x/cache\n')
+        settings=Project(self.app).settings
+        self.assertEqual((settings['INTEGRATIONS_ENABLED'],settings['PS_SSL'],settings['PS_DATABASE_PREFIX'],settings['TEST_COPY_EXCLUDE']),
+                         ('gtm tecdoc','off','fs_','/modules/x/cache'))
 
     def test_individual_cache_overrides_and_explicit_debug_validation(self):
         policy=resolve_policy({'CACHE_MODE':'on','PHP_OPCACHE':'off','PS_SMARTY_COMPILE':'check'},'local')

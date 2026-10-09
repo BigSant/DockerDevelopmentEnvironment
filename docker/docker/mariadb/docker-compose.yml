@@ -1,9 +1,9 @@
 services:
   database:
-    image: mariadb-${IMAGE_ENV:-${ENV}}-${MARIADB_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: mariadb-${IMAGE_ENV:-${ENV}}-${MARIADB_VERSION}${SETUP_IMAGE_SUFFIX_DATABASE:-}
     container_name: ${PROJECT_NAME}-${ENV}-mariadb-${MARIADB_VERSION}
-    mem_limit: ${DB_CONTAINER_MEMORY:-2g}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${DATABASE_MEMORY}
+    cpus: ${DATABASE_CPUS}
     logging:
       driver: json-file
       options:
@@ -13,6 +13,10 @@ services:
     # Run as the host user so data/files are host-owned, not root (mirrors mysql).
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: database
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_DATABASE:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mariadb/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
@@ -21,8 +25,17 @@ services:
         PROFILE: ${PROFILE}
         MARIADB_VERSION: ${MARIADB_VERSION}
     environment:
+      TZ: ${TZ}
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_BUFFER_POOL: ${DATABASE_BUFFER_POOL}
+      DATABASE_PERFORMANCE_SCHEMA: ${DATABASE_PERFORMANCE_SCHEMA:-off}
       MYSQL_ROOT_HOST: ${DATABASE_HOST:-%}
-      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_ROOT_PASSWORD}
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}

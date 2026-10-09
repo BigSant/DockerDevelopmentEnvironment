@@ -1,9 +1,13 @@
 services:
   php-fpm-base:
-    image: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
     container_name: php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-fpm-base
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/php-fpm/${PHP_VERSION}/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
@@ -26,11 +30,39 @@ services:
     networks:
       - network_app
 
+  # CORE project layer (profile overlay, rendered drop-in directories); built before php-fpm.
+  php-fpm-core:
+    image: ${PROJECT_NAME}-php-fpm-core-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
+    build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-fpm-core
+        setup.project: ${PROJECT_NAME}
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/Dockerfile
+      target: env-${BUILD_ENV:-${ENV}}
+      args:
+        ENV: ${BUILD_ENV:-${ENV}}
+        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}
+        PROFILE: ${PROFILE}
+        PHP_VERSION: ${PHP_VERSION}
+        XDEBUG_VERSION: ${XDEBUG_VERSION}
+        COMPOSER_VERSION: ${COMPOSER_VERSION}
+        PS_RELEASE: ${PS_RELEASE:-off}
+        PS_VERSION: ${PS_VERSION:-}
+        PS_RELEASE_SHA256: ${PS_RELEASE_SHA256:-}
+        PS_RELEASE_IMAGE: ${PS_RELEASE_IMAGE:-php-fpm-base-${IMAGE_ENV:-${ENV}}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX_PHP_FPM_BASE:-}}
+    profiles:
+      - build_only
+    networks:
+      - network_app
+
   php-fpm:
-    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX:-}
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm
-    mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${PHP_MEMORY}
+    cpus: ${PHP_CPUS}
     logging:
       driver: json-file
       options:
@@ -40,20 +72,27 @@ services:
     # Run as the host user so files written to the bind-mounted web dir are host-owned, not root.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-fpm
+        setup.project: ${PROJECT_NAME}
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+      # The project Dockerfile (or the CORE pass-through) extends the CORE image only.
       context: ${DOCKERFILE_DIRECTORY}
       dockerfile: ${DOCKERFILE_DIRECTORY}/Dockerfile
-      target: env-${BUILD_ENV:-${ENV}}
       args:
-        ENV: ${BUILD_ENV:-${ENV}}
-        SETUP_IMAGE_SUFFIX: ${SETUP_IMAGE_SUFFIX:-}
-        PROFILE: ${PROFILE}
         PHP_VERSION: ${PHP_VERSION}
-        XDEBUG_VERSION: ${XDEBUG_VERSION}
-        COMPOSER_VERSION: ${COMPOSER_VERSION}
-        NODE_VERSION: ${NODE_VERSION}
+        SETUP_PHP_IMAGE: ${PROJECT_NAME}-php-fpm-core-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
     entrypoint: ["/bin/sh", "/opt/setup/runtime/start.sh"]
     command: ["php-fpm", "-R"]
     environment:
+      TZ: ${TZ}
+      # Xdebug 3 reads XDEBUG_MODE itself (debug | off | debug,profile ...); restart to apply.
+      XDEBUG_MODE: ${XDEBUG_MODE}
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
       # The host UID may have HOME=/; package managers need writable directories.
       NPM_CONFIG_CACHE: ${NPM_CONFIG_CACHE:-/tmp/setup-npm-cache}
       COMPOSER_HOME: ${COMPOSER_HOME:-/tmp/setup-composer}
@@ -71,6 +110,18 @@ services:
       PS_DEBUG_MODE: ${PS_DEBUG_MODE-}
       PS_DEBUG_IPS: ${PS_DEBUG_IPS-}
       DATABASE_HOST: ${APP_DATABASE_HOST:-database}
+      # PrestaShop configuration file: version and shop keys (template + env).
+      PS_VERSION: ${PS_VERSION-}
+      PS_COOKIE_KEY: ${PS_COOKIE_KEY-}
+      PS_COOKIE_IV: ${PS_COOKIE_IV-}
+      PS_NEW_COOKIE_KEY: ${PS_NEW_COOKIE_KEY-}
+      PS_SECRET: ${PS_SECRET-}
+      PS_API_PRIVATE_KEY: ${PS_API_PRIVATE_KEY-}
+      PS_API_PUBLIC_KEY: ${PS_API_PUBLIC_KEY-}
+      PS_RIJNDAEL_KEY: ${PS_RIJNDAEL_KEY-}
+      PS_RIJNDAEL_IV: ${PS_RIJNDAEL_IV-}
+      PS_DATABASE_PREFIX: ${PS_DATABASE_PREFIX-}
+      PS_LOCALE: ${PS_LOCALE-}
       DATABASE_PORT: ${APP_DATABASE_PORT:-3306}
       DATABASE_NAME: ${DATABASE_NAME-}
       DATABASE_USER: ${DATABASE_USER-}
@@ -86,7 +137,7 @@ services:
       PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE:-20M}
       # Per-project PHP overrides: default conf.d first, then project.d (always),
       # then project.d.env (ENV-match) — last wins.
-      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.d:/usr/local/etc/php/project.d.env"
+      PHP_INI_SCAN_DIR: ":/opt/setup/runtime/php-policy:/usr/local/etc/php/project.r:/usr/local/etc/php/project.r.env"
     networks:
       - network_app
     extra_hosts:

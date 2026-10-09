@@ -31,7 +31,7 @@ class ProjectIdeTest(unittest.TestCase):
             prepare(self.root, layout="app")
         self.app = self.root / "app"
         (self.app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
-                                              "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_PASSWORD='secret $value'\n")
+                                              "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='secret $value'\n")
         (self.app / ".git").mkdir()
         (self.app / "public/.git").mkdir(parents=True)
         self.project = Project(self.app)

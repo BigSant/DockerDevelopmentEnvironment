@@ -1,6 +1,6 @@
 services:
   php-cs:
-    image: php-cs-${PHP_CS_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: php-cs-${PHP_CS_VERSION}${SETUP_IMAGE_SUFFIX_PHP_CS:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-fpm-cs-${PHP_CS_VERSION}
     profiles:
       - phpcs
@@ -8,6 +8,10 @@ services:
     entrypoint: ["tail", "-f", "/dev/null"]
     mem_limit: 2g
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: php-cs
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_CS:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/php-cs/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}

@@ -1,0 +1,16 @@
+# Base data-set recipe defaults for PrestaShop (a project's database/data/recipe.txt is read first).
+# @products selects the product sample; other lines are "table condition", where {products} is the
+# sample as a SQL list and {p} the table prefix. Slice tables with an id_product column need no line.
+@products SELECT id_product FROM {p}product WHERE active = 1 ORDER BY id_product LIMIT 2000
+{p}feature_value id_feature_value IN (SELECT id_feature_value FROM {p}feature_product WHERE id_product IN {products})
+{p}feature_value_lang id_feature_value IN (SELECT id_feature_value FROM {p}feature_product WHERE id_product IN {products})
+{p}accessory id_product_1 IN {products} AND id_product_2 IN {products}
+{p}pack id_product_pack IN {products} AND id_product_item IN {products}
+{p}image_lang id_image IN (SELECT id_image FROM {p}image WHERE id_product IN {products})
+{p}customization_field_lang id_customization_field IN (SELECT id_customization_field FROM {p}customization_field WHERE id_product IN {products})
+{p}product_attribute_combination id_product_attribute IN (SELECT id_product_attribute FROM {p}product_attribute WHERE id_product IN {products})
+{p}product_attribute_image id_product_attribute IN (SELECT id_product_attribute FROM {p}product_attribute WHERE id_product IN {products})
+{p}product_attribute_lang id_product_attribute IN (SELECT id_product_attribute FROM {p}product_attribute WHERE id_product IN {products})
+# No shop links for rows that no longer exist (left behind by deleted warehouses, e.g. test runs).
+{p}warehouse_shop id_warehouse IN (SELECT id_warehouse FROM {p}warehouse)
+{p}warehouse_carrier id_warehouse IN (SELECT id_warehouse FROM {p}warehouse)

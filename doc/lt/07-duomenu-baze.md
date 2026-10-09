@@ -1,396 +1,297 @@
-# 7. DB: nuo dump iki schemos ir testinių duomenų
+# 7. Duomenų bazė kaip kodas
 
-[Turinys](README.md) · [Atgal](06-aplikacija.md) · [Toliau: kodo kokybė](08-kodo-kokybe.md)
+[Turinys](README.md) · [Atgal](06-aplikacija.md) · [Toliau: testai](08-kodo-kokybe.md)
 
-## Pirmiausia atskirk keturis dalykus
+DB struktūra, migracijos, lentelių registras ir anonimizuotas bazinis rinkinys laikomi aplinkos repozitorijoje (`app/database/`). Taip LIVE ir kodas galiausiai sutampa, o naujas programuotojas gauna veikiančią DB viena komanda.
+
+## Sąvokos
 
 | Dalykas | Paprastai | Kur laikomas |
 | --- | --- | --- |
-| Dump / backup | DB būsenos kopija: struktūra ir duomenys, priklausomai nuo dump | Privatus `.sql` / `.sql.gz`; setup backup – `.generated/backups`. |
-| Schema | „Kokie stalčiai turi būti“: lentelės, stulpeliai, indeksai | `database/schema`. |
-| Migracija | „Kaip pakeisti stalčius“: konkretus DB pakeitimas | `database/doctrine/versions`. |
-| Fixture | „Ką įdėti į stalčius“: sutarti bandomieji įrašai | `database/fixtures/<rinkinys>`. |
+| Schema (snapshot'as) | „Kokie stalčiai turi būti“: lentelės, stulpeliai, indeksai | `database/schema/` |
+| Lentelių registras | Kiekvienos lentelės grupė ir taisyklės | `database/table-registry.txt` |
+| Migracija | „Kaip pakeisti stalčius“: apsaugotas SQL | `database/migrations/` |
+| Bazinis rinkinys | Anonimizuoti duomenys iš LIVE, dev ir testams | `database/data/<rinkinys>/` |
+| After-import | SQL, kuris po užkėlimo pritaiko DB aplinkai | `database/after-import/` |
+| Fixtures | Papildomi SQL rinkiniai | `database/fixtures/<rinkinys>/` |
+| Dump / kopija | Visos DB kopija | Privatus `.sql` / `.sql.gz`; kopijos `.generated/backups/` |
 
-`database/after-import` yra dar viena paskirtis: pritaikyti ką tik atkurtą DB pasirinktos aplinkos domenui, paštui ir pan. Serverio `.cnf` lieka `config/mysql` arba `config/mariadb`.
-
-Visoms šiame skyriuje naudojamoms komandoms sukonfigūruok `env/common.env`:
+Nustatymai `env/common.env` (keliai nuo projekto šaknies):
 
 ```dotenv
-POST_IMPORT_SQL_DIRECTORY=app/database/after-import
 SCHEMA_DIRECTORY=app/database/schema
 FIXTURES_DIRECTORY=app/database/fixtures
 ```
 
-Keliai skaičiuojami nuo `<projektas>/`. Standartinis DB serviso vardas turi būti `database`. Komandos naudoja veikiančio konteinerio prisijungimus ir tikrina, ar jo DB vardas sutampa su pasirinktu projektu.
+Registras, migracijos ir rinkiniai ieškomi šalia schemos katalogo (`app/database/`). Be `SCHEMA_DIRECTORY` jie neveikia. After-import pagal nutylėjimą yra `app/database/after-import`.
 
-## A. Importuoti gautą parduotuvės dump
+## A. Pirmas DB užkėlimas
+
+`make setup` DB neliečia. Duomenis užkeli sąmoningai, vienu iš dviejų būdų.
+
+**Dev rinkinys** (greitas, be asmens duomenų):
 
 ```bash
-make db-prepare
-make db-import-plan file=/kelias/parduotuve.sql.gz
-make db-import file=/kelias/parduotuve.sql.gz
-make up
+make db-load set=dev
 ```
 
-`db-prepare` paleidžia tik DB. Planas parodo failų eiliškumą, bet SQL nevykdo. Dump turi būti netuščias `.sql` arba `.sql.gz`; zip, tar ir MySQL duomenų katalogas šiai komandai netinka.
+Įkeliama schema iš snapshot'o, rinkinys `database/data/dev/`, after-import SQL, fixtures, laukiančios migracijos. Prisijungimas prie BO: `employee<id>@example.test` / `dev12345` (klientai – `customer<id>@example.test`). Forsenoje tai konfigūracija ir apie 2000 prekių.
 
-`db-import` tvarka:
+**LIVE dump'as** (realūs duomenys, rankinis failas):
+
+```bash
+make db-import-plan file=/kelias/forsena.sql.gz
+make db-import file=/kelias/forsena.sql.gz
+```
+
+Pirma komanda parodo, kokie failai bus vykdomi, SQL nevykdo. Antra užkelia dump'ą ir viską, kas aprašyta [D dalyje](#d-live-dumpo-užkėlimas). Jei DB konteineris dar nepaleistas, `make db-prepare` paleidžia tik jį.
+
+## B. Schema Git ir commit hook'as
+
+Pirmą kartą projekte:
+
+```bash
+make schema-export
+make schema-resolve
+git add -A database/schema database/table-registry.txt
+git commit -m "Record the database schema"
+make schema-hook-install
+```
+
+1. `schema-export` įrašo kiekvienos lentelės `CREATE TABLE` į `database/schema/table-<lentelė>.sql` ir manifestą. Duomenys neeksportuojami, `AUTO_INCREMENT` skaitiklis pašalinamas.
+2. `schema-resolve` paklausia apie kiekvieną registre nežinomą lentelę (žr. [C dalį](#c-lentelių-registras)).
+3. `schema-hook-install` įdiegia `pre-commit` hook'ą aplinkos repozitorijoje. `make setup` tai padaro pats; jei repozitorija jau turi hook'ų tvarkyklę (`core.hooksPath`), tik praneša.
+
+**Kaip veikia hook'as.** Kiekvieno commit'o metu jis:
+
+- eksportuoja schemą iš tavo vietinės DB ir patikrina, ar visos lentelės yra registre;
+- jei schema pasikeitė, sugeneruoja apsaugotos migracijos juodraštį `database/migrations/<laikas>-schema.sql` ir **sustabdo commit'ą** peržiūrai;
+- antras bandymas praeina tik tada, kai snapshot'as, migracija (be `-- TODO:`) ir registras sutampa ir yra pridėti su `git add`;
+- jei DB nepasiekiama (pvz. Docker išjungtas), tik įspėja ir commit'ą praleidžia.
+
+Įprasta eiga, kai modulis pridėjo stulpelį:
+
+```bash
+git commit -m "Add supplier code"
+# Hook'as sustabdo: schema pasikeitė, migracijos juodraštis database/migrations/20261009120000-schema.sql
+# Peržiūrėk juodraštį ir pakeitimus
+git add -A database
+git commit -m "Add supplier code"
+```
+
+Hook'as veikia toje repozitorijoje, kuriai priklauso schemos katalogas (Forsenoje – aplinkos `app/`, ne parduotuvės `app/public`). Jei repozitorija naudoja `core.hooksPath` arba jau turi savo `pre-commit`, installeris jo neperrašo ir praneša, ką įrašyti rankomis.
+
+Rankinė patikra be commit'o:
+
+```bash
+make schema-check
+```
+
+Palygina DB su Git indeksu (tuo, kas pridėta `git add`).
+
+Snapshot'as apima tik lenteles. Views, triggers, procedūros ir events į jį nepatenka.
+
+## C. Lentelių registras
+
+Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo commit'ą ir bazinio rinkinio kūrimą. Taip LIVE šiukšlės (`*_bak_*`, `tmp_*`) nepasilieka nepastebėtos.
+
+`database/table-registry.txt` – viena eilutė lentelei:
 
 ```text
-1. Dump
-2. database/after-import/common/*.sql
-3. database/after-import/<ENV>/*.sql
-4. Tik jeigu paprašyta: fixtures/common/*.sql
-5. Tik jeigu paprašyta: fixtures/<pasirinktas-rinkinys>/*.sql
+# lentelė                     grupė      rinkinys  LIVE importas
+{p}pr_supplier_feed           suppliers  full      import
+{p}pr_supplier_queue          suppliers  empty     skip
+{p}pr_api_log                 cache      empty     skip
 ```
 
-Kiekvienoje grupėje failai vykdomi pagal vardą, pvz. `010-domain.sql`, `020-mail.sql`. `2-mail.sql` ir `10-domain.sql` nėra patikima numeravimo schema – naudok vienodo ilgio numerius.
+| Laukas | Reikšmės |
+| --- | --- |
+| lentelė | Vardas. `{p}` – prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`), `*` – bet kokia seka. |
+| grupė | Laisvas vardas, pvz. `config`, `catalog`, `customers`, `orders`, `cache`. Pagal jį grupuojami rinkinio failai. |
+| rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
+| LIVE importas | `import` – importuoti duomenis; `skip` – importuoti tik struktūrą. |
 
-Dump importas nėra automatinis visos DB išvalymas: kas bus ištrinta ar pakeista, lemia dump SQL. Kitam serveriui skirtas `USE kita_db` ar `CREATE DATABASE` faile taip pat yra SQL, todėl importuok tik suprantamą savo pasirinktai aplinkai skirtą dump.
+Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Projekto eilutė laimi.
 
-Prieš vykdymą tikrinami įvesties failai ir gzip vientisumas. `.sql.gz` prieš pirmą DB rašymą dar išskleidžiamas į privatų laikiną failą `.generated` viduje; reikia vietos ir **nesuspaustam** SQL. Klaida sustabdo kitus failus, tačiau jau įvykdyti SQL pakeitimai automatiškai neatšaukiami.
+```bash
+make schema-resolve
+```
 
-## B. Prieš importą turėti grįžimo kopiją
+Terminale paklausia apie kiekvieną nežinomą lentelę ir pasiūlo klasifikaciją: `[i]nclude` (įtraukti su pasiūlyta), `[e]dit` (įvesti savo `grupė rinkinys importas`), `[d]rop` (pažymėti apsaugotam `DROP`), `[s]kip` (palikti vėlesniam). Ne terminale (pvz. IDE) komanda tik parodo sąrašą su pasiūlymais ir baigiasi klaida. Pakeistą registrą peržiūrėk ir commit'ink kartu su schema.
+
+## D. LIVE dump'o užkėlimas
+
+```bash
+make db-import file=/kelias/forsena.sql.gz
+```
+
+Tvarka:
+
+```text
+0. Patikra: kiekviena dump'o lentelė turi būti registre. Kitaip importas sustoja dar nieko nekeitęs.
+1. Dump'as (.sql arba .sql.gz). Registre „skip“ pažymėtų lentelių duomenys praleidžiami.
+2. Saugūs numatytieji (tik PrestaShop ir tik ne prod).
+3. database/after-import/common/*.sql, tada database/after-import/<ENV>/*.sql
+4. Integracijų išjungimas database/after-import/integrations/*.sql (tik ne prod).
+5. Jei paprašyta: fixtures (db-fixtures=RINKINYS).
+6. Laukiančios migracijos.
+7. PS cache ir pašto politika, cache išvalymas, PHP perkrovimas (jei PHP veikia).
+8. Schemos ataskaita: kuo DB skiriasi nuo šakos snapshot'o (tik įspėjimas).
+```
+
+**Praleidžiamos lentelės.** Cache, indeksų ir log'ų lentelių duomenys pagal registrą neimportuojami, todėl importas kelis kartus greitesnis. Struktūra sukuriama visada. Viską importuoti:
+
+```bash
+make db-import file=/kelias/forsena.sql.gz full=1
+```
+
+**Saugūs numatytieji** ne prod aplinkoje ([šaltiniai](../../docker/database-profile/prestashop/after-import)):
+
+- parduotuvės domenas `PS_SHOP_DOMAIN(_SSL)` ir pagrindinės parduotuvės URL = `DOMAIN` (arba `SQL_DOMAIN`);
+- `PS_SSL_ENABLED` pagal `PS_SSL` (numatyta `on`);
+- žinomi mokėjimų moduliai perjungiami į sandbox: PayPal, Paysera, PrestaShop Checkout, Adyen. Kitus mokėjimo modulius sutvarko projekto after-import.
+
+**Paštas.** Laiškų nustatymą tvarko ne SQL, o `MAIL_MODE`: lokaliai su Mailpit laiškai eina į Mailpit, be jo – išjungiami ([paštas](12-cache-ir-hibridines-aplinkos.md#paštas-mail_mode)).
+
+**Integracijos.** Kiekvienas failas `database/after-import/integrations/<vardas>.sql` išjungia vieną išorinę integraciją (tiekėjų sinchronizaciją, kurjerius, rinkodaros įrankius). Po kiekvieno užkėlimo ne prod aplinkoje visos jos išjungiamos. Kad kuri nors liktų įjungta:
+
+```dotenv
+# env/local.env
+INTEGRATIONS_ENABLED="tecdoc"
+```
+
+Tada užkelk DB iš naujo. Nežinomas vardas yra klaida. Forsenoje integracijos yra `couriers`, `gtm`, `omnisend`, `suppliers`, `tecdoc`.
+
+**After-import SQL.** Savo SQL dėk į `database/after-import/common/` arba `database/after-import/<ENV>/`, failus numeruok vienodo ilgio numeriais (`010-…`, `020-…`). Juose galima naudoti `${DOMAIN}`, `${DB_PREFIX}` ir `${PS_SSL}`:
+
+```sql
+UPDATE `${DB_PREFIX}configuration` SET `value` = '0' WHERE `name` = 'MYMODULE_LIVE_MODE';
+```
+
+Kiti kintamieji šiuose failuose nepakeičiami.
+
+**Kita:**
+
+- `backup=1` prieš importą sukuria DB kopiją: `make db-import file=… backup=1`.
+- Jei įdiegtas `pv`, terminale matai importo progresą.
+- `.sql.gz` patikrinamas prieš rašant į DB. Klaida sustabdo tolesnius failus, bet jau įvykdyto SQL neatšaukia.
+- Importas vykdomas kaip DB root, nes dump'uose būna `DEFINER` ar GTID eilučių.
+- Vienoje aplinkoje vienu metu gali vykti tik vienas importas.
+- **Nežinoma lentelė sustabdo importą.** Terminale `make db-import` paklausia apie kiekvieną tokią lentelę (kaip `schema-resolve`), įrašo sprendimą į `database/table-registry.txt` ir tęsia. Be terminalo (IDE, pipeline) ir `make db-import-plan` parodo lenteles su siūloma klasifikacija ir baigiasi klaida. Setup'o lentelė `setup_migrations` registro nereikalauja.
+
+## E. Migracijos
+
+Visi DB struktūros pakeitimai eina per migracijas `database/migrations/<YYYYMMDDHHMMSS>-<vardas>.sql`. Juodraštį sugeneruoja commit hook'as, tu jį peržiūri.
+
+Migracijos yra **apsaugotos (idempotentiškos)**: antras paleidimas nieko nekeičia, o migracija nesusipjauna su modulio `install`/`upgrade` scriptais, kurie gal jau pakeitė tą pačią lentelę.
+
+- nauja lentelė – `CREATE TABLE IF NOT EXISTS`;
+- naujas stulpelis ar indeksas – tik jei `information_schema` sako, kad jo dar nėra;
+- `DROP`, `RENAME`, pakeisti raktai – juodraštyje paliekami kaip `-- TODO:` blokas su siūlomu SQL. Juos parašyk rankomis su patikra. Kol liko `TODO`, commit'as stabdomas, o `make db-migrate` migracijos netaiko.
+
+```bash
+make db-migrate
+```
+
+Pritaiko laukiančias migracijas vieną kartą kiekvienai DB ir įrašo jas į lentelę `setup_migrations` (jos snapshot'e nėra). Nepavykusi migracija neįrašoma: pataisyk ir paleisk dar kartą. Jau pritaikyta, bet vėliau pakeista migracija nekartojama, tik įspėjama.
+
+Migracijos automatiškai paleidžiamos po `db-import`, `db-load`, `test-prepare` ir `deploy`. Deploy'aus tvarka: kodas → modulių upgrade'ai → migracijos → schemos ataskaita.
+
+## F. Bazinis rinkinys
+
+Bazinis rinkinys išvedamas iš LIVE kopijos vietinėje DB. Jis anonimizuotas ir sumažintas, todėl laikomas Git. Dev ir mock (testų) duomenys yra tas pats rinkinys.
+
+```bash
+make db-import file=/kelias/live.sql.gz
+make db-dataset set=dev
+git add database/data/dev
+```
+
+`make db-dataset` veikia tik `ENV=local` ir reikalauja pilno registro. Kas daroma:
+
+- kiekviena lentelė apdorojama pagal registro rinkinio taisyklę (`full`, `slice`, `faker`, `empty`, `drop`);
+- `slice` lentelėms imama prekių imtis pagal receptą. Numatytasis receptas paima 2000 aktyvių prekių. Projekto receptas `database/data/recipe.txt` laimi prieš [profilio](../../docker/database-profile/prestashop/data-recipe.txt): `@products SELECT …` eilutė parenka imtį, kitos eilutės `lentelė sąlyga` – sąlygas lentelėms be `id_product` stulpelio;
+- asmens duomenų stulpeliai gauna pastovias dev reikšmes, kontaktai pakeičiami visur, konfigūracijos slaptažodžiai ir raktai išvalomi (jungikliai lieka);
+- darbuotojų ir klientų slaptažodis – `dev12345` (bcrypt);
+- failai grupuojami pagal registro grupę (`config.sql`, `catalog.sql`, `customers.sql`…), eilutės rūšiuojamos pagal pirminį raktą po vieną eilutėje. Pakartotinis kūrimas iš tos pačios DB duoda tuos pačius baitus, todėl diff'ai maži.
+
+Užkelti rinkinį:
+
+```bash
+make db-load set=dev
+make db-load set=dev replace=1
+make db-load set=dev replace=1 backup=1
+```
+
+Netuščiai DB reikia `replace=1` – visos lentelės pirma ištrinamos. `backup=1` prieš tai pasidaro kopiją. Po užkėlimo vykdoma ta pati seka kaip po importo (after-import, fixtures, migracijos, politika, ataskaita). Jei nurodytas `FIXTURES_DIRECTORY`, kartu įkeliami `database/fixtures/common/` ir `database/fixtures/<rinkinys>/` (jei toks katalogas yra) failai.
+
+**PS 1.6:** slaptažodžiai priklauso nuo `PS_COOKIE_KEY`, todėl rinkinys turi savo dev raktą (ne LIVE raktą), commit'inamą `database/data/<rinkinys>/dataset.env`. Dev prisijungimams įrašyk jį kaip `PS_COOKIE_KEY` į `env/local.env`; kitaip `db-load` įspėja. LIVE dump'ui reikia LIVE rakto, todėl perjungiant tarp jų keičiasi ir `PS_COOKIE_KEY`.
+
+## G. Atsarginės kopijos
 
 ```bash
 make db-backup
+make db-backup file=/privatus/kelias/pries-atnaujinima.sql.gz
 ```
 
-Rezultatas – naujas privatus `.generated/backups/<projektas>-<ENV>-<laikas>.sql.gz` failas. Norėdamas pasirinkti vardą:
+Kopija rašoma į `.generated/backups/<projektas>-<ENV>-<laikas>.sql.gz` (teisės `0600`). Esamas failas neperrašomas, nepavykusi kopija galutiniu vardu neišsaugoma. Stage/prod kopija daroma pagal registrą: visų lentelių struktūra ir tik `import` lentelių duomenys, todėl ji maža ir naudinga.
 
 ```bash
-make db-backup file=/privatus/kelias/pries-modulio-atnaujinima.sql.gz
+make db-backup-prune
+make db-backup-prune apply=1
 ```
 
-Esamas failas neperrašomas. Nepavykusi arba tuščia kopija nepublikuojama galutiniu vardu. Failo teisės `0600`. Kopija apima lenteles ir duomenis, taip pat dump kliento palaikomus routines/events/triggers; vartotojui reikia tam teisių.
+Pirma komanda parodo, kurias automatiškai pavadintas šios aplinkos kopijas galima ištrinti, antra – ištrina. Paliekamos `BACKUP_KEEP_LAST` (numatyta 5) naujausios.
 
-Sujungtas veiksmas:
+Atkūrimas yra tas pats `make db-import`, todėl po jo vėl vykdomi after-import ir saugūs numatytieji.
 
-```bash
-make db-import file=/kelias/naujas-dump.sql.gz backup=1
+## H. Fixtures
+
+Fixtures – papildomi SQL rinkiniai, pvz. testams reikalingi įrašai.
+
+```text
+database/fixtures/
+├── common/010-support.sql     # Kartu su kiekvienu rinkiniu
+├── local/010-local-users.sql
+└── test/010-checkout.sql
 ```
-
-Kopija sukuriama prieš pirmą importo SQL. Jai nepavykus, importas nepradedamas. Importai ir fixtures toje pačioje projekto aplinkoje naudoja bendrą užraktą, todėl jų vienu metu nepaleisi. Atskirai paleistas `db-backup` nėra tas importo užraktas: kopijos metu neplanuok schemos keitimo.
-
-`--single-transaction` padeda kopijuoti transakcines lenteles, bet tai nėra visų įmanomų DB variklių ir kartu vykdomų DDL nuoseklumo garantija. Svarbiam atnaujinimui pristabdyk rašymą ir patikrink atkūrimą atskiroje DB.
-
-Atkūrimas naudoja tą patį importą, taigi **po atkūrimo vėl vykdomi after-import SQL**. Jei nori tiksliai atkurti kopiją be pritaikymų, suplanuok atskirą projekto importo aplinką su tuščiu after-import katalogu; nelaikyk įprasto importo „baitas į baitą“ grąžinimu.
-
-## C. Po importo pakeisti PS domeną ir išjungti laiškus
-
-Situacija: dump gautas iš tikros parduotuvės, vietoje domenas `demo.localhost:31820`.
-
-`env/local.env`:
-
-```dotenv
-DOMAIN=demo.localhost
-SQL_DOMAIN=demo.localhost:31820
-```
-
-`database/after-import/local/010-local-shop.sql`:
-
-```sql
-UPDATE ps_configuration
-SET value = '${DOMAIN}'
-WHERE name IN ('PS_SHOP_DOMAIN', 'PS_SHOP_DOMAIN_SSL');
-
-UPDATE ps_shop_url
-SET domain = '${DOMAIN}', domain_ssl = '${DOMAIN}',
-    physical_uri = '/', virtual_uri = '';
-
-UPDATE ps_configuration
-SET value = '0'
-WHERE name IN ('PS_SSL_ENABLED', 'PS_SSL_ENABLED_EVERYWHERE');
-
-UPDATE ps_configuration
-SET value = '3'
-WHERE name = 'PS_MAIL_METHOD';
-```
-
-Čia `${DOMAIN}` pakeičiamas `SQL_DOMAIN`, o jei jo nėra – `DOMAIN`. Tai ribotas hostname/porto pakeitimas, **ne universalus visų env kintamųjų SQL šablonų variklis**. Rašyk `${DOMAIN}` tik ten, kur reikia domeno teksto.
-
-Pavyzdys skirtas vienos parduotuvės DB su `ps_` prefiksu. Jei prefiksas kitoks, pakeisk lentelių vardus. Multistore atveju `ps_shop_url` UPDATE apribok konkrečiu `id_shop`; neperrašyk visų parduotuvių adresų vienu pavyzdžiu.
-
-Failas nevykdomas nuo `make up` ar MySQL konteinerio starto. Jis vykdomas **po `make db-import`**. Pakeisti jį ir perkrauti konteinerį nepakanka jau importuotai DB.
-
-Jei dump iš naujo importuoti nereikia, gali aiškiai vykdyti peržiūrėtą vienkartinį SQL DB klientu. Jei veiksmą nori kartoti per Make, sukurk atskirą fixture rinkinį, pvz. `database/fixtures/domain-fix`, į jį įdėk tik norimą SQL, ir pirmiausia patikrink `make db-fixtures-plan set=domain-fix`. Atmink: kartu bus vykdomi ir `fixtures/common` failai.
-
-## D. Skirtingi vietiniai ir testiniai fixture duomenys
-
-Situacija: savo bandomoje aplikacijoje nori matyti tris kontaktus vietoje ir vieną tiksliai žinomą kontaktą testuose. Pavyzdys naudoja atskirą mokomąją lentelę, o ne nepilnai sukurtus PS klientus.
-
-Lentelę pirma turi sukurti aplikacijos migracija arba tavo bandomos DB SQL:
-
-```sql
-CREATE TABLE demo_contact (
-    code varchar(32) NOT NULL PRIMARY KEY,
-    email varchar(190) NOT NULL,
-    label varchar(100) NOT NULL
-);
-```
-
-`database/fixtures/common/010-support.sql`:
-
-```sql
-INSERT INTO demo_contact (code, email, label)
-VALUES ('support', 'support@example.invalid', 'Pagalba')
-ON DUPLICATE KEY UPDATE email = 'support@example.invalid', label = 'Pagalba';
-```
-
-`database/fixtures/local/010-local-users.sql`:
-
-```sql
-INSERT INTO demo_contact (code, email, label)
-VALUES ('local-a', 'a@example.invalid', 'Vietinis A'),
-       ('local-b', 'b@example.invalid', 'Vietinis B')
-ON DUPLICATE KEY UPDATE label = VALUES(label);
-```
-
-`database/fixtures/test/010-checkout-contact.sql`:
-
-```sql
-INSERT INTO demo_contact (code, email, label)
-VALUES ('checkout', 'checkout@example.invalid', 'Testinis pirkėjas')
-ON DUPLICATE KEY UPDATE email = 'checkout@example.invalid', label = 'Testinis pirkėjas';
-```
-
-Vietoje:
 
 ```bash
 make db-fixtures-plan set=local
 make db-fixtures-load set=local
+make db-import file=/kelias/dump.sql.gz db-fixtures=test
 ```
 
-Testinėje DB:
+`ENV` pasirenka DB, `set` – rinkinį: `make db-fixtures-load ENV=local set=test` tyčia įkelia testinį rinkinį į vietinę DB. Skaitomi tik tiesioginiai `*.sql` failai pagal vardą. Rinkinys senų įrašų nevalo, todėl rašyk kartojamą SQL (`INSERT … ON DUPLICATE KEY UPDATE`).
+
+## Senos DB teisės
+
+Prieš v2 sukurtoje DB aplikacijos vartotojas galėjo turėti teises į visą serverį. Vieną kartą susiaurink:
 
 ```bash
-make db-fixtures-plan ENV=test set=test
-make db-fixtures-load ENV=test set=test
+make db-restrict-grants
 ```
 
-Patikra: DB klientu atlik `SELECT code, email FROM demo_contact ORDER BY code;`. Vietiniame variante tikėkis `support`, `local-a`, `local-b`; testiniame – `support`, `checkout`, jei pradėjai nuo tuščios lentelės.
+Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto.
 
-`ENV` pasirenka DB, o `set` pasirenka duomenų rinkinį. `make db-fixtures-load ENV=local set=test` tyčia įkelia testinį rinkinį **į vietinę DB**. Šios dvi sąvokos nesujungtos automatiškai.
+## Doctrine migracijos (neprivaloma)
 
-Savi rinkiniai, pvz. `pristatymas`, leidžiami: mažosios raidės, skaitmenys, `_`, `-`, pirmas simbolis raidė/skaitmuo. Rinkinio katalogas turi egzistuoti. Skaitomi tik tiesioginiai `*.sql` failai, ne gilesni poaplankiai; symlink rinkinių ir fixture failų nenaudok.
-
-Rinkinio pakeitimas neištrina ankstesnių įrašų. Naudok kartojamą SQL su stabiliais raktais arba prieš scenarijų atkurk žinomą dump. Fixtures turi laikyti paruoštus duomenis; `CREATE TABLE` kasdieniuose rinkiniuose nemaišyk su migracijomis.
-
-Po dump automatiškai pridėti pasirinktą rinkinį gali taip:
-
-```bash
-make db-import-plan ENV=test file=/kelias/testams.sql.gz db-fixtures=test
-make db-import ENV=test file=/kelias/testams.sql.gz db-fixtures=test
-```
-
-Senas argumentas `fixtures=test` atmetamas. Teisingas importo argumentas yra `db-fixtures=test`; atskirai įkeliant – `set=test`.
-
-PS klientams, produktams ir užsakymams reikia kelių susijusių lentelių bei versijai tinkamų laukų. Tokius fixtures kurk su aplikacijos įrankiais arba patikrintais jos versijai skirtais SQL. Aukščiau esanti kontaktų lentelė nėra PS kliento kūrimo receptas.
-
-## E. Išsaugoti DB schemą Git
-
-Situacija: modulis pridėjo stulpelį, komanda turi matyti struktūros pakeitimą.
-
-```bash
-make schema-export
-git diff -- database/schema
-git add -A database/schema
-make schema-check
-```
-
-`database/schema` atsiras `schema.manifest.json` ir po `table-<lentelė>.sql` kiekvienai lentelei. Eksportuojamas `SHOW CREATE TABLE`, ne eilutės. Kintantis lentelės `AUTO_INCREMENT=N` skaitiklis pašalinamas, bet pats auto-increment stulpelio požymis išsaugomas.
-
-`schema-check` lygina veikiančią DB su **Git indeksu** – tuo, ką jau pasirinkai commitui su `git add`. Todėl `schema-export` be `git add` vis dar gali duoti klaidą. Rankomis rašytas README kataloge išsaugomas, o pasenusios anksčiau valdomos lentelių kopijos pašalinamos per eksportą.
-
-Šis mechanizmas apima bazines lenteles. Views, triggers, procedures, functions ir events į schemos snapshot neįtraukiami. Tai skiriasi nuo backup komandos, kuri gali kopijuoti ir dalį šių objektų.
-
-## F. Neleisti commitinti pasenusios schemos
-
-Po sėkmingo eksporto, `git add` ir patikros:
-
-```bash
-make schema-hook-install
-```
-
-Nuo tada įprastas commitas toje repozitorijoje kvies schemos patikrą. Jei DB pasikeitė, bet neatnaujintas Git indeksas, commitas sustos. Sprendimas: eksportuoti, peržiūrėti, `git add`, patikrinti, tada commitinti.
-
-Forsenoje aplinkos repozitorija yra `app/`, o aplikacijos repozitorija – `app/public/`. Hook prie `app/database/schema` **neblokuoja `app/public` commitų**. Jei reikia tikrinti būtent aplikacijos commitus, rinkis schemos katalogą jos repozitorijoje, pvz. `SCHEMA_DIRECTORY=app/public/database/schema`, ir ten versijuok schemą, arba integruok patikros komandą į aplikacijos esamą hook sistemą.
-
-Installeris nekeičia globalaus Git config, neperrašo svetimo hook ir atsisako `core.hooksPath` valdomos instaliacijos. Į esamą hook galima įrašyti komandą su konkrečiais keliais:
-
-```sh
-make -C /home/tomas/Projects/forsena/app ENV=local schema-check
-```
-
-Parinktoji DB turi veikti net commito, kuris keičia tik README, metu. Hook yra vietinis ir apeinamas; Bitbucket serveris automatiškai jo nevykdo. Komandos susitarimui reikia atskiros CI patikros. Norėdamas hook pašalinti, pašalink tik šio setup sugeneruotą hook po jo peržiūros; netrink viso `.git/hooks` katalogo.
-
-## G. Doctrine migracijos
-
-Situacija: naujoje aplikacijoje nori aprašyti DB pakeitimus kaip peržiūrimus PHP failus.
-
-1. Prijunk `compose/doctrine.yaml` iš grouped šablono per `PROJECT_COMPOSE_FILES`.
-2. Turėk `database/doctrine/connection.php`, `migrations.php` ir `versions/`.
-3. Pasirink įrankiui suderinamas PHP/Composer/Doctrine versijas.
-
-`connection.php` pagrindiniai laukai: `driver=pdo_mysql`, `host`, `user`, `password`, `dbname` iš runtime env, `charset=utf8mb4`. PHP `getenv` leidžia nelaikyti slaptažodžio Git faile.
-
-`migrations.php`:
-
-```php
-<?php
-return array(
-    'table_storage' => array('table_name' => 'doctrine_migration_versions'),
-    'migrations_paths' => array('DoctrineMigrations' => __DIR__ . '/versions'),
-    'all_or_nothing' => false,
-    'transactional' => false,
-    'check_database_platform' => true,
-);
-```
-
-`table_storage` pasako, kur registruoti jau įvykdytas migracijas. `migrations_paths` susieja PHP namespace su katalogu. MySQL DDL gali atlikti implicit commit, todėl šablone pasirinktas netransakcinis schemos pakeitimų vykdymas. Pilnas parametrų žinynas: [Doctrine Migrations konfigūracija](https://www.doctrine-project.org/projects/doctrine-migrations/en/3.9/reference/configuration.html).
-
-```bash
-make init
-make doctrine-build
-make db-prepare
-make doctrine cmd=status
-make doctrine cmd=generate
-```
-
-Sugeneruotos klasės `up()` metode, pavyzdžiui, pridėk:
-
-```php
-$this->addSql('ALTER TABLE demo_contact ADD phone VARCHAR(32) DEFAULT NULL');
-```
-
-`down()` turi aprašyti apgalvotą atšaukimą. Stulpelio ištrynimas sunaikintų jo duomenis, todėl atšaukimo nevertink kaip nemokamo undo.
-
-```bash
-make doctrine cmd='migrate --dry-run'
-make db-backup
-make doctrine cmd='migrate --no-interaction'
-make schema-export
-git add -A database/schema database/doctrine
-make schema-check
-```
-
-`generate` sukuria karkasą, o ne perskaito PS ir išgalvoja visas migracijas. `diff` reikia tavo aplikacijos ORM mapping ir schema provider. Įprastas PS, kurio moduliai patys vykdo SQL, to automatiškai neturi. Schema-export leidžia užfiksuoti esamą rezultatą net be Doctrine. Automatinį skirtumo surinkimą be ORM suteikia žemiau aprašyta `make doctrine-diff` komanda.
-
-Doctrine įrankis gali sukurti root savininko failus, priklausomai nuo jo vartotojo. Sugeneruotų failų savininką patikrink prieš commitą. Testinėje aplinkoje writable migracijų katalogą reikia laikyti jos atskiroje vietoje; shared `database/doctrine` mount turi būti read-only, jei tik vykdai jau parašytas migracijas.
-
-## H. Automatiškai surinkti DB pakeitimus be ORM
-
-Situacija: vietoje modulis pridėjo lauką arba pats pakeitei lentelę. Nori gauti
-Doctrine migraciją, kuri tą patį pakeitimą vėliau pritaikys STAGE ir LIVE.
-`make doctrine-diff` palygina **Git commitą** su **dabartine vietine DB**. Atskirų
-STAGE ir LIVE schemos medžių nereikia: schema ir migracijos keliauja su kodo versija.
-
-Įrankis pasirenkamas vienam projektui. Naujo projekto generatorius jo neprideda.
-Iš projekto `app` katalogo pasiruošk:
+Jei aplikacija naudoja Doctrine migracijas, nusikopijuok šabloną iš setup:
 
 ```bash
 mkdir -p compose database/doctrine/versions
-cp ../../setup/templates/grouped/compose/doctrine.yaml compose/doctrine.yaml
+cp ../../setup/templates/grouped/compose/doctrine.yaml compose/
 cp ../../setup/templates/grouped/database/doctrine/connection.php database/doctrine/
 cp ../../setup/templates/grouped/database/doctrine/migrations.php database/doctrine/
 ```
 
-Į `env/common.env` įrašyk šias reikšmes. Jei papildomų YAML jau yra, papildyk esamą
-sąrašą, jo neperrašyk:
-
-```dotenv
-SCHEMA_DIRECTORY=app/database/schema
-PROJECT_COMPOSE_FILES=compose/doctrine.yaml
-```
-
-Schema ir Doctrine failai turi priklausyti tai pačiai Git repozitorijai. Jei kodas
-yra atskiroje `app/public` repozitorijoje, perkelk abu katalogus į ją ir atitinkamai
-pakeisk `SCHEMA_DIRECTORY` bei Doctrine YAML konfigūracijos prijungimo šaltinį.
-Doctrine katalogas aptinkamas pagal serviso mount, todėl naujo env kelio nereikia.
-`migrations.php` turi nurodyti vieną namespace ir migracijų katalogą savo viduje.
-Šis failas turi veikti savarankiškai: palyginimo konteineriui perduodamas tik jis,
-be `connection.php` ar kitų projekto failų.
-
-**Pirmą kartą, dar prieš DB pakeitimus:**
+`env/common.env` papildyk `PROJECT_COMPOSE_FILES=compose/doctrine.yaml` (jei sąrašas jau yra, pridėk prie jo). Tada:
 
 ```bash
 make doctrine-build
-make doctrine cmd=sync-metadata-storage
-make schema-export
-git add database/schema database/doctrine compose/doctrine.yaml env/common.env
-git commit -m "Record initial schema and Doctrine configuration"
-```
-
-`sync-metadata-storage` paruošia Doctrine įvykdytų migracijų lentelę vietinėje DB.
-Įrankis naudoja atskirą PHP 8.3, todėl aplikacija gali toliau naudoti savo PHP versiją,
-įskaitant seną PrestaShop. Neįrašius pradinės schemos į Git, ankstesnės būsenos
-įrankis negali atspėti ir migracijos negeneruos.
-
-**Kai vietinė DB jau pakeista:**
-
-```bash
+make doctrine cmd=status
+make doctrine cmd='migrate --dry-run'
 make doctrine-diff
 ```
 
-Numatyta pradinė schema imama iš `HEAD`, net jei schema jau eksportuota į darbo
-katalogą ar pridėta per `git add`. Jei sąmoningai reikia kito Git taško:
-
-```bash
-make doctrine-diff ref=v1.2.0
-```
-
-Rezultatas – `database/doctrine/versions/Version<laikas>.php`. Pavyzdžiui, pridėjus
-`supplier_code`, jo `up()` turės atitinkamą `ALTER TABLE ... ADD ...`.
-Komanda projekto DB nekeičia, schemos neeksportuoja ir failų į Git neprideda.
-Pakartojus su tais pačiais duomenimis grąžinamas jau sukurtas failas. Jei yra kita
-necommitinta migracija, naujas persidengiantis pakeitimas negeneruojamas: pirmą
-migraciją commitink su jos schema arba sąmoningai pašalink keičiamą juodraštį ir
-sugeneruok bendrą pakeitimą iš naujo. Tas pats galioja pasirinkus senesnį Git tašką,
-nuo kurio jau pridėta kitų migracijų.
-
-**Peržiūra ir commitas:**
-
-Vietinė DB jau turi tavo rankomis ar modulio atliktą pakeitimą. Todėl tos pačios
-migracijos ten dar kartą nevykdyk. Peržiūrėjęs SQL, pažymėk tik šią migraciją kaip
-įvykdytą lokaliai. Pavyzdyje klasę pakeisk į tikrą sugeneruoto failo klasę:
-
-```bash
-make doctrine cmd='version "DoctrineMigrations\Version20260911203000000000" --add --no-interaction'
-make schema-export
-git add database/schema database/doctrine/versions
-# Toje pačioje repozitorijoje pridėk ir susijusius aplikacijos kodo failus.
-make schema-check
-git commit -m "Add supplier code and its migration"
-```
-
-**STAGE ir LIVE:** įdiek tą patį patikrintą kodą, schemą ir migraciją. Šiose DB
-migracijos nežymėk kaip jau įvykdytos – ją reikia realiai įvykdyti:
-
-```bash
-make doctrine ENV=stage cmd='migrate --dry-run'
-make doctrine ENV=stage cmd='migrate --no-interaction'
-# Po testavimo ir įprastos LIVE atsarginės kopijos bei diegimo procedūros:
-make doctrine ENV=prod cmd='migrate --dry-run'
-make doctrine ENV=prod cmd='migrate --no-interaction'
-```
-
-`ENV=prod` parenka šio Docker konteksto Compose aplinką; tai savaime neprisijungia
-prie nuotolinio LIVE serverio. Komandas vykdyk teisingame diegimo kontekste.
-Doctrine kiekvienoje DB seka įvykdytas migracijas. Jei lentelę jau keičia PrestaShop
-modulio upgrade skriptas, pasirink vieną pakeitimo vykdytoją – to paties ALTER
-nedubliuok ir modulyje, ir Doctrine migracijoje.
-
-Generavimas patikrinamas laikinoje DB: į ją atkuriamos abi schemos, Doctrine DBAL
-sugeneruoja SQL, SQL įvykdomas senos schemos kopijoje ir rezultatas palyginamas su
-norima struktūra. Nepalaikomi ar nepilnai atkurti skirtumai baigiasi klaida, o ne
-nepilna migracija. Laikini konteineriai pašalinami; jie nenaudoja projekto duomenų,
-prisijungimų, tinklo ar init skriptų. Kiekvienam skiriama iki 512 MiB atminties.
-
-Ši patikra naudoja tuščias lenteles. Ji nepatvirtina, kad LIVE duomenys atitiks naują
-UNIQUE, NOT NULL ar siauresnį tipą. Migraciją išbandyk su senos DB kopija ir duomenimis.
-Stulpelių pervadinimus, trynimus bei duomenų perkėlimą peržiūrėk pats. `down()`
-automatiškai nenaikina duomenų – atšaukimą reikia parašyti ir išbandyti atskirai.
-
-Apimamos bazinės lentelės, kaip ir `schema-export`. Views, triggers, procedures,
-functions, events ir duomenų eilutės į šį palyginimą nepatenka. Doctrine migracijų
-istorijos lentelė ignoruojama. [Techninė eiga ir apribojimai](../DATABASE_MIGRATIONS.md).
+`doctrine-build` sukuria įrankio image'ą (PHP `DOCTRINE_PHP_VERSION`, numatyta 8.3, nepriklausomai nuo aplikacijos PHP). `doctrine-diff` sugeneruoja Doctrine migraciją iš Git snapshot'o (`ref=HEAD` pagal nutylėjimą) ir vietinės DB skirtumo. PrestaShop projektams įprastas kelias yra apsaugotos SQL migracijos iš [E dalies](#e-migracijos).

@@ -8,7 +8,6 @@ import secrets
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 
 from project_environment import initialize_directories
@@ -39,13 +38,41 @@ def set_env_values(path, values):
     if path.is_symlink(): raise ValueError('Private env must not be a symlink')
     contents = path.read_text() if path.exists() else ''
     for key, value in values.items():
-        # Generated values are simple hostnames, ports, identifiers and hex tokens.
-        if not re.fullmatch(r'[A-Za-z0-9_.:/-]*', str(value)):
-            raise ValueError('Invalid generated environment value')
-        line = f'{key}={value}'
+        value = str(value)
+        # Plain hostnames, ports, identifiers, hex and base64 stay unquoted; anything else is
+        # single-quoted, which dotenv keeps literally (no ${...} interpolation).
+        if re.fullmatch(r'[A-Za-z0-9_.:/+=-]*', value):
+            line = f'{key}={value}'
+        elif "'" not in value and '\n' not in value:
+            line = f"{key}='{value}'"
+        else:
+            raise ValueError(f'Cannot store {key} safely in an env file')
         pattern = rf'^{re.escape(key)}=.*$'
-        contents = re.sub(pattern, lambda m: line, contents, flags=re.M) if re.search(pattern, contents, re.M) else contents.rstrip()+'\n'+line+'\n'
+        contents = re.sub(pattern, lambda m: line, contents, flags=re.M) if re.search(pattern, contents, re.M) else (contents.rstrip()+'\n' if contents.strip() else '')+line+'\n'
     replace_file(path, contents.encode(), private=True)
+
+
+def ensure_generated_secrets(directory, environment):
+    """Local/test only: create missing private secrets that nobody has to choose by hand."""
+    if environment not in ('local', 'test'):
+        return
+    private = Path(directory) / f'env/{environment}.env'
+    if not private.is_file():
+        return
+    raw = private.read_text()
+    values = {}
+    if not re.search(r'^DATABASE_ROOT_PASSWORD=\S', raw, re.M):
+        values['DATABASE_ROOT_PASSWORD'] = secrets.token_hex(24)
+    setting = lambda name: next((m[1].strip().strip('"\'') for f in (private, Path(directory) / 'env/common.env')
+                                 if f.is_file() for m in [re.search(rf'^{name}=(.*)$', f.read_text(), re.M)] if m), '')
+    if setting('PROFILE') in ('ps', 'prestashop') and setting('PS_VERSION'):
+        from project import project_root
+        from project_prestashop import local_key_values
+        present = {k for k in re.findall(r'^(PS_[A-Z_]+)=\S', raw, re.M)}
+        web = project_root(Path(directory).resolve()) / (setting('APP_SOURCE_DIRECTORY') or 'app/public')
+        values.update(local_key_values(web, setting('PS_VERSION'), present))
+    if values:
+        set_env_values(private, values)
 
 
 def certificate_is_valid(certificate, domain):
@@ -58,6 +85,45 @@ def certificate_is_valid(certificate, domain):
             hostname.stdout.strip() == f'Hostname {domain} does match certificate')
 
 
+INSTALLED_HELPERS = Path('/usr/local/lib/setup')
+# The root-owned system interpreter: sudoers names it, so a user-writable venv/pyenv python never runs as root.
+HOST_PYTHON = '/usr/bin/python3'
+
+
+def host_helper(name):
+    """The root-owned copy installed by setup/install-host (sudoers allows only that copy)."""
+    installed, source = INSTALLED_HELPERS / name, Path(__file__).with_name(name)
+    if installed.is_file():
+        if installed.read_bytes() != source.read_bytes():
+            raise ValueError('The host helpers changed with this setup version; rerun setup/install-host (needs sudo once)')
+        return installed
+    return source
+
+
+def resolves_locally(host):
+    try:
+        addresses = {r[4][0] for r in socket.getaddrinfo(host, None)}
+    except socket.gaierror:
+        return False
+    return bool(addresses) and addresses.issubset({'127.0.0.1', '::1'})
+
+
+SERVICE_HOSTS = ('pma', 'mailpit', 'cron', 'dbmonitor')
+
+
+def route_exists(domain, port, nginx=Path('/etc/nginx')):
+    """None, 'partial' (the site but not every service host name) or 'complete' for the host Nginx route."""
+    site = nginx / 'sites-enabled' / f'{domain}.conf'
+    try:
+        text = site.read_text()
+    except OSError:
+        return None
+    names = set(' '.join(re.findall(r'server_name([^;]*);', text)).split())
+    if domain not in names or f'proxy_pass http://127.0.0.1:{port};' not in text:
+        return None
+    return 'complete' if {f'{host}.{domain}' for host in SERVICE_HOSTS} <= names else 'partial'
+
+
 def prepare_host(project):
     domain = project.settings.get('DOMAIN', '')
     if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain):
@@ -67,10 +133,10 @@ def prepare_host(project):
     except socket.gaierror:
         addresses = set()
     if not addresses:
-        helper = Path(__file__).with_name('host_entry.py')
-        result = subprocess.run(['sudo', '-n', sys.executable, str(helper), domain], capture_output=True, text=True)
+        helper = host_helper('host_entry.py')
+        result = subprocess.run(['sudo', '-n', HOST_PYTHON, str(helper), domain], capture_output=True, text=True)
         if result.returncode:
-            raise ValueError(f'Local DNS entry is missing. Run: sudo {sys.executable} {helper} {domain}')
+            raise ValueError(f'Local DNS entry is missing. Run setup/install-host once, or: sudo {HOST_PYTHON} {helper} {domain}')
     elif not addresses.issubset({'127.0.0.1', '::1'}):
         raise ValueError('DOMAIN resolves outside localhost; use a local development hostname')
     ssl = project.data_directory / 'ssl'
@@ -92,21 +158,32 @@ def prepare_host(project):
             replace_file(certificate, crt.read_bytes())
             replace_file(key, private.read_bytes(), private=True)
     print(f'Local hostname and TLS prepared: {domain}')
-    host_helper = Path(__file__).with_name('host_entry.py')
-    for host in ('pma.' + domain, 'mailpit.' + domain):
-        command = ['sudo', '-n', sys.executable, str(host_helper), host]
+    entry_helper = host_helper('host_entry.py')
+    for host in (f'{name}.{domain}' for name in SERVICE_HOSTS):
+        if resolves_locally(host):
+            continue
+        command = ['sudo', '-n', HOST_PYTHON, str(entry_helper), host]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode:
             import shlex
-            raise ValueError('Local service hostname could not be prepared. Run: ' +
-                             shlex.join(['sudo', sys.executable, str(host_helper), host]))
-    helper = Path(__file__).with_name('host_proxy.py')
-    args = [sys.executable, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
+            raise ValueError('Local service hostname could not be prepared. Run setup/install-host once, or: ' +
+                             shlex.join(['sudo', HOST_PYTHON, str(entry_helper), host]))
+    route = route_exists(domain, project.settings['LOCALHOST_PORT'])
+    if route == 'complete':
+        print(f'Local Nginx route already in place: http://{domain}/')
+        return
+    helper = host_helper('host_proxy.py')
+    args = [HOST_PYTHON, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
     result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
     if result.returncode:
         import shlex
+        if route == 'partial':
+            # The site works; only newer service host names (e.g. cron., dbmonitor.) are not routed yet.
+            print(f'Warning: the Nginx route for {domain} lacks some service host names. Run setup/install-host '
+                  'once, or: ' + shlex.join(['sudo', *args]))
+            return
         raise ValueError('Local Nginx route could not be prepared. ' + result.stderr.strip() +
-                         '\nRun: ' + shlex.join(['sudo', *args]))
+                         '\nRun setup/install-host once, or: ' + shlex.join(['sudo', *args]))
     print(f'Local Nginx route prepared: http://{domain}/')
 
 
@@ -139,7 +216,7 @@ def bootstrap(project):
         else:
             from project_ide import refresh_ide
             refresh_ide(project)  # Do not switch the developer's default IDE environment.
-    print('Bootstrap complete. Use make doctor to check images, then make build / make up as needed.')
+    print('Bootstrap complete. make setup runs the remaining steps (build, app-prepare, up).')
     return project
 
 
@@ -158,22 +235,27 @@ def initialize_test(project, refresh=False):
     if destination.is_symlink(): raise ValueError('Test application must not be a symlink')
     marker = root / 'initialized'
     if destination.exists() and not marker.exists(): raise ValueError('Unmanaged test checkout exists; preserved')
-    env_file = project.directory / ('env/test.env' if (project.directory/'env/common.env').exists() else '.env.test')
+    env_file = project.directory / 'env/test.env'
     if not env_file.exists():
         ports = available_ports(project)
         domain = project.settings['PROJECT_NAME'].replace('_', '-')+'.test.local'
         set_env_values(env_file, {'DOMAIN':domain, 'LOCALHOST_PORT':str(ports[0]), 'LOCALHOST_PORT_SSL':str(ports[1]),
                                  'DATABASE_NAME':project.settings['DATABASE_NAME']+'_test', 'DATABASE_USER':'test',
                                  'DATABASE_PASSWORD':secrets.token_hex(24),
+                                 'DATABASE_ROOT_PASSWORD':secrets.token_hex(24),
                                  'APP_SOURCE_DIRECTORY':'', 'DATA_DIRECTORY':'',
                                  'SQL_DOMAIN':domain})
     if not destination.exists() or refresh:
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
-        if refresh:
-            test = Project(project.directory, 'test', project.root)
-            test.run(['stop'])
-        command = ['rsync', '-a', '--safe-links', '--delete', '--exclude=.git', '--exclude=node_modules',
-                   '--exclude=/var/cache', '--exclude=/var/logs', '--exclude=/cache', str(source)+'/', str(destination)+'/']
+        # Tool worktrees and setup's own test tools never come from the local checkout; projects add
+        # large non-code folders (feed caches, media) with TEST_COPY_EXCLUDE.
+        excludes = ['.git', 'node_modules', '/var/cache', '/var/logs', '/cache', '/.claude', '/.setup-tools', '/.setup-tests',
+                    *str(project.settings.get('TEST_COPY_EXCLUDE') or '').split()]
+        for pattern in excludes:
+            if pattern.startswith('-') or '..' in pattern.split('/'):
+                raise ValueError(f'TEST_COPY_EXCLUDE entries are paths inside the shop: {pattern}')
+        command = ['rsync', '-a', '--safe-links', '--delete', *[f'--exclude={pattern}' for pattern in excludes],
+                   str(source)+'/', str(destination)+'/']
         from project_storage import require_space
         preview = subprocess.run(command[:1] + ['--dry-run', '--stats'] + command[1:],
                                  env={**os.environ, 'LC_ALL': 'C'}, capture_output=True, text=True, check=True)
@@ -188,12 +270,14 @@ def initialize_test(project, refresh=False):
             raise
         for relative in ('var/cache', 'var/logs', 'cache'):
             (destination/relative).mkdir(parents=True, exist_ok=True)
+        from project_testing import copy_project_suite
+        copy_project_suite(project, destination)
         replace_file(marker, b'Isolated test application managed by shared setup.\n', private=True)
-        print(f'Prepared isolated test application: {destination}')
+        print(f'{"Refreshed" if refresh else "Prepared"} isolated test application: {destination}')
     else:
-        print('Test checkout preserved; use make test-init refresh=1 to refresh it from local source.')
+        print('Test checkout preserved; make test-sync (or make test-prepare) refreshes it from local source.')
     test = Project(project.directory, 'test', project.root)
     initialize_directories(test)
     prepare_host(test)
-    print('Test environment prepared. Run make db-prepare ENV=test, import a test dump/fixtures, then make up ENV=test.')
+    print('Test environment prepared. make test-prepare loads the data set and starts it; make phpunit runs the tests.')
     return test

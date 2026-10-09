@@ -1,0 +1,4 @@
+# DATABASE_PERFORMANCE_SCHEMA=on|off (default off: saves several hundred MB of RAM).
+# The DB monitor reads query statistics from it; a project drop-in may still override it.
+[mysqld]
+performance_schema = ${DATABASE_PERFORMANCE_SCHEMA}

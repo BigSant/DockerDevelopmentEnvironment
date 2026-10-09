@@ -1,19 +1,24 @@
-# 4. Compose ir Dockerfile: kaip projektą išplėsti
+# 4. Compose, Dockerfile ir image'ai
 
 [Turinys](README.md) · [Atgal](03-nustatymai.md) · [Toliau: servisai](05-servisai.md)
 
-## Trys skirtingi pakeitimai
+## Kurį failą keisti
 
-| Situacija | Keičiamas failas | Kodėl |
+| Situacija | Ką keisti | Kodėl |
 | --- | --- | --- |
-| PHP reikia daugiau atminties | Env ir, prireikus, `config/php/*.ini` | Tai jau įdiegtos programos nustatymas. |
-| PHP trūksta sistemos programos ar plėtinio | Projekto `Dockerfile` | Reikia pagaminti kitokį atvaizdą. |
-| Reikia Redis konteinerio arba kito prijungiamo katalogo | Projekto `compose/*.yaml` | Keičiasi paleidžiamos aplinkos dalys. |
+| Reikia kito PHP, MySQL, Apache ar Nginx nustatymo | Env raktas arba drop-in failas `config/<servisas>/` | Programa jau įdiegta, keičiasi tik jos nustatymas. Žr. [servisai](05-servisai.md). |
+| Reikia papildomo serviso iš katalogo (Redis, cron, PMA…) | `SERVICES=` env faile | Viena eilutė, be YAML. |
+| Reikia kitaip prijungti katalogą, pakeisti portą ar pridėti savo servisą | `compose/common.yaml` arba `compose/<ENV>.yaml` | Keičiasi paleidžiamos aplinkos dalys. |
+| PHP trūksta sistemos programos ar plėtinio | Projekto `Dockerfile` | Reikia kitokio image'o. |
 
-## Kokia tvarka sujungiami YAML failai
+## Kokia tvarka sujungiami Compose failai
 
 ```text
-compose/base.yaml
+keturi pagrindiniai servisai iš setup  # nginx-proxy, Apache, MySQL/MariaDB, PHP-FPM ir tinklas
+    ↓
+compose/base.yaml, jei yra            # projekto papildomi servisai ar skirtumai
+    ↓
+SERVICES= servisų aprašai iš setup    # pvz. docker/pma/docker-compose.yml
     ↓
 compose/common.yaml, jei yra
     ↓
@@ -22,44 +27,13 @@ PROJECT_COMPOSE_FILES failai nurodyta tvarka
 compose/<ENV>.yaml, jei yra
 ```
 
-Pavyzdžiui, `PROJECT_COMPOSE_FILES=compose/redis.yaml compose/qa.yaml` reiškia, kad Redis ir QA failai skaitomi prieš `local.yaml`. `compose/eksperimentas.yaml` vien dėl savo buvimo kataloge neperskaitomas.
+Vėlesnis failas papildo arba pakeičia ankstesnį. Failas `compose/eksperimentas.yaml` vien dėl buvimo kataloge neskaitomas: jį reikia įrašyti į `PROJECT_COMPOSE_FILES`.
 
-Pagrindinio failo `include` importuoja bendrus servisų aprašus. Vieną servisą įtrauk vieną kartą; vėlesnius jo pakeitimus rašyk override failuose. Nereikia kopijuoti viso bendro PHP aprašo vien tam, kad pridėtum env reikšmę.
-
-## Svarbiausi Compose laukeliai
-
-| Laukas | Ką reiškia šiame projekte | Pavyzdys |
-| --- | --- | --- |
-| `services` | Servisų žemėlapis | Po juo rašai `php-fpm`, `database`, `redis`. |
-| `image` | Paleidžiamo atvaizdo vardas/tag | `redis:7.4-alpine`. Tai ne katalogas diske. |
-| `build.context` | Failai, kuriuos gali matyti Dockerfile | `${PROJECT_DOCKER_DIRECTORY}`. |
-| `build.dockerfile` | Recepto kelias build kontekste arba absoliutus kelias | `Dockerfile`, `dockerfiles/worker.Dockerfile`. |
-| `build.target` | Kuri Dockerfile stadija bus rezultatas | `env-local`, `env-prod`. |
-| `build.args` | Reikšmės tik gaminimui | `BASE_IMAGE`, paketo versija. Tikrų slaptažodžių ten nedėk. |
-| `build.additional_contexts` | Papildomi vardiniai failų šaltiniai | `profiles: ${ROOT_DIRECTORY}/profile`. |
-| `environment` | Konteineryje prieinami env kintamieji | `REDIS_HOST: redis`. |
-| `env_file` | Papildomas env failas konteineriui | Tai atskiras mechanizmas nuo runner skaitomų `env/*.env`. Neperduok visų slaptažodžių visiems servisams. |
-| `volumes` | Katalogų/failų prijungimai | `hosto_kelias:konteinerio_kelias:ro`. |
-| `ports` | Kompiuterio portas → konteinerio portas | `127.0.0.1:3309:3306`. Tarp konteinerių jo nereikia. |
-| `profiles` | Kada pasirenkamas papildomas servisas | `[redis]`. Be profilio servisas laikomas pagrindiniu. |
-| `command` | Ką vykdyti paleidžiant | `[redis-server, /kelias/redis.conf]`. |
-| `entrypoint` | Programa, kuri gauna `command` | Keitimas gali apeiti bendrą PS/startup paruošimą. |
-| `depends_on` | Nuo ko priklauso startas | PHP sveikata prieš Apache; `service_healthy` laukia healthcheck. |
-| `healthcheck` | Patikra konteineryje | Testo komanda, intervalas, timeout, retries, start_period. |
-| `networks` | Tinklai, kuriuose servisas pasiekiamas | `[network_app]`; alias – papildomas DNS vardas tame tinkle. |
-| `user` | Proceso UID:GID | `${HOST_UID}:${HOST_GID}`; nulemia rašomų failų savininką. |
-| `working_dir` | Komandos darbinis katalogas | `/var/www/html`. |
-| `restart` | Automatinio pakartotinio starto politika | `unless-stopped` servisui; `"no"` vienkartiniam įrankiui. |
-| `mem_limit`, `cpus` | Konteinerio resursų ribos | `mem_limit: 2g`, `cpus: 2`. Tai ne PHP vienos užklausos limitas. |
-| `container_name` | Fiksuotas konteinerio vardas | Jei nustatai testui, privalomas testinio projekto prefiksas. Dažnai pakanka Compose sugeneruoto. |
-| `logging` | Docker logų saugojimo nustatymai | `max-size` ir `max-file` gali riboti sukauptų logų dydį. |
-| `secrets`, `configs` | Aiškiai servisui prijungiami failai | Aplikacija vis tiek turi mokėti juos skaityti; dabartinis PS updater laukia env prisijungimų. |
-
-Tai dažniausiai reikalingi plėtimo laukeliai. Pilnas, pagal Docker versiją kintantis laukų sąrašas yra [oficialiame Compose services žinyne](https://docs.docker.com/reference/compose-file/services/). Šio setup runner papildomai riboja testinės aplinkos prijungimus.
+Projekto Compose failuose rašyk **tik skirtumus**. Nekopijuok viso CORE serviso aprašo vien tam, kad pridėtum vieną reikšmę.
 
 ## Pakeisti vieną esamo serviso reikšmę
 
-Situacija: tik vietoje reikia savos integracijos adreso.
+Situacija: tik lokaliai PHP reikia integracijos adreso.
 
 `compose/local.yaml`:
 
@@ -70,13 +44,13 @@ services:
       INTEGRATION_URL: ${INTEGRATION_URL:?Užpildyk vietinį env}
 ```
 
-Likusi PHP konfigūracija paveldima. Patikrink su `make check`, pritaikyk su `make up`.
+Likusi konfigūracija paveldima. Patikrink su `make check`, pritaikyk su `make up`.
 
-## Prijungti papildomą projekto katalogą
+## Prijungti papildomą katalogą
 
-Situacija: PHP turi tik skaityti `tiekejai` failus.
+Situacija: PHP turi skaityti projekto katalogą `tiekejai`.
 
-`compose/common.yaml` papildymas:
+`compose/common.yaml`:
 
 ```yaml
 services:
@@ -85,15 +59,11 @@ services:
       - ${PROJECT_DOCKER_DIRECTORY}/tiekejai:/opt/tiekejai:ro
 ```
 
-Kairėje yra kompiuterio kelias, dešinėje – PHP matomas kelias. `ro` reiškia „tik skaityti“. Prieš paleisdamas sukurk realų katalogą. `make init` nekuria visų tavo sugalvotų kelių.
+Kairėje kompiuterio kelias, dešinėje kelias konteineryje, `ro` – tik skaityti. Katalogą sukurk pats prieš paleisdamas. Jei PHP ten turi rašyti, naudok `${PROJECT_DATA_DIRECTORY}/tiekejai` ir nerašyk `:ro`. `ENV=test` rašoma vieta turi likti `.generated/test` viduje.
 
-Jei PHP turi ten rašyti, naudok atskirą `${PROJECT_DATA_DIRECTORY}/tiekejai` katalogą ir nepridėk `:ro`. Testinėje aplinkoje rašymo vieta turi likti `.generated/test` viduje. Vien tai, kad Forsenoje yra `tiekejai`, nereiškia, kad jis jau prijungtas.
+## Pakeisti sąrašą, o ne pridėti elementą
 
-## Pakeisti sąrašą, o ne pridėti dar vieną elementą
-
-Situacija: DB portą nori atverti tik savo kompiuteriui.
-
-`compose/local.yaml`:
+`environment` reikšmės su tuo pačiu raktu pakeičiamos, `volumes` atpažįstami pagal konteinerio kelią, o `ports` sąrašas papildomas. Kad pakeistum visą sąrašą, naudok `!override`:
 
 ```yaml
 services:
@@ -102,92 +72,115 @@ services:
       - "127.0.0.1:3309:3306"
 ```
 
-Tada DB klientas kompiuteryje jungiasi prie `127.0.0.1:3309`, o PHP vis tiek naudoja `database:3306`.
+`!reset []` išvalo sąrašą. Taisyklės: [Docker merge dokumentacija](https://docs.docker.com/reference/compose-file/merge/). Reikia Compose 2.24.4 ar naujesnio.
 
-`environment` reikšmės su tuo pačiu raktu pakeičiamos. `volumes` atpažįstami pagal konteinerio paskirties kelią. `ports` sąrašas gali būti papildytas, todėl pilnam pakeitimui naudok `!override`. `command`, `entrypoint` ir healthcheck komanda pakeičiamos, o ne sujungiamos. `!reset []` išvalo sąrašą. Šios taisyklės ir `!override` reikalavimas Compose 2.24.4+ aprašyti [Docker merge dokumentacijoje](https://docs.docker.com/reference/compose-file/merge/).
+DB portas pagal nutylėjimą nepublikuojamas. Jei jį atveri, rišk tik prie `127.0.0.1`, kaip pavyzdyje.
 
-## Projekto Dockerfile: kai reikia papildomos programos
+## Savas servisas
 
-Situacija: aplikacija naudoja `envsubst`, todėl reikia `gettext-base`. Bendro setup nekeiti.
+Savas servisas, kurio nėra kataloge, aprašomas projekto Compose faile. Pavyzdys `compose/common.yaml`:
 
-Jei projekto `Dockerfile` nėra, paimk [grouped Dockerfile](../../templates/grouped/Dockerfile) ir jo `php-fpm.build` prijungimą iš [pirmo paleidimo skyriaus](02-pradzia.md). Išsaugok `profiles` vardinį kontekstą – iš jo imami bendri aplikacijos profilio failai.
+```yaml
+services:
+  worker:
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+    user: "${HOST_UID}:${HOST_GID}"
+    command: ["php", "/var/www/html/bin/worker.php"]
+    volumes:
+      - ${PROJECT_WEB_DIRECTORY}:/var/www/html
+    networks: [network_app]
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+```
 
-Projekto `Dockerfile` pabaigos pavyzdys, po bendros `base` stadijos ir profilio pritaikymo:
+Šis servisas naudoja tą patį projekto PHP image'ą. Patikrink `make check`, paleisk `make up`. Runner'io DB komandos ir PHP preflight'ai savam servisui netaikomi.
+
+## MySQL ar MariaDB
+
+Pagrindinius servisus prijungia pats runner'is, projektas setup kelių nežino. DB variklį renkasi `env/common.env`:
+
+```dotenv
+DATABASE_ENGINE=mariadb   # numatyta mysql
+MARIADB_VERSION=11.4
+```
+
+`create-project` šią eilutę įrašo pagal atsakymą. Projekto `compose/base.yaml`, kuris dar `include`'ina setup'o pagrindinius servisus (v1 būdas), yra klaida su paaiškinimu: include ir tinklą reikia ištrinti, palikti tik tikrus skirtumus. MariaDB failai rašomi į `data/mariadb`. Esamą DB perkelk per dump ir importą į naują tuščią katalogą, ne prijungdamas senus MySQL failus.
+
+## Projekto Dockerfile
+
+Projektas savo `Dockerfile` gali tik **papildyti** CORE PHP image'ą. Runner'is tai patikrina: pirmas `FROM` turi būti `${SETUP_PHP_IMAGE}`.
+
+Situacija: aplikacijai reikia `envsubst`, todėl reikia paketo `gettext-base`.
+
+`app/Dockerfile`:
 
 ```dockerfile
-FROM base AS project-common
+ARG SETUP_PHP_IMAGE
+FROM ${SETUP_PHP_IMAGE}
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gettext-base \
     && rm -rf /var/lib/apt/lists/*
-
-FROM project-common AS env-local
-FROM project-common AS env-prod
-FROM project-common AS env-stage
 ```
 
-Esamas tris `FROM base AS env-*` eilutes pakeisk šiomis, nepalik dviejų stadijų tuo pačiu vardu. `ENV=test` naudoja `env-local`, todėl atskiros `env-test` nereikia.
+Build kontekstas yra visas `app/` katalogas, kartu su `public/`. Kad Docker nesiųstų jo viso, šalia sukurk `app/.dockerignore`:
+
+```dockerignore
+**
+!Dockerfile
+```
+
+Jei `Dockerfile` kopijuoja failus (`COPY`), juos atskirai leisk `.dockerignore` faile.
 
 ```bash
 make build
 make up
 make shell
-# Dabar jau konteineryje:
+# Dabar konteineryje:
 command -v envsubst
 exit
 ```
 
-Tai Debian pagrindu veikiančio PHP atvaizdo pavyzdys. Alpine atvaizdui reikėtų `apk`, o ne `apt-get`.
+Kiti pavyzdžiai:
 
-### Pridėti PHP plėtinį
+- PHP plėtinys, kurio CORE neturi: `RUN docker-php-ext-install pcntl`. Patikra: `make shell`, tada `php --ri pcntl`.
+- `memcached` ir `redis` plėtiniai jau sukompiliuoti CORE image'uose, bet neįjungti. Jiems `Dockerfile` nereikia, užtenka ini drop-in failo, žr. [cache servisai](05-servisai.md#redis-ir-memcached).
 
-Pavyzdžiui, jei aplikacija reikalauja `pcntl` ir pasirinktas oficialaus PHP pagrindo receptas jį palaiko, į bendrą projekto stadiją pridėk:
+Projekto `Dockerfile` vienodas visoms aplinkoms. Jis įeina į projekto PHP image'o fingerprint'ą, todėl jį pakeitus perkuriamas tik tas image'as.
 
-```dockerfile
-RUN docker-php-ext-install pcntl
-```
-
-Po build patikrink `php --ri pcntl` per `make shell`. Redis konteinerio pridėjimas savaime neįdiegia PHP Redis plėtinio; aplikacijai atskirai reikia jos naudojamo kliento bibliotekos arba plėtinio.
-
-### Atskirti vietinį ir prod receptą
-
-Tą patį `project-common` galima išplėsti tik vietinei aplinkai:
-
-```dockerfile
-FROM project-common AS env-local
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends less \
-    && rm -rf /var/lib/apt/lists/*
-
-FROM project-common AS env-prod
-FROM project-common AS env-stage
-```
-
-Jei labiau tinka atskiri failai, laikyk juos `dockerfiles/local.Dockerfile` ir `dockerfiles/prod.Dockerfile`, o atitinkamame Compose faile pakeisk `build.dockerfile`. Juose turi egzistuoti paveldėtas `env-local` / `env-prod` target arba aiškiai pakeisk ir `build.target`.
-
-## .dockerignore: ką leidžiama įdėti į atvaizdą
-
-Grouped šablonas leidžia build kontekstui tik `Dockerfile`. Todėl `COPY dockerfiles/...` neveiks, kol neleisi to kelio.
-
-Pavyzdys, kai reikalingas `dockerfiles/`:
-
-```dockerignore
-**
-!Dockerfile
-!dockerfiles/
-!dockerfiles/**
-```
-
-Pridėk tik reikalingus failus. `env/`, `.generated/`, dump ir `public/` nereikia siųsti į kontekstą vien dėl vieno papildomo sistemos paketo.
-
-Atvaizdai saugomi Docker saugykloje, ne projekto `images/` kataloge. Projekte laikomi jų **receptai ir į juos kopijuojami failai**. `images/` su paveikslėliais priklauso aplikacijai, jei ji tokį katalogą naudoja.
-
-## Pamatyti tikrą galutinį rezultatą
+## Pamatyti galutinį rezultatą
 
 ```bash
 make check
 make config
 ```
 
-Antroji komanda išspausdina sugeneruoto `.generated/compose.local.yaml` kelią. Atidaryk jį lokaliai: ten matysi galutinius `image`, `volumes`, `ports`, `environment`. Jame gali būti slaptažodžių, todėl jo necommitink ir nenaudok kaip nuolat taisomo originalo.
+`make check` patikrina visą modelį nieko nepaleisdamas. `make config` įrašo galutinį modelį į `.generated/compose.<ENV>.yaml` ir išspausdina kelią. Ten matysi galutinius `image`, `volumes`, `ports`, `environment`. Faile gali būti slaptažodžių: jo necommit'ink ir netaisyk. Kas tikrai veikia, parodo `make ps`.
 
-Pasirenkami profiliai tame faile įtraukti tam, kad galėtum juos apžiūrėti. Tai nereiškia, kad visi jie jau paleisti. Kas veikia, parodo `make ps`.
+## Image fingerprint'ai ir make image-prune
+
+Kiekvieno setup kuriamo image'o vardas baigiasi jo **paties** įvesčių santrauka (fingerprint'u): Dockerfile, į jį kopijuojami failai, build argumentai, profilis ir tėvinio image'o fingerprint'as. Todėl pakeitus, pvz., Apache Dockerfile perkuriamas tik Apache image'as, o ne visi. `make up` naudoja tik jau sukurtus image'us. Jei image'o trūksta, paleisk `make build`.
+
+Laikui bėgant kaupiasi seni image'ai. Pažiūrėk, ką galima pašalinti:
+
+```bash
+make image-prune
+```
+
+Komanda parodo setup image'us (pažymėtus `setup.*` label'iais arba atpažįstamus pagal setup vardų schemą), kurių nenaudoja joks konteineris, nesitikisi nė vienas šalia esantis v2 projektas ir nėra stage/prod release lock faile (jų reikia deploy'ui ir rollback'ui). Niekas netrinama.
+
+```bash
+make image-prune apply=1
+```
+
+Pašalina parodytus image'us. Svetimi (ne setup) image'ai niekada neliečiami.
+
+```bash
+make image-prune cache=1
+make image-prune cache=1 apply=1
+```
+
+Pirma komanda parodo Docker build cache užimamą vietą, antra išvalo **visą** Docker build cache, ir kitų projektų.
+
+**Atsargiai su v1 projektais.** Senuoju keliu veikiančių projektų runner'is nebeperskaito, todėl jų image'ai be veikiančio konteinerio atrodo nenaudojami. Prieš `apply=1` peržiūrėk sąrašą.

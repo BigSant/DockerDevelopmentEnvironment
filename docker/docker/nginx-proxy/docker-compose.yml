@@ -1,9 +1,9 @@
 services:
   nginx-proxy:
-    image: nginx-proxy-${IMAGE_ENV:-${ENV}}-${NGINX_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: nginx-proxy-${IMAGE_ENV:-${ENV}}-${NGINX_VERSION}${SETUP_IMAGE_SUFFIX_NGINX_PROXY:-}
     container_name: ${PROJECT_NAME}-${ENV}-nginx-proxy-${NGINX_VERSION}
-    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${PROXY_MEMORY}
+    cpus: ${PROXY_CPUS}
     logging:
       driver: json-file
       options:
@@ -11,25 +11,45 @@ services:
         max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: nginx-proxy
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_NGINX_PROXY:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/nginx-proxy/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
       args:
         NGINX_VERSION: ${NGINX_VERSION}
         ENV: ${BUILD_ENV:-${ENV}}
-    command: /usr/local/bin/init.sh '${DOMAIN}' '${WHITELISTED_IP}' '${WEBSERVICE_TIMEOUT}'
+    command: /usr/local/bin/init.sh '${DOMAIN}' '${WEBSERVICE_TIMEOUT}'
     environment:
+      TZ: ${TZ}
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
       SETUP_ENVIRONMENT: ${ENV}
       CACHE_MODE: ${CACHE_MODE:-off}
       SETUP_ENABLE_PMA: ${SETUP_ENABLE_PMA:-0}
       SETUP_ENABLE_MAILPIT: ${SETUP_ENABLE_MAILPIT:-0}
+      SETUP_ENABLE_CRON: ${SETUP_ENABLE_CRON:-0}
+      SETUP_ENABLE_DBMONITOR: ${SETUP_ENABLE_DBMONITOR:-0}
+      # Client IP allowlists per web entry point (empty = open locally, tools denied on stage/prod).
+      ALLOWED_IPS: ${ALLOWED_IPS:-}
+      SITE_ALLOWED_IPS: ${SITE_ALLOWED_IPS:-}
+      PMA_ALLOWED_IPS: ${PMA_ALLOWED_IPS:-}
+      MAILPIT_ALLOWED_IPS: ${MAILPIT_ALLOWED_IPS:-}
+      CRON_ALLOWED_IPS: ${CRON_ALLOWED_IPS:-}
+      DBMONITOR_ALLOWED_IPS: ${DBMONITOR_ALLOWED_IPS:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/nginx-proxy/:/etc/nginx/project.d/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/nginx-proxy/${ENV}/:/etc/nginx/project.d.env/:ro
+    # Reachable only through the host proxy (local Nginx / DirectAdmin), never directly.
     ports:
-      - ${LOCALHOST_PORT}:80
-      - ${LOCALHOST_PORT_SSL}:443
+      - ${PUBLISH_ADDRESS:-127.0.0.1}:${LOCALHOST_PORT}:80
+      - ${PUBLISH_ADDRESS:-127.0.0.1}:${LOCALHOST_PORT_SSL}:443
     depends_on:
       - webserver
     networks:

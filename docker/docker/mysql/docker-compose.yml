@@ -1,9 +1,9 @@
 services:
   database:
-    image: mysql-${IMAGE_ENV:-${ENV}}-${MYSQL_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: mysql-${IMAGE_ENV:-${ENV}}-${MYSQL_VERSION}${SETUP_IMAGE_SUFFIX_DATABASE:-}
     container_name: ${PROJECT_NAME}-${ENV}-mysql-${MYSQL_VERSION}
-    mem_limit: ${DB_CONTAINER_MEMORY:-2g}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${DATABASE_MEMORY}
+    cpus: ${DATABASE_CPUS}
     logging:
       driver: json-file
       options:
@@ -15,6 +15,10 @@ services:
     # project's .env.${ENV} — those win over the Makefile-injected HOST_UID/HOST_GID.
     user: "${DATABASE_UID:-${HOST_UID:-1000}}:${DATABASE_GID:-${HOST_GID:-1000}}"
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: database
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_DATABASE:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/mysql/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
@@ -23,8 +27,17 @@ services:
         PROFILE: ${PROFILE}
         MYSQL_VERSION: ${MYSQL_VERSION}
     environment:
+      TZ: ${TZ}
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_BUFFER_POOL: ${DATABASE_BUFFER_POOL}
+      DATABASE_PERFORMANCE_SCHEMA: ${DATABASE_PERFORMANCE_SCHEMA:-off}
       MYSQL_HOST: ${DATABASE_HOST:-%}
-      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DATABASE_ROOT_PASSWORD}
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}

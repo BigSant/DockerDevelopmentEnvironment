@@ -1,9 +1,9 @@
 services:
   webserver:
-    image: webserver-apache-${IMAGE_ENV:-${ENV}}-${APACHE_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: webserver-apache-${IMAGE_ENV:-${ENV}}-${APACHE_VERSION}${SETUP_IMAGE_SUFFIX_WEBSERVER:-}
     container_name: ${PROJECT_NAME}-${ENV}-webserver-apache-${APACHE_VERSION}
-    mem_limit: ${WEB_CONTAINER_MEMORY:-256m}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${WEBSERVER_MEMORY}
+    cpus: ${WEBSERVER_CPUS}
     logging:
       driver: json-file
       options:
@@ -11,6 +11,10 @@ services:
         max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: webserver
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_WEBSERVER:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/apache/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
@@ -19,6 +23,11 @@ services:
         APACHE_VERSION: ${APACHE_VERSION}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${DOCUMENT_ROOT}' '${ENV}'
     environment:
+      TZ: ${TZ}
+      # Available to project *.template drop-ins.
+      SETUP_ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
       HTTP_FORCE_HTTPS: ${HTTP_FORCE_HTTPS:-off}
       CACHE_MODE: ${CACHE_MODE:-off}
     depends_on:

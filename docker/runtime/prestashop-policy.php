@@ -17,8 +17,12 @@ function psPolicyValues()
         $values['PS_SMARTY_FORCE_COMPILE'] = $modes[$compile];
     }
     $mail = getenv('MAIL_MODE');
-    if ($mail !== false && $mail !== '' && $mail !== 'preserve') {
-        if ($mail !== 'off') throw new PrestashopSetupException('MAIL_MODE must be off or preserve.');
+    if ($mail === 'mailpit') {
+        // SMTP to the project's Mailpit service; nothing leaves the machine.
+        $values += array('PS_MAIL_METHOD' => '2', 'PS_MAIL_SERVER' => 'mailpit', 'PS_MAIL_SMTP_PORT' => '1025',
+                         'PS_MAIL_SMTP_ENCRYPTION' => 'off', 'PS_MAIL_USER' => '', 'PS_MAIL_PASSWD' => '');
+    } elseif ($mail !== false && $mail !== '' && $mail !== 'preserve') {
+        if ($mail !== 'off') throw new PrestashopSetupException('MAIL_MODE must be off, mailpit or preserve.');
         $values['PS_MAIL_METHOD'] = '3';
     }
     return $values;

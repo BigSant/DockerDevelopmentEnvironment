@@ -1,48 +1,75 @@
 # Shared setup releases
 
-`VERSION` identifies the setup release. `make setup-info` reports version, API,
-Git revision and whether the checkout has local modifications.
-Projects do not need API or image-version switches in their env files.
-Share one setup checkout; no submodules are needed.
+`VERSION` identifies the setup release; `make setup-info` reports version, Git revision and local
+modifications. Developer machines run the latest `master` of one shared checkout; the build server
+builds stage/prod releases from a release tag. Projects do not pin versions.
 
-Locally built image names automatically include a fingerprint of shared Docker
-build sources/defaults, resolved build arguments and the application profile.
-A changed build recipe gets a different tag, preventing projects with different
-build settings from overwriting a shared image tag. Local and test stacks reuse
-the same image identity. External images retain their explicit version tags.
-This internal mechanism does not version application code or rebuild on PHP edits.
+## 2.0.0
 
-When adopting this change, remove obsolete `SETUP_REQUIRED_API`, `VERSIONED_IMAGES`,
-`HOST_PROXY`, `SMOKE_URL`, `SMOKE_EXPECT` and `COMPOSE_PROFILES_<ENV>` settings.
-They no longer control the runner. Run `make build` before `make up` to prepare
-current image tags. Existing PrestaShop projects must explicitly set `PROFILE=prestashop`.
-Generic PHP and no optional profiles are now the shared defaults. Native Compose
-profiles remain available explicitly, but new projects have no selection variable.
-Bootstrap now prepares local/test Nginx routing automatically; unmanaged existing
-routes are preserved and reported for manual reconciliation. Existing projects,
-credentials, containers and host routes are not rewritten just by updating setup.
+One way to run projects from local development to LIVE. Version 1 projects do not run unchanged:
+the last v1-compatible commit is `f9c4da9`.
 
-The fingerprint prevents local tag collisions; it does not make upstream base
-tags immutable or establish image provenance. A reproducible production release
-should additionally pin upstream digests and build/publish its own tested images.
-Do not delete previous image tags or update every working checkout during a release.
+### What changes for projects
 
-The GitHub workflow tests source handling, configuration preparation on PHP
-5.6/7.4/8.1/8.5 and disposable MySQL 5.7/8.4/MariaDB 11.4 databases. DB tests cover
-schema drift checks, fixtures, compressed backup/restore and import ordering.
-PHP 5.6 coverage validates the PS 1.6 configuration updater; it is not a claim
-that every PrestaShop version runs against every matrix DB/PHP combination.
+- **Removed**: `docker/Makefile`, `Makefile.local`, `new_host.sh`, `db-init.sh`, the root
+  `docker-compose.yml` and root-level project layouts, `templates/project`, `prepare_project.py
+  --from-legacy`, and the nginx webserver service. Projects use `env/` + `compose/` only.
+- **Services** are switched on with `SERVICES="pma mailpit …"` (per env file), not by including setup
+  Compose files. An unknown name is an error. The four core services come from the runner too
+  (`DATABASE_ENGINE=mysql|mariadb`); `compose/base.yaml` is optional and holds only project additions.
+- **Settings**: per-service limits `<SERVICE>_MEMORY/_CPUS` (old `*_CONTAINER_MEMORY`/`CONTAINER_CPUS`
+  still accepted), one `TZ` (default `Europe/Vilnius`), `XDEBUG_MODE`, `ALLOWED_IPS` /
+  `<NAME>_ALLOWED_IPS`, `DATABASE_ROOT_PASSWORD` (separate from the application password),
+  `PS_VERSION`, PrestaShop keys (`PS_COOKIE_KEY`, …) in the private env file, `PS_RELEASE(_PATHS)`.
+- **Stage/prod** refuse to start without the four core limits and without an allowlist for tools.
+- **Database**: schema snapshot + table registry + guarded migrations in `database/`; imports skip
+  `skip` tables and run safe after-import defaults outside prod; `MAIL_MODE` resolves to Mailpit locally.
+- **New commands**: `setup/install-host`, `make setup`, `make image-prune`, `make schema-resolve`,
+  `make db-migrate`, `make db-dataset`, `make db-load`, `make test-prepare`, `make phpunit`,
+  `make test-sync`, `make release`, `make deploy-images`, `make deploy`, `make module-pull`,
+  `make db-monitor-user`, `make db-restrict-grants`; `create-project` asks questions.
 
-Release procedure:
+### Kept on purpose
 
-1. Run unit and integration checks; verify a fresh local/test setup and an existing
-   project migration. Wait for all CI jobs to pass on the exact commit.
-2. Update VERSION/docs and API compatibility when required. Record migration
-   steps for renamed commands or path defaults.
-3. Tag that tested commit `v<version>`. Use the tag for coordinated adoption;
-   keep the previous tag/images available for rollback.
-4. Each machine updates its one shared checkout to the chosen tag, then runs
-   `make setup-info`, `make check`, `make doctor` and `make up` for its projects.
+- The PrestaShop configuration file is generated at PHP start (only when missing; afterwards only changed
+  connection values are written), not in `app-prepare`: stage/prod targets have no `app-prepare` step and
+  receive the keys only as container environment. An unchanged env leaves `public/` untouched on restart.
+- `make doctrine*` stays for applications that already run Doctrine migrations; guarded SQL migrations
+  (`database/migrations`) are the default for shop schema changes.
+- `db-fixtures-*` load extra SQL on top of a data set; `make db-load` applies the same fixtures itself.
+- `test-init` and `db-prepare` are the single steps `make test-prepare` runs, kept callable alone.
+- Mailpit and Memcached are configured through env values (`MEMCACHED_MEMORY`, `MEMCACHED_CACHE_MB`) or a
+  `compose/<env>.yaml` `environment:` entry; they read no configuration files, so they have no drop-in
+  directory. PMA reads `config/pma/*.php`.
 
-CI also runs on version tags. VERSION alone is not proof that CI passed. No
-release tag or hosted release is published automatically by these scripts.
+### Migrating a v1 project
+
+1. Update the shared checkout (`master` locally, `v2.0.0` on the build server) and run `setup/install-host`
+   once per machine.
+2. In the project, keep `env/common.env` and the private `env/<env>.env`; move service selection to
+   `SERVICES=`; remove the `include` of setup's core services and the network from `compose/base.yaml`
+   (the runner loads them; `DATABASE_ENGINE=mariadb` selects MariaDB) and delete files left empty; keep
+   real overrides in `compose/`.
+3. Add `PS_VERSION` and `PROFILE=prestashop` for shops. Copy the six PS keys from the current
+   `parameters.php` (or the cookie key for 1.6) into `env/local.env`; `make bootstrap` fills missing
+   local keys and `DATABASE_ROOT_PASSWORD`.
+4. Existing databases: run `make db-restrict-grants` once (root gets its own password, the application
+   user keeps rights on its own database only).
+5. `make setup` (no sudo after install-host), then `make schema-export`, `make schema-resolve` and
+   commit `database/schema`, `database/table-registry.txt`; `make schema-hook-install`.
+6. Remove the per-environment after-import copies of domain/mail SQL: setup's safe defaults and
+   `MAIL_MODE` cover them; put integration switches in `database/after-import/integrations/<name>.sql`.
+7. Servers: fill `APP_UID`, `APP_GID`, `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH` and the limits in the
+   stage/prod env (example files without secrets), then `make release` / `make deploy-images` / `make deploy`.
+
+Forsena is the reference migration (`forsena_docker`, branch `feature/setup-v2-docker-aplinka`,
+`doc/v2-acceptance.md`).
+
+## Release procedure
+
+1. Run `python3 -m unittest discover -s tests` and the B tests for the touched areas; verify a fresh
+   project and an existing project migration.
+2. Update `VERSION`, this file and the guide; record migration steps for anything renamed.
+3. The owner tags the tested commit `v<version>`; keep the previous tag and images for rollback.
+4. The build server moves its setup checkout to the tag (developer machines follow `master`), then runs
+   `make setup-info`, `make doctor` and `make setup` for its projects.

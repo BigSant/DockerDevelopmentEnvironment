@@ -41,9 +41,9 @@ class DoctrineIntegrationTest(unittest.TestCase):
             (config / 'versions').mkdir(parents=True)
             (app / 'env').mkdir()
             (app / 'compose').mkdir()
-            (app / 'Makefile').write_bytes((ROOT / 'templates/project/Makefile').read_bytes())
+            (app / 'Makefile').write_bytes((ROOT / 'templates/shared/Makefile').read_bytes())
             (app / 'env/common.env').write_text(f'PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=app/database/schema\n')
-            (app / 'env/local.env').write_text('DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=doctrine-test-only\n')
+            (app / 'env/local.env').write_text('DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=doctrine-test-only\n')
             (config / 'migrations.php').write_bytes((ROOT / 'templates/grouped/database/doctrine/migrations.php').read_bytes())
             (config / 'connection.php').write_text("<?php return ['driver'=>'pdo_mysql','host'=>'127.0.0.1','user'=>'example','password'=>'doctrine-test-only','dbname'=>'example'];")
             model = {'services': {

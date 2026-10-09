@@ -48,7 +48,8 @@ def prepare_project_name(app, name):
             output.write(name + '\n')
 
 
-def scaffold(name, parent):
+def scaffold(name, parent, options=None):
+    """Project files for a new project; options come from the wizard (profile, versions, engine, services)."""
     display_name = name
     name = normalize_name(name)
     root = Path(parent).resolve() / name
@@ -78,18 +79,26 @@ def scaffold(name, parent):
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('xb') as handle:
             handle.write(contents)
+    if options:
+        apply_options(app, options)
     public = app / 'public'
-    public.mkdir()
-    (public / 'index.php').write_text(
-        "<?php\nheader('Content-Type: text/plain; charset=utf-8');\n"
-        f"echo \"Project {name} is running.\\n\";\n"
-        "echo 'PHP: ' . PHP_VERSION . \"\\n\";\n"
-        "echo 'Cache: ' . getenv('CACHE_MODE') . \"\\n\";\n")
+    if options and options.get('profile') == 'prestashop':
+        # The shop code comes from its own repository: git clone it into app/public.
+        public = None
+    else:
+        public.mkdir()
+    if public is not None:
+        (public / 'index.php').write_text(
+            "<?php\nheader('Content-Type: text/plain; charset=utf-8');\n"
+            f"echo \"Project {name} is running.\\n\";\n"
+            "echo 'PHP: ' . PHP_VERSION . \"\\n\";\n"
+            "echo 'Cache: ' . getenv('CACHE_MODE') . \"\\n\";\n")
     import secrets
     set_env_values(app / 'env/local.env', {
         'DOMAIN': domain,
         'DATABASE_USER': name.replace('-', '_'), 'DATABASE_NAME': name.replace('-', '_'),
         'DATABASE_PASSWORD': secrets.token_hex(24),
+        'DATABASE_ROOT_PASSWORD': secrets.token_hex(24),
     })
     prepare_project_name(app, display_name)
     # The marker is written last: retries may resume a complete scaffold, never guess
@@ -98,6 +107,124 @@ def scaffold(name, parent):
                                     'display_name': display_name}).encode(), private=True)
     print(f'Created project files: {app}', flush=True)
     return app
+
+
+PROFILES = ('prestashop', 'generic')
+ENGINES = ('mysql', 'mariadb')
+DEFAULT_PS = '9.0.2'
+DEFAULT_SERVICES = 'pma mailpit'
+
+
+def php_versions():
+    """PHP versions setup has images for, oldest first."""
+    found = [path.name for path in (SETUP / 'docker/docker/php-fpm').iterdir() if re.fullmatch(r'\d+\.\d+', path.name)]
+    return sorted(found, key=lambda version: tuple(map(int, version.split('.'))))
+
+
+def choices_for(options):
+    """Allowed PHP and database versions for the chosen profile and PrestaShop version."""
+    import compatibility
+    if options.get('profile') != 'prestashop':
+        return php_versions(), {'mysql': ['5.7', '8.0', '8.4'], 'mariadb': ['10.6', '10.11', '11.4']}
+    line = compatibility.DATA[compatibility.release_line(options['ps_version'])]
+    php = [version for version in php_versions() if version in line['php']]
+    return php, {'mysql': line['mysql'], 'mariadb': line['mariadb']}
+
+
+def complete_options(options):
+    """Fill defaults and validate one set of answers; raises before anything is written."""
+    from project import SERVICE_CATALOGUE
+    options = dict(options)
+    options.setdefault('profile', 'prestashop')
+    if options['profile'] not in PROFILES:
+        raise ValueError(f"Profile must be one of: {', '.join(PROFILES)}")
+    if options['profile'] == 'prestashop':
+        options.setdefault('ps_version', DEFAULT_PS)
+        if not re.fullmatch(r'\d+(\.\d+){1,3}', str(options['ps_version'])):
+            raise ValueError('PrestaShop version looks like 9.0.2 or 1.7.8.11')
+    else:
+        options.pop('ps_version', None)
+    php, databases = choices_for(options)
+    if not php:
+        raise ValueError(f"No PHP image in setup supports PrestaShop {options['ps_version']}")
+    options.setdefault('php_version', php[-1])
+    if options['php_version'] not in php:
+        raise ValueError(f"PHP {options['php_version']} is not compatible here; choose one of: {', '.join(php)}")
+    options.setdefault('database', 'mysql')
+    if options['database'] not in ENGINES:
+        raise ValueError(f"Database must be one of: {', '.join(ENGINES)}")
+    listed = databases[options['database']]
+    options.setdefault('database_version', listed[-1])
+    if not re.fullmatch(r'\d+\.\d+(\.\d+)?', str(options['database_version'])):
+        raise ValueError('Database version looks like 8.4 or 10.11')
+    services = str(options.get('services', DEFAULT_SERVICES)).split()
+    unknown = [name for name in services if name not in SERVICE_CATALOGUE]
+    if unknown:
+        raise ValueError(f"Unknown services: {', '.join(unknown)}; available: {' '.join(SERVICE_CATALOGUE)}")
+    options['services'] = ' '.join(services)
+    return options
+
+
+def apply_options(app, options):
+    """Write the answers into the new project's settings and Compose sources."""
+    lines = {'PROFILE': options['profile'], 'PHP_VERSION': options['php_version'],
+             ('MARIADB_VERSION' if options['database'] == 'mariadb' else 'MYSQL_VERSION'): options['database_version']}
+    if options.get('ps_version'):
+        lines['PS_VERSION'] = options['ps_version']
+    if options['services']:
+        lines['SERVICES'] = options['services']
+    if options['database'] == 'mariadb':
+        lines['DATABASE_ENGINE'] = 'mariadb'
+    set_env_values(app / 'env/common.env', lines)
+
+
+def ask_options(name, given, ask=input):
+    """Interactive wizard: every question has a default (Enter) and only compatible choices."""
+    def question(text, default, allowed=None):
+        while True:
+            hint = f" ({'/'.join(allowed)})" if allowed and len(allowed) <= 8 else ''
+            answer = ask(f'{text}{hint} [{default}]: ').strip() or default
+            if allowed is None or answer in allowed:
+                return answer
+            print(f'  Choose one of: {", ".join(allowed)}')
+    options = dict(given)
+    if not name:
+        while True:
+            name = ask('Project name (e.g. Melga, GameroomAkeneo): ').strip()
+            try:
+                normalize_name(name)
+                break
+            except ValueError as error:
+                print(f'  {error}')
+    if 'profile' not in options:
+        options['profile'] = question('Profile', 'prestashop', PROFILES)
+    if options['profile'] == 'prestashop' and 'ps_version' not in options:
+        options['ps_version'] = question('PrestaShop version', DEFAULT_PS)
+    php, databases = choices_for({'profile': options['profile'], 'ps_version': options.get('ps_version')})
+    if 'php_version' not in options:
+        options['php_version'] = question('PHP version', php[-1], php)
+    if 'database' not in options:
+        options['database'] = question('Database', 'mysql', ENGINES)
+    if 'database_version' not in options:
+        listed = databases[options['database']]
+        options['database_version'] = question(f"{options['database']} version", listed[-1], listed)
+    if 'services' not in options:
+        from project import SERVICE_CATALOGUE
+        print(f"  Services: {' '.join(SERVICE_CATALOGUE)}")
+        options['services'] = question('Services (space separated, - for none)', DEFAULT_SERVICES)
+        if options['services'] == '-':
+            options['services'] = ''
+    return name, options
+
+
+def summary(name, options):
+    domain = normalize_name(name).replace('_', '-') + '.local'
+    rows = [('Project', f'{name} ({normalize_name(name)})'), ('Domain', domain), ('Profile', options['profile'])]
+    if options.get('ps_version'):
+        rows.append(('PrestaShop', options['ps_version']))
+    rows += [('PHP', options['php_version']), ('Database', f"{options['database']} {options['database_version']}"),
+             ('Services', options['services'] or '(none)'), ('Time zone', 'Europe/Vilnius')]
+    return '\n'.join(f'  {label:<11} {value}' for label, value in rows)
 
 
 def prerequisites():
@@ -125,27 +252,55 @@ def start(app):
     print(f'\nProject started: http://{project.settings["DOMAIN"]}/\nOpen in PhpStorm: {app}\nApplication code: {app / "public"}', flush=True)
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(prog='create-project', description='Prepare a new project next to the shared setup without starting its environment.')
-    parser.add_argument('name', metavar='name', help='For example: Melga, MelgaMCP or GameroomAkeneo')
+def main(argv=None, ask=input, interactive=None):
+    parser = argparse.ArgumentParser(prog='create-project', description='Prepare a new project next to the shared setup '
+                                     'without starting its environment. Without a name it asks every question.')
+    parser.add_argument('name', metavar='name', nargs='?', help='For example: Melga, MelgaMCP or GameroomAkeneo')
+    parser.add_argument('--profile', choices=PROFILES)
+    parser.add_argument('--ps-version', help=f'PrestaShop version (default {DEFAULT_PS})')
+    parser.add_argument('--php-version', help='PHP version; only versions the PrestaShop line supports')
+    parser.add_argument('--database', choices=ENGINES)
+    parser.add_argument('--database-version', help='e.g. 8.4 or 10.11')
+    parser.add_argument('--services', help=f'catalogue services, space separated (default "{DEFAULT_SERVICES}"; "" for none)')
+    parser.add_argument('--yes', action='store_true', help='write without the confirmation question')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--start', action='store_true', help='Also prepare the host, TLS and IDE, build images and start the environment')
     mode.add_argument('--no-start', action='store_true', help=argparse.SUPPRESS)  # Previous spelling remains harmless.
     args = parser.parse_args(argv)
+    given = {key: value for key, value in (('profile', args.profile), ('ps_version', args.ps_version),
+                                           ('php_version', args.php_version), ('database', args.database),
+                                           ('database_version', args.database_version), ('services', args.services))
+             if value is not None}
+    interactive = sys.stdin.isatty() if interactive is None else interactive
     try:
+        name = args.name
+        if not name and not interactive:
+            raise ValueError('Name the project, or run create-project in a terminal to be asked')
+        # In a terminal every answer not given as a parameter is asked; all parameters ask nothing.
+        asked = interactive and not args.yes and (not name or len(given) < 6)
+        if asked:
+            name, given = ask_options(name, given, ask)
+        options = complete_options(given) if (given or asked) else None
+        if options:
+            print('\nNew project:\n' + summary(name, options))
+            if interactive and not args.yes and ask('Create these files? [Y/n]: ').strip().lower() not in ('', 'y', 'yes', 't', 'taip'):
+                print('Cancelled; nothing was created.')
+                return 1
         if args.start:
             prerequisites()
-        app = scaffold(args.name, SETUP.parent)
+        app = scaffold(name, SETUP.parent, options)
         if args.start:
             start(app)
         else:
-            print(f'Files prepared; environment has not been started.\nOpen in PhpStorm: {app}\n'
-                  f'To start: {SETUP / "create-project"} {args.name} --start')
+            clone = '\nNext: git clone <shop repository> ' + str(app / 'public') + ' && make -C ' + str(app) + ' setup' \
+                if options and options['profile'] == 'prestashop' else ''
+            print(f'Files prepared; environment has not been started.\nOpen in PhpStorm: {app}{clone}\n'
+                  f'To start: {SETUP / "create-project"} {name} --start')
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(f'Error: {error}\nResolve the error and retry the same create-project command; prepared files are preserved.', file=sys.stderr)
         return 1
-    except KeyboardInterrupt:
-        print('\nInterrupted. Prepared files were preserved; you can retry the same command.', file=sys.stderr)
+    except (KeyboardInterrupt, EOFError):
+        print('\nInterrupted. Nothing new was written by the questions; you can retry the same command.', file=sys.stderr)
         return 130
     return 0
 

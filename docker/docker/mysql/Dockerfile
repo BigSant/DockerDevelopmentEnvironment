@@ -9,8 +9,13 @@ COPY /docker/mysql/conf/my.cnf /etc/mysql/conf.d/my.cnf
 # Per-project config override (bind-mounted at runtime from ${PROJECT_DOCKER_DIRECTORY}/config/mysql[/${ENV}]).
 # Loaded AFTER conf.d (base + profile) so project .cnf files win. Two levels:
 # project.d/ = always, project.d.env/ = ENV-match. Empty dirs are a no-op.
+# The read-only mounts are rendered into world-writable project.r* at start (the server
+# runs as the host or service UID); mysqld includes only the rendered copies.
 RUN mkdir -p /etc/mysql/project.d /etc/mysql/project.d.env \
-    && printf '\n!includedir /etc/mysql/project.d/\n!includedir /etc/mysql/project.d.env/\n' >> /etc/my.cnf
+    && mkdir -m 0777 -p /etc/mysql/setup.r /etc/mysql/project.r /etc/mysql/project.r.env \
+    && printf '\n!includedir /etc/mysql/setup.r/\n!includedir /etc/mysql/project.r/\n!includedir /etc/mysql/project.r.env/\n' >> /etc/my.cnf
+# CORE settings derived from the container limits (rendered into setup.r at start).
+COPY /docker/mysql/conf/setup.d/ /etc/mysql/setup.d/
 
 # Profile-specific MySQL tuning (PROFILE=prestashop|akeneo|"").
 # conf.d is read alphabetically, so the zz-/zzz- prefixes override the base my.cnf.
@@ -27,6 +32,14 @@ RUN if [ -n "${PROFILE}" ] && [ -s "/tmp/profile/${PROFILE}/mysql/conf/my.cnf" ]
 
 COPY /docker/mysql/conf/init.sh /docker-entrypoint-initdb.d/01-init-app-user.sh
 RUN chmod +x /docker-entrypoint-initdb.d/01-init-app-user.sh
+
+# Project drop-ins: rendered before mysqld starts; init.d runs once on first initialisation.
+COPY /runtime/render-templates.sh /usr/local/bin/render-templates.sh
+COPY /runtime/database-entrypoint.sh /usr/local/bin/setup-database-entrypoint.sh
+COPY /runtime/database-project-init.sh /docker-entrypoint-initdb.d/02-project-init.sh
+RUN chmod +x /usr/local/bin/setup-database-entrypoint.sh /docker-entrypoint-initdb.d/02-project-init.sh
+ENTRYPOINT ["/usr/local/bin/setup-database-entrypoint.sh"]
+CMD ["mysqld"]
 
 FROM base AS env-local
 FROM base AS env-prod

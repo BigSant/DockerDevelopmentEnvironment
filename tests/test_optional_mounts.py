@@ -23,6 +23,15 @@ class OptionalMountsTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.app = scaffold('optional-config', temp.name)
 
+    def test_pma_settings_drop_in_is_mounted_only_when_present(self):
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('SERVICES=pma\n')
+        targets = lambda: [v['target'] for v in Project(self.app).model()['services']['pma'].get('volumes', [])]
+        self.assertEqual(targets(), [])
+        (self.app / 'config/pma').mkdir(parents=True)
+        (self.app / 'config/pma/rows.php').write_text("<?php $cfg['MaxRows'] = 100;\n")
+        self.assertEqual(targets(), ['/etc/phpmyadmin/conf.d'])
+
     def test_missing_defaults_are_omitted_and_added_directories_are_detected(self):
         first = Project(self.app)
         for service in first.model()['services'].values():
@@ -41,6 +50,7 @@ class OptionalMountsTest(unittest.TestCase):
         self.assertNotIn('/opt/setup/project', [v['target'] for v in first.model()['services']['php-fpm']['volumes']])
 
     def test_explicit_missing_sources_are_not_silently_removed(self):
+        (self.app / 'compose').mkdir(exist_ok=True)
         (self.app / 'compose/local.yaml').write_text('''services:
   php-fpm:
     volumes:
@@ -54,10 +64,12 @@ class OptionalMountsTest(unittest.TestCase):
 
     def test_fpm_ranges_and_pool_relationships(self):
         defaults = resolve_policy({}, 'local')
-        self.assertEqual(defaults['PHP_FPM_MAX_CHILDREN'], '4')
+        # Derived from the 1g local PHP limit: (1024 - 128) / 128 MB per process.
+        self.assertEqual((defaults['PHP_FPM_MAX_CHILDREN'], defaults['PHP_FPM_START_SERVERS'],
+                          defaults['PHP_FPM_MAX_SPARE_SERVERS']), ('7', '1', '3'))
         for settings in ({'PHP_FPM_MAX_CHILDREN':'0'}, {'PHP_FPM_MAX_REQUESTS':'-1'},
-                         {'PHP_FPM_START_SERVERS':'abc'}, {'PHP_FPM_START_SERVERS':'3'},
-                         {'PHP_FPM_MAX_CHILDREN':'1'}):
+                         {'PHP_FPM_START_SERVERS':'abc'}, {'PHP_FPM_START_SERVERS':'9'},
+                         {'PHP_FPM_MAX_CHILDREN':'2', 'PHP_FPM_MAX_SPARE_SERVERS':'3'}):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 resolve_policy(settings, 'local')
-        self.assertEqual(resolve_policy({'PHP_FPM_MAX_REQUESTS':'0'}, 'prod')['PHP_FPM_MAX_REQUESTS'], '0')
+        self.assertEqual(resolve_policy({'PHP_FPM_MAX_REQUESTS':'0', **{'PHP_MEMORY':'1g','PHP_CPUS':'1','DATABASE_MEMORY':'2g','DATABASE_CPUS':'1','WEBSERVER_MEMORY':'256m','WEBSERVER_CPUS':'1','PROXY_MEMORY':'128m','PROXY_CPUS':'0.5'}}, 'prod')['PHP_FPM_MAX_REQUESTS'], '0')

@@ -1,9 +1,9 @@
 services:
   pma:
-    image: pma-${IMAGE_ENV:-${ENV}}-${PMA_VERSION}${SETUP_IMAGE_SUFFIX:-}
+    image: pma-${IMAGE_ENV:-${ENV}}-${PMA_VERSION}${SETUP_IMAGE_SUFFIX_PMA:-}
     container_name: ${PROJECT_NAME}-${ENV}-pma-${PMA_VERSION}
-    mem_limit: ${PHP_CONTAINER_MEMORY:-1g}
-    cpus: ${CONTAINER_CPUS:-2}
+    mem_limit: ${PMA_MEMORY}
+    cpus: ${PMA_CPUS}
     logging:
       driver: json-file
       options:
@@ -11,17 +11,25 @@ services:
         max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
     restart: unless-stopped
     build:
+      labels:
+        setup.managed: "1"
+        setup.service: pma
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PMA:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/docker/pma/Dockerfile
       target: env-${BUILD_ENV:-${ENV}}
       args:
         PMA_VERSION: ${PMA_VERSION}
     environment:
+      TZ: ${TZ}
       PMA_ABSOLUTE_URI: http://pma.${DOMAIN}
       PMA_HOST: database
       # Credentials injected at runtime — never baked into the shared pma image.
       PMA_USER: ${DATABASE_USER}
       PMA_PASSWORD: ${DATABASE_PASSWORD}
+    # Project drop-in: config/pma/*.php (e.g. $cfg['MaxRows']); optional, dropped when absent.
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/config/pma/:/etc/phpmyadmin/conf.d/:ro
     depends_on:
       database:
         condition: service_healthy

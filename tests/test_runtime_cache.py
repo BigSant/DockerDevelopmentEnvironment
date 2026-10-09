@@ -46,6 +46,10 @@ class RuntimeCacheTest(unittest.TestCase):
         self.assertEqual(policy['PS_MAIL_METHOD'],'3')
         self.env['MAIL_MODE']='preserve'
         self.assertNotIn('PS_MAIL_METHOD',json.loads(self.library('echo json_encode(psPolicyValues());')))
+        self.env['MAIL_MODE']='mailpit'
+        policy=json.loads(self.library('echo json_encode(psPolicyValues());'))
+        self.assertEqual((policy['PS_MAIL_METHOD'],policy['PS_MAIL_SERVER'],policy['PS_MAIL_SMTP_PORT'],policy['PS_MAIL_PASSWD']),
+                         ('2','mailpit','1025',''))
 
     def test_object_cache_modern_and_legacy_and_readonly_validation(self):
         modern=self.root/'app/config/parameters.php';modern.parent.mkdir(parents=True)

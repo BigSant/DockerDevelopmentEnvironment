@@ -1,0 +1,9 @@
+#!/bin/sh
+# One-time machine preparation for every setup project (lives only in the setup repository).
+set -eu
+setup_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! command -v python3 >/dev/null 2>&1; then
+    echo 'Klaida: reikia Python 3.10 arba naujesnio (python3).' >&2
+    exit 1
+fi
+exec python3 "$setup_directory/install_host.py" "$@"

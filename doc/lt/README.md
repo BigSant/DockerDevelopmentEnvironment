@@ -1,58 +1,57 @@
-# Docker aplinkos vadovas
+# Docker aplinkos vadovas (setup v2)
 
-Šis vadovas skirtas žmogui, kuris nori paleisti projektą ir suprasti, ką keičia. Išankstinių Docker žinių nereikia. Linux aplinkos pavyzdžiai remiasi bendru `setup` ir projekto struktūra, kuri naudojama Forsenoje.
+Šis vadovas skirtas žmogui, kuris nori paleisti projektą ir suprasti, ką keičia. Daug Docker žinių nereikia. Pavyzdžiai skirti Linux ir remiasi bendru `setup` bei projekto struktūra `env/` + `compose/`.
 
-**Pradėk nuo pirmų dviejų skyrių.** Kitus atsiversk pagal užduotį. Visuose pavyzdžiuose projekto vardas `demo` yra mokomasis: savo projekte jį pakeisk tikru vardu. Pavyzdiniai slaptažodžiai nėra Forsenos prisijungimai.
+**Pradėk nuo pirmų dviejų skyrių.** Kitus atsiversk pagal užduotį. Projekto vardas `demo` yra mokomasis, savo projekte jį pakeisk tikru vardu. Forsena minima tik kaip realus pavyzdys. Pavyzdiniai slaptažodžiai ir IP adresai nėra tikri.
 
 | Eilė | Skyrius | Ką išmoksi |
 | --- | --- | --- |
-| 1 | [Struktūra ir sąvokos](01-struktura.md) | Kur yra aplikacija, Docker receptai, nustatymai, DB ir testai; kurie katalogai veikia automatiškai. |
-| 2 | [Pirmas paleidimas](02-pradzia.md) | Paruošti naują minimalų projektą arba paleisti esamą Forseną. |
-| 3 | [Visų setup nustatymų žinynas](03-nustatymai.md) | Kiekvieno bendro kintamojo paskirtis, reikšmė, vieta ir pakeitimo poveikis. |
-| 4 | [Compose ir Dockerfile](04-compose-ir-dockerfile.md) | Pridėti servisą, keisti jo konfigūraciją, plėsti PHP atvaizdą. |
-| 5 | [Servisų konfigūracija](05-servisai.md) | PHP, Xdebug, MySQL, MariaDB, Apache, Nginx, Redis, Mailpit, phpMyAdmin ir cron. |
-| 6 | [Aplikacijos konfigūracija](06-aplikacija.md) | PS 1.6, naujesnis PS, papildomi parametrai ir kitų aplikacijų paleidimo scriptai. |
-| 7 | [Duomenų bazė](07-duomenu-baze.md) | Dump, atsarginės kopijos, SQL po importo, fixtures, schemos ir Doctrine migracijos. |
-| 8 | [PHPStan, formatavimas ir Playwright](08-kodo-kokybe.md) | Įjungti reikalingą įrankį, saugoti baseline, parašyti ir paleisti testą. |
-| 9 | [Local, test, stage ir prod](09-aplinkos.md) | Atskirti kodą, DB, portus ir nustatymus; išvengti neteisingų kelių. |
-| 10 | [Kasdienis darbas, IDE ir atnaujinimai](10-kasdienis-darbas.md) | PhpStorm, Git/Bitbucket, bendro setup atnaujinimas ir grįžimas į ankstesnę versiją. |
-| 11 | [Komandos ir klaidų sprendimai](11-komandos-ir-klaidos.md) | Visos runner komandos, jų argumentai ir dažniausių klaidų sprendimai. |
-| 12 | [Cache ir hibridinės aplinkos](12-cache-ir-hibridines-aplinkos.md) | Cache, laiškai, Redis, konteinerių ribos ir papildomos komandos. |
-| 13 | [PHP ir JS/CSS įrankiai](13-php-ir-build-irankiai.md) | Versijos env failuose, Composer/npm komandos ir PrestaShop 9 suderinamumo patikra. |
+| 1 | [Struktūra ir sąvokos](01-struktura.md) | Kas kur gyvena, kurie katalogai skaitomi automatiškai, kas eina į Git. |
+| 2 | [Pirmas paleidimas](02-pradzia.md) | `setup/install-host`, `make setup`, naujas projektas su `./create-project`. |
+| 3 | [Nustatymų žinynas](03-nustatymai.md) | Visi env raktai: kur rašyti, ką daro, kokia numatytoji reikšmė. |
+| 4 | [Compose, Dockerfile ir image'ai](04-compose-ir-dockerfile.md) | Compose skirtumų failai, projekto `Dockerfile`, fingerprint'ai, `make image-prune`. |
+| 5 | [Servisai ir drop-in failai](05-servisai.md) | `SERVICES=` katalogas, drop-in failai kiekvienam konteineriui, `.template`, IP sąrašai, cron, DB monitorius. |
+| 6 | [Aplikacija: PrestaShop ir kiti](06-aplikacija.md) | PS konfigūracijos failas iš env, `PS_VERSION`, `PS_RELEASE`, debug, kitų aplikacijų startup scriptai. |
+| 7 | [Duomenų bazė kaip kodas](07-duomenu-baze.md) | Schema ir commit hook'as, lentelių registras, migracijos, `db-import`, bazinis rinkinys, kopijos. |
+| 8 | [Testai ir kodo kokybė](08-kodo-kokybe.md) | `make test-prepare`, `make phpunit`, e2e, PHPStan ir PHP-CS-Fixer. |
+| 9 | [Aplinkos, release ir deploy](09-aplinkos.md) | local, test, stage, prod; `make release`, `make deploy`, Bitbucket Pipelines. |
+| 10 | [Kasdienis darbas, IDE ir atnaujinimai](10-kasdienis-darbas.md) | PhpStorm, dvi Git repozitorijos, setup atnaujinimas, vietos atlaisvinimas. |
+| 11 | [Komandos ir klaidos](11-komandos-ir-klaidos.md) | Visos `make` komandos, jų argumentai ir dažniausių klaidų sprendimai. |
+| 12 | [Cache, paštas ir resursai](12-cache-ir-hibridines-aplinkos.md) | `CACHE_MODE`, `MAIL_MODE`, `<SERVISAS>_MEMORY/_CPUS`, log'ai ir diskas. |
+| 13 | [PHP ir JS/CSS įrankiai](13-php-ir-build-irankiai.md) | Versijos, Composer, npm ir PrestaShop/PHP suderinamumas. |
+
+Trumpas angliškas architektūros aprašas agentams ir prižiūrėtojams: [ARCHITECTURE.md](../ARCHITECTURE.md). Kas pasikeitė kiekvienoje setup versijoje: [RELEASES.md](../RELEASES.md).
 
 ## Kaip skaityti pavyzdžius
 
 - **Situacija** paaiškina, kada sprendimas reikalingas.
-- **Failas** nurodo, kur rašyti pateiktą tekstą. Jei failas jau turi kitų nustatymų, pridėk arba pakeisk atitinkamą dalį; nekurk antro `services:` ar `environment:` bloko tame pačiame lygyje.
-- **Komandos** vykdomos terminale. Jei nepasakyta kitaip, terminalo vieta yra `~/Projects/demo/app` arba `~/Projects/forsena/app`.
-- **Patikra** paaiškina, ką tikėtis pamatyti.
+- **Failas** nurodo, kur rašyti tekstą. Jei faile jau yra nustatymų, pridėk arba pakeisk tik reikiamą dalį.
+- **Komandos** vykdomos terminale projekto kataloge, pvz. `~/Projects/demo/app`, jei nepasakyta kitaip.
+- **Patikra** paaiškina, ką turi pamatyti.
 
-Teksto blokas su `yaml`, `dotenv`, `ini`, `php` ar `sql` yra failo turinys, o ne terminalo komanda. Blokas su `bash` yra terminalo komandos. Eilutės su `#` komandinėje eilutėje yra komentarai.
+Blokas su `dotenv`, `yaml`, `ini`, `php` ar `sql` yra failo turinys. Blokas su `bash` yra terminalo komandos. Eilutė, prasidedanti `#`, komandų bloke yra komentaras.
 
 ## Kur ieškoti konkretaus sprendimo
 
 | Noriu… | Atsiversk |
 | --- | --- |
-| PHP versiją nustatyti visoms aplinkoms, o DB slaptažodį kiekvienai atskirai | [Nustatymai](03-nustatymai.md) |
-| Pridėti Redis tik vienam projektui | [Servisai](05-servisai.md) |
-| Padidinti įkeliamo failo limitą | [PHP ir HTTP limitai](05-servisai.md) |
-| Aplikacija nėra PrestaShop | [Aplikacijos konfigūracija](06-aplikacija.md) |
-| Paleisti PS 1.6 | [PS formatų skirtumai](06-aplikacija.md) |
-| Po dump importo pakeisti domeną ir išjungti laiškus | [Duomenų bazė](07-duomenu-baze.md) |
-| Turėti skirtingus vietinius ir testinius duomenis | [Fixtures](07-duomenu-baze.md) ir [testinė aplinka](09-aplinkos.md) |
-| Neleisti commitinti pasenusios DB schemos | [Schemos patikra](07-duomenu-baze.md) |
-| Išbandyti kitą PHP plėtinį | [Dockerfile](04-compose-ir-dockerfile.md) |
-| Paleisti testus nepakeičiant vietinės DB | [Testinė aplinka](09-aplinkos.md) |
-| Suprasti, kodėl `.ini` pakeitimas neveikia | [Servisai](05-servisai.md) ir [klaidos](11-komandos-ir-klaidos.md) |
+| Paruošti naują kompiuterį | [Pirmas paleidimas](02-pradzia.md#a-kompiuterio-paruošimas-vieną-kartą) |
+| Paleisti projektą iš švaraus clone'o | [Pirmas paleidimas](02-pradzia.md#b-esamas-projektas-iš-švaraus-cloneo) |
+| Įjungti phpMyAdmin, Mailpit, cron ar Redis | [Servisai](05-servisai.md#servisų-katalogas-services) |
+| Pakeisti PHP, MySQL, Apache ar Nginx nustatymą | [Drop-in failai](05-servisai.md#drop-in-failai-papildyti-core-konfigūraciją) |
+| Apriboti įrankių prieigą pagal IP | [IP sąrašai](05-servisai.md#ip-apribojimai) |
+| Užkelti dev duomenis arba LIVE dump'ą | [Duomenų bazė](07-duomenu-baze.md) |
+| Pakeisti DB struktūrą ir commit'inti | [Schema ir migracijos](07-duomenu-baze.md#b-schema-git-ir-commit-hookas) |
+| Paleisti PHPUnit nepaliečiant savo DB | [Testai](08-kodo-kokybe.md) |
+| Padidinti konteinerio atmintį | [Resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui) |
+| Įjungti Xdebug profiliavimą | [Xdebug](05-servisai.md#php-ir-xdebug) |
+| Išleisti kodą į STAGE ar LIVE | [Release ir deploy](09-aplinkos.md) |
+| Atlaisvinti vietos nuo senų image'ų | [make image-prune](04-compose-ir-dockerfile.md#image-fingerprintai-ir-make-image-prune) |
 
-## Vadovo ribos ir tikslumas
+## Vadovo ribos
 
-Aprašomas `setup` API 1 ir dabartinės `master` šakos veikimas. Pradinėje `v1.0.0` žymoje naujesnio debug valdymo iš env dar nėra. Nustatymai sutikrinti su [bendrais numatytaisiais nustatymais](../../docker/.env), [runner](../../docker/project.py), [Make komandomis](../../docker/project.mk), [servisų aprašais](../../docker/docker) ir [šablonais](../../templates/grouped). Tikrinta 2026-09-11.
+Aprašoma setup 2.0.0 (failas `VERSION`, versijos įrašas [RELEASES.md](../RELEASES.md)). Nustatymai sutikrinti su [bendrais numatytaisiais nustatymais](../../docker/.env), [nustatymų sąrašu](../../docker/project-settings.yaml), [runner'iu](../../docker/project.py), [Make komandomis](../../docker/project.mk) ir [servisų aprašais](../../docker/docker).
 
-Čia surašyti visi šių setup failų bendri konfigūracijos kintamieji ir prijungimo vietos. PHP, Nginx ar MySQL patys turi šimtus papildomų nustatymų, priklausančių nuo jų versijos. Atitinkamuose skyriuose pateikiami darbo pavyzdžiai ir nuorodos į pilnus oficialius jų žinynus. Savavališkai sukurtas env kintamasis pradeda veikti tik tada, kai jį perskaito Compose, konfigūracijos failas arba aplikacija.
+PHP, Nginx, Apache ar MySQL patys turi šimtus nustatymų. Vadove aprašyta, **kur** juos dėti, o pilni sąrašai yra oficialiuose tų programų žinynuose. Savavališkai sukurtas env kintamasis pradeda veikti tik tada, kai jį perskaito runner'is, Compose, `.template` failas arba aplikacija.
 
-Katalogų pavadinimų skaičius nėra ribotas: gali pridėti savo `config/rabbitmq`, `qa/psalm` ar `scripts`. Vadovas atskiria **jau prijungtus katalogus**, **pasirenkamus šablonų katalogus** ir **savus katalogus, kuriems reikia prijungimo**. Tai padeda nesitikėti automatikos ten, kur jos nėra.
-
-Forsenos keturių servisų aplinka jau pritaikyta minimaliai konfigūracijai. Bendras generatorius sukuria platesnį šabloną. Vadove aiškiai nurodyta, kuriuo variantu remiasi pavyzdys. Kopijuodamas pasirenkamus įrankius, jų neprivalai įjungti visiems projektams.
-
-Patikrintos vietinės nuorodos, shell/PHP/JavaScript/YAML/INI pavyzdžių sintaksė, Apache ir Nginx konfigūracijų sintaksė bei aprašytų minimalaus projekto, Redis, MariaDB, QA, testinės, prod ir papildomų UI servisų Compose variantų surinkimas. Aprašyti visi 94 bendrų env/interpoliavimo šaltinių raktai ir 35 runner veiksmų. Šios dokumentacijos patikros neįdiegė naujų aplikacijų, nevykdė verslo SQL tikrose DB ir neatstoja tavo aplikacijos priėmimo testų.
+**v1 projektai be pakeitimų neveikia.** Jei projektas dar naudoja senąjį kelią, jį reikia perkelti pagal [RELEASES.md](../RELEASES.md) (skyrius „Migrating a v1 project“).

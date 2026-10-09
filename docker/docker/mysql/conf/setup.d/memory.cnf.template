@@ -1,0 +1,4 @@
+# Derived by the setup runner from DATABASE_MEMORY (or DATABASE_BUFFER_POOL).
+# A project drop-in in config/mysql overrides it.
+[mysqld]
+innodb_buffer_pool_size = ${DATABASE_BUFFER_POOL}

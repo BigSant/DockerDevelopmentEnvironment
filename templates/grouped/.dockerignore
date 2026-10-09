@@ -1,3 +1,0 @@
-# Only the Dockerfile is needed; environment files never enter the build context.
-**
-!Dockerfile

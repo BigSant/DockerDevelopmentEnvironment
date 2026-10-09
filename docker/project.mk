@@ -6,6 +6,10 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh db-backup db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
+image-prune:
+	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
+
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -13,6 +17,8 @@ quote = '$(subst ','"'"',$(1))'
 RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(call quote,$(PROJECT_DOCKER_DIRECTORY)) --project-directory $(call quote,$(PROJECT_DIRECTORY)) --env $(call quote,$(ENV)) $(if $(filter undefined,$(origin PROFILES)),,--profiles $(call quote,$(PROFILES)))
 
 help:
+	@echo 'setup: prepare this project from a clean clone (init, bootstrap + schema hook, build, app-prepare, up); the DB is left alone'
+	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
 	@echo 'db-backup [file=backup.sql.gz]; setup-info: shared version'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
@@ -23,6 +29,7 @@ help:
 	@echo 'runtime-info: resolved cache/mail policy; cache-clear: clear application and PHP caches'
 	@echo 'composer / npm [dir=themes/example/_dev] [cmd="install"]: run package tools in application sources'
 	@echo 'db-backup-prune [apply=1]: preview / prune old backups'
+	@echo 'image-prune [apply=1] [cache=1]: preview / remove unused outdated setup images (and build cache)'
 	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|test|stage|prod; PROFILES= selects core only'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
 	@echo 'doctrine-build: build only the optional migration tool, independently of application PHP'
@@ -31,11 +38,25 @@ help:
 	@echo 'db-fixtures-plan / db-fixtures-load set=local|test: preview / load common + selected SQL fixtures'
 	@echo 'db-import file=dump.sql db-fixtures=local: append fixtures after the import hooks'
 	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
+	@echo 'db-restrict-grants: one-time: own database privileges only, separate root password (pre-v2 databases)'
 	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
+	@echo 'db-import file=dump.sql full=1: also import the data of tables the registry marks skip'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
-	@echo 'schema-hook-install: enable pre-commit schema-check in the schema repository'
+	@echo 'schema-hook-install: pre-commit hook that exports the schema and stops a commit that changes it'
+	@echo 'schema-resolve: classify database tables the table registry does not know (include / drop)'
+	@echo 'db-migrate: apply pending guarded migrations from the database/migrations directory'
+	@echo 'db-monitor-user: create/update the DB monitor account (performance_schema, sys, PROCESS only)'
+	@echo 'db-dataset [set=dev]: rebuild the anonymised base data set from the local LIVE copy'
+	@echo 'db-load [set=dev] [replace=1] [backup=1]: load schema + data set + fixtures, then the after-import sequence'
+	@echo 'test-prepare [set=dev]: refresh the isolated ENV=test copy, load the mock data set into its DB and start it'
+	@echo 'test-sync: refresh the ENV=test application copy from the working tree (PhpStorm runs it before tests)'
+	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
+	@echo 'release ENV=stage|prod: build images here from committed setup, write the image lock and release compose'
+	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
+	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the shop code, back up, rsync, upgrade, migrate'
+	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
 
-init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install bootstrap setup-info db-prepare cache-clear runtime-info doctrine-build:
+setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:
@@ -61,10 +82,31 @@ doctrine-diff:
 
 db-import db-import-plan:
 	$(if $(filter undefined,$(origin fixtures)),,$(error Use db-fixtures=SET instead of fixtures=SET))
-	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
+	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(full)),--full,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))
+
+release:
+	@$(RUN_PROJECT) $@ $(if $(filter 1,$(allow_dirty)),--allow-dirty,)
+
+deploy:
+	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 0,$(backup)),--no-backup,) $(if $(filter 1,$(rollback)),--rollback,)
+
+module-pull:
+	@$(RUN_PROJECT) $@ --name $(call quote,$(name))
+
+deploy-images:
+	@$(RUN_PROJECT) $@ $(if $(filter 0,$(transfer)),--no-transfer,)
+
+test-prepare:
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),)
+
+phpunit:
+	@$(RUN_PROJECT) $@ $(if $(module),--module $(call quote,$(module)),) $(if $(filter),--filter $(call quote,$(filter)),) $(if $(filter 0,$(sync)),--no-sync,)
+
+db-dataset db-load:
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter 1,$(replace)),--replace,) $(if $(filter 1,$(backup)),--backup,)
 
 db-backup:
 	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),)

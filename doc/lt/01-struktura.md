@@ -2,202 +2,160 @@
 
 [Turinys](README.md) · [Toliau: pirmas paleidimas](02-pradzia.md)
 
-## Penkios sąvokos
+## Kelios sąvokos
 
 | Žodis | Paprastai | Pavyzdys |
 | --- | --- | --- |
 | Aplikacija | Tavo svetainės programa | PrestaShop failai `app/public/`. |
 | Servisas | Vienas aplinkos darbas | `database` saugo DB, `php-fpm` vykdo PHP. |
-| Atvaizdas, arba image | Paruošta programų dėžutė | PHP su reikalingais plėtiniais. |
-| Konteineris | Paleista tos dėžutės kopija | Veikiantis Forsenos PHP procesas. |
-| Bind mount | Tas pats katalogas matomas ir kompiuteryje, ir konteineryje | Kompiuterio `app/public` konteineryje matomas kaip `/var/www/html`. |
+| Image'as | Paruošta programų „dėžutė“ | PHP su reikalingais plėtiniais. |
+| Konteineris | Paleista image'o kopija | Veikiantis projekto PHP procesas. |
+| Bind mount | Tas pats katalogas matomas kompiuteryje ir konteineryje | `app/public` konteineryje matomas kaip `/var/www/html`. |
+| CORE | Bendro setup konfigūracija ir image'ai | `setup/docker/docker/apache/conf/sites.conf`. |
+| Drop-in | Projekto failas, kuris **papildo** CORE konfigūraciją | `config/php/20-runtime.ini`. |
 
-`Dockerfile` yra atvaizdo gaminimo receptas. Compose YAML pasako, kokius konteinerius paleisti ir ką jiems prijungti. Env failai pateikia reikšmes, pavyzdžiui, PHP versiją arba DB vardą.
+`Dockerfile` yra image'o gaminimo receptas. Compose YAML pasako, kokius konteinerius paleisti ir ką jiems prijungti. Env failai duoda reikšmes, pvz. PHP versiją ar DB vardą.
 
-Dar keli žodžiai, kuriuos sutiksi: **CLI** – programa terminale; **PHP-FPM** – PHP procesai, kuriems serveris perduoda naršyklės užklausas; **cache** – laikini, iš naujo atkuriami rezultatai; **override** – tavo pasirinktas ankstesnės reikšmės pakeitimas; **hook** – scriptas, kurį konkretus įvykis, pvz. PHP startas arba Git commitas, iškviečia automatiškai. **Default** reiškia numatytąją reikšmę, kai pats kitos nepasirenki.
+Dar keli žodžiai: **CLI** – programa terminale; **PHP-FPM** – PHP procesai, kuriems web serveris perduoda užklausas; **hook** – scriptas, kurį automatiškai iškviečia įvykis (PHP startas, `git commit`); **default** – numatytoji reikšmė, kai nieko nepasirenki.
+
+## Pagrindiniai principai
+
+- **Viskas valdoma per env.** Tas pats CORE veikia local, test, stage ir prod aplinkose, skiriasi tik env reikšmės.
+- **Projektas tik papildo CORE.** Drop-in failai įtraukiami po CORE failų (paskutinis laimi). Viso CORE failo perdengti negalima.
+- **Papildomų servisų pagal nutylėjimą nėra.** Visada veikia tik keturi: `nginx-proxy`, `webserver` (Apache), `php-fpm`, `database`. Kiti įjungiami `SERVICES=` sąrašu.
+- **Viena komanda – vienas veiksmas.** `make up` tik paleidžia, `make doctor` tik tikrina. `make setup` tik iškviečia kelias vieno veiksmo komandas iš eilės.
+- **DB niekada neliečiama netyčia.** `make setup`, `make up`, `make bootstrap` ir testai tavo DB nekeičia. Duomenys keičiami tik aiškiomis `db-*` komandomis.
 
 ## Bendras setup ir konkretus projektas
 
 ```text
 ~/Projects/
-├── setup/                       # Viena bendra Git repozitorija
-│   ├── VERSION                  # Setup versija
-│   ├── prepare_project.py       # Sukuria trūkstamus projekto šablono failus
+├── setup/                         # Viena bendra Git repozitorija visiems projektams
+│   ├── install-host               # Vienkartinis kompiuterio paruošimas
+│   ├── create-project             # Naujo projekto failų kūrimas (wizard'as)
+│   ├── VERSION
 │   ├── docker/
-│   │   ├── .env                 # Bendros numatytosios reikšmės
-│   │   ├── project.mk           # Bendros make komandos
-│   │   ├── project.py           # Surenka konkretaus projekto aplinką
-│   │   ├── docker/             # Servisų Dockerfile, Compose ir baziniai config
-│   │   ├── profile/            # Bendri PrestaShop / Akeneo pakeitimai
-│   │   └── runtime/            # Aplikacijos paruošimas prieš PHP paleidimą
-│   ├── templates/grouped/      # Pilnas pasirenkamų dalių šablonas
-│   ├── tests/                  # Paties setup testai
-│   └── doc/lt/                 # Šis vadovas
-└── forsena/
-    ├── app/                    # Čia atidarai PhpStorm ir vykdai make
-    └── data/                   # Vietiniai DB ir kitų servisų duomenys
+│   │   ├── .env                   # Bendros numatytosios versijos ir reikšmės
+│   │   ├── project.mk             # Bendros make komandos
+│   │   ├── project.py             # Runner'is: surenka konkretaus projekto aplinką
+│   │   ├── project-settings.yaml  # Visų projekto nustatymų sąrašas
+│   │   ├── compatibility.json     # PS versija → tinkamos PHP / MySQL / MariaDB versijos
+│   │   ├── docker/<servisas>/     # Kiekvieno serviso Dockerfile ir docker-compose.yml
+│   │   ├── database-profile/      # PS lentelių registras, rinkinio receptas, saugūs after-import SQL
+│   │   └── runtime/               # Scriptai konteinerių viduje (startas, .template, cron, DB monitorius)
+│   ├── templates/                 # Naujo projekto šablonai
+│   ├── tests/                     # Paties setup testai
+│   └── doc/lt/                    # Šis vadovas
+└── demo/
+    ├── app/                       # Aplinkos repozitorija: čia atidarai PhpStorm ir vykdai make
+    │   └── public/                # Aplikacijos kodas (PrestaShop atveju – atskira repozitorija)
+    └── data/                      # Veikiančios aplinkos duomenys (DB failai, TLS, Mailpit, cron istorija)
 ```
 
-`setup` nėra submodulis kiekvienoje aplikacijoje. Kiekvienas projekto `Makefile` suranda bendrą katalogą. Projekte lieka jo savi nustatymai, o komandų logika laikoma vienoje vietoje.
+`setup` nėra submodulis. Projekto `Makefile` pats suranda bendrą katalogą (`../../setup`), todėl komandų logika laikoma vienoje vietoje.
 
-Naršyklės užklausa įprastoje aplinkoje keliauja taip:
+Naršyklės užklausa keliauja taip:
 
 ```text
-naršyklė → nginx-proxy → webserver (Apache) → php-fpm → database
+naršyklė → kompiuterio Nginx (demo.local) → nginx-proxy → webserver (Apache) → php-fpm → database
 ```
 
-Konteineryje `localhost` reiškia **tą patį konteinerį**. PHP jungiasi į DB vardu `database`, į Redis – vardu `redis`. Kompiuterio naršyklė naudoja projekto domeną ir išorinį portą.
+Konteineryje `localhost` reiškia **tą patį konteinerį**. PHP jungiasi į DB vardu `database`, į Redis – `redis`, į Memcached – `memcached`.
 
-## Pilnas galimų projekto vietų žemėlapis
+## Projekto katalogų žemėlapis
 
-Tai galimybių žemėlapis, ne sąrašas katalogų, kuriuos privaloma iš karto sukurti.
+Tai galimybių žemėlapis. Katalogus kurk tik tada, kai dedi į juos failą: be jų viskas veikia, o tušti katalogai nekuriami.
 
 ```text
-forsena/
+demo/
 ├── app/
-│   ├── Makefile
-│   ├── README.md
+│   ├── Makefile                       # Vienodas visiems projektams
 │   ├── .gitignore
-│   ├── .dockerignore                  # Reikia turint projekto Dockerfile
-│   ├── Dockerfile                     # Pasirenkamas projekto PHP receptas
-│   ├── dockerfiles/                   # Savi papildomų atvaizdų receptai
+│   ├── Dockerfile                     # Neprivalomas: tik papildo CORE PHP image'ą
 │   ├── env/
-│   │   ├── common.env                 # Vieši bendri projekto nustatymai
-│   │   ├── local.env                  # Privatūs vietiniai nustatymai
-│   │   ├── test.env                   # Privatūs testinės aplinkos nustatymai
-│   │   ├── stage.env                  # Privatūs tarpinės aplinkos nustatymai
-│   │   ├── prod.env                   # Privatūs gamybinės aplinkos nustatymai
-│   │   └── *.env.example              # Pildymo pavyzdžiai be tikrų paslapčių
+│   │   ├── common.env                 # Bendri projekto nustatymai (Git)
+│   │   ├── local.env                  # Privatūs vietiniai nustatymai (ne Git)
+│   │   ├── test.env                   # Privatūs ENV=test nustatymai (sukuria komandos)
+│   │   ├── stage.env, prod.env        # Serverių nustatymai (ne Git)
+│   │   └── *.env.example              # Pavyzdžiai be slaptažodžių (Git)
 │   ├── compose/
-│   │   ├── base.yaml                  # Servisų ir tinklo pagrindas
-│   │   ├── common.yaml                # Visoms aplinkoms bendri pakeitimai
-│   │   ├── local.yaml                 # Tik vietiniai pakeitimai
-│   │   ├── test.yaml                  # Tik testiniai pakeitimai
-│   │   ├── stage.yaml                 # Tik tarpinės aplinkos pakeitimai
-│   │   ├── prod.yaml                  # Tik gamybiniai pakeitimai
-│   │   ├── redis.yaml                 # Pasirenkamas Redis
-│   │   ├── qa.yaml                    # Kodo tikrinimo įrankių prijungimas
-│   │   ├── doctrine.yaml              # Doctrine prijungimas
-│   │   └── papildomas-servisas.yaml   # Savas Compose komponentas
+│   │   ├── base.yaml                  # Neprivalomi projekto servisai (pagrindinius prijungia setup)
+│   │   ├── common.yaml                # Neprivalomi Compose skirtumai visoms aplinkoms
+│   │   └── local.yaml, prod.yaml …    # Neprivalomi Compose skirtumai vienai aplinkai
 │   ├── config/
-│   │   ├── php/                       # *.ini; local/test/stage/prod poaplankiai
-│   │   ├── php-fpm/                   # Savas pool config; reikia Compose mount
-│   │   ├── mysql/                     # *.cnf; aplinkų poaplankiai
-│   │   ├── mariadb/                   # *.cnf; aplinkų poaplankiai
-│   │   ├── apache/                    # *.conf; aplinkų poaplankiai
-│   │   ├── nginx-proxy/               # *.conf; aplinkų poaplankiai
-│   │   ├── redis/                     # redis.conf ir aplinkų redis.conf
+│   │   ├── php/                       # *.ini drop-in; php/<aplinka>/ – tik tai aplinkai
+│   │   ├── apache/                    # *.conf globaliai, vhost.d/*.conf – svetainės VirtualHost
+│   │   ├── nginx-proxy/               # *.conf (http), server.d/*.conf, location.d/*.conf
+│   │   ├── mysql/ arba mariadb/       # *.cnf ir init.d/ (SQL pirmą kartą kuriant DB)
+│   │   ├── redis/                     # *.conf, kai SERVICES turi redis
 │   │   ├── cron/                      # crontab ir crontab.<aplinka>
 │   │   ├── prestashop/                # parameters.override.php / settings.override.php
-│   │   ├── startup/                   # Numeruoti *.sh prieš PHP-FPM startą
-│   │   └── mano-programa/             # Savi failai; skaitymą turi prijungti pats
+│   │   ├── composer/                  # Savas parduotuvės composer.json / composer.lock
+│   │   ├── startup/                   # *.sh, vykdomi prieš PHP-FPM startą
+│   │   ├── deploy/build.sh            # Asset'ų surinkimas deploy'aus metu
+│   │   └── environment.json           # Neprivalomi aplikacijos env reikalavimai
 │   ├── database/
-│   │   ├── schema/                    # Sugeneruotos lentelių apibrėžtys
-│   │   ├── after-import/
-│   │   │   ├── common/                # SQL po kiekvieno importo
-│   │   │   └── local|test|stage|prod/  # SQL po atitinkamos aplinkos importo
-│   │   ├── fixtures/
-│   │   │   ├── common/                # Duomenys kiekvienam pasirinktam rinkiniui
-│   │   │   ├── local/                 # Vietiniam darbui skirti duomenys
-│   │   │   ├── test/                  # Testavimo duomenys
-│   │   │   └── pristatymas/           # Galima sukurti ir savo rinkinį
-│   │   └── doctrine/
-│   │       ├── connection.php         # DB ryšys migracijų įrankiui
-│   │       ├── migrations.php         # Kur rasti ir registruoti migracijas
-│   │       └── versions/              # Konkrečios PHP migracijos
-│   ├── qa/
-│   │   ├── baselines/                 # PHPStan ir kitų įrankių išimčių failai
-│   │   ├── phpstan/phpstan.neon        # PHPStan taisyklės ir tikrinami katalogai
-│   │   ├── php-cs/.php-cs-fixer.php    # PHP formatavimo taisyklės
-│   │   ├── playwright/
-│   │   │   ├── playwright.config.cjs  # Naršyklės testų nustatymai
-│   │   │   └── tests/                 # *.spec.cjs testų scenarijai
-│   │   └── psalm/                     # Savas įrankis; automatiškai neprijungtas
-│   ├── public/                        # Vietinės aplikacijos kodas
-│   ├── stage/public/                  # Numatytoji stage aplikacijos vieta
-│   ├── prod/public/                   # Numatytoji prod aplikacijos vieta
-│   ├── tiekejai/                      # Forsenos savi failai, setup jų nevaldo
-│   ├── scripts/                       # Savo ranka paleidžiami pagalbiniai scriptai
-│   ├── docs/                          # Tik šiam projektui skirta dokumentacija
-│   ├── .idea/                         # PhpStorm projekto nustatymai
-│   └── .generated/                    # Privatūs sugeneruoti failai; ne į Git
-│       ├── compose.local.yaml         # make config rezultatas
-│       ├── phpstorm-compose.local.yaml
-│       ├── phpstorm-backups/          # IDE failų kopijos prieš pakeitimus
-│       ├── backups/                   # make db-backup rezultatai
-│       ├── db-import.local.lock       # Importo/fixtures vykdymo užraktas
-│       └── test/
-│           ├── initialized           # Žyma, kad kopiją valdo test-init
-│           ├── app/                   # Nepriklausoma testinės aplikacijos kopija
-│           └── data/                  # Testinė DB, TLS ir įrankių rezultatai
+│   │   ├── schema/                    # Lentelių snapshot'as (commit hook'as jį atnaujina)
+│   │   ├── table-registry.txt         # Privalomas lentelių registras
+│   │   ├── migrations/                # Apsaugotos SQL migracijos
+│   │   ├── after-import/              # common/, <aplinka>/, integrations/ SQL po užkėlimo
+│   │   ├── data/<rinkinys>/           # Bazinis duomenų rinkinys (pvz. dev) ir recipe.txt
+│   │   └── fixtures/                  # Papildomi SQL rinkiniai
+│   ├── public/                        # Aplikacijos kodas (local)
+│   ├── stage/public/, prod/public/    # Aplikacijos kodas stage/prod aplinkoms serveryje
+│   ├── .idea/                         # PhpStorm nustatymai
+│   └── .generated/                    # Sugeneruoti privatūs failai (ne Git)
+│       ├── compose.<ENV>.yaml         # make config rezultatas
+│       ├── backups/                   # make db-backup kopijos
+│       ├── release/<aplinka>/         # images.lock.json, deploy'ų istorija, release'ai
+│       └── test/app, test/data        # Izoliuota ENV=test kodo kopija ir duomenys
 └── data/
-    ├── mysql/ arba mariadb/           # Tik vieno pasirinkto DB variklio failai
+    ├── mysql/ arba mariadb/           # Pasirinkto DB variklio failai
     ├── ssl/                           # domain.crt ir domain.key
-    ├── profiling/                     # PHP profiliavimo rezultatai
-    ├── mailpit/                       # Sugauti laiškai
-    ├── phpstan/                       # Cache ir ataskaitos
-    ├── php-cs/                        # Formatavimo įrankio cache
-    ├── playwright/                    # Ataskaitos, trace, test-results
-    ├── doctrine-migrations/           # Įrankio darbiniai duomenys
-    ├── local/redis/                   # Dabartinio Redis šablono vietinė vieta
-    ├── stage/                         # Stage duomenų bazinis katalogas
-    └── prod/                          # Prod duomenų bazinis katalogas
+    ├── profiling/                     # Xdebug profiliai ir trace
+    ├── mailpit/, cron/, redis/        # Įjungtų servisų duomenys
+    └── stage/, prod/                  # Serverių aplinkų duomenys
 ```
 
-`local|test|stage|prod` žemėlapyje reiškia keturis galimus katalogų vardus. Nekurk vieno katalogo su vertikaliais brūkšniais.
+`<aplinka>` reiškia vieną iš `local`, `test`, `stage`, `prod`.
 
 ## Kas perskaitoma automatiškai
 
 | Vieta | Kas ten saugoma | Kada perskaitoma | Ar į Git? |
 | --- | --- | --- | --- |
-| `env/common.env` | Projekto bendros reikšmės | Kiekviena runner komanda | Taip, be paslapčių |
+| `env/common.env` | Bendri projekto nustatymai | Kiekviena komanda | Taip, be slaptažodžių |
 | `env/<ENV>.env` | Aplinkos prisijungimai ir skirtumai | Pasirinkus `ENV` | Ne |
-| `compose/base.yaml` | Servisų pagrindas | Visada | Taip |
-| `compose/common.yaml` | Bendri pakeitimai | Jei failas yra | Taip |
-| `compose/<ENV>.yaml` | Aplinkos pakeitimai | Jei failas yra | Taip |
-| Kiti `compose/*.yaml` | Papildomi servisai ir prijungimai | Tik įrašius į `PROJECT_COMPOSE_FILES` arba `include` | Taip |
-| `config/php/*.ini` ir `config/php/<ENV>/*.ini` | PHP direktyvos | Bendro PHP serviso paleidimo metu | Taip, jei nėra paslapčių |
-| `config/mysql/*.cnf`, `config/mariadb/*.cnf` ir aplinkų failai | Pasirinkto DB serverio nustatymai | To variklio paleidimo metu | Taip |
-| `config/apache/*.conf`, `config/nginx-proxy/*.conf` ir aplinkų failai | HTTP serverių direktyvos | Atitinkamo serviso paleidimo metu | Taip |
-| `config/startup/*.sh` | Projekto paruošimo veiksmai | Kiekvieną bendro PHP serviso startą | Taip |
-| `config/prestashop/*.override.php` | Papildomi PS parametrai | Tik PS profiliui ir tik atpažintam formatui | Taip, paslaptis skaityti iš env |
-| `config/cron/crontab`, `crontab.<ENV>` | Suplanuotos užduotys | Įjungus cron servisą | Taip |
-| `database/after-import` | DB taisymo SQL | Tik `db-import` ir nustačius kelią | Taip |
-| `database/fixtures` | Paruošti duomenys | Tik aiškiai pasirinkus rinkinį | Taip, be tikrų klientų duomenų |
-| `database/schema` | Lentelių SQL ir manifestas | `schema-export` / `schema-check` | Taip |
-| `database/doctrine`, `qa/*`, `config/redis` | Pasirenkami įrankiai | Tik su jų Compose prijungimu | Taip |
-| `.generated`, `../data` | Veikiančios aplinkos būsena | Sukuria komandos / servisai | Ne |
-| `scripts`, `docs`, `tiekejai`, savi katalogai | Projekto pasirinktas turinys | Jokios automatikos vien dėl vardo | Sprendžia projektas |
+| `compose/base.yaml` | Projekto papildomi servisai | Jei failas yra | Taip |
+| `compose/common.yaml`, `compose/<ENV>.yaml` | Compose skirtumai | Jei failas yra | Taip |
+| `SERVICES=` sąraše esantys servisai | CORE servisų aprašai | Kiekviena komanda | Taip (sąrašas env faile) |
+| `config/<servisas>/…` | Drop-in failai | To serviso starto metu | Taip, slaptažodžius imk iš env per `.template` |
+| `config/mysql/init.d/` | SQL ir scriptai | Tik pirmą kartą kuriant DB | Taip |
+| `config/startup/*.sh` | Projekto paruošimo veiksmai | Kiekvieną PHP startą | Taip |
+| `config/cron/crontab*` | Cron užduotys | Kai `SERVICES` turi `cron` | Taip |
+| `database/after-import/` | SQL po DB užkėlimo | `db-import`, `db-load`, `test-prepare` | Taip |
+| `database/schema/`, `table-registry.txt`, `migrations/` | DB kaip kodas | Commit hook'as, `db-*` komandos | Taip |
+| `database/data/<rinkinys>/` | Anonimizuotas bazinis rinkinys | `db-load`, `test-prepare` | Taip |
+| `.generated/`, `../data/` | Veikiančios aplinkos būsena | Sukuria komandos | Ne |
 
-`config/php/test/runtime.ini` skaitomas testinėje aplinkoje, tačiau `config/startup/test/010-task.sh` **automatiškai nevykdomas**. Startup ieško tik tiesioginių `config/startup/*.sh` failų. Jei reikia skirtingo elgesio, naudok env ir sąlygą scripte.
+`config/php/local/20-runtime.ini` skaitomas tik `ENV=local`, o `config/php/20-runtime.ini` – visose aplinkose. Aplinkos failas skaitomas po bendro, todėl jo reikšmė laimi.
 
-DB konfigūracija ir SQL turi skirtingą darbą. `config/mysql/local/runtime.cnf` pasako, **kaip veikia MySQL**, o `database/after-import/local/010-domain.sql` keičia **įrašus tavo DB**.
+DB konfigūracija ir SQL turi skirtingą darbą: `config/mysql/20-runtime.cnf` pasako, **kaip veikia MySQL**, o `database/after-import/local/010-domain.sql` keičia **įrašus tavo DB**.
 
 ## Aplikacijos public ir interneto public nėra tas pats
 
-Šiame setup `app/public` reiškia visą aplikacijos checkout. PrestaShop atveju ten yra `index.php`, `modules`, `app`, `config` ir kiti failai.
+`app/public` reiškia visą aplikacijos checkout'ą. PrestaShop atveju ten yra `index.php`, `modules`, `app`, `config` ir kiti failai.
 
 Symfony tipo projektas gali turėti dar vieną savo `public`:
 
 ```text
-demo/app/public/             # Visas Git checkout
+demo/app/public/             # Visas Git checkout'as
 ├── composer.json
 ├── src/
 └── public/index.php         # Tik ši dalis turi būti pasiekiama naršyklei
 ```
 
-Tada `DOCUMENT_ROOT=public`. Aplikacijos checkout vieta nesikeičia; pasikeičia Apache aptarnaujamas poaplankis.
+Tada `env/common.env` įrašyk `DOCUMENT_ROOT=public`. Kodo vieta nesikeičia, pasikeičia tik Apache aptarnaujamas poaplankis.
 
-## Kiti palaikomi išdėstymai
+## Dvi repozitorijos viename projekte
 
-| Generatoriaus variantas | Kur Makefile / env / compose | Kur vietinės aplikacijos kodas |
-| --- | --- | --- |
-| `--layout app` | `<projektas>/app` | `<projektas>/app/public` |
-| `--layout root` | `<projektas>/docker` | `<projektas>/app/public` |
-| `--layout legacy` | `<projektas>/app/docker` | `<projektas>/app/public` |
-
-Naujam projektui generatoriaus automatinis pasirinkimas yra `root`. Norėdamas Forsenos išdėstymo, aiškiai naudok `--layout app`.
-
-Taip pat yra du failų grupavimo variantai: `grouped` naudoja `env/` ir `compose/`, o `flat` naudoja `.env`, `.env.local`, `compose.yaml`, `compose.override.yaml`, `compose.local.override.yaml` šalia Makefile. Vienoje vietoje jų nemaišyk. Šis vadovas toliau remiasi `grouped` ir `--layout app`.
-
-Senesni QA prijungimai gali rodyti į `app/config/phpstan`, `app/config/php-cs`, `app/config/playwright`, `app/tests/playwright` ir `app/config/doctrine-migrations`. `compose/qa.yaml` bei `compose/doctrine.yaml` juos pakeičia į šiame vadove aprašytus `qa/` ir `database/doctrine/` kelius. Vien perkėlus failus prijungimai nepasikeičia.
+Forsenoje aplinkos repozitorija yra `forsena/app` (env, compose, config, database), o parduotuvės repozitorija – `forsena/app/public`. `git status` kataloge `app/` ir `git -C public status` rodo skirtingus darbus. Daugiau: [kasdienis darbas](10-kasdienis-darbas.md#dvi-git-repozitorijos).

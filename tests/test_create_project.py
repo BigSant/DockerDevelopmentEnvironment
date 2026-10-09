@@ -10,6 +10,8 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
+                 'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path.insert(0, str(ROOT))
 from create_project import scaffold, start, main, normalize_name
 from project import Project
@@ -39,19 +41,19 @@ class CreateProjectTest(unittest.TestCase):
     def test_new_project_has_working_core_config_and_private_credentials(self):
         app = self.create()
         self.assertEqual({p.relative_to(app).as_posix() for p in app.rglob('*') if p.is_file()}, {
-            'Makefile', '.gitignore', 'compose/base.yaml', 'env/common.env',
+            'Makefile', '.gitignore', 'env/common.env',
             'env/local.env', 'public/index.php', '.generated/create-project.json', '.idea/.name',
         })
-        self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'compose', 'env', 'public', '.generated', '.idea'})
+        self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'env', 'public', '.generated', '.idea'})
         project = Project(app)
         active = json.loads(project.capture(['config', '--format', 'json']))['services']
         self.assertEqual(set(active), {'nginx-proxy', 'webserver', 'php-fpm', 'database'})
-        self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base'})
-        self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/Dockerfile')
+        self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base', 'php-fpm-core'})
+        self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/docker/php-fpm/project/Dockerfile')
         self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
         self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\n')
         self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line},
-                         {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD'})
+                         {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD'})
         self.assertEqual(project.settings['LOCALHOST_PORT'], '0')
         self.assertEqual(project.profiles, '')
         self.assertRegex(active['database']['image'], r'-s[0-9a-f]{12}$')
@@ -76,7 +78,7 @@ class CreateProjectTest(unittest.TestCase):
         app = self.create()
         (app / 'env/local.env').unlink()
         (app / 'env/local.env.example').write_text(
-            'DOMAIN=new-shop.local\nDATABASE_USER=example\nDATABASE_NAME=example\nDATABASE_PASSWORD=example\n')
+            'DOMAIN=new-shop.local\nDATABASE_USER=example\nDATABASE_NAME=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=example\n')
         with contextlib.redirect_stdout(io.StringIO()):
             initialize_env(app, 'local')
         project = Project(app)
@@ -85,6 +87,7 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_project_yaml_adds_service_without_profile_env(self):
         app = self.create()
+        (app / 'compose').mkdir(exist_ok=True)
         (app / 'compose/local.yaml').write_text('services:\n  worker:\n    image: alpine:3.20\n    command: ["sleep", "infinity"]\n')
         project = Project(app)
         active = json.loads(project.capture(['config', '--format', 'json']))['services']
@@ -92,7 +95,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(project.profiles, '')
         for environment in ('stage', 'prod', 'test'):
             (app / f'env/{environment}.env').write_text(
-                f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=example\n')
+                REMOTE_LIMITS + f'DOMAIN=new-shop.{environment}.local\nDATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=example\n')
             other = Project(app, environment)
             self.assertEqual(other.settings['PROFILE'], '')
             self.assertEqual(other.profiles, '')
@@ -123,6 +126,7 @@ class CreateProjectTest(unittest.TestCase):
         with (app / 'env/local.env').open('a') as handle:
             handle.write('CACHE_MODE=on\n')
         # Explicit extensions belong to the user; a retry must not remove them.
+        (app / 'compose').mkdir(exist_ok=True)
         (app / 'compose/redis.yaml').write_text('services: {}\n')
         before = {p.relative_to(app): p.read_bytes() for p in app.rglob('*') if p.is_file()}
         self.assertEqual(self.create(), app)
@@ -260,3 +264,90 @@ class CreateProjectTest(unittest.TestCase):
             self.assertEqual(main(['demo', '--start']), 0)
             prerequisites.assert_called_once_with()
             start_project.assert_called_once_with(app)
+
+
+class WizardTest(unittest.TestCase):
+    """The interactive wizard and its parameters: defaults, compatible choices, summary, cancel."""
+
+    def setUp(self):
+        scratch = ROOT / '.test-work'
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        self.parent = Path(temporary.name)
+
+    def run_main(self, argv, answers=(), interactive=True):
+        replies = iter(answers)
+        asked = []
+
+        def ask(prompt):
+            asked.append(prompt)
+            return next(replies)
+
+        created = []
+        with patch('create_project.scaffold', lambda name, parent, options=None: created.append((name, options)) or self.parent), \
+                contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
+            code = main(argv, ask=ask, interactive=interactive)
+        return code, created, asked, output.getvalue() + errors.getvalue()
+
+    def test_enter_everywhere_gives_a_prestashop_9_project(self):
+        code, created, asked, output = self.run_main([], ['Melga'] + [''] * 7)
+        self.assertEqual(code, 0)
+        name, options = created[0]
+        self.assertEqual(name, 'Melga')
+        self.assertEqual(options, {'profile': 'prestashop', 'ps_version': '9.0.2', 'php_version': '8.4', 'database': 'mysql',
+                                   'database_version': '8.4', 'services': 'pma mailpit'})
+        self.assertIn('Domain      melga.local', output)
+        self.assertIn('Time zone   Europe/Vilnius', output)
+        self.assertTrue(asked[-1].startswith('Create these files?'))
+
+    def test_only_compatible_php_versions_are_offered(self):
+        code, created, asked, output = self.run_main(['Oldshop', '--ps-version', '1.6.1.24'], ['', '8.4', '7.1', '', '', '', ''])
+        self.assertIn('Choose one of: 5.6, 7.0, 7.1', output)
+        self.assertEqual(created[0][1]['php_version'], '7.1')
+        self.assertEqual(created[0][1]['database_version'], '5.7')
+
+    def test_all_parameters_ask_nothing_and_bad_pairs_are_refused(self):
+        argv = ['Shop', '--profile', 'prestashop', '--ps-version', '8.1.7', '--php-version', '8.1', '--database', 'mariadb',
+                '--database-version', '10.11', '--services', 'pma', '--yes']
+        code, created, asked, _ = self.run_main(argv, interactive=True)
+        self.assertEqual((code, asked), (0, []))
+        self.assertEqual(created[0][1]['database'], 'mariadb')
+        code, created, _, output = self.run_main(['Shop', '--ps-version', '9.0.2', '--php-version', '7.4', '--yes'], interactive=False)
+        self.assertEqual((code, created), (1, []))
+        self.assertIn('PHP 7.4 is not compatible here; choose one of: 8.1, 8.2, 8.3, 8.4', output)
+        code, created, _, output = self.run_main(['Shop', '--services', 'pma rabbit', '--yes'], interactive=False)
+        self.assertIn('Unknown services: rabbit', output)
+
+    def test_cancel_writes_nothing(self):
+        code, created, _, output = self.run_main([], ['Melga'] + [''] * 6 + ['n'])
+        self.assertEqual((code, created), (1, []))
+        self.assertIn('nothing was created', output)
+
+    def test_a_project_including_setup_core_files_gets_a_migration_hint(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            app = scaffold('legacy-include', self.parent)
+        (app / 'compose').mkdir()
+        (app / 'compose/base.yaml').write_text('include:\n  - ${ROOT_DIRECTORY}/docker/mysql/docker-compose.yml\n')
+        with self.assertRaisesRegex(ValueError, "includes setup's core services; the runner loads them now"):
+            Project(app)
+        (app / 'env/common.env').write_text((app / 'env/common.env').read_text() + 'DATABASE_ENGINE=postgres\n')
+        (app / 'compose/base.yaml').unlink()
+        with self.assertRaisesRegex(ValueError, 'DATABASE_ENGINE must be mysql or mariadb'):
+            Project(app)
+
+    def test_answers_reach_the_project_files(self):
+        from create_project import complete_options
+        options = complete_options({'profile': 'prestashop', 'ps_version': '9.0.2', 'database': 'mariadb', 'services': 'pma'})
+        with contextlib.redirect_stdout(io.StringIO()):
+            app = scaffold('wizard-shop', self.parent, options)
+        common = (app / 'env/common.env').read_text()
+        for line in ('PROFILE=prestashop', 'PS_VERSION=9.0.2', 'PHP_VERSION=8.4', 'MARIADB_VERSION=11.4', 'SERVICES=pma'):
+            self.assertIn(line, common)
+        self.assertIn('DATABASE_ENGINE=mariadb', common)
+        self.assertFalse((app / 'compose').exists(), 'the runner loads the core services; no setup paths in the project')
+        self.assertFalse((app / 'public').exists(), 'the shop is cloned into app/public by the developer')
+        project = Project(app)
+        services = json.loads(project.capture(['config', '--format', 'json']))['services']
+        self.assertTrue(services['database']['image'].startswith('mariadb-'))
+        self.assertIn('pma', services)

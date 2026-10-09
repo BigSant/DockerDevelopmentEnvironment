@@ -19,20 +19,24 @@ from project import Project
 @unittest.skipUnless(os.environ.get("SETUP_MYSQL_SCHEMA_INTEGRATION") == "1",
                      "set SETUP_MYSQL_SCHEMA_INTEGRATION=1 to run a disposable MySQL container")
 class SchemaIntegrationTest(unittest.TestCase):
-    def test_real_commit_blocks_drift_unstaged_export_and_offline_database(self):
+    def test_real_commit_exports_drift_requires_classification_and_passes_offline(self):
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="schema-integration-", dir=scratch) as temporary:
             root = Path(temporary)
             directory = root / "docker"
             directory.mkdir()
-            (directory / ".env").write_text(f"PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=database/schema\n")
-            (directory / ".env.local").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_PASSWORD=schema-test-only\nCOMPOSE_PROFILES=\n")
+            (directory / "env").mkdir(); (directory / "compose").mkdir()
+            (directory / "env/common.env").write_text(f"PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=database/schema\n")
+            (directory / "env/local.env").write_text("DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=schema-test-only\nCOMPOSE_PROFILES=\n")
             # No published ports, no host DB bind mount, no access to other project networks.
-            (directory / "compose.yaml").write_text("""services:
+            (directory / "compose/base.yaml").write_text("""services:
   database:
     image: __DB_TEST_IMAGE__
+    # Overrides the core database: no network, no data directory, the image's own user.
     network_mode: none
+    networks: !reset []
+    user: !reset ""
     tmpfs:
       - /var/lib/mysql
     environment:
@@ -40,6 +44,7 @@ class SchemaIntegrationTest(unittest.TestCase):
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_ROOT_PASSWORD: schema-root-test-only
+    volumes: !reset []
 """.replace("__DB_TEST_IMAGE__", os.environ.get("SETUP_DB_TEST_IMAGE", "mysql-local-8.4.0:latest")))
             git(root, "init", "-q")
             git(root, "config", "user.name", "Schema Test")
@@ -47,7 +52,7 @@ class SchemaIntegrationTest(unittest.TestCase):
             git(root, "config", "commit.gpgsign", "false")
             project = Project(directory)
             try:
-                project.run(["up", "-d", "--no-build", "--pull", "never"])
+                project.run(["up", "-d", "--no-build", "--pull", "never", "database"])
                 deadline = time.monotonic() + 90
                 while True:
                     try:
@@ -66,9 +71,11 @@ CREATE TABLE product (
   UNIQUE KEY product_code (code)
 ) ENGINE=InnoDB;
 """)
+                (root / "database/table-registry.txt").parent.mkdir(parents=True, exist_ok=True)
+                (root / "database/table-registry.txt").write_text("parent config full import\nproduct catalog slice import\n")
                 with contextlib.redirect_stdout(io.StringIO()):
                     export_schema(project)
-                    git(root, "add", "database/schema")
+                    git(root, "add", "database")
                     install_schema_hook(project)
 
                 def commit():
@@ -84,17 +91,34 @@ CREATE TABLE product (
                 result = commit()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("different: table-product.sql", result.stderr)
-                with contextlib.redirect_stdout(io.StringIO()):
-                    export_schema(project)
+                self.assertIn("description", (root / "database/schema/table-product.sql").read_text(),
+                              "the hook exports the changed schema for review")
                 result = commit()
-                self.assertNotEqual(result.returncode, 0, "export without git add must remain blocked")
+                self.assertNotEqual(result.returncode, 0, "an exported but unstaged schema must remain blocked")
                 git(root, "add", "-A", "database/schema")
                 result = commit()
+                self.assertNotEqual(result.returncode, 0, "a schema change needs a staged migration")
+                self.assertIn("no new migration is staged", result.stderr)
+                drafts = list((root / "database/migrations").glob("*-schema.sql"))
+                self.assertEqual(len(drafts), 1)
+                self.assertIn("ADD COLUMN `description` text AFTER `code`", drafts[0].read_text())
+                git(root, "add", "-A", "database")
+                result = commit()
                 self.assertEqual(result.returncode, 0, result.stderr)
-                project.run(["stop", "database"])
+                mysql_query(project, "CREATE TABLE tmp_import (id int);")
                 result = commit()
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("Cannot read DB schema", result.stderr)
+                self.assertIn("tmp_import", result.stderr)
+                self.assertIn("make schema-resolve", result.stderr)
+                with (root / "database/table-registry.txt").open("a") as registry:
+                    registry.write("tmp_import drop drop -\n")
+                git(root, "add", "database/table-registry.txt")
+                result = commit()
+                self.assertEqual(result.returncode, 0, "a table marked for DROP stays out of the snapshot: " + result.stderr)
+                project.run(["stop", "database"])
+                result = commit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("not reachable", result.stdout + result.stderr)
             finally:
                 project.run(["down", "--volumes", "--remove-orphans"])
 

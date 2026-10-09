@@ -118,7 +118,7 @@ define('_DB_PREFIX_', 'custom_');
     def test_test_environment_has_distinct_code_data_ports_and_config(self):
         with contextlib.redirect_stdout(io.StringIO()): prepare(self.root/'shop',layout='app')
         app=self.root/'shop/app'
-        (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_PASSWORD=local-secret\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n')
+        (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=local-secret\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n')
         (app/'public').mkdir();(app/'public/index.php').write_text('<?php echo "original";')
         project=Project(app)
         with patch('project_bootstrap.prepare_host'),contextlib.redirect_stdout(io.StringIO()):
@@ -135,12 +135,23 @@ define('_DB_PREFIX_', 'custom_');
         model=test.model()
         self.assertEqual(model['services']['database']['image'],project.model()['services']['database']['image'])
         self.assertNotEqual(model['services']['database']['container_name'],project.model()['services']['database']['container_name'])
+        before = project.model()['services']
         with (app/'env/local.env').open('a') as file: file.write('NODE_VERSION=18\n')
-        self.assertNotEqual(Project(app).model()['services']['database']['image'], model['services']['database']['image'])
+        after = Project(app).model()['services']
+        # Per-image fingerprints: a PHP build argument renames only the PHP images.
+        self.assertNotEqual(after['php-fpm']['image'], before['php-fpm']['image'])
+        self.assertEqual(after['database']['image'], before['database']['image'])
         override = app/'compose/test.yaml'
         override.write_text('services:\n  database:\n    volumes:\n      - ${PROJECT_DIRECTORY}/data/mysql:/var/lib/mysql\n')
         with self.assertRaisesRegex(ValueError, 'writable mount'): Project(app, 'test')
         override.unlink()
+        # e2e runs only in ENV=test: the shared Playwright config and specs are mounted read-only there.
+        common = (app/'env/common.env').read_text()
+        (app/'env/common.env').write_text(common + 'PROJECT_COMPOSE_FILES=\n')
+        e2e = Project(app, 'test')
+        e2e.validate_test_isolation('playwright')
+        self.assertEqual(e2e.model()['services']['playwright']['environment']['PLAYWRIGHT_DATA_DIR'], '/e2e/data')
+        (app/'env/common.env').write_text(common)
         with test.env_files[-1].open('a') as file: file.write('APP_SOURCE_DIRECTORY=app/public\n')
         with self.assertRaisesRegex(ValueError,'Test data and code'): Project(app,'test')
 

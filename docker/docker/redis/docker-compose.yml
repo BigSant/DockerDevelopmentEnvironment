@@ -1,0 +1,40 @@
+# Optional cache/queue server (SERVICES=redis). PHP reaches it as redis:6379 on the project
+# network; enable the redis PHP extension with an ini drop-in (extension=redis.so).
+services:
+  redis:
+    image: redis-${IMAGE_ENV:-${ENV}}-${REDIS_VERSION}${SETUP_IMAGE_SUFFIX_REDIS:-}
+    container_name: ${PROJECT_NAME}-${ENV}-redis-${REDIS_VERSION}
+    environment:
+      TZ: ${TZ}
+      REDIS_MAXMEMORY_MB: ${REDIS_MAXMEMORY_MB}
+    mem_limit: ${REDIS_MEMORY}
+    cpus: ${REDIS_CPUS}
+    # The host user owns data/redis when a project enables persistence.
+    user: "${DATABASE_UID:-${HOST_UID:-1000}}:${DATABASE_GID:-${HOST_GID:-1000}}"
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    build:
+      labels:
+        setup.managed: "1"
+        setup.service: redis
+        setup.fingerprint: ${SETUP_IMAGE_SUFFIX_REDIS:-}
+      context: ${ROOT_DIRECTORY}
+      dockerfile: ${ROOT_DIRECTORY}/docker/redis/Dockerfile
+      target: env-${BUILD_ENV:-${ENV}}
+      args:
+        REDIS_VERSION: ${REDIS_VERSION}
+    networks:
+      - network_app
+    volumes:
+      - ${PROJECT_DATA_DIRECTORY}/redis/:/data
+      - ${PROJECT_DOCKER_DIRECTORY}/config/redis/:/usr/local/etc/redis/project.d/:ro
+      - ${PROJECT_DOCKER_DIRECTORY}/config/redis/${ENV}/:/usr/local/etc/redis/project.d.env/:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

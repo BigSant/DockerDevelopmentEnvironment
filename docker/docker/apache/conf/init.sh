@@ -15,6 +15,11 @@ if [[ -z "$domain" ]]; then
   exit 1
 fi
 
+# ── Effective project drop-ins: copy and render *.template ──────────────────────
+sh /usr/local/bin/render-templates.sh \
+  /usr/local/apache2/conf/project /usr/local/apache2/conf/project.r \
+  /usr/local/apache2/conf/project.env /usr/local/apache2/conf/project.r.env
+
 # ── Substitute domain placeholder ─────────────────────────────────────────────
 sed -i "s/DOMAIN_VAR/${domain}/g" "$sites_conf"
 echo "[init] Domain set to: ${domain}"

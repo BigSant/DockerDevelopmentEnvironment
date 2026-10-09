@@ -33,7 +33,7 @@ make db-import-plan file=/path/dump.sql previews; make db-import imports explici
 Hook SQL may use the validated ${DOMAIN} placeholder. Schema snapshots do not
 prove migration replay; a disposable CI database should check that separately.
 
-See setup/doc/PROJECT_TEMPLATES.md and setup/doc/ENVIRONMENT_COMMANDS.md.
+See setup/doc/lt/README.md (user guide) and setup/doc/ARCHITECTURE.md.
 
 `make bootstrap` prepares local TLS/host/IDE settings. `make test-init` prepares
 a separate app/data copy for ENV=test; start its DB with `make db-prepare ENV=test`,
