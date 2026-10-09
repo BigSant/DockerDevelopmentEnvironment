@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 
-from database_client import DUMP
+from database_client import DUMP, extra_schemas
 
 
 def keep_existing(structure):
@@ -48,6 +48,14 @@ def backup_database(project, destination=None, registry=False):
     require_space(project, target.parent)
     # registry=True: structure of every table, data only of tables the registry imports from LIVE.
     passes = registry_passes(project, database) if registry else [[]]
+    extras = extra_schemas(project.settings)
+    if extras:
+        # One dump run reads the main and the extra schemas in a single transaction (a consistent copy)
+        # and names each one (CREATE DATABASE IF NOT EXISTS + USE), so a restore recreates every schema.
+        # The run ends inside the last schema, so the header-less structure pass of the main
+        # database's skipped tables goes first. The registry covers the main database only.
+        data, *structure = passes
+        passes = [*structure, [*data, '--databases', *extras]]
     commands = [project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', database, *options]
                 for options in passes]
     temporary = None

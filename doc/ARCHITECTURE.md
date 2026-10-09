@@ -98,7 +98,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 - **Security defaults**: published ports bind to 127.0.0.1; nginx-proxy takes the client IP from the
   host proxy (`X-Forwarded-For`) and renders allow/deny per entry point; Apache hides dot-paths
   (except `.well-known`), `*.sql`, backups and composer files; the application DB user has rights on
-  its own database only, root has its own password.
+  its own database (and `DATABASE_EXTRA_SCHEMAS`) only, root has its own password.
 
 ## 5. Database as code
 
@@ -115,6 +115,12 @@ fingerprint is outdated; it removes only with `apply=1`.
 - Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
   project scripts, integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
   policy → schema report (warning only). `db-import` skips the data of `skip` tables unless `full=1`.
+- `DATABASE_EXTRA_SCHEMAS`: further project schemas. The first start creates them and grants the
+  application user the main database's rights on them (grant patterns escape `_`, which would otherwise
+  match any character). Backups dump all schemas in one `mysqldump --databases` run (one transaction,
+  `CREATE DATABASE IF NOT EXISTS` + `USE` per schema), so a restore recreates each under its own name;
+  an import refuses a dump that `USE`s any other schema; `db-restrict-grants` grants (and creates) them.
+  Snapshot, registry, migrations and data sets stay on `DATABASE_NAME`. Without the setting nothing changes.
 - Base data set (`make db-dataset`, local only): registry rules + recipe (product sample, slice
   conditions), personal columns faked, credentials blanked, rows sorted by key, one row per line.
   The output is deterministic. `make db-load set=dev` loads snapshot + set + fixtures.

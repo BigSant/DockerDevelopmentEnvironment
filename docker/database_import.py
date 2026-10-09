@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 
-from database_client import IMPORT as MYSQL_IMPORT
+from database_client import IMPORT as MYSQL_IMPORT, extra_schemas
 from database_backup import backup_database
 import gzip
 import shutil
@@ -21,6 +21,31 @@ DOCKER_ROOT = Path(__file__).resolve().parent
 CREATE = re.compile(rb"^CREATE\s+(?:TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`((?:[^`]|``)+)`", re.I)
 COLUMN = re.compile(rb"^\s*[(,]?\s*`((?:[^`]|``)+)`\s+[a-zA-Z]")
 INSERT = re.compile(rb"^(?:INSERT|REPLACE)(?:\s+(?:IGNORE|LOW_PRIORITY|DELAYED|HIGH_PRIORITY))*\s+(?:INTO\s+)?`((?:[^`]|``)+)`", re.I)
+# A multi-schema dump (mysqldump --databases) switches schemas with USE; a single-schema dump has none.
+USE = re.compile(rb"^USE\s+(?:`((?:[^`]|``)+)`|([A-Za-z0-9_$]+))\s*;", re.I)
+
+
+def used_schema(line):
+    """The schema a USE line switches to, or None for any other line."""
+    if line[:1] in (b"U", b"u") and (match := USE.match(line)):
+        return (match[1].replace(b"``", b"`") if match[1] is not None else match[2]).decode("utf-8", "replace")
+    return None
+
+
+def main_schema(project):
+    """With DATABASE_EXTRA_SCHEMAS, the main database name: registry rules apply only to its part of a
+    dump (before any USE, or after USE of it). None keeps the single-schema reading."""
+    return project.settings["DATABASE_NAME"] if extra_schemas(project.settings) else None
+
+
+def open_dump(path):
+    return gzip.open(path, "rb") if path.name.lower().endswith(".gz") else path.open("rb")
+
+
+def dump_schemas(path):
+    """Every schema a dump switches to with USE."""
+    with open_dump(path) as source:
+        return {schema for line in source if (schema := used_schema(line)) is not None}
 
 
 def hook_values(project):
@@ -56,11 +81,18 @@ def skip_rule(project, full=False):
     return lambda table: (classify(entries, table) or ("", "", "", "import"))[3] in ("skip", "-")
 
 
-def dump_tables(path):
-    """Tables a dump creates, with their column names (read from the CREATE TABLE statements)."""
-    tables, current = {}, None
-    with (gzip.open(path, "rb") if path.name.lower().endswith(".gz") else path.open("rb")) as source:
+def dump_tables(path, main=None):
+    """Tables a dump creates, with their column names (read from the CREATE TABLE statements).
+
+    With `main`, only tables of the main database count; other schemas of the dump are not read.
+    """
+    tables, current, schema = {}, None, main
+    with open_dump(path) as source:
         for line in source:
+            if main is not None and (used := used_schema(line)) is not None:
+                schema = used
+            if schema != main:
+                continue
             if line[:1] in (b"C", b"c") and (match := CREATE.match(line)):
                 current = match[1].replace(b"``", b"`").decode("utf-8", "replace")
                 tables[current] = set(COLUMN.findall(line[match.end():]))
@@ -82,7 +114,7 @@ def check_dump_tables(project, dump, ask=input, interactive=None):
     entries = load(project)
     if not entries:
         return
-    tables = dump_tables(Path(dump))
+    tables = dump_tables(Path(dump), main_schema(project))
     unknown = unknown_tables(entries, tables)
     if not unknown:
         return
@@ -93,18 +125,21 @@ def check_dump_tables(project, dump, ask=input, interactive=None):
         raise ValueError(f"{len(left)} tables are not classified: {', '.join(left[:10])}")
 
 
-def filter_dump(source, sink, skip):
+def filter_dump(source, sink, skip, main=None):
     """Copy a dump without the data statements of skipped tables; returns the skipped table names.
 
     Structure statements are kept, so a skipped table exists and is empty. A multi-line INSERT is
-    skipped up to the line that ends the statement.
+    skipped up to the line that ends the statement. With `main`, only the main database's part is
+    filtered; data of the extra schemas passes unchanged.
     """
-    skipped, skipping = set(), False
+    skipped, skipping, schema = set(), False, main
     for line in source:
         if skipping:
             skipping = not line.rstrip().endswith(b";")
             continue
-        if line[:1] in (b"I", b"i", b"R", b"r") and (match := INSERT.match(line)):
+        if main is not None and (used := used_schema(line)) is not None:
+            schema = used
+        if schema == main and line[:1] in (b"I", b"i", b"R", b"r") and (match := INSERT.match(line)):
             table = match[1].replace(b"``", b"`").decode("utf-8", "replace")
             if skip(table):
                 skipped.add(table)
@@ -143,7 +178,7 @@ def stream_filtered(project, command, handle, skip, meter=None):
     client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
     skipped = set()
     try:
-        skipped = filter_dump(progress.stdout if progress else handle, client.stdin, skip)
+        skipped = filter_dump(progress.stdout if progress else handle, client.stdin, skip, main_schema(project))
     except BrokenPipeError:
         pass  # The client stopped early; its exit status reports why.
     finally:
@@ -223,6 +258,13 @@ def plan_import(project, dump):
                 raise ValueError("The compressed SQL dump is empty")
         except (OSError, EOFError) as error:
             raise ValueError("The compressed SQL dump is invalid or truncated") from error
+    extras = extra_schemas(project.settings)
+    if extras:
+        # A multi-schema dump restores each schema under its own name; refuse one that would write elsewhere.
+        foreign = sorted(dump_schemas(source) - {project.settings["DATABASE_NAME"], *extras})
+        if foreign:
+            raise ValueError(f"The dump switches to schemas outside DATABASE_NAME and DATABASE_EXTRA_SCHEMAS: "
+                             f"{', '.join(foreign)}; nothing was imported")
     for path in hooks:
         render_hook(project, path)
     return plan

@@ -38,7 +38,7 @@ help:
 	@echo 'db-fixtures-plan / db-fixtures-load set=local|test: preview / load common + selected SQL fixtures'
 	@echo 'db-import file=dump.sql db-fixtures=local: append fixtures after the import hooks'
 	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
-	@echo 'db-restrict-grants: one-time: own database privileges only, separate root password (pre-v2 databases)'
+	@echo 'db-restrict-grants: one-time: own database (+ DATABASE_EXTRA_SCHEMAS) privileges only, separate root password (pre-v2 databases)'
 	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
 	@echo 'db-import file=dump.sql full=1: also import the data of tables the registry marks skip'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
