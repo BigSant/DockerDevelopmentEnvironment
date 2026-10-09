@@ -23,6 +23,15 @@ class OptionalMountsTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.app = scaffold('optional-config', temp.name)
 
+    def test_pma_settings_drop_in_is_mounted_only_when_present(self):
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('SERVICES=pma\n')
+        targets = lambda: [v['target'] for v in Project(self.app).model()['services']['pma'].get('volumes', [])]
+        self.assertEqual(targets(), [])
+        (self.app / 'config/pma').mkdir(parents=True)
+        (self.app / 'config/pma/rows.php').write_text("<?php $cfg['MaxRows'] = 100;\n")
+        self.assertEqual(targets(), ['/etc/phpmyadmin/conf.d'])
+
     def test_missing_defaults_are_omitted_and_added_directories_are_detected(self):
         first = Project(self.app)
         for service in first.model()['services'].values():

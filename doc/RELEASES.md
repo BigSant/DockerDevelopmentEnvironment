@@ -1,7 +1,8 @@
 # Shared setup releases
 
 `VERSION` identifies the setup release; `make setup-info` reports version, Git revision and local
-modifications. Every machine shares one setup checkout at a release tag; projects do not pin versions.
+modifications. Developer machines run the latest `master` of one shared checkout; the build server
+builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## 2.0.0
 
@@ -28,9 +29,20 @@ the last v1-compatible commit is `f9c4da9`.
   `make test-sync`, `make release`, `make deploy-images`, `make deploy`, `make module-pull`,
   `make db-monitor-user`, `make db-restrict-grants`; `create-project` asks questions.
 
+### Kept on purpose
+
+- `make doctrine*` stays for applications that already run Doctrine migrations; guarded SQL migrations
+  (`database/migrations`) are the default for shop schema changes.
+- `db-fixtures-*` load extra SQL on top of a data set; `make db-load` applies the same fixtures itself.
+- `test-init` and `db-prepare` are the single steps `make test-prepare` runs, kept callable alone.
+- Mailpit and Memcached are configured through env values (`MEMCACHED_MEMORY`, `MEMCACHED_CACHE_MB`) or a
+  `compose/<env>.yaml` `environment:` entry; they read no configuration files, so they have no drop-in
+  directory. PMA reads `config/pma/*.php`.
+
 ### Migrating a v1 project
 
-1. Update the shared checkout to `v2.0.0` and run `setup/install-host` once per machine.
+1. Update the shared checkout (`master` locally, `v2.0.0` on the build server) and run `setup/install-host`
+   once per machine.
 2. In the project, keep `env/common.env` and the private `env/<env>.env`; move service selection to
    `SERVICES=`; remove the `include` of setup's core services and the network from `compose/base.yaml`
    (the runner loads them; `DATABASE_ENGINE=mariadb` selects MariaDB) and delete files left empty; keep
@@ -56,5 +68,5 @@ Forsena is the reference migration (`forsena_docker`, branch `feature/setup-v2-d
    project and an existing project migration.
 2. Update `VERSION`, this file and the guide; record migration steps for anything renamed.
 3. The owner tags the tested commit `v<version>`; keep the previous tag and images for rollback.
-4. Each machine moves its setup checkout to the tag, then runs `make setup-info`, `make doctor` and
-   `make setup` for its projects.
+4. The build server moves its setup checkout to the tag (developer machines follow `master`), then runs
+   `make setup-info`, `make doctor` and `make setup` for its projects.

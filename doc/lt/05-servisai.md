@@ -64,11 +64,12 @@ CORE failų projektas nekeičia. Vietoj to jis deda savo failus į `config/<serv
 | | `config/mysql/init.d/*` | Vieną kartą, kai DB kuriama pirmą kartą. |
 | `redis` | `config/redis/*.conf` | Po CORE Redis nustatymų. |
 | `cron` | `config/cron/crontab`, `crontab.<ENV>` | Cron užduotys. |
+| `pma` | `config/pma/*.php` | phpMyAdmin `$cfg` nustatymai (be aplinkos poaplankio). |
 | `php-fpm` | `config/startup/*.sh` | Prieš PHP-FPM startą, žr. [aplikacija](06-aplikacija.md#startup-scriptai). |
 
 Kiekvienas katalogas gali turėti aplinkos poaplankį, pvz. `config/php/local/`, `config/nginx-proxy/prod/server.d/`, `config/mysql/test/init.d/`. Jo failai skaitomi tik toje aplinkoje ir po bendrų failų.
 
-phpMyAdmin, Mailpit ir Memcached drop-in katalogų neturi: juos valdo env raktai ir Compose skirtumų failai.
+Mailpit ir Memcached konfigūracijos failų neskaito, todėl drop-in katalogų neturi: juos valdo env raktai ir Compose skirtumų failai.
 
 **Katalogai neprivalomi.** Jei katalogo nėra, jis neprijungiamas ir niekas jo nekuria. Katalogą sukurk tik tada, kai dedi į jį failą. Pirmą kartą sukūrus katalogą paleisk `make up`, kad jis būtų prijungtas. Vėliau pakeitus failo turinį užtenka `make restart service=<servisas>`.
 

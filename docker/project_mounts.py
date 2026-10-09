@@ -21,6 +21,7 @@ def attach_optional_config_mounts(project):
         ('php-phpstan', '/tmp/phpstan/config'): {application / 'phpstan'},
         ('php-cs', '/tmp/php-cs-fixer/config'): {application / 'php-cs'},
         ('playwright', '/e2e/config'): {application / 'playwright'},
+        ('pma', '/etc/phpmyadmin/conf.d'): {root / 'pma'},
     }
     for service, component, common, selected in (
         ('php-fpm', 'php', '/usr/local/etc/php/project.d', '/usr/local/etc/php/project.d.env'),

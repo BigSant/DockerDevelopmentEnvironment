@@ -27,6 +27,9 @@ services:
       # Credentials injected at runtime — never baked into the shared pma image.
       PMA_USER: ${DATABASE_USER}
       PMA_PASSWORD: ${DATABASE_PASSWORD}
+    # Project drop-in: config/pma/*.php (e.g. $cfg['MaxRows']); optional, dropped when absent.
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/config/pma/:/etc/phpmyadmin/conf.d/:ro
     depends_on:
       database:
         condition: service_healthy
