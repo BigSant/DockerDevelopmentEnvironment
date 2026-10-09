@@ -3,12 +3,15 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 import unittest
+import uuid
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -123,7 +126,8 @@ class DeployTest(unittest.TestCase):
         self.assertIn("First deploy: nothing removed", self.output.getvalue())
         self.assertEqual(self.calls[0], ["backup", True], "the backup follows the registry and comes first")
         self.assertIn(["upgrade"], self.calls)
-        self.assertEqual(self.calls[-1][-1], "cache-clear")
+        self.assertEqual(self.calls[-2][-1], "cache-clear")
+        self.assertEqual(self.calls[-1], ["exec", "-T", "php-fpm", "sh", "-c", "kill -USR2 1"], "OPcache must not keep serving the old code")
         self.assertIn("module serveronly exists only on the target", self.output.getvalue())
         self.commit("v2", {"index.php": "<?php // v2\n"}, removed=["old.php"])
         self.deploy(ref="v2")
@@ -219,6 +223,20 @@ class GenericDeployTest(unittest.TestCase):
         self.assertNotIn(["schema-report"], self.calls)
         self.assertIn("No CACHE_CLEAR_COMMAND", self.output.getvalue())
 
+    def test_every_profile_reloads_php_fpm_last_unless_the_project_opts_out(self):
+        self.generic(CACHE_CLEAR_COMMAND="php bin/console cache:clear")
+        self.deploy(ref="g1")
+        self.assertEqual(self.calls[-2:], [["exec", "-T", "php-fpm", "php", "bin/console", "cache:clear"], ["exec", "-T", "php-fpm", "sh", "-c", "kill -USR2 1"]])
+        self.assertIn("php-fpm reloaded", self.output.getvalue())
+        self.calls.clear()
+        self.project.settings["DEPLOY_PHP_RELOAD"] = "off"
+        self.deploy(ref="g1")
+        self.assertNotIn(["exec", "-T", "php-fpm", "sh", "-c", "kill -USR2 1"], self.calls)
+        self.assertIn("DEPLOY_PHP_RELOAD=off", self.output.getvalue())
+        self.project.settings["DEPLOY_PHP_RELOAD"] = "maybe"
+        with self.assertRaisesRegex(ValueError, "DEPLOY_PHP_RELOAD must be on or off"):
+            self.deploy(ref="g1")
+
     def test_generic_htaccess_and_robots_deploy_as_code(self):
         public = self.generic()
         self.deploy(ref="g1")
@@ -257,7 +275,9 @@ class GenericDeployTest(unittest.TestCase):
         hook = [args for _, args in seen if "doctrine:migrations:migrate" in " ".join(args)]
         self.assertEqual(hook, [["exec", "-T", "php-fpm", "sh", "-e", "-c", "php bin/console doctrine:migrations:migrate -n\n"]])
         self.assertEqual(seen[0][0], "<?php // g1\n", "the hook sees the rsynced code")
-        self.assertEqual(seen[-1][1], ["exec", "-T", "php-fpm", "php", "bin/console", "cache:clear"], "cache clear comes last")
+        self.assertEqual([call for _, call in seen[-2:]], [["exec", "-T", "php-fpm", "php", "bin/console", "cache:clear"],
+                                                          ["exec", "-T", "php-fpm", "sh", "-c", "kill -USR2 1"]],
+                         "cache clear, then the php-fpm reload, come last")
 
     def test_a_failing_after_rsync_hook_stops_the_deploy(self):
         self.generic(CACHE_CLEAR_COMMAND="php bin/console cache:clear", SCHEMA_DIRECTORY="schema")
@@ -354,3 +374,48 @@ class RemoteRoutingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(os.environ.get("PHP_TEST_IMAGE"), "Set PHP_TEST_IMAGE to a built project PHP image")
+class PhpReloadIntegrationTest(unittest.TestCase):
+    """What a deploy sends: USR2 to PID 1 as the container user keeps php-fpm serving with new workers."""
+
+    def docker(self, *args, check=True):
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60, check=check).stdout.strip()
+
+    def workers(self, name):
+        script = ('for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = php-fpm ] || continue; '
+                  'n=${p#/proc/}; [ "$n" = 1 ] || echo "$n"; done')
+        return set(self.docker("exec", name, "sh", "-c", script).split())
+
+    def listening(self, name):
+        for _ in range(50):
+            if subprocess.run(["docker", "exec", name, "php", "-r", "exit(@fsockopen('127.0.0.1',9000)?0:1);"],
+                              capture_output=True).returncode == 0:
+                return
+            time.sleep(.2)
+        self.fail(self.docker("logs", name))
+
+    def test_usr2_reloads_workers_and_keeps_the_master(self):
+        name = "setup-php-reload-" + uuid.uuid4().hex[:8]
+        conf = ROOT / "docker/docker/php-fpm/setup-global.conf"
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
+        self.docker("run", "-d", "--name", name, "--network", "none", "--memory", "128m", "--user", "1000:1000",
+                    "-v", f"{conf}:/usr/local/etc/php-fpm.d/zz-setup-global.conf:ro",
+                    "--entrypoint", "php-fpm", os.environ["PHP_TEST_IMAGE"], "-F", "-R")
+        self.listening(name)
+        self.assertIn("process_control_timeout = 30s", subprocess.run(
+            ["docker", "exec", name, "php-fpm", "-tt"], capture_output=True, text=True).stderr)
+        before = self.workers(name)
+        self.assertTrue(before)
+        self.docker("exec", name, "sh", "-c", "kill -USR2 1")
+        for _ in range(50):
+            after = self.workers(name)
+            if after and not after & before:
+                break
+            time.sleep(.2)
+        self.assertTrue(after and not after & before, "every worker is replaced")
+        self.listening(name)
+        self.assertEqual(self.docker("inspect", name, "--format", "{{.State.Running}}"), "true")
+        logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True)
+        self.assertIn("reloading", logs.stdout + logs.stderr)

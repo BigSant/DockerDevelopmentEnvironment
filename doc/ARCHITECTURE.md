@@ -174,7 +174,10 @@ that is not on the build machine stops before writing the lock.
 rsyncs without `--delete`, removes only files the previous release shipped and never a protected path,
 runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy and records
 it as `failed`, so later removals and `rollback=1` follow the code the target really holds),
-upgrades changed modules, runs setup migrations when the project has them, reports and clears caches.
+upgrades changed modules, runs setup migrations when the project has them, reports and clears caches,
+then reloads php-fpm for every profile (`USR2` to PID 1 via the shell builtin; the CORE image sets
+`process_control_timeout = 30s` so workers finish their requests) so OPcache serves the new code
+(`DEPLOY_PHP_RELOAD=off` opts out).
 Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
 `.htaccess`, `robots.txt`, `sitemap*.xml`) only for PrestaShop, plus tool folders and
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,

@@ -163,6 +163,7 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 | `DEPLOY_SSH` | Tuščias | `vartotojas@host`, kur `rsync` siunčia kodą. Tuščias – vietinis kelias. |
 | `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
 | `DEPLOY_PROTECTED_PATHS` | Tuščias | Papildomi kodo medžio keliai (nuo kodo šaknies, per tarpą), kurių deploy'us niekada neperrašo ir netrina, pvz. `"var/data/ var/log/ config/local.php"`. Katalogas baigiasi `/`, leidžiamas `*`. Papildo profilio sąrašą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
+| `DEPLOY_PHP_RELOAD` | `on` | `off` – deploy'aus pabaigoje neperkrauti php-fpm (`USR2`). Be perkrovimo prod OPcache gali rodyti seną kodą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 
 Stage/prod dar privalomi keturių pagrindinių servisų limitai, žr. [resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui).
 

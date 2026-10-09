@@ -8,7 +8,8 @@ make deploy ENV=stage|prod [ref=TAG] [backup=0] [rollback=1]
      vendors installed there, PrestaShop modules not in the code) stay; a file is removed only when
      the previously deployed release had it and this one does not (release manifests);
   4. the project's config/deploy/after-rsync.sh in the PHP container (its failure stops the deploy),
-     PrestaShop module upgrades, pending setup migrations, a schema report and a cache clear.
+     PrestaShop module upgrades, pending setup migrations, a schema report, a cache clear and a
+     graceful php-fpm reload so OPcache serves the new code (DEPLOY_PHP_RELOAD=off skips it).
 Every step that knows an application follows PROFILE: an empty (generic) profile reads and protects
 nothing of PrestaShop, so .htaccess, robots.txt and modules/ are code like any other tracked file.
 rollback=1 deploys the previous release again; the database comes back from the backup by hand.
@@ -260,6 +261,25 @@ def clear_cache(project):
     project.run(['exec', '-T', 'php-fpm', *command])
 
 
+def php_reload(project):
+    """DEPLOY_PHP_RELOAD (on by default): whether a deploy ends with a php-fpm reload."""
+    value = project.settings.get('DEPLOY_PHP_RELOAD') or 'on'
+    if value not in ('on', 'off'):
+        raise ValueError('DEPLOY_PHP_RELOAD must be on or off')
+    return value == 'on'
+
+
+def reload_php(project):
+    """USR2 to the php-fpm master (PID 1): new workers with an empty OPcache, so the new code is served.
+    Workers finish their requests within process_control_timeout (set in the CORE image)."""
+    if not php_reload(project):
+        print('DEPLOY_PHP_RELOAD=off: php-fpm was not reloaded; OPcache may serve the previous code until it restarts.')
+        return
+    # kill is the shell builtin: the PHP images have no procps.
+    project.run(['exec', '-T', 'php-fpm', 'sh', '-c', 'kill -USR2 1'])
+    print('php-fpm reloaded (OPcache emptied).')
+
+
 def upgrade_modules(project, release):
     """Run the upgrade of every installed module whose code version is newer than the database's."""
     from database_schema import mysql_query
@@ -288,6 +308,7 @@ def newer(candidate, current):
 def deploy_code(project, ref=None, backup=True, rollback=False):
     from project_release import release_settings
     _, deploy_path = release_settings(project)
+    php_reload(project)  # a bad value stops the deploy before anything changes
     entries = history(project)
     if rollback:
         # The latest other release whose deploy completed; a failed one is never a rollback target.
@@ -346,6 +367,7 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
         from database_schema import schema_report
         schema_report(project)
     clear_cache(project)
+    reload_php(project)
     record(project, entry)
     print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
     return commit

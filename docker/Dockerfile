@@ -25,6 +25,9 @@ ARG SETUP_IMAGE_SUFFIX=''
 COPY /profile/ /tmp/profile/
 RUN sh /tmp/profile/apply-php-profile.sh "${PROFILE}" "${ENV}" && rm -rf /tmp/profile
 
+# Master settings for every PHP version: a deploy's graceful reload (process_control_timeout).
+COPY /docker/php-fpm/setup-global.conf /usr/local/etc/php-fpm.d/zz-setup-global.conf
+
 # Rendered copies of the read-only project PHP drop-ins (written at start by any UID).
 RUN mkdir -m 0777 -p /usr/local/etc/php/project.r /usr/local/etc/php/project.r.env
 
