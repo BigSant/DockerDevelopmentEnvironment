@@ -108,15 +108,20 @@ def resolves_locally(host):
     return bool(addresses) and addresses.issubset({'127.0.0.1', '::1'})
 
 
+SERVICE_HOSTS = ('pma', 'mailpit', 'cron', 'dbmonitor')
+
+
 def route_exists(domain, port, nginx=Path('/etc/nginx')):
-    """An enabled host Nginx site for the domain already proxies to the project's port."""
+    """None, 'partial' (the site but not every service host name) or 'complete' for the host Nginx route."""
     site = nginx / 'sites-enabled' / f'{domain}.conf'
     try:
         text = site.read_text()
     except OSError:
-        return False
-    return bool(re.search(rf'server_name[^;]*\b{re.escape(domain)}\b', text)) and \
-        f'proxy_pass http://127.0.0.1:{port};' in text
+        return None
+    names = set(' '.join(re.findall(r'server_name([^;]*);', text)).split())
+    if domain not in names or f'proxy_pass http://127.0.0.1:{port};' not in text:
+        return None
+    return 'complete' if {f'{host}.{domain}' for host in SERVICE_HOSTS} <= names else 'partial'
 
 
 def prepare_host(project):
@@ -154,7 +159,7 @@ def prepare_host(project):
             replace_file(key, private.read_bytes(), private=True)
     print(f'Local hostname and TLS prepared: {domain}')
     entry_helper = host_helper('host_entry.py')
-    for host in ('pma.' + domain, 'mailpit.' + domain, 'cron.' + domain, 'dbmonitor.' + domain):
+    for host in (f'{name}.{domain}' for name in SERVICE_HOSTS):
         if resolves_locally(host):
             continue
         command = ['sudo', '-n', HOST_PYTHON, str(entry_helper), host]
@@ -163,7 +168,8 @@ def prepare_host(project):
             import shlex
             raise ValueError('Local service hostname could not be prepared. Run setup/install-host once, or: ' +
                              shlex.join(['sudo', HOST_PYTHON, str(entry_helper), host]))
-    if route_exists(domain, project.settings['LOCALHOST_PORT']):
+    route = route_exists(domain, project.settings['LOCALHOST_PORT'])
+    if route == 'complete':
         print(f'Local Nginx route already in place: http://{domain}/')
         return
     helper = host_helper('host_proxy.py')
@@ -171,6 +177,11 @@ def prepare_host(project):
     result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
     if result.returncode:
         import shlex
+        if route == 'partial':
+            # The site works; only newer service host names (e.g. cron., dbmonitor.) are not routed yet.
+            print(f'Warning: the Nginx route for {domain} lacks some service host names. Run setup/install-host '
+                  'once, or: ' + shlex.join(['sudo', *args]))
+            return
         raise ValueError('Local Nginx route could not be prepared. ' + result.stderr.strip() +
                          '\nRun setup/install-host once, or: ' + shlex.join(['sudo', *args]))
     print(f'Local Nginx route prepared: http://{domain}/')
@@ -205,7 +216,7 @@ def bootstrap(project):
         else:
             from project_ide import refresh_ide
             refresh_ide(project)  # Do not switch the developer's default IDE environment.
-    print('Bootstrap complete. Use make doctor to check images, then make build / make up as needed.')
+    print('Bootstrap complete. make setup runs the remaining steps (build, app-prepare, up).')
     return project
 
 
@@ -262,9 +273,9 @@ def initialize_test(project, refresh=False):
         replace_file(marker, b'Isolated test application managed by shared setup.\n', private=True)
         print(f'{"Refreshed" if refresh else "Prepared"} isolated test application: {destination}')
     else:
-        print('Test checkout preserved; use make test-init refresh=1 to refresh it from local source.')
+        print('Test checkout preserved; make test-sync (or make test-prepare) refreshes it from local source.')
     test = Project(project.directory, 'test', project.root)
     initialize_directories(test)
     prepare_host(test)
-    print('Test environment prepared. Run make db-prepare ENV=test, import a test dump/fixtures, then make up ENV=test.')
+    print('Test environment prepared. make test-prepare loads the data set and starts it; make phpunit runs the tests.')
     return test

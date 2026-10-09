@@ -13,6 +13,17 @@ def database_tables(project):
     return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else None
 
 
+def schema_hook(project):
+    """A clean clone gets the schema commit hook too; an existing hook manager is left alone."""
+    if project.environment != 'local' or not project.settings.get('SCHEMA_DIRECTORY'):
+        return
+    from database_schema import install_schema_hook
+    try:
+        install_schema_hook(project)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        print(f'Schema hook not installed: {error}')
+
+
 def run_setup(project, timeout=90):
     from project_application import prepare_application
     from project_bootstrap import bootstrap
@@ -20,7 +31,7 @@ def run_setup(project, timeout=90):
     from project_health import start_project
     steps = [
         ('init', lambda p: (initialize_directories(p), p)[1]),
-        ('bootstrap', bootstrap),
+        ('bootstrap', lambda p: (bootstrap(p), schema_hook(p), p)[2]),
         ('build', lambda p: (p.run(['build', 'php-fpm-base'], profiles='build_only'),
                              p.run(['build', 'php-fpm-core'], profiles='build_only'), p.run(['build']), p)[-1]),
         ('app-prepare', lambda p: (prepare_application(p), p)[1]),

@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -17,7 +17,8 @@ quote = '$(subst ','"'"',$(1))'
 RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(call quote,$(PROJECT_DOCKER_DIRECTORY)) --project-directory $(call quote,$(PROJECT_DIRECTORY)) --env $(call quote,$(ENV)) $(if $(filter undefined,$(origin PROFILES)),,--profiles $(call quote,$(PROFILES)))
 
 help:
-	@echo 'setup: prepare this project from a clean clone (init, bootstrap, build, app-prepare, up); the DB is left alone'
+	@echo 'setup: prepare this project from a clean clone (init, bootstrap + schema hook, build, app-prepare, up); the DB is left alone'
+	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
 	@echo 'db-backup [file=backup.sql.gz]; setup-info: shared version'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
@@ -55,7 +56,7 @@ help:
 	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the shop code, back up, rsync, upgrade, migrate'
 	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
 
-setup init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
+setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:

@@ -67,9 +67,9 @@ make setup
 | Žingsnis | Kas vyksta |
 | --- | --- |
 | `init` | Sukuria privatų `env/local.env` iš `env/local.env.example`, jei jo dar nėra. Sugeneruoja trūkstamą `DATABASE_ROOT_PASSWORD` ir (PrestaShop) trūkstamus PS raktus. Sukuria duomenų katalogus. |
-| `bootstrap` | Parenka laisvus portus, sukuria vietinį DNS įrašą, mkcert sertifikatą, kompiuterio Nginx maršrutą (`demo.local`, taip pat `pma.`, `mailpit.`, `cron.`, `dbmonitor.` poddomenius) ir PhpStorm nustatymus. |
+| `bootstrap` | Parenka laisvus portus, sukuria vietinį DNS įrašą, mkcert sertifikatą, kompiuterio Nginx maršrutą (`demo.local`, taip pat `pma.`, `mailpit.`, `cron.`, `dbmonitor.` poddomenius) ir PhpStorm nustatymus. Jei esamam maršrutui trūksta naujesnių poddomenių, jį atnaujina (be `install-host` tik įspėja). Kai projektas turi `SCHEMA_DIRECTORY`, įdiegia schemos commit hook'ą. |
 | `build` | Sukuria image'us. Perkuriami tik tie, kurių šaltiniai pasikeitė. |
-| `app-prepare` | Paruošia aplikaciją pagal `PROFILE`. PrestaShop: nukopijuoja `PS_RELEASE_PATHS` iš oficialaus release ir įdiegia `config/composer` paketus. Kitiems profiliams nieko nedaro. |
+| `app-prepare` | Paruošia aplikaciją pagal `PROFILE`. PrestaShop: nukopijuoja `PS_RELEASE_PATHS` iš oficialaus release ir įdiegia `config/composer` paketus. Kitiems profiliams nieko nedaro. `make app-prepare` pakartoja tik šį žingsnį (pvz. pakeitus `PS_RELEASE_PATHS`); jis eina po `build`, nes failus ima iš PHP image'o. |
 | `up` | Patikrina konfigūraciją ir paleidžia servisus, laukia jų sveikatos patikrų. |
 
 Pabaigoje `make setup` tik praneša DB būseną. Jei DB tuščia, pasiūlo komandas:

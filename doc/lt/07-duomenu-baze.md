@@ -60,7 +60,7 @@ make schema-hook-install
 
 1. `schema-export` įrašo kiekvienos lentelės `CREATE TABLE` į `database/schema/table-<lentelė>.sql` ir manifestą. Duomenys neeksportuojami, `AUTO_INCREMENT` skaitiklis pašalinamas.
 2. `schema-resolve` paklausia apie kiekvieną registre nežinomą lentelę (žr. [C dalį](#c-lentelių-registras)).
-3. `schema-hook-install` įdiegia `pre-commit` hook'ą aplinkos repozitorijoje.
+3. `schema-hook-install` įdiegia `pre-commit` hook'ą aplinkos repozitorijoje. `make setup` tai padaro pats; jei repozitorija jau turi hook'ų tvarkyklę (`core.hooksPath`), tik praneša.
 
 **Kaip veikia hook'as.** Kiekvieno commit'o metu jis:
 

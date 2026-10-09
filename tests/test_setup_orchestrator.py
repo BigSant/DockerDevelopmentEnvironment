@@ -65,9 +65,14 @@ class BootstrapHelperTest(unittest.TestCase):
             (nginx / 'sites-enabled').mkdir()
             (nginx / 'sites-enabled/shop.local.conf').write_text(
                 'server {\n  server_name shop.local pma.shop.local;\n  location / { proxy_pass http://127.0.0.1:3039; }\n}\n')
-            self.assertTrue(project_bootstrap.route_exists('shop.local', '3039', nginx))
-            self.assertFalse(project_bootstrap.route_exists('shop.local', '3041', nginx))
-            self.assertFalse(project_bootstrap.route_exists('other.local', '3039', nginx))
+            self.assertEqual(project_bootstrap.route_exists('shop.local', '3039', nginx), 'partial',
+                             'a route without the newer service host names is refreshed')
+            self.assertIsNone(project_bootstrap.route_exists('shop.local', '3041', nginx))
+            self.assertIsNone(project_bootstrap.route_exists('other.local', '3039', nginx))
+            (nginx / 'sites-enabled/shop.local.conf').write_text(
+                'server {\n  server_name shop.local pma.shop.local mailpit.shop.local cron.shop.local dbmonitor.shop.local;\n'
+                '  location / { proxy_pass http://127.0.0.1:3039; }\n}\n')
+            self.assertEqual(project_bootstrap.route_exists('shop.local', '3039', nginx), 'complete')
 
 
 class OrchestratorTest(unittest.TestCase):
@@ -77,6 +82,7 @@ class OrchestratorTest(unittest.TestCase):
                                  'run': lambda self, args, profiles=None: calls.append(('build', args[1:2]))})()
         patches = [patch('project_environment.initialize_directories', lambda p: calls.append('init')),
                    patch('project_bootstrap.bootstrap', lambda p: (calls.append('bootstrap'), p)[1]),
+                   patch.object(project_setup, 'schema_hook', lambda p: calls.append('schema-hook')),
                    patch('project_application.prepare_application', lambda p: calls.append('app-prepare')),
                    patch('project_health.start_project', lambda p, t: calls.append('up')),
                    patch.object(project_setup, 'database_tables', lambda p: 0)]
@@ -85,7 +91,7 @@ class OrchestratorTest(unittest.TestCase):
                 stack.enter_context(item)
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 project_setup.run_setup(project)
-        self.assertEqual(calls, ['init', 'bootstrap', ('build', ['php-fpm-base']), ('build', ['php-fpm-core']),
+        self.assertEqual(calls, ['init', 'bootstrap', 'schema-hook', ('build', ['php-fpm-base']), ('build', ['php-fpm-core']),
                                  ('build', []), 'app-prepare', 'up'])
         self.assertIn('[5/5] up', output.getvalue())
         self.assertIn('make db-load set=dev', output.getvalue())
@@ -96,6 +102,20 @@ class OrchestratorTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, 'no TLS'):
                 project_setup.run_setup(project)
         self.assertEqual(calls, ['init'])
+
+
+    def test_setup_installs_the_schema_hook_but_leaves_a_hook_manager_alone(self):
+        from types import SimpleNamespace
+        local = SimpleNamespace(environment='local', settings={'SCHEMA_DIRECTORY': 'app/database/schema'})
+        with patch('database_schema.install_schema_hook') as install:
+            project_setup.schema_hook(local)
+            project_setup.schema_hook(SimpleNamespace(environment='test', settings=local.settings))
+            project_setup.schema_hook(SimpleNamespace(environment='local', settings={}))
+        install.assert_called_once_with(local)
+        with patch('database_schema.install_schema_hook', side_effect=ValueError('core.hooksPath is configured')), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            project_setup.schema_hook(local)
+        self.assertIn('Schema hook not installed: core.hooksPath', output.getvalue())
 
 
 if __name__ == '__main__':
