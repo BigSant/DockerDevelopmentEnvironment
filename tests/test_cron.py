@@ -122,14 +122,14 @@ class CronUiTest(unittest.TestCase):
         (self.root / "bin/supercronic").write_text("#!/bin/sh\nexit 0\n")
         (self.root / "bin/supercronic").chmod(0o755)
 
-    def start(self, environment, host="127.0.0.1"):
+    def start(self, environment, host="127.0.0.1", **settings):
         with socket.socket() as probe:
             probe.bind((host, 0))
             port = probe.getsockname()[1]
         env = {**os.environ, "ENV": environment, "TZ": "Europe/Vilnius", "CRON_DIRECTORY": str(self.root / "cron.d"),
                "CRON_HISTORY_DIR": str(self.root / "history"), "CRON_RUN": str(CRON / "cron-run.sh"),
                "CRON_CRONTAB": str(self.root / "crontab.wrapped"), "CRON_UI_TOKEN_FILE": str(self.root / "token"),
-               "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
+               "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", **settings}
         server = subprocess.Popen(["php", "-S", f"{host}:{port}", str(CRON / "ui/index.php")], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
@@ -182,6 +182,40 @@ class CronUiTest(unittest.TestCase):
         self.assertIn("view", self.get(f"/history?job={job}"))
         self.assertIn("nightly", self.get(f"/log?job={job}&file={run['log']}"))
         self.assertEqual(self.post("/run", {"job": job, "token": "wrong"})[0], 403)
+
+    def test_schedule_off_lists_the_jobs_marks_them_off_and_still_runs_them_by_hand(self):
+        # A process standing in for supercronic: an edit must not signal it (SIGUSR2 would end sleep).
+        sleeper = subprocess.Popen(["sleep", "60"])
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        (self.root / "supercronic.pid").write_text(str(sleeper.pid))
+        self.start("local", CRON_SCHEDULE="off", CRON_PID_FILE=str(self.root / "supercronic.pid"))
+        page = self.get("/")
+        self.assertIn("echo from-cron", page)
+        self.assertIn("Schedule off", page)
+        self.assertIn("Next run (schedule off)", page)
+        self.assertRegex(page, r'<span class="off">off</span><br><small>would be \d{4}-\d\d-\d\d \d\d:\d\d</small>')
+        self.assertIn("Run now", page)
+        status, body = self.post("/edit", {"file": "crontab", "crontab": "0 2 * * * echo nightly\n"})
+        self.assertIn("Saved; the schedule is off", body)
+        self.assertIsNone(sleeper.poll(), "nothing to reload with the schedule off")
+        self.assertIn("echo nightly", self.get("/"))
+        job = php("echo json_encode(cronJobs('0 2 * * * echo nightly', 'crontab')[0]['id']);")
+        self.post("/run", {"job": job})
+        history = self.root / "history/history.jsonl"
+        for _ in range(50):
+            if history.exists() and history.read_text().strip():
+                break
+            time.sleep(0.1)
+        run = json.loads(history.read_text().splitlines()[-1])
+        self.assertEqual((run["job"], run["trigger"], run["exit"]), (job, "manual", 0))
+        self.assertIn("manual", self.get("/"), "the last run shows next to the job")
+
+    def test_schedule_on_shows_the_next_run(self):
+        self.start("prod", CRON_SCHEDULE="on")
+        page = self.get("/")
+        self.assertNotIn("Schedule off", page)
+        self.assertRegex(page, r"<td>\d{4}-\d\d-\d\d \d\d:\d\d</td>")
 
     def test_only_nginx_proxy_or_loopback_reaches_the_ui(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:

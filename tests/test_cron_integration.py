@@ -1,4 +1,4 @@
-"""Cron in the setup PHP image: supercronic's overlap behaviour, the UI edit/reload and run-now flow."""
+"""Cron in the setup PHP image: supercronic's overlap behaviour, the UI edit/reload and run-now flow, the schedule off."""
 
 import json
 import os
@@ -25,10 +25,11 @@ class CronIntegrationTest(unittest.TestCase):
             (self.root / name).mkdir()
             os.chmod(self.root / name, 0o777)
 
-    def container(self, *arguments, entrypoint="/bin/sh"):
+    def container(self, *arguments, entrypoint="/bin/sh", environment=()):
         name = f"setup-cron-{uuid.uuid4().hex[:8]}"
-        subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--user",
-                        f"{os.getuid()}:{os.getgid()}", "-e", "ENV=local", "-e", "TZ=Europe/Vilnius",
+        settings = [option for setting in environment for option in ("-e", setting)]
+        subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--memory", "256m", "--user",
+                        f"{os.getuid()}:{os.getgid()}", "-e", "ENV=local", "-e", "TZ=Europe/Vilnius", *settings,
                         "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro", "-v", f"{self.root / 'cron.d'}:/etc/cron.d",
                         "-v", f"{self.root / 'history'}:/var/lib/setup-cron", "--entrypoint", entrypoint, IMAGE, *arguments],
                        check=True, capture_output=True)
@@ -93,6 +94,52 @@ class CronIntegrationTest(unittest.TestCase):
         run = json.loads(history.read_text().splitlines()[-1])
         self.assertEqual((run["trigger"], run["exit"]), ("manual", 0))
         self.assertEqual((self.root / f"history/runs/{job}/{run['log']}").read_text(), "weekly\n")
+
+    def test_schedule_off_starts_no_supercronic_but_the_ui_runs_jobs_and_stops_cleanly(self):
+        (self.root / "cron.d/crontab").write_text("* * * * * echo every-minute\n")
+        name = self.container("/opt/setup/runtime/cron/cron-start.sh", environment=["CRON_SCHEDULE=off"])
+        for _ in range(50):
+            if "every-minute" in self.request(name, "/"):
+                break
+            time.sleep(0.2)
+        else:
+            self.fail(subprocess.run(["docker", "logs", name], capture_output=True, text=True).stderr)
+        self.assertIn("Schedule off", self.request(name, "/"))
+        processes = subprocess.run(["docker", "exec", name, "sh", "-c", "cat /proc/[0-9]*/cmdline | tr '\\0' ' '"],
+                                   capture_output=True, text=True).stdout
+        self.assertIn("php -S", processes)
+        self.assertNotIn("supercronic /tmp/crontab", processes)
+        logs = subprocess.run(["docker", "logs", name], capture_output=True, text=True)
+        self.assertIn("schedule off", logs.stdout)
+        job = json.loads(subprocess.run(["docker", "exec", name, "php", "-r",
+                                         "require '/opt/setup/runtime/cron/compose.php';"
+                                         "echo json_encode(cronJobs('* * * * * echo every-minute', 'crontab')[0]['id']);"],
+                                        capture_output=True, text=True).stdout)
+        self.request(name, "/run", {"job": job})
+        history = self.root / "history/history.jsonl"
+        for _ in range(50):
+            if history.exists():
+                break
+            time.sleep(0.2)
+        runs = [json.loads(line) for line in history.read_text().splitlines()]
+        self.assertEqual([(run["trigger"], run["exit"]) for run in runs], [("manual", 0)], "no scheduled run")
+        started = time.monotonic()
+        stopped = subprocess.run(["docker", "stop", "-t", "10", name], capture_output=True)
+        self.assertEqual(stopped.returncode, 0)
+        self.assertLess(time.monotonic() - started, 5, "SIGTERM ends the container without the kill timeout")
+
+    def test_schedule_off_still_refuses_a_crontab_supercronic_rejects(self):
+        # compose.php keeps lines it does not parse; supercronic rejects them as it would with the schedule on.
+        (self.root / "cron.d/crontab").write_text("MAILTO\n* * * * * echo ok\n")
+        name = f"setup-cron-{uuid.uuid4().hex[:8]}"
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
+        result = subprocess.run(["docker", "run", "--name", name, "--network", "none", "--memory", "256m", "--user",
+                                 f"{os.getuid()}:{os.getgid()}", "-e", "ENV=local", "-e", "CRON_SCHEDULE=off",
+                                 "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro", "-v", f"{self.root / 'cron.d'}:/etc/cron.d",
+                                 "-v", f"{self.root / 'history'}:/var/lib/setup-cron", "--entrypoint", "/bin/sh", IMAGE,
+                                 "/opt/setup/runtime/cron/cron-start.sh"], capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("schedule off", result.stdout)
 
 
 if __name__ == "__main__":
