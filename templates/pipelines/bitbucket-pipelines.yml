@@ -1,0 +1,51 @@
+# Example bitbucket-pipelines.yml for a project's environment repository (copy it to the repository root,
+# beside env/ and the Makefile). setup does the work: make pipeline-deploy in the build root
+# (setup/doc/lt/09-aplinkos.md, "Bitbucket Pipelines"); keep only the pipelines and variables here.
+#
+# Deploys are started by hand: Pipelines -> Run pipeline -> custom: deploy-stage / deploy-production.
+# Each step runs on the self-hosted shell runner of the build server (the labels below; without them it
+# would run in Bitbucket's cloud). The build root holds this repository in app/ and setup beside it;
+# BUILD_ROOT is a repository variable, or the setup-server layout below. Secrets are Deployment variables
+# of the Staging / Production environments: make deploy-variables ENV=prod lists and checks them.
+definitions:
+  steps:
+    - step: &deploy
+        name: Deploy
+        runs-on:
+          - self.hosted
+          - linux.shell
+          - setup.build
+        script:
+          - BUILD_ROOT=${BUILD_ROOT:-${SETUP_SERVER_ROOT:-/srv/setup-server}/projects/$BITBUCKET_REPO_SLUG}
+          - make -C "$BUILD_ROOT/app" pipeline-deploy
+
+pipelines:
+  custom:
+    deploy-stage:
+      # The same variables for both: a YAML anchor, written out on first use.
+      - variables: &variables
+        - name: REF
+          # One repository: empty = the commit this pipeline runs on. Separate code repository in app/public
+          # (PrestaShop): the code tag or commit, required unless ROLLBACK=yes.
+          description: Tag or commit to deploy (ignored with ROLLBACK=yes)
+        - name: IMAGES
+          description: Rebuild and restart the images first (prod needs setup on a release tag; the first deploy needs yes)
+          default: "no"
+          allowed-values: ["no", "yes"]
+        - name: ROLLBACK
+          default: "no"
+          allowed-values: ["no", "yes"]
+        - name: BACKUP
+          description: Back up the target database before the hooks, upgrades and migrations
+          default: "yes"
+          allowed-values: ["yes", "no"]
+      - step:
+          <<: *deploy
+          name: Deploy to stage
+          deployment: Staging
+    deploy-production:
+      - variables: *variables
+      - step:
+          <<: *deploy
+          name: Deploy to production
+          deployment: Production

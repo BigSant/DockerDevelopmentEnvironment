@@ -378,5 +378,20 @@ class DeploymentVariablesListTest(unittest.TestCase):
             deployment_variables(directory, "prod")
 
 
+class TemplateTest(unittest.TestCase):
+    def test_the_example_pipeline_runs_the_step_with_the_variables_it_reads(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        model = yaml.safe_load((ROOT / "templates/pipelines/bitbucket-pipelines.yml").read_text())
+        for name, deployment in (("deploy-stage", "Staging"), ("deploy-production", "Production")):
+            variables, step = model["pipelines"]["custom"][name]
+            self.assertEqual([v["name"] for v in variables["variables"]], ["REF", "IMAGES", "ROLLBACK", "BACKUP"])
+            self.assertEqual(step["step"]["deployment"], deployment)
+            self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["step"]["script"])
+            self.assertIn("self.hosted", step["step"]["runs-on"])
+
+
 if __name__ == "__main__":
     unittest.main()
