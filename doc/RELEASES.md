@@ -4,7 +4,7 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.2.0
 
 Application settings reach the containers by name. No project needs to change.
 
