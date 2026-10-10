@@ -53,6 +53,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
 | `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
 | `APP_ENVIRONMENT` | Tuščias | Aplikacijos savų env kintamųjų **vardai** per tarpus (be reikšmių), kuriuos setup perduoda `php-fpm` ir `cron`. Laikyk `common.env`. Žr. [Savi aplikacijos parametrai](#savi-aplikacijos-parametrai-app_environment). |
+| `SETUP_MIN_VERSION` | Tuščias | Seniausia setup versija, su kuria projektas veikia, pvz. `2.3.0`. Kiekviena `make` komanda pirmiausia palygina ją su setup `VERSION` ir su senesniu setup sustoja, nieko nepakeitusi. Laikyk `common.env`. Jį tikrina setup versijos po 2.2.0; 2.2.0 ir senesnės jį ignoruoja. |
 
 `PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, `SERVICES` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
 
@@ -166,6 +167,10 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 | `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
 | `DEPLOY_PROTECTED_PATHS` | Tuščias | Papildomi kodo medžio keliai (nuo kodo šaknies, per tarpą), kurių deploy'us niekada neperrašo ir netrina, pvz. `"var/data/ var/log/ config/local.php"`. Katalogas baigiasi `/`, leidžiamas `*`. Papildo profilio sąrašą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 | `DEPLOY_PHP_RELOAD` | `on` | `off` – deploy'aus pabaigoje neperkrauti php-fpm (`USR2`). Be perkrovimo prod OPcache gali rodyti seną kodą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
+| `DEPLOY_REQUIRED_VARIABLES` | Tuščias | Aplikacijos Bitbucket Deployment variables **vardai** (per tarpus), be kurių deploy'us nepradedamas, pvz. `"SEARCH_MASTER_KEY HTPASSWD_WEB"`. Papildo setup'o privalomus (DB slaptažodžiai, `METRICS_TOKEN`, PS raktai). Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |
+| `DEPLOY_OPTIONAL_VARIABLES` | Tuščias | Neprivalomi Deployment variables vardai, kurių nėra `APP_ENVIRONMENT` (pvz. tik Compose naudojamas raktas). Tušti – tik įspėjimas. `APP_ENVIRONMENT` vardų čia kartoti nereikia. |
+| `DEPLOY_PLAIN_VARIABLES` | Tuščias | Sąrašų vardai, kuriuos `make deploy-variables` saugo ne Secured (pvz. URL, ID). Vardas, kurio nėra jokiame sąraše, – klaida. |
+| `DEPLOY_BITBUCKET_REPOSITORY` | `origin` remote'as | `workspace/repo`, kurio Deployment variables tikrina `make deploy-variables`. Reikia, kai `origin` nėra `bitbucket.org`. |
 
 Stage/prod dar privalomi keturių pagrindinių servisų limitai, žr. [resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui).
 

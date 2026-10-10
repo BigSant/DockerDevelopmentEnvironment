@@ -23,7 +23,7 @@ setup/
     database-profile/<profile>/       NOT baked: default table registry, data-set recipe, safe after-import SQL
     runtime/                          scripts used inside containers (start, templates, PS adapters, cron, dbmonitor, metrics)
     compatibility.json                PrestaShop line -> supported PHP / MySQL / MariaDB
-  templates/                          scaffold sources (minimal, grouped, shared Makefile)
+  templates/                          scaffold sources (minimal, grouped, shared Makefile), pipelines/ example
   tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
 ```
 
@@ -46,7 +46,10 @@ forsena/
 ## 2. The runner
 
 `make <action>` → `project.py --docker-directory app --project-directory <root> --env <ENV> <action>`.
-Constructing `Project` is the contract every action relies on:
+Before anything else every action except `setup-info` checks `SETUP_MIN_VERSION` (env/common.env)
+against `VERSION`. `pipeline-deploy` and `deploy-variables` then run without `Project` (no Compose,
+no env/<env>.env needed): they read the committed env files with `project_env_files` and start
+`make` steps afresh. Constructing `Project` is the contract every other action relies on:
 
 1. Env files: `setup/docker/.env` (versions) → `env/common.env` → `env/<env>.env`. A key named in
    an env file is dropped from the process environment, so a previous project's exports never select
@@ -194,9 +197,31 @@ Every application-specific step follows `PROFILE`: protected paths are `PRESTASH
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
 
+`make pipeline-deploy` (`project_pipeline`) is the Bitbucket Pipelines deploy step; projects keep only
+`bitbucket-pipelines.yml` (`templates/pipelines/`). It runs in the build root's environment checkout:
+ENV from `BITBUCKET_DEPLOYMENT_ENVIRONMENT`; `REF` (aliases `APP_REF`, `SHOP_REF`), `IMAGES`, `ROLLBACK`,
+`BACKUP`. Layout decides the ref: one repository (no `app/public/.git`) checks out the deployed commit
+(REF, the pipeline commit, or the history's rollback target) and follows the history afterwards; a
+separate code repository keeps the environment checkout on the pipeline commit and deploys REF of
+`app/public`, which is only fetched. Order: refusals before any change (exit 64; required Deployment
+variables included) → fetch → checkout → `env/<env>.env` from the example (+ the runner's `APP_UID/APP_GID`
+when `DEPLOY_CONTEXT=default` without `DEPLOY_SSH`) → the same checks with the deployed commit's files →
+`make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy`. A failure restores
+the previous checkout and env file unless the containers already restarted on new images. Child steps
+get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
+The Deployment variables list (`project_pipeline.deployment_variables`) is setup's secrets for the env
+(DB passwords, `METRICS_TOKEN` with metrics, PS keys of `PS_VERSION`; monitor password/token optional) +
+`DEPLOY_REQUIRED_VARIABLES` + `DEPLOY_OPTIONAL_VARIABLES` + `APP_ENVIRONMENT` names the env files do not
+mention; a name an env file sets is not a Deployment variable, a blank one (other than `PROCESS_SECRETS`)
+is refused because it would hide the process value. `make deploy-variables` (`project_bitbucket`) compares
+the same list with the Bitbucket environment (names and secured flag) and creates/replaces from a private
+dotenv file; urllib only (no subprocess, so no value or token on a command line), no redirects, next
+links only within the API, token and values files owned by the user with mode 0600.
+
 ## 8. Tests
 
-`python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB). B tests
+`python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB; the
+pipeline step against git fixtures and a fake `make`, `deploy-variables` against a fake Bitbucket API). B tests
 run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
 `SETUP_DIND_IMAGE`, `SETUP_MYSQL_SCHEMA_INTEGRATION=1`, … (see each test's skip reason).
 `SETUP_OLD_BASH_IMAGE=mysql:5.7` runs the DB first-start hooks under bash 4.2: shell hooks that run

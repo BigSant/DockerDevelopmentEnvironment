@@ -80,7 +80,7 @@ DEPLOY_PATH=/home/VARTOTOJAS/demo
 PMA_ALLOWED_IPS="203.0.113.10"
 ```
 
-4. **Slaptažodžiai** (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, PS raktai) į failus nerašomi. Jie ateina iš Bitbucket Deployment variables kaip proceso aplinka. Env faile jų nerašyk arba palik tuščius – tuščia reikšmė proceso aplinkos neuždengia. Bandant iš savo kompiuterio jie gali būti privačiame `env/prod.env`; tada laimi failas.
+4. **Slaptažodžiai** (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, PS raktai) į failus nerašomi. Jie ateina iš Bitbucket Deployment variables kaip proceso aplinka. Env faile jų nerašyk arba palik tuščius – tuščia reikšmė proceso aplinkos neuždengia. Bandant iš savo kompiuterio jie gali būti privačiame `env/prod.env`; tada laimi failas. Visų vardų sąrašą sudaro setup, žr. [Deployment variables](#deployment-variables).
    Aplikacijos slapti parametrai iš [`APP_ENVIRONMENT`](03-nustatymai.md#savi-aplikacijos-parametrai-app_environment) ateina taip pat, tik jų vardų serverio env faile nerašyk visai: čia ir tuščia reikšmė proceso aplinkos reikšmę uždengia.
 
 ## Image'ai serveryje
@@ -155,14 +155,76 @@ Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiute
 
 ## Bitbucket Pipelines
 
-Realus pavyzdys – Forsenos aplinkos repozitorijos `deploy/PIPELINES.md`, `deploy/pipeline.sh` ir `bitbucket-pipelines.yml`. Principai:
+Deploy'ų iš Bitbucket'o atlieka setup'o komanda `make pipeline-deploy`. Projektas laiko tik `bitbucket-pipelines.yml` ir vardų sąrašus `env/common.env` faile. Savo `deploy/pipeline.sh` ar kintamųjų scripto nebereikia. Pavyzdys: [templates/pipelines/bitbucket-pipelines.yml](../../templates/pipelines/bitbucket-pipelines.yml) (nukopijuok į aplinkos repozitorijos šaknį).
 
-- Deploy'ų paleidžia žmogus: **Pipelines → Run pipeline → Custom: deploy-stage / deploy-production**.
-- Žingsnį vykdo self-hosted runner'is build serveryje (žymos `self.hosted`, `linux.shell`, `setup.build`). Jam reikia Docker teisių ir prieigos prie projekto katalogo.
-- Repository variable `BUILD_ROOT` – projekto šaknis build serveryje. Ten `app/` (aplinkos repo), `app/public/` (parduotuvės repo) ir šalia – bendras `setup`.
-- Slaptažodžiai ir PS raktai – **Deployment variables (Secured)** Staging / Production aplinkoms. Jie gyvena tik proceso aplinkoje ir į diską nerašomi. Aplikacijos raktams pakanka Deployment variable su tuo pačiu vardu, kaip `APP_ENVIRONMENT` sąraše.
-- `pipeline.sh` nukopijuoja `env/<aplinka>.env.example` į `env/<aplinka>.env` ir paleidžia `make release` + `make deploy-images` (kai `IMAGES=yes`), tada `make deploy ref=$SHOP_REF` arba `make deploy rollback=1` (kai `ROLLBACK=yes`).
-- Kiekvienas paleidimas matomas **Deployments** istorijoje.
+- Deploy'ų paleidžia žmogus: **Pipelines → Run pipeline → Custom: deploy-stage / deploy-production**. Kiekvienas paleidimas matomas **Deployments** istorijoje.
+- Žingsnį vykdo self-hosted runner'is build serveryje (žymos `self.hosted`, `linux.shell`, `setup.build`). Jam reikia Docker teisių ir prieigos prie build root.
+- **Build root** – projekto šaknis build serveryje: `app/` (aplinkos repozitorija) ir šalia bendras `setup`. Kelias – Repository variable `BUILD_ROOT`, o be jo – setup-server išdėstymas `/srv/setup-server/projects/<repo>`. Darbas vyksta build root'e. Runner'io klonas tik nurodo commit'ą.
+- Žingsnio komanda: `make -C "$BUILD_ROOT/app" pipeline-deploy`. Aplinka imama iš Deployment aplinkos (`staging` → `ENV=stage`, `production` → `ENV=prod`). Kitaip pavadintai Bitbucket aplinkai pridėk `ENV=stage` arba `ENV=prod`. Už deploy žingsnio ribų (nėra `BITBUCKET_DEPLOYMENT_ENVIRONMENT`) komanda atsisako.
+- Projektas gali reikalauti naujesnio setup: `SETUP_MIN_VERSION` ([nustatymai](03-nustatymai.md#tapatybė-profilis-ir-servisai)). Senesnis setup sustoja prieš bet kokį pakeitimą.
+
+Paleidimo kintamieji (pipeline'o `variables`):
+
+| Kintamasis | Numatyta | Ką daro |
+| --- | --- | --- |
+| `REF` | Tuščias | Ką deploy'inti: tag'as arba commit'as. Viena repozitorija: tuščias reiškia pipeline commit'ą. Atskira kodo repozitorija: kodo repo ref'as, privalomas (išskyrus `ROLLBACK=yes`). Seni vardai `APP_REF` ir `SHOP_REF` irgi veikia. Jei nurodyti keli skirtingi, komanda atsisako. |
+| `IMAGES` | `no` | `yes`: prieš kodą `make release` ir `make deploy-images` (kai taikinys yra pats build serveris – `transfer=0`). Pirmam deploy'ui ir pakeitus serverio env būtina. |
+| `ROLLBACK` | `no` | `yes`: `make deploy rollback=1`. `REF` ignoruojamas. |
+| `BACKUP` | `yes` | `no`: `make deploy backup=0`, be DB kopijos. |
+
+Du išdėstymai. Setup juos atskiria pagal tai, ar `app/public` turi savo `.git`:
+
+- **Viena repozitorija** (pvz. asana.local: kodas yra aplinkos repozitorijos `public/` kataloge). Build root checkout'as visada yra deploy'inamas commit'as: `REF` arba pipeline commit'as. `ROLLBACK=yes` checkout'ina commit'ą, į kurį grąžina `make deploy rollback=1` (deploy istorija `.generated/release/<env>/deployments.json`). Po deploy'aus checkout'as seka tai, ką setup įrašė į istoriją. Tai svarbu, kai build root yra ir `DEPLOY_PATH`: veikiantys konteineriai naudoja jo `config/`.
+- **Atskira kodo repozitorija** `app/public` (pvz. Forsena: parduotuvės repozitorija). Aplinkos checkout'as seka pipeline commit'ą, `REF` – kodo repozitorijos tag'as arba commit'as. Kodo repozitorijai daromas tik `git fetch --tags`, jos checkout'as nekeičiamas (`make deploy` kodą ima per `git archive`).
+
+Eiga:
+
+1. **Patikros prieš bet kokį pakeitimą:** Deployment aplinka, `REF`, `IMAGES`/`ROLLBACK`/`BACKUP` reikšmės, privalomi [Deployment variables](#deployment-variables). Jei kas nors negerai, komanda baigiasi kodu 64 ir pranešimu `Nothing was changed`.
+2. `git fetch --tags` (abiem repozitorijoms) ir commit'o checkout'as build root'e.
+3. `env/<env>.env` perrašomas iš to commit'o `env/<env>.env.example`. Kai `DEPLOY_CONTEXT=default` ir `DEPLOY_SSH` tuščias (taikinys yra pats build serveris), prie jo pridedami runner'io vartotojo `APP_UID`/`APP_GID`, jei pavyzdys jų neturi.
+4. Patikros dar kartą su deploy'inamo commit'o sąrašais ir `SETUP_MIN_VERSION`, kad naujas privalomas vardas būtų patikrintas jau pirmame deploy'uje. Tušti neprivalomi vardai išvardijami įspėjime (`Warning: empty Deployment variables`).
+5. `IMAGES=yes`: `make release`, `make deploy-images`. Tada `make deploy ref=… backup=…` arba `make deploy rollback=1`.
+
+Kiekvienas `make` žingsnis vykdomas su tuo pačiu setup (`SETUP_DIRECTORY`) ir be Bitbucket'o `DOCKER_HOST`: jis rodo į Bitbucket'o debesies Docker servisą ir nustelbtų `DEPLOY_CONTEXT`.
+
+**Nepavykus** build root checkout'as ir `env/<env>.env` grąžinami į anksčiau veikusį commit'ą. Jei nepavyko po rsync (setup istorijoje pažymėjo deploy'ų kaip nepavykusį), taikinyje jau naujas kodas: pataisyk ir deploy'ink iš naujo arba `ROLLBACK=yes`. Išimtis: jei šis paleidimas jau perkrovė konteinerius ant naujų image'ų (`IMAGES=yes`), niekas negrąžinama, nes veikiantys konteineriai naudoja checkout'o konfigūraciją. Log'e parašyta, kaip grįžti: dar kartą su `IMAGES=yes`, arba ankstesnis commit'as su `REF=… IMAGES=yes` (atskiros kodo repozitorijos atveju – pipeline'as ant ankstesnio aplinkos commit'o).
+
+### Deployment variables
+
+Slaptažodžiai ir raktai – **Deployment variables (Secured)** Staging / Production aplinkose (**Repository settings → Deployments**). Jie gyvena tik žingsnio proceso aplinkoje ir į diską nerašomi. Vardų sąrašą sudaro setup, jo niekur kitur kartoti nereikia:
+
+| Vardai | Kada | Privalomas |
+| --- | --- | --- |
+| `DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD` | visada | taip |
+| `METRICS_TOKEN` | `SERVICES` turi `metrics` | taip |
+| PS raktai pagal `PS_VERSION` (`PS_COOKIE_KEY`, `PS_COOKIE_IV`, `PS_NEW_COOKIE_KEY`, `PS_SECRET`, nuo PS 9 – `PS_API_PRIVATE_KEY`, `PS_API_PUBLIC_KEY`; PS 1.6 – `PS_RIJNDAEL_*`) | `PROFILE=prestashop` | taip |
+| `DEPLOY_REQUIRED_VARIABLES` | projekto sąrašas | taip |
+| `DATABASE_MONITOR_PASSWORD` | `SERVICES` turi `metrics` arba `dbmonitor` | ne |
+| `DBMONITOR_TOKEN` | `SERVICES` turi `dbmonitor` | ne |
+| `DEPLOY_OPTIONAL_VARIABLES` | projekto sąrašas | ne |
+| `APP_ENVIRONMENT` vardai | kurių nemini nei `env/common.env`, nei `env/<env>.env.example` | ne |
+
+- Vardas, kuriam env failas duoda reikšmę, nėra Deployment variable: laimi failas.
+- Vardas, kurį env failas palieka tuščią, uždengia Deployment variable. Setup tokį vardą atmeta su klaida (išskyrus setup slaptažodžius, žr. [Kur rašyti reikšmę](03-nustatymai.md#kur-rašyti-reikšmę)). `APP_ENVIRONMENT` vardas su tuščia reikšme reiškia „išjungta“ ir į sąrašą nepatenka.
+- `DEPLOY_PLAIN_VARIABLES` – vardai, saugomi ne Secured (pvz. URL ar ID, kuriuos naudinga matyti).
+
+Be privalomo vardo deploy'us nepradedamas: pranešime išvardyti trūkstami vardai, ne reikšmės. Tušti neprivalomi vardai tik išvardijami įspėjime, nes jų integracijos lieka išjungtos.
+
+Bitbucket'o pusę tikrina ir pildo `make deploy-variables`:
+
+```bash
+make deploy-variables ENV=prod names=1                             # sąrašas be tinklo
+make deploy-variables ENV=prod token=~/.config/bitbucket/demo-token # ko trūksta (exit 1, jei trūksta)
+make deploy-variables ENV=prod token=… from=~/prod-secrets.env      # sukuria trūkstamus iš failo
+make deploy-variables ENV=prod token=… from=~/prod-secrets.env replace=1  # perrašo ir esamus
+```
+
+- Be `ENV` – `prod`. `ENV=stage` – Staging aplinka. Bitbucket aplinka randama pagal vardą arba tipą (`Staging`, `Production`).
+- Repozitorija – `DEPLOY_BITBUCKET_REPOSITORY` (`workspace/repo`), o be jos – `origin` remote'as.
+- Raktas – repozitorijos access token'as (**Repository settings → Security → Access tokens**) su teisėmis **Repositories: Read** ir **Pipelines: Read**, o kūrimui ir perrašymui dar **Pipelines: Edit variables** (`pipeline:variable`). Jį perduok failu `token=KELIAS` arba kintamuoju `BITBUCKET_ACCESS_TOKEN`.
+- `from=FAILAS` – dotenv failas (`VARDAS=reikšmė`). Reikšmę su `$` rašyk viengubose kabutėse (pvz. htpasswd eilutes), kitaip komanda atsisako, nes Compose `$` išskleistų. Token'o ir reikšmių failai turi priklausyti tau ir turėti teises `0600`. Panaudojęs reikšmių failą ištrink.
+- Lyginami tik vardai ir Secured žyma: Secured reikšmių Bitbucket neparodo. Reikšmės niekur nespausdinamos ir neperduodamos komandinėje eilutėje.
+- Išėjimo kodai: 0 – visi vardai yra, 1 – kai kurių trūksta, 2 – Bitbucket klaida (atsakymas paaiškina, kurios teisės trūksta), 64 – argumentų, failų teisių ar sąrašo klaida.
 
 Deploy teisių ribojimas (tik tam tikri žmonės ar šakos konkrečiai aplinkai) Bitbucket'e yra Premium plano funkcija. Be jos produkcijos deploy'ų gali paleisti kiekvienas, turintis rašymo teisę į repozitoriją.
 

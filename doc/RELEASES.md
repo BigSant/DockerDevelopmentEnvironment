@@ -4,6 +4,57 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### Bitbucket deploy step in setup
+
+Projects stop copying the Bitbucket Pipelines deploy logic: setup runs the step and keeps its lists.
+No project has to change; those with a `deploy/pipeline.sh` can switch (below).
+
+- **`make pipeline-deploy [ENV=stage|prod]`** runs a Bitbucket deployment step in the build root
+  (`make -C "$BUILD_ROOT/app" pipeline-deploy`): refuses outside a Staging/Production step, checks the
+  required Deployment variables before any change, checks out the deployed commit (one repository) or
+  the pipeline commit beside the code repository in `app/public` (Forsena's layout), writes
+  `env/<env>.env` from its example (plus the runner's `APP_UID`/`APP_GID` for `DEPLOY_CONTEXT=default`),
+  runs `IMAGES=yes` → `make release` + `make deploy-images`, then `make deploy` or `ROLLBACK=yes` →
+  `make deploy rollback=1`, `BACKUP=no` → `backup=0`, and returns the checkout to the live commit on a
+  failure (except after the containers restarted on new images; then it prints the way back). The ref
+  variable is `REF`; `APP_REF` and `SHOP_REF` keep working.
+- **Deployment variables come from setup's list**: its own secrets for the environment
+  (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, `METRICS_TOKEN` with metrics, the PrestaShop keys of
+  `PS_VERSION`; `DATABASE_MONITOR_PASSWORD`/`DBMONITOR_TOKEN` optional), the new settings
+  `DEPLOY_REQUIRED_VARIABLES` and `DEPLOY_OPTIONAL_VARIABLES`, and every `APP_ENVIRONMENT` name the env
+  files leave to the process. A name an env file leaves blank (other than setup's secrets) is refused:
+  it would hide the Deployment variable.
+- **`make deploy-variables [ENV=…] [names=1] [from=FILE [replace=1]] [token=PATH]`** compares that list
+  with the repository's Bitbucket environment (names and the secured flag only) and creates or replaces
+  variables from a private dotenv file. `DEPLOY_PLAIN_VARIABLES` are stored not Secured;
+  `DEPLOY_BITBUCKET_REPOSITORY` names the repository when `origin` is not on bitbucket.org.
+- **`SETUP_MIN_VERSION`** in `env/common.env`: every runner command stops on an older setup.
+- `templates/pipelines/bitbucket-pipelines.yml`: the example pipeline.
+
+No image changes.
+
+**Switching a project** (environment repository):
+
+1. `bitbucket-pipelines.yml`: each deploy step's script becomes
+   ```yaml
+   script:
+     - BUILD_ROOT=${BUILD_ROOT:-${SETUP_SERVER_ROOT:-/srv/setup-server}/projects/$BITBUCKET_REPO_SLUG}
+     - make -C "$BUILD_ROOT/app" pipeline-deploy
+   ```
+   (`unset DOCKER_HOST` is no longer needed for it); rename the `APP_REF`/`SHOP_REF` variable to `REF`
+   (optional: the old names still work).
+2. `env/common.env`: `DEPLOY_REQUIRED_VARIABLES` / `DEPLOY_OPTIONAL_VARIABLES` /
+   `DEPLOY_PLAIN_VARIABLES` with the project's own names, `SETUP_MIN_VERSION` with this release's
+   version. Check with `make deploy-variables ENV=prod names=1` that the list matches the Deployment
+   variables (an `APP_ENVIRONMENT` name the application defaults itself belongs in `env/common.env`
+   with its value).
+3. Delete `deploy/pipeline.sh`, `deploy/test-pipeline.sh`, `deploy/deployment-variables.sh`,
+   `deploy/test-deployment-variables.sh` and the "From Deployment variables" comment list of
+   `env/<env>.env.example`; point the project's documentation to setup `doc/lt/09-aplinkos.md`.
+4. Update the build server's setup checkout before the first run (the `pipeline-deploy` target must exist).
+
 ## 2.2.0
 
 Application settings reach the containers by name. No project needs to change.

@@ -84,6 +84,8 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make deploy ENV=stage\|prod ref=TAG [backup=0]` | Kodo release'as, DB kopija, rsync, projekto hook'as, PS modulių upgrade'ai, migracijos, cache. |
 | `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą. |
 | `make module-pull ENV=stage\|prod name=MODULIS` | Nukopijuoja tik serveryje esantį modulį į vietinį parduotuvės kodą (tik `PROFILE=prestashop`). |
+| `make pipeline-deploy [ENV=stage\|prod]` | Bitbucket deploy žingsnis build root'e: patikros, checkout'as, `env/<env>.env`, `release`/`deploy-images`/`deploy` pagal `REF`, `IMAGES`, `ROLLBACK`, `BACKUP`. Žr. [Bitbucket Pipelines](09-aplinkos.md#bitbucket-pipelines). |
+| `make deploy-variables [ENV=stage\|prod] [names=1] [from=FAILAS [replace=1]] [token=KELIAS]` | Palygina Bitbucket Deployment variables su setup sąrašu, su `from` sukuria trūkstamus. Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |
 
 ## Make argumentai
 
@@ -103,6 +105,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `allow_dirty` | `release` | `allow_dirty=1`. |
 | `transfer` | `deploy-images` | `transfer=0`. |
 | `name` | `module-pull` | `name=mymodule`. |
+| `from`, `replace`, `token`, `names` | `deploy-variables` | `from=~/prod-secrets.env token=~/.config/bitbucket/demo-token`. |
 | `apply`, `cache` | `image-prune`, `db-backup-prune` | `apply=1`. |
 | `refresh` | `test-init` | `refresh=1`. |
 | `IDE_DOCKER_SERVER`, `IDE_CONFIG_DIRECTORY` | `ide-init` | `IDE_DOCKER_SERVER=Docker`. |
@@ -155,6 +158,19 @@ Pirmiau visada sugeneruok šviežią modelį su `make config`. Testinei aplinkai
 | `Cannot pull … for the release` / `Release images are not on this machine` | Išorinio image'o (pvz. `getmeili/meilisearch`) nepavyko parsisiųsti arba image'as nesukurtas; release'as nerašo lock'o, kurio `docker save` neperduotų. |
 | `config/deploy/after-rsync.sh failed (exit N); the deploy stopped` | Projekto hook'as nepavyko: naujas kodas taikinyje (istorijoje pažymėtas kaip nepavykęs), bet migracijos ir cache valymas nevykdyti. Pataisyk ir deploy'ink iš naujo arba `rollback=1`. |
 | `DEPLOY_PROTECTED_PATHS entry is not a plain path inside the code tree` | Saugomas kelias turi būti santykinis kodo medžio kelias be `..`, pvz. `var/data/`. |
+| `This project needs setup … or newer (SETUP_MIN_VERSION in env/common.env)` | Projektui reikia naujesnio setup: `git -C ~/Projects/setup pull`, serveryje – naujesnis release tag'as. |
+| `Run this from a Staging or Production deployment step` / `BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set` | `make pipeline-deploy` veikia tik Bitbucket žingsnyje su `deployment: Staging` arba `Production`. Kitaip pavadintai aplinkai pridėk `ENV=stage\|prod`. |
+| `Deployment variables missing or empty (Repository settings -> Deployments -> …): …` | Įrašyk išvardytus vardus į tos aplinkos Deployment variables (`make deploy-variables ENV=… from=…`). Niekas nepakeista. Jei pranešimas baigiasi `Nothing was deployed`, vardą pridėjo deploy'inamas commit'as. |
+| `Name the code tag or commit to deploy with REF (SHOP_REF)` | `app/public` – atskira kodo repozitorija: nurodyk jos tag'ą arba commit'ą `REF` kintamajame. |
+| `Unknown ref … in the environment repository` / `in the code repository app/public` | Tokio tag'o ar commit'o nėra `origin` repozitorijoje (po `git fetch --tags`). |
+| `No earlier completed deploy in … to roll back to` | Istorijoje nėra ankstesnio sėkmingo deploy'aus. Deploy'ink konkretų `REF`. |
+| `REF, APP_REF name different refs: set only REF` | Nurodyk tik `REF`. |
+| `… names … with an empty value, which hides the Deployment variable` | Ištrink tą eilutę iš `env/common.env` ar `env/<env>.env.example`: tuščia reikšmė uždengtų Deployment variable. |
+| `The deploy failed after the containers were restarted on the images of …` | Automatiškai negrąžinta. Deploy'ink iš naujo su `IMAGES=yes` arba grąžink ankstesnį commit'ą su `REF=… IMAGES=yes`, kaip parašyta log'e. |
+| `deploy-variables: Bitbucket answered 401` / `403` | Token'as neteisingas ar pasibaigęs / trūksta teisės: reikia **Repositories: Read**, **Pipelines: Read**, pildymui – **Pipelines: Edit variables**. |
+| `deploy-variables: … is readable by others (mode …): chmod 600 …` | Token'o ar reikšmių failas turi būti tik tavo: `chmod 600 FAILAS`. |
+| `… holds $ outside single quotes` | Reikšmę su `$` reikšmių faile rašyk viengubose kabutėse. |
+| `Cannot tell the Bitbucket repository` | `origin` nėra `bitbucket.org`: nurodyk `DEPLOY_BITBUCKET_REPOSITORY=workspace/repo`. |
 | Trūksta image'o, `pull never` klaida | `make build` (vietiniai image'ai) arba `make pull` (išoriniai). |
 | Portas užimtas | `LOCALHOST_PORT=0` ir `make bootstrap` parinks laisvą. |
 | DB `Access denied` po env pakeitimo | Esamos DB slaptažodis env faile jos viduje nepasikeičia. Suderink env su tikru slaptažodžiu. DB katalogo netrink. |
