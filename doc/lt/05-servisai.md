@@ -326,12 +326,30 @@ Kas vyksta:
 
 **Sąsaja** `https://cron.demo.local/`:
 
-- rodo užduotis ir kitą jų paleidimo laiką;
+- rodo užduotis ir kitą jų paleidimo laiką (su `CRON_SCHEDULE=off` – „off“, žr. žemiau);
 - leidžia paleisti užduotį dabar ir matyti kiekvieno paleidimo output'ą, exit code ir trukmę;
 - local/test leidžia redaguoti crontab'ą: pakeitimas patikrinamas `supercronic -test`, išsaugomas `config/cron/` ir iš karto pritaikomas. Pakeitimą commit'ink;
 - stage/prod crontab'ą tik rodo: serveryje jis keičiamas tik per Git.
 
 Atskiro prisijungimo sąsaja neturi. Prieigą riboja `CRON_ALLOWED_IPS` / `ALLOWED_IPS`, o stage/prod be sąrašo cron nepasileidžia. Sąsaja atsako tik nginx-proxy: kiti projekto tinklo konteineriai (pvz. parduotuvė) gauna 403.
+
+**Grafikas išjungtas.** Kai kopijoje yra tikri API token'ai, o crontab'as sinchronizuoja su gyvomis sistemomis, sąsają galima palikti, o grafiką išjungti. `crontab.<ENV>` užduotis tik prideda, todėl tam yra atskiras raktas, leidžiamas bet kurioje aplinkoje (pvz. `env/local.env` arba serveryje lygiagretaus veikimo metu):
+
+```dotenv
+CRON_SCHEDULE=off
+```
+
+```bash
+make restart service=cron
+```
+
+- supercronic nepaleidžiamas: nė viena užduotis nevykdoma pagal grafiką. Crontab'as vis tiek patikrinamas `supercronic -test`, todėl su klaidingu crontab'u cron nepasileidžia, kaip ir su `on`.
+- Sąsaja rodo užduotis ir pranešimą „Schedule off“. Stulpelyje „Next run“ vietoj laiko rodoma „off“, o po juo – kada užduotis būtų paleista.
+- „Run now“ veikia per tą patį `cron-run.sh`: paleidimas įrašomas į istoriją kaip rankinis (`manual`), output'as matomas sąsajoje ir `make logs service=cron`.
+- Local/test crontab'o redagavimas lieka su `supercronic -test` patikra. Išsaugotas pakeitimas iškart matomas sąsajoje, bet pagal grafiką nevykdomas.
+- Su `metrics` servisu `setup_cron_schedule_enabled` yra `0`, o `setup_cron_job_expected_run_timestamp_seconds` neatiduodama, todėl trūkstamo paleidimo alert'as nesuveikia.
+
+Numatyta `CRON_SCHEDULE=on`; kita reikšmė nei `on` / `off` – klaida.
 
 ## DB monitorius
 
@@ -547,7 +565,8 @@ Jei nuotraukos nėra ar ji senesnė nei trys intervalai (+30 s), konteinerių me
 | `setup_cron_job_info{job,source,line,schedule}` | `job` – užduoties id, kaip cron UI (pagal komandą); `source:line` – crontab failas ir eilutė. **Komanda etiketėse nerodoma**: joje būna token'ų (pvz. cron URL su `?token=`) |
 | `setup_cron_job_last_run_timestamp_seconds{job}`, `setup_cron_job_last_exit_code{job}`, `setup_cron_job_last_duration_seconds{job}` | paskutinis užbaigtas paleidimas (planinis ar rankinis): pradžia, exit kodas (`0` – sėkmė), trukmė s |
 | `setup_cron_job_last_success_timestamp_seconds{job}` | paskutinio sėkmingo paleidimo pradžia |
-| `setup_cron_job_expected_run_timestamp_seconds{job}` | pirmas planinis laikas po paskutinio paleidimo (be paleidimų – po dabar); jei jis praeityje, paleidimo trūksta (neįvyko, praleistas, nes ankstesnis dar vyko, ar dar vyksta) |
+| `setup_cron_job_expected_run_timestamp_seconds{job}` | pirmas planinis laikas po paskutinio paleidimo (be paleidimų – po dabar); jei jis praeityje, paleidimo trūksta (neįvyko, praleistas, nes ankstesnis dar vyko, ar dar vyksta). Su `CRON_SCHEDULE=off` neatiduodama |
+| `setup_cron_schedule_enabled` | `1` – užduotys vykdomos pagal grafiką, `0` – [grafikas išjungtas](#cron) (`CRON_SCHEDULE=off`) |
 
 Ta pati komanda `crontab` ir `crontab.<ENV>` turi vieną id ir vieną istoriją (kaip cron UI), todėl paleidimo metrikos jai atiduodamos kartą. Alert'ų pavyzdžiai: `setup_cron_job_last_exit_code != 0`; `time() - setup_cron_job_expected_run_timestamp_seconds > 600`. Be cron istorijos katalogo – `setup_metrics_group_up{group="cron"} 0`; be `cron` serviso grupė nieko neatiduoda.
 

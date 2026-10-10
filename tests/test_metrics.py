@@ -670,6 +670,7 @@ class SettingsTest(unittest.TestCase):
                          (str(project.data_directory / "cron"), True))
         self.assertNotIn("/host/cron-config", mounts)  # no app/config/cron in this project: not created by Docker
         self.assertEqual((metrics["environment"]["METRICS_CRON"], metrics["environment"]["ENV"]), ("1", "stage"))
+        self.assertEqual(metrics["environment"]["METRICS_CRON_SCHEDULE"], "on")
         (project.root / "app/config/cron").mkdir(parents=True)
         metrics = json.loads(Project(cron, "stage").capture(["config", "--format", "json"]))["services"]["metrics"]
         mounts = {volume["target"]: volume for volume in metrics["volumes"]}

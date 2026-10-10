@@ -55,6 +55,15 @@ No image changes.
    `env/<env>.env.example`; point the project's documentation to setup `doc/lt/09-aplinkos.md`.
 4. Update the build server's setup checkout before the first run (the `pipeline-deploy` target must exist).
 
+### Cron schedule switch
+
+- **`CRON_SCHEDULE=off`** keeps the cron service and its UI but runs nothing on schedule, on any ENV
+  (default `on`; other values stop the runner). supercronic does not start; the crontab is still
+  checked with `supercronic -test` at start and on UI edits. The UI lists the jobs, shows the schedule
+  off instead of the next run, and "Run now" still runs through `cron-run.sh` and records the run.
+  With `metrics`, `setup_cron_schedule_enabled` is `0` and no expected run is served, so the
+  missing-run alert stays quiet. Apply with `make restart service=cron`. No project needs to change.
+
 ## 2.2.0
 
 Application settings reach the containers by name. No project needs to change.

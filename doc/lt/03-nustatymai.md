@@ -201,6 +201,7 @@ Stage/prod dar privalomi keturių pagrindinių servisų limitai, žr. [resursai]
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
 | `CRON_HISTORY_KEEP` | `100` | Kiek paskutinių kiekvienos užduoties paleidimų log'ų laikyti. |
+| `CRON_SCHEDULE` | `on` | `off` – cron servisas ir jo sąsaja veikia, bet nė viena užduotis nevykdoma pagal grafiką; „Run now“ veikia ir įrašomas į istoriją. Leidžiama bet kurioje aplinkoje. Pritaikoma su `make restart service=cron`. Žr. [cron](05-servisai.md#cron). |
 
 ## Programų versijos
 

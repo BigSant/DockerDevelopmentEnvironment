@@ -308,6 +308,19 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         self.assertEqual(labelled(metrics, "setup_cron_job_last_exit_code", "job")[failing], 0)
         self.assertIn(failing, labelled(metrics, "setup_cron_job_last_success_timestamp_seconds", "job"))
 
+    def test_with_the_schedule_off_no_run_is_expected(self):
+        self.assertEqual(self.run_job(FAILING, "manual"), 3)
+        _, metrics = self.scrape()
+        self.assertEqual(metrics["setup_cron_schedule_enabled"], {"": 1})
+        self.assertIn("setup_cron_job_expected_run_timestamp_seconds", metrics)
+        _, metrics = self.scrape(METRICS_CRON_SCHEDULE="off")
+        self.assertEqual(metrics["setup_cron_schedule_enabled"], {"": 0})
+        # The jobs and their (manual) runs stay; no expected time, so no missing-run alert.
+        self.assertEqual(len(metrics["setup_cron_job_info"]), 4)
+        self.assertEqual(labelled(metrics, "setup_cron_job_last_exit_code", "job"), {job_id(FAILING): 3})
+        self.assertNotIn("setup_cron_job_expected_run_timestamp_seconds", metrics)
+        self.assertEqual(group_up(metrics, "cron"), 1)
+
     def test_without_cron_nothing_is_served_and_a_missing_history_clears_up(self):
         _, metrics = self.scrape(METRICS_CRON="0")
         self.assertFalse([name for name in metrics if name.startswith("setup_cron_")])

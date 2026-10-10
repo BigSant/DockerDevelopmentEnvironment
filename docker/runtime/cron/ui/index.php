@@ -1,5 +1,6 @@
 <?php
 // Thin cron UI: jobs with their next run, "run now", run history and (local/test only) crontab editing.
+// With CRON_SCHEDULE=off nothing runs on schedule (no supercronic): the UI marks it and "run now" still works.
 // Reached only through nginx-proxy with the CRON_ALLOWED_IPS / ALLOWED_IPS allowlist; no docker.sock.
 require __DIR__ . '/../compose.php';
 
@@ -14,6 +15,7 @@ if (!in_array($peer, array_merge(array('127.0.0.1', '::1'), $proxy), true)) {
 
 $history = getenv('CRON_HISTORY_DIR') ?: '/var/lib/setup-cron';
 $editable = in_array(getenv('ENV'), array('local', 'test'), true);
+$scheduled = getenv('CRON_SCHEDULE') !== 'off';
 $tokenFile = getenv('CRON_UI_TOKEN_FILE') ?: '/tmp/cron-ui-token';
 if (!is_file($tokenFile)) file_put_contents($tokenFile, bin2hex(random_bytes(16)));
 $token = trim(file_get_contents($tokenFile));
@@ -27,7 +29,7 @@ function page($title, $body)
         . 'body{font:14px system-ui,sans-serif;margin:2em;color:#222}table{border-collapse:collapse;width:100%}'
         . 'td,th{border-bottom:1px solid #ddd;padding:.4em;text-align:left;vertical-align:top}code,pre{font:12px monospace}'
         . 'pre{background:#f6f6f6;padding:1em;overflow:auto}.ok{color:#080}.fail{color:#b00}.error{background:#fee;padding:.6em}'
-        . 'textarea{width:100%;font:13px monospace}button{cursor:pointer}</style></head><body>'
+        . 'textarea{width:100%;font:13px monospace}button{cursor:pointer}.off{color:#a60;font-weight:bold}</style></head><body>'
         . '<h1>' . h($title) . '</h1>' . $body . '</body></html>';
     exit;
 }
@@ -127,11 +129,16 @@ if ($path === '/edit') {
             $message = '<div class="error">Not saved: ' . h($target) . ' is not writable.</div>';
         } else {
             cronCompose(cronFiles());
-            $pidFile = getenv('CRON_PID_FILE') ?: '/tmp/supercronic.pid';
-            $pid = is_file($pidFile) ? (int) file_get_contents($pidFile) : 0;
-            $reloaded = $pid > 0 && (function_exists('posix_kill') ? posix_kill($pid, 12) : exec('kill -USR2 ' . $pid) !== false);
-            $message = '<p class="ok">Saved' . ($reloaded ? ' and reloaded' : '; restart cron to apply it') . '. Commit '
-                . h($name) . ' to keep the change.</p>';
+            if ($scheduled) {
+                $pidFile = getenv('CRON_PID_FILE') ?: '/tmp/supercronic.pid';
+                $pid = is_file($pidFile) ? (int) file_get_contents($pidFile) : 0;
+                $reloaded = $pid > 0 && (function_exists('posix_kill') ? posix_kill($pid, 12) : exec('kill -USR2 ' . $pid) !== false);
+                $applied = $reloaded ? ' and reloaded' : '; restart cron to apply it';
+            } else {
+                // No supercronic to reload: the jobs list follows the file, nothing runs on schedule.
+                $applied = '; the schedule is off (CRON_SCHEDULE=off), so nothing runs on it';
+            }
+            $message = '<p class="ok">Saved' . $applied . '. Commit ' . h($name) . ' to keep the change.</p>';
         }
     }
     $tabs = implode(' · ', array_map(function ($file) { return '<a href="/edit?file=' . h($file) . '">' . h($file) . '</a>'; }, $files));
@@ -146,7 +153,11 @@ if ($path !== '/') { http_response_code(404); page('Cron', '<p class="error">Not
 
 $body = '<p>Environment <strong>' . h(getenv('ENV')) . '</strong>; times in ' . h(date_default_timezone_get()) . '. '
     . ($editable ? '<a href="/edit">Edit crontab</a>' : 'The crontab changes only through git.') . '</p>';
-$body .= '<table><tr><th>Schedule</th><th>Next run</th><th>Command</th><th>Last run</th><th></th></tr>';
+if (!$scheduled) {
+    $body .= '<p class="error"><span class="off">Schedule off</span> (CRON_SCHEDULE=off): no job runs on its schedule. '
+        . '"Run now" still runs a job and records it.</p>';
+}
+$body .= '<table><tr><th>Schedule</th><th>' . ($scheduled ? 'Next run' : 'Next run (schedule off)') . '</th><th>Command</th><th>Last run</th><th></th></tr>';
 $jobs = array();
 foreach (cronFiles() as $name => $file) $jobs = array_merge($jobs, cronJobs(file_get_contents($file), $name));
 if (!$jobs) $body .= '<tr><td colspan="5">No jobs in ' . h(CRON_DIRECTORY) . '/crontab.</td></tr>';
@@ -154,7 +165,8 @@ foreach ($jobs as $job) {
     $next = cronNextRun($job['schedule'], time());
     $last = runs($history, $job['id'], 1);
     $body .= '<tr><td><code>' . h($job['schedule']) . '</code><br><small>' . h($job['source']) . ':' . (int) $job['line'] . '</small></td><td>'
-        . ($next ? h(date('Y-m-d H:i', $next)) : '<span class="fail">invalid</span>') . '</td><td><code>' . h($job['command']) . '</code></td><td>'
+        . ($next === null ? '<span class="fail">invalid</span>' : ($scheduled ? h(date('Y-m-d H:i', $next))
+            : '<span class="off">off</span><br><small>would be ' . h(date('Y-m-d H:i', $next)) . '</small>')) . '</td><td><code>' . h($job['command']) . '</code></td><td>'
         . status($last ? $last[0] : null) . '</td><td><form method="post" action="/run"><input type="hidden" name="token" value="' . h($token) . '">'
         . '<input type="hidden" name="job" value="' . h($job['id']) . '"><button>Run now</button></form> <a href="/history?job=' . h($job['id']) . '">history</a></td></tr>';
 }

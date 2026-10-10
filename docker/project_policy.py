@@ -14,6 +14,8 @@ DEFAULTS = {
     # After a DB import: shop SSL flag, and the external integrations left enabled (local/test/stage).
     'PS_SSL': 'on', 'INTEGRATIONS_ENABLED': '',
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
+    # off keeps the cron service and its UI (run now, history) but runs nothing on schedule.
+    'CRON_SCHEDULE': 'on',
     # One time zone for PHP, the database, web servers and cron.
     'TZ': 'Europe/Vilnius',
     # Xdebug 3 mode (local/test images only); empty resolves to debug there.
@@ -169,6 +171,7 @@ def resolve_policy(settings, environment):
         raise ValueError('MAIL_MODE=mailpit requires mailpit in SERVICES')
     choice(values, 'PS_SSL', ('on', 'off'))
     choice(values, 'DATABASE_PERFORMANCE_SCHEMA', ('on', 'off'))
+    choice(values, 'CRON_SCHEDULE', ('on', 'off'))
     if not re.fullmatch(r'[a-z0-9_-]*(?: [a-z0-9_-]+)*', ' '.join(values['INTEGRATIONS_ENABLED'].split())):
         raise ValueError('INTEGRATIONS_ENABLED lists integration names (letters, digits, - and _) separated by spaces')
     if choice(values, 'HTTP_FORCE_HTTPS', ('auto', 'off', 'on')) == 'auto':

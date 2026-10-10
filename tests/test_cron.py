@@ -122,14 +122,14 @@ class CronUiTest(unittest.TestCase):
         (self.root / "bin/supercronic").write_text("#!/bin/sh\nexit 0\n")
         (self.root / "bin/supercronic").chmod(0o755)
 
-    def start(self, environment, host="127.0.0.1"):
+    def start(self, environment, host="127.0.0.1", **settings):
         with socket.socket() as probe:
             probe.bind((host, 0))
             port = probe.getsockname()[1]
         env = {**os.environ, "ENV": environment, "TZ": "Europe/Vilnius", "CRON_DIRECTORY": str(self.root / "cron.d"),
                "CRON_HISTORY_DIR": str(self.root / "history"), "CRON_RUN": str(CRON / "cron-run.sh"),
                "CRON_CRONTAB": str(self.root / "crontab.wrapped"), "CRON_UI_TOKEN_FILE": str(self.root / "token"),
-               "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
+               "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", **settings}
         server = subprocess.Popen(["php", "-S", f"{host}:{port}", str(CRON / "ui/index.php")], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(server.wait)
@@ -183,6 +183,40 @@ class CronUiTest(unittest.TestCase):
         self.assertIn("nightly", self.get(f"/log?job={job}&file={run['log']}"))
         self.assertEqual(self.post("/run", {"job": job, "token": "wrong"})[0], 403)
 
+    def test_schedule_off_lists_the_jobs_marks_them_off_and_still_runs_them_by_hand(self):
+        # A process standing in for supercronic: an edit must not signal it (SIGUSR2 would end sleep).
+        sleeper = subprocess.Popen(["sleep", "60"])
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        (self.root / "supercronic.pid").write_text(str(sleeper.pid))
+        self.start("local", CRON_SCHEDULE="off", CRON_PID_FILE=str(self.root / "supercronic.pid"))
+        page = self.get("/")
+        self.assertIn("echo from-cron", page)
+        self.assertIn("Schedule off", page)
+        self.assertIn("Next run (schedule off)", page)
+        self.assertRegex(page, r'<span class="off">off</span><br><small>would be \d{4}-\d\d-\d\d \d\d:\d\d</small>')
+        self.assertIn("Run now", page)
+        status, body = self.post("/edit", {"file": "crontab", "crontab": "0 2 * * * echo nightly\n"})
+        self.assertIn("Saved; the schedule is off", body)
+        self.assertIsNone(sleeper.poll(), "nothing to reload with the schedule off")
+        self.assertIn("echo nightly", self.get("/"))
+        job = php("echo json_encode(cronJobs('0 2 * * * echo nightly', 'crontab')[0]['id']);")
+        self.post("/run", {"job": job})
+        history = self.root / "history/history.jsonl"
+        for _ in range(50):
+            if history.exists() and history.read_text().strip():
+                break
+            time.sleep(0.1)
+        run = json.loads(history.read_text().splitlines()[-1])
+        self.assertEqual((run["job"], run["trigger"], run["exit"]), (job, "manual", 0))
+        self.assertIn("manual", self.get("/"), "the last run shows next to the job")
+
+    def test_schedule_on_shows_the_next_run(self):
+        self.start("prod", CRON_SCHEDULE="on")
+        page = self.get("/")
+        self.assertNotIn("Schedule off", page)
+        self.assertRegex(page, r"<td>\d{4}-\d\d-\d\d \d\d:\d\d</td>")
+
     def test_only_nginx_proxy_or_loopback_reaches_the_ui(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
             probe.connect(("192.0.2.1", 9))  # no traffic: only picks the outgoing interface
@@ -226,6 +260,34 @@ class CrontabMountTest(unittest.TestCase):
                     services = json.loads(Project(app, environment).capture(["config", "--format", "json"]))["services"]
                     mount = next(v for v in services["cron"]["volumes"] if v["target"] == "/etc/cron.d")
                     self.assertEqual(mount.get("read_only", False), read_only)
+
+
+class CronScheduleSettingTest(unittest.TestCase):
+    def test_schedule_is_on_by_default_may_be_off_on_every_environment_and_is_validated(self):
+        from project_policy import resolve_policy
+        limits = {"PHP_MEMORY": "1g", "PHP_CPUS": "1", "DATABASE_MEMORY": "2g", "DATABASE_CPUS": "1",
+                  "WEBSERVER_MEMORY": "256m", "WEBSERVER_CPUS": "1", "PROXY_MEMORY": "128m", "PROXY_CPUS": "0.5"}
+        for environment in ("local", "test", "stage", "prod"):
+            with self.subTest(environment=environment):
+                self.assertEqual(resolve_policy(dict(limits), environment)["CRON_SCHEDULE"], "on")
+                self.assertEqual(resolve_policy({**limits, "CRON_SCHEDULE": "off"}, environment)["CRON_SCHEDULE"], "off")
+        for value in ("no", "OFF", "0"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "CRON_SCHEDULE must be one of: on, off"):
+                resolve_policy({"CRON_SCHEDULE": value}, "local")
+
+    def test_the_setting_reaches_the_cron_service(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            with contextlib.redirect_stdout(io.StringIO()):
+                app = scaffold("cron-schedule", temporary)
+            with (app / "env/common.env").open("a") as env:
+                env.write("SERVICES=cron\n")
+            cron = lambda: json.loads(Project(app, "local").capture(["config", "--format", "json"]))["services"]["cron"]
+            self.assertEqual(cron()["environment"]["CRON_SCHEDULE"], "on")
+            with (app / "env/local.env").open("a") as env:
+                env.write("CRON_SCHEDULE=off\n")
+            self.assertEqual(cron()["environment"]["CRON_SCHEDULE"], "off")
 
 
 if __name__ == "__main__":
