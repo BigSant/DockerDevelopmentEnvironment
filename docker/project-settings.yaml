@@ -34,6 +34,8 @@ services:
       MARIADB_VERSION: ${MARIADB_VERSION-}
       DATABASE_ENGINE: ${DATABASE_ENGINE-}
       SETUP_COMPATIBILITY_CHECK: ${SETUP_COMPATIBILITY_CHECK-}
+      # The oldest setup this project runs with (env/common.env); every runner command checks it first.
+      SETUP_MIN_VERSION: ${SETUP_MIN_VERSION-}
       DOMAIN: ${DOMAIN-}
       SQL_DOMAIN: ${SQL_DOMAIN-${DOMAIN-}}
       PROFILE: ${PROFILE-}

@@ -373,6 +373,8 @@ def main():
         setup_info()
         return 0
     try:
+        from project_env_files import require_setup_version
+        require_setup_version(args.docker_directory)
         if args.action in ("init", "ide-init", "bootstrap", "setup"):
             initialize_env(args.docker_directory, args.env)
             from project_bootstrap import ensure_generated_secrets
