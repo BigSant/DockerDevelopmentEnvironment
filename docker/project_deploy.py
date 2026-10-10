@@ -61,6 +61,12 @@ def history(project):
     return json.loads(path.read_text()) if path.is_file() else []
 
 
+def rollback_entry(entries):
+    """The release rollback=1 returns to: the latest other completed deploy before the last one."""
+    completed = [entry for entry in entries[:-1] if not entry.get('failed') and entry['commit'] != entries[-1]['commit']]
+    return completed[-1] if completed else None
+
+
 def record(project, entry):
     entries = history(project) + [entry]
     path = deploy_directory(project) / 'deployments.json'
@@ -310,10 +316,9 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     entries = history(project)
     if rollback:
         # The latest other release whose deploy completed; a failed one is never a rollback target.
-        completed = [entry for entry in entries[:-1] if not entry.get('failed') and entry['commit'] != entries[-1]['commit']]
-        if not completed:
+        previous = rollback_entry(entries)
+        if not previous:
             raise ValueError('No previous deployment to roll back to')
-        previous = completed[-1]
         release = deploy_directory(project) / 'code' / previous['commit'][:12]
         if not (release / '.setup-release').is_file():
             raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')

@@ -336,7 +336,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "pipeline-deploy", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -375,6 +375,10 @@ def main():
     try:
         from project_env_files import require_setup_version
         require_setup_version(args.docker_directory)
+        if args.action == 'pipeline-deploy':
+            # Before Project: the step writes env/<env>.env itself and runs each make step afresh.
+            from project_pipeline import pipeline_deploy
+            return pipeline_deploy(args.docker_directory, args.env, args.project_directory)
         if args.action in ("init", "ide-init", "bootstrap", "setup"):
             initialize_env(args.docker_directory, args.env)
             from project_bootstrap import ensure_generated_secrets

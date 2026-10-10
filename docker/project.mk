@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy pipeline-deploy module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -55,6 +55,7 @@ help:
 	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
 	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the code, back up, rsync, hook, upgrade, migrate'
 	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
+	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
 
 setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
@@ -92,6 +93,9 @@ release:
 
 deploy:
 	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 0,$(backup)),--no-backup,) $(if $(filter 1,$(rollback)),--rollback,)
+
+pipeline-deploy:
+	@$(RUN_PROJECT) $@
 
 module-pull:
 	@$(RUN_PROJECT) $@ --name $(call quote,$(name))
