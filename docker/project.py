@@ -336,7 +336,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "pipeline-deploy", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -347,7 +347,11 @@ def main():
     parser.add_argument('--backup', action='store_true', help='Create a private backup before importing')
     parser.add_argument('--full', action='store_true', help='db-import: import the data of every table, ignoring registry skip rules')
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
-    parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first')
+    parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
+                        'deploy-variables: also replace the Bitbucket variables that exist')
+    parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600)')
+    parser.add_argument('--token-file', help='deploy-variables: Bitbucket access token file (0600); default BITBUCKET_ACCESS_TOKEN')
+    parser.add_argument('--names', action='store_true', help='deploy-variables: print the list only (no network)')
     parser.add_argument('--module', help='phpunit: run only this module suite (or shop)')
     parser.add_argument('--filter', dest='test_filter', help='phpunit: --filter pattern')
     parser.add_argument('--no-sync', action='store_true', help='phpunit: do not refresh the test application copy first')
@@ -379,6 +383,10 @@ def main():
             # Before Project: the step writes env/<env>.env itself and runs each make step afresh.
             from project_pipeline import pipeline_deploy
             return pipeline_deploy(args.docker_directory, args.env, args.project_directory)
+        if args.action == 'deploy-variables':
+            from project_bitbucket import deploy_variables
+            return deploy_variables(args.docker_directory, args.env, source=args.source, replace=args.replace,
+                                    token_file=args.token_file, names_only=args.names)
         if args.action in ("init", "ide-init", "bootstrap", "setup"):
             initialize_env(args.docker_directory, args.env)
             from project_bootstrap import ensure_generated_secrets
