@@ -4,6 +4,24 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+Application settings reach the containers by name. No project needs to change.
+
+- **`APP_ENVIRONMENT`** in `env/common.env`: space-separated names (never values) of the
+  application's own settings. Setup passes each as `NAME: ${NAME-}` to php-fpm and, when enabled,
+  cron, on every ENV; values come from the env files or, for names they do not mention, the process
+  environment (Bitbucket Deployment variables). The generated overlay holds references only and no
+  image is rebuilt. Invalid names and names setup owns (its settings, `DATABASE_*`, `MYSQL_*`, `PS_*`,
+  `PHP_*`, `CRON_*`, `ENV`, `PROFILE`, …) stop the runner with the names. A project that still lists
+  the variables in its compose files keeps its definitions; the per-service lists can be removed.
+- **cron** gets the database connection php-fpm gets (`DATABASE_HOST/PORT/NAME/USER/PASSWORD`) and
+  `DOMAIN`, `PROJECT_NAME`, `SETUP_ENV` (so `config/php/*.template` drop-ins may use them). Setup's
+  values replace a different cron `DATABASE_*` in `compose/base.yaml`; set one in
+  `compose/common.yaml` if cron really needs another database.
+
+No image changes.
+
 ## 2.1.0
 
 Servers run without DirectAdmin and generic (non-PrestaShop) projects deploy; both monitoring

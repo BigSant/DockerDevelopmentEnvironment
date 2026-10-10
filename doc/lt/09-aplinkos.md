@@ -81,6 +81,7 @@ PMA_ALLOWED_IPS="203.0.113.10"
 ```
 
 4. **Slaptažodžiai** (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, PS raktai) į failus nerašomi. Jie ateina iš Bitbucket Deployment variables kaip proceso aplinka. Env faile jų nerašyk arba palik tuščius – tuščia reikšmė proceso aplinkos neuždengia. Bandant iš savo kompiuterio jie gali būti privačiame `env/prod.env`; tada laimi failas.
+   Aplikacijos slapti parametrai iš [`APP_ENVIRONMENT`](03-nustatymai.md#savi-aplikacijos-parametrai-app_environment) ateina taip pat, tik jų vardų serverio env faile nerašyk visai: čia ir tuščia reikšmė proceso aplinkos reikšmę uždengia.
 
 ## Image'ai serveryje
 
@@ -159,7 +160,7 @@ Realus pavyzdys – Forsenos aplinkos repozitorijos `deploy/PIPELINES.md`, `depl
 - Deploy'ų paleidžia žmogus: **Pipelines → Run pipeline → Custom: deploy-stage / deploy-production**.
 - Žingsnį vykdo self-hosted runner'is build serveryje (žymos `self.hosted`, `linux.shell`, `setup.build`). Jam reikia Docker teisių ir prieigos prie projekto katalogo.
 - Repository variable `BUILD_ROOT` – projekto šaknis build serveryje. Ten `app/` (aplinkos repo), `app/public/` (parduotuvės repo) ir šalia – bendras `setup`.
-- Slaptažodžiai ir PS raktai – **Deployment variables (Secured)** Staging / Production aplinkoms. Jie gyvena tik proceso aplinkoje ir į diską nerašomi.
+- Slaptažodžiai ir PS raktai – **Deployment variables (Secured)** Staging / Production aplinkoms. Jie gyvena tik proceso aplinkoje ir į diską nerašomi. Aplikacijos raktams pakanka Deployment variable su tuo pačiu vardu, kaip `APP_ENVIRONMENT` sąraše.
 - `pipeline.sh` nukopijuoja `env/<aplinka>.env.example` į `env/<aplinka>.env` ir paleidžia `make release` + `make deploy-images` (kai `IMAGES=yes`), tada `make deploy ref=$SHOP_REF` arba `make deploy rollback=1` (kai `ROLLBACK=yes`).
 - Kiekvienas paleidimas matomas **Deployments** istorijoje.
 

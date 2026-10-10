@@ -82,9 +82,9 @@ Failas su galūne `.template` konteinerio starto metu paverčiamas į failą be 
 - nežinomas kintamasis yra klaida, ir konteineris nepasileidžia;
 - reikšmės imamos tik iš to konteinerio env.
 
-`php-fpm`, `webserver`, `nginx-proxy` ir `database` konteineriuose prieinami `DOMAIN`, `PROJECT_NAME`, `SETUP_ENV` ir `TZ`, DB konteineryje dar `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_BUFFER_POOL`. Redis konteineryje yra tik `TZ` ir `REDIS_MAXMEMORY_MB`. Savo kintamąjį pirmiau perduok tam servisui per Compose `environment` ([pavyzdys](03-nustatymai.md#savas-parametras-tik-vienam-projektui)).
+`php-fpm`, `cron`, `webserver`, `nginx-proxy` ir `database` konteineriuose prieinami `DOMAIN`, `PROJECT_NAME`, `SETUP_ENV` ir `TZ`, DB konteineryje dar `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_BUFFER_POOL`. Redis konteineryje yra tik `TZ` ir `REDIS_MAXMEMORY_MB`. Savo kintamąjį pirmiau perduok tam servisui: `php-fpm` ir `cron` – per [`APP_ENVIRONMENT`](03-nustatymai.md#savi-aplikacijos-parametrai-app_environment), kitiems – per Compose `environment`.
 
-**Dėmesio:** `config/php/*.template` failus renderina ir cron konteineris, o jame `DOMAIN`, `PROJECT_NAME` ir `SETUP_ENV` nėra (yra `TZ`, `ENV`, `XDEBUG_MODE`, cache ir `PS_*` raktai). Jei `SERVICES` turi `cron`, PHP šablonuose naudok tik abiem konteineriams bendrus kintamuosius, kitaip cron nepasileis.
+**Dėmesio:** `config/php/*.template` failus renderina ir cron konteineris. Jame nėra `php-fpm` FPM pool'o raktų (`PHP_FPM_*`, `PHP_MEMORY_LIMIT` ir pan.), `PS_SMARTY_*`, `PS_ASSET_CACHE`, `PS_OBJECT_CACHE` ir `PS_DEBUG_*`. Jei `SERVICES` turi `cron`, PHP šablonuose naudok tik abiem konteineriams bendrus kintamuosius, kitaip cron nepasileis.
 
 Pavyzdys `config/apache/vhost.d/project-header.conf.template`:
 
@@ -322,6 +322,7 @@ Kas vyksta:
 - Kiekvieno paleidimo output, exit code, trukmė ir būdas (pagal grafiką ar rankomis) įrašomi į `data/cron`. Laikomi paskutiniai `CRON_HISTORY_KEEP` (numatyta 100) kiekvienos užduoties paleidimai. Output'as matomas ir `make logs service=cron`.
 - Jei užduotis dar vykdoma, kai ateina kitas jos laikas, naujas paleidimas praleidžiamas.
 - Cron naudoja projekto PHP image'ą, tą patį kodą ir `config/php` nustatymus. Jis laukia, kol bus sveiki `php-fpm` ir `database`. `config/startup/*.sh` cron'e nevykdomi.
+- Užduotys gauna tą patį DB prisijungimą kaip `php-fpm` (`DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`), `DOMAIN`, `PROJECT_NAME`, `SETUP_ENV` ir visus [`APP_ENVIRONMENT`](03-nustatymai.md#savi-aplikacijos-parametrai-app_environment) kintamuosius. Projekto Compose faile jų kartoti nereikia.
 
 **Sąsaja** `https://cron.demo.local/`:
 

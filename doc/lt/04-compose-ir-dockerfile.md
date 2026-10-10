@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | Reikia kito PHP, MySQL, Apache ar Nginx nustatymo | Env raktas arba drop-in failas `config/<servisas>/` | Programa jau įdiegta, keičiasi tik jos nustatymas. Žr. [servisai](05-servisai.md). |
 | Reikia papildomo serviso iš katalogo (Redis, cron, PMA…) | `SERVICES=` env faile | Viena eilutė, be YAML. |
+| Aplikacijai (`php-fpm`, `cron`) reikia savo env kintamojo | `APP_ENVIRONMENT=` env faile | Tik vardas, be YAML. Žr. [savi aplikacijos parametrai](03-nustatymai.md#savi-aplikacijos-parametrai-app_environment). |
 | Reikia kitaip prijungti katalogą, pakeisti portą ar pridėti savo servisą | `compose/common.yaml` arba `compose/<ENV>.yaml` | Keičiasi paleidžiamos aplinkos dalys. |
 | PHP trūksta sistemos programos ar plėtinio | Projekto `Dockerfile` | Reikia kitokio image'o. |
 
@@ -15,6 +16,8 @@
 
 ```text
 keturi pagrindiniai servisai iš setup  # nginx-proxy, Apache, MySQL/MariaDB, PHP-FPM ir tinklas
+    ↓
+APP_ENVIRONMENT vardai, jei nurodyti   # sugeneruotas .generated/app-environment-*.yaml (php-fpm, cron)
     ↓
 compose/base.yaml, jei yra            # projekto papildomi servisai ar skirtumai
     ↓
@@ -93,9 +96,18 @@ services:
       database:
         condition: service_healthy
     restart: unless-stopped
+    environment:
+      SUPPLIER_TOKEN: ${SUPPLIER_TOKEN-}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
 ```
 
 Šis servisas naudoja tą patį projekto PHP image'ą. Patikrink `make check`, paleisk `make up`. Runner'io DB komandos ir PHP preflight'ai savam servisui netaikomi.
+
+Savas servisas iš setup gauna tik tai, kas parašyta jo apraše: `APP_ENVIRONMENT` ir DB prisijungimas jam neperduodami, todėl reikalingus kintamuosius išvardyk `environment`. `logging` blokas taiko tą pačią log'ų rotaciją kaip setup servisai (`CONTAINER_LOG_MAX_SIZE`, `CONTAINER_LOG_MAX_FILES`). Keliems savo servisams jį gali aprašyti vieną kartą YAML ankeriu (`x-logging: &logging` ir `logging: *logging`).
 
 ## MySQL ar MariaDB
 

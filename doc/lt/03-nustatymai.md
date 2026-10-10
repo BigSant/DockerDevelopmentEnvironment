@@ -36,7 +36,7 @@ DATABASE_PASSWORD='vietinis-pavyzdys-pakeisk'
 SERVICES="pma mailpit"
 ```
 
-Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Taip ankstesnio projekto `export` neperjungia šio projekto. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Slaptažodžiams (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, `DATABASE_MONITOR_PASSWORD`, `DBMONITOR_TOKEN`, `METRICS_TOKEN`, PS raktai) yra išimtis: jei env faile jie tušti (`DATABASE_PASSWORD=`), naudojama proceso aplinkos reikšmė. Taip Bitbucket Pipelines perduoda slaptažodžius (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)). Jei slaptažodis įrašytas env faile, laimi failas.
+Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Taip ankstesnio projekto `export` neperjungia šio projekto. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Slaptažodžiams (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, `DATABASE_MONITOR_PASSWORD`, `DBMONITOR_TOKEN`, `METRICS_TOKEN`, PS raktai) yra išimtis: jei env faile jie tušti (`DATABASE_PASSWORD=`), naudojama proceso aplinkos reikšmė. Taip Bitbucket Pipelines perduoda slaptažodžius (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)). Jei slaptažodis įrašytas env faile, laimi failas. Tas pats galioja [`APP_ENVIRONMENT`](#savi-aplikacijos-parametrai-app_environment) vardams, tik be išimties tuščiai reikšmei: env faile paminėtas vardas (net tuščias) proceso aplinkos reikšmę uždengia.
 
 Env failas nėra shell scriptas: nerašyk `$(komanda)` ir nenaudok `source env/local.env`. Slaptažodžiams su `$` naudok viengubas kabutes. Reikšmes su tarpais (pvz. `SERVICES`) rašyk kabutėse. Taisyklės: [Docker dotenv interpoliacija](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
 
@@ -52,6 +52,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `SERVICES` | Tuščias | Papildomi CORE servisai per tarpus: `pma mailpit cron dbmonitor metrics memcached redis playwright php-phpstan php-cs php-doctrine-migrations`. Nežinomas vardas – klaida. Žr. [servisai](05-servisai.md#servisų-katalogas-services). |
 | `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
 | `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
+| `APP_ENVIRONMENT` | Tuščias | Aplikacijos savų env kintamųjų **vardai** per tarpus (be reikšmių), kuriuos setup perduoda `php-fpm` ir `cron`. Laikyk `common.env`. Žr. [Savi aplikacijos parametrai](#savi-aplikacijos-parametrai-app_environment). |
 
 `PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, `SERVICES` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
 
@@ -247,21 +248,39 @@ DB variklio versijos keitimui neužtenka perkurti konteinerio: reikia suderinamo
 
 Drop-in `.template` failuose kiekviename CORE konteineryje dar prieinami `DOMAIN`, `PROJECT_NAME` ir `SETUP_ENV`, DB konteineryje – ir `DATABASE_NAME`, `DATABASE_USER`. Žr. [drop-in failai](05-servisai.md#template-failai).
 
-## Savas parametras tik vienam projektui
+## Savi aplikacijos parametrai (APP_ENVIRONMENT)
 
-Situacija: aplikacijai reikia `INTEGRATION_URL`.
+Env failo eilutė į konteinerį pati nepatenka: ji tik užpildo Compose `${...}` išraiškas. Aplikacijos savus parametrus (API raktus, integracijų adresus, jungiklius) setup perduoda pagal vardų sąrašą `APP_ENVIRONMENT`.
 
-1. `env/local.env` įrašyk `INTEGRATION_URL=https://sandbox.example.com`.
-2. `compose/common.yaml` perduok jį PHP konteineriui:
+Situacija: aplikacija skaito `SUPPLIER_URL` ir `SUPPLIER_TOKEN` su `getenv()`.
+
+1. `env/common.env` išvardyk **vardus** ir bendras ne slaptas reikšmes:
+
+```dotenv
+APP_ENVIRONMENT="SUPPLIER_URL SUPPLIER_TOKEN"
+SUPPLIER_URL=https://supplier.example.com
+```
+
+2. Slaptą reikšmę įrašyk `env/local.env` (`SUPPLIER_TOKEN='...'`), o stage/prod – į Bitbucket Deployment variables. Serverio env faile to vardo nerašyk, net tuščio: paminėtas vardas uždengia proceso aplinkos reikšmę.
+3. Paleisk `make check` ir `make restart service=php-fpm` (ir `service=cron`, jei jis įjungtas).
+
+Kas vyksta:
+
+- Kiekvienas vardas tampa `VARDAS: ${VARDAS-}` servisuose `php-fpm` (ten veikia ir `make phpunit`) ir `cron` (kai jis yra `SERVICES`). Visose aplinkose: local, test, stage, prod.
+- Vardai rašomi į sugeneruotą `.generated/app-environment-<santrauka>.yaml`. Jame tik nuorodos, **reikšmių nėra**; reikšmes įstato Compose. Image'ai dėl šio nustatymo neperkuriami.
+- Neįrašyta reikšmė konteineryje yra tuščia eilutė (`getenv()` grąžina `''`, ne `false`). Jei aplikacijai tuščia reikšmė reiškia ką kita nei „nėra“, įrašyk numatytąją reikšmę į `common.env`.
+- Ilgą sąrašą galima laužyti per kelias eilutes kabučių viduje. Komentarų (`#`) kabutėse nerašyk – jie taptų vardais.
+- Vardas turi atitikti `^[A-Z][A-Z0-9_]*$`. Setup'o vardai atmetami su klaida, nes kopija tyliai pakeistų setup'o reikšmę: visi šio skyriaus nustatymai (pvz. `DOMAIN`, `SERVICES`, `PROFILE`), runner'io kintamieji (`ENV`, `HOST_UID`…) ir šeimos `DATABASE_*`, `APP_DATABASE_*`, `MYSQL_*`, `MARIADB_*`, `PS_*`, `PHP_*`, `XDEBUG_*`, `CRON_*`, `PROJECT_*`, `SETUP_*`, `COMPOSE_*`, `DOCKER_*`. DB prisijungimą, `DOMAIN`, `PROJECT_NAME`, `TZ` `php-fpm` ir `cron` jau gauna iš setup.
+
+Compose ranka vis dar reikia, kai aplikacija kintamąjį vadina kitaip nei env failas, kai reikia Compose numatytosios reikšmės (`${X:-...}`, `${X:?...}`) arba kai parametras skirtas tik vienam servisui:
 
 ```yaml
 services:
   php-fpm:
     environment:
-      INTEGRATION_URL: ${INTEGRATION_URL:?Įrašyk INTEGRATION_URL}
+      SEARCH_KEY: ${MEILISEARCH_MASTER_KEY-}
 ```
 
-3. Aplikacijoje skaityk `getenv('INTEGRATION_URL')`.
-4. Paleisk `make check` ir `make restart service=php-fpm`.
+Projekto Compose failai skaitomi po `APP_ENVIRONMENT`, todėl jų aprašas laimi: projektas, kuris kintamuosius dar išvardija pats, veikia kaip anksčiau. Savo servisams (žr. [savas servisas](04-compose-ir-dockerfile.md#savas-servisas)) `APP_ENVIRONMENT` netaikomas – jų `environment` rašyk ranka.
 
-Vien env eilutė į konteinerį nepatenka: ją reikia aiškiai perduoti per Compose. Ar reikšmė tikrai perduota, gali patikrinti [config/environment.json](12-cache-ir-hibridines-aplinkos.md#aplikacijos-env-reikalavimai).
+Ar reikšmė tikrai perduota, gali patikrinti [config/environment.json](12-cache-ir-hibridines-aplinkos.md#aplikacijos-env-reikalavimai).

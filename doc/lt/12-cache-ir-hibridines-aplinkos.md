@@ -177,7 +177,7 @@ Neprivalomas `config/environment.json` leidžia `make check` patikrinti, ar serv
 }
 ```
 
-`type`: `string` (numatyta), `integer`, `boolean` (`0/1/true/false`), `url` (http/https). `choices` – leidžiamos reikšmės. Tikrinami Compose perduoti env, deklaracija pati nieko neperduoda. Klaidos rodo rakto vardą, bet ne reikšmę.
+`type`: `string` (numatyta), `integer`, `boolean` (`0/1/true/false`), `url` (http/https). `choices` – leidžiamos reikšmės. Tikrinami Compose perduoti env, deklaracija pati nieko neperduoda: kintamąjį perduoda [`APP_ENVIRONMENT`](03-nustatymai.md#savi-aplikacijos-parametrai-app_environment) (`php-fpm`, `cron`) arba Compose `environment`. Klaidos rodo rakto vardą, bet ne reikšmę.
 
 ## Log'ai, diskas ir kopijos
 

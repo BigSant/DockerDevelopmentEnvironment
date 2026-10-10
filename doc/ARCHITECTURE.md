@@ -53,14 +53,19 @@ Constructing `Project` is the contract every action relies on:
    this stack. Exception: the pipeline secrets (`PROCESS_SECRETS`: DB/monitor passwords, dbmonitor
    and metrics tokens, PS keys) keep their process value when the env files leave them blank or
    unset, and Compose gives the process environment precedence — that is how Bitbucket Deployment
-   variables arrive. Setup's own `.env` sets no secret defaults.
+   variables arrive. Setup's own `.env` sets no secret defaults. `APP_ENVIRONMENT` names have no
+   blank exception: a server env file must not mention them at all for the process value to arrive.
 2. Settings: only the keys in `project-settings.yaml` are read. A new setting must be added there.
 3. Policy (`project_policy.resolve_policy`): defaults, validation and derived values: cache modes,
    MAIL_MODE (mailpit when the service runs), TZ, resources (`<SERVICE>_MEMORY/_CPUS` → buffer pool,
    FPM pool, memcached/redis memory), PS_SSL, DATABASE_PERFORMANCE_SCHEMA. Results go into the process
    environment used for Compose interpolation.
 4. Compose files: the project network and the four core services (`DATABASE_ENGINE` picks mysql or
-   mariadb; a project `include` of them is refused), the project's optional compose sources, every `SERVICES=` catalogue entry
+   mariadb; a project `include` of them is refused), the generated `APP_ENVIRONMENT` overlay
+   (`project_app_environment`: `NAME: ${NAME-}` for each listed name in php-fpm and, when enabled,
+   cron; references only, content-addressed under `.generated/`, refused for invalid names and names
+   setup owns — every setting plus `DATABASE_`, `PS_`, `PHP_`, `CRON_`, … — and loaded before the
+   project files so an explicit project definition wins), the project's optional compose sources, every `SERVICES=` catalogue entry
    (`docker/<name>/docker-compose.yml`), env overrides, then a generated overlay that drops optional
    config mounts whose source is absent (Compose would create them root-owned).
 5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor, metrics)
@@ -90,6 +95,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   nginx http/server/location, MySQL cnf + `init.d`, redis). Files ending `.template` are rendered at
   start by `runtime/render-templates.sh` with strict `${VAR}` substitution from the container env.
   An unknown variable is a start error. CORE files are never edited by projects.
+- **Application environment**: php-fpm and cron (the services that run the application code; PHPUnit
+  runs in php-fpm) get the same DB connection (`DATABASE_HOST/PORT/NAME/USER/PASSWORD`), `DOMAIN`,
+  `PROJECT_NAME`, `SETUP_ENV` and every `APP_ENVIRONMENT` name. Project-defined services get neither.
 - **MySQL `init.d`** (`*.sql`, `*.sql.template`, `*.sh`) runs once, when the data directory is created.
 - **PrestaShop config** (`parameters.php` / `settings.inc.php`) is generated from env keys at PHP start;
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
