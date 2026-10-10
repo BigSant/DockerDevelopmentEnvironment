@@ -4,6 +4,8 @@ services:
   metrics:
     environment:
       METRICS_CRON: "1"
+      # CRON_SCHEDULE=off: no job runs on schedule, so no run is expected.
+      METRICS_CRON_SCHEDULE: ${CRON_SCHEDULE:-on}
     volumes:
       - type: bind
         source: ${PROJECT_DATA_DIRECTORY}/cron

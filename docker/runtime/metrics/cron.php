@@ -42,6 +42,10 @@ function metrics_cron_jobs(Metrics $metrics)
     $zone = metrics_setting('TZ', '');
     if ($zone !== '' && in_array($zone, timezone_identifiers_list(), true)) date_default_timezone_set($zone);
     $now = time();
+    // CRON_SCHEDULE=off (the cron service runs nothing on schedule): no expected time, so no missing-run alert.
+    $scheduled = metrics_setting('METRICS_CRON_SCHEDULE', 'on') !== 'off';
+    $metrics->add('setup_cron_schedule_enabled', 'Whether the cron service runs the jobs on their schedule (CRON_SCHEDULE)',
+        $scheduled ? 1 : 0);
     // A command in crontab and crontab.<ENV> has one id (and one history), as in the cron UI: its figures once.
     $schedules = array();
     foreach ($jobs as $job) {
@@ -73,7 +77,7 @@ function metrics_cron_jobs(Metrics $metrics)
             $next = cronNextRun($schedule, $from);
             if ($next !== null && ($expected === null || $next < $expected)) $expected = $next;
         }
-        if ($expected !== null) {
+        if ($expected !== null && $scheduled) {
             $metrics->add('setup_cron_job_expected_run_timestamp_seconds',
                 'The first scheduled time after the last recorded run; in the past means a run is missing or still running', $expected, $labels);
         }
