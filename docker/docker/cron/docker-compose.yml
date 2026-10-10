@@ -38,6 +38,8 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD-}
       CRON_HISTORY_DIR: /var/lib/setup-cron
       CRON_HISTORY_KEEP: ${CRON_HISTORY_KEEP:-100}
+      # off: supercronic does not start; the UI still lists the jobs and runs them by hand.
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-on}
       # Xdebug 3 reads XDEBUG_MODE itself (debug | off | debug,profile ...); restart to apply.
       XDEBUG_MODE: ${XDEBUG_MODE}
       # Match php-fpm so cron jobs run PHP with the same per-project overrides.

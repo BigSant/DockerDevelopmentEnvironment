@@ -228,5 +228,33 @@ class CrontabMountTest(unittest.TestCase):
                     self.assertEqual(mount.get("read_only", False), read_only)
 
 
+class CronScheduleSettingTest(unittest.TestCase):
+    def test_schedule_is_on_by_default_may_be_off_on_every_environment_and_is_validated(self):
+        from project_policy import resolve_policy
+        limits = {"PHP_MEMORY": "1g", "PHP_CPUS": "1", "DATABASE_MEMORY": "2g", "DATABASE_CPUS": "1",
+                  "WEBSERVER_MEMORY": "256m", "WEBSERVER_CPUS": "1", "PROXY_MEMORY": "128m", "PROXY_CPUS": "0.5"}
+        for environment in ("local", "test", "stage", "prod"):
+            with self.subTest(environment=environment):
+                self.assertEqual(resolve_policy(dict(limits), environment)["CRON_SCHEDULE"], "on")
+                self.assertEqual(resolve_policy({**limits, "CRON_SCHEDULE": "off"}, environment)["CRON_SCHEDULE"], "off")
+        for value in ("no", "OFF", "0"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "CRON_SCHEDULE must be one of: on, off"):
+                resolve_policy({"CRON_SCHEDULE": value}, "local")
+
+    def test_the_setting_reaches_the_cron_service(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            with contextlib.redirect_stdout(io.StringIO()):
+                app = scaffold("cron-schedule", temporary)
+            with (app / "env/common.env").open("a") as env:
+                env.write("SERVICES=cron\n")
+            cron = lambda: json.loads(Project(app, "local").capture(["config", "--format", "json"]))["services"]["cron"]
+            self.assertEqual(cron()["environment"]["CRON_SCHEDULE"], "on")
+            with (app / "env/local.env").open("a") as env:
+                env.write("CRON_SCHEDULE=off\n")
+            self.assertEqual(cron()["environment"]["CRON_SCHEDULE"], "off")
+
+
 if __name__ == "__main__":
     unittest.main()
