@@ -160,6 +160,8 @@ class OneRepositoryTest(Fixture):
                               "config/mark": "D\n"}))
         commits.append(("E", {"env/common.env": COMMON.replace("HTPASSWD_API", "HTPASSWD_API NEW_SECRET"),
                               "env/prod.env.example": example.format("E"), "config/mark": "E\n"}))
+        # F has an env file the reader refuses.
+        commits.append(("F", {"env/common.env": COMMON, "env/prod.env.example": "MARK=F\nBROKEN='open\n", "config/mark": "F\n"}))
         origin, self.commits = self.repository("environment", commits)
         self.app = self.work / "root/app"
         git(self.work, "clone", "-q", str(origin), str(self.app))
@@ -252,6 +254,10 @@ class OneRepositoryTest(Fixture):
         self.run_step(64, REF=self.commits["D"])
         self.assert_out("This project needs setup 99.0.0 or newer")
         self.assertEqual(self.make_log(), "")
+        self.assert_root("A")
+        self.run_step(1, REF=self.commits["F"])
+        self.assert_out("env/prod.env.example:2: BROKEN has no closing single quote")
+        self.assert_out("Nothing was deployed: the build root is back")
         self.assert_root("A")
 
     def test_the_checkout_follows_what_setup_deployed(self):

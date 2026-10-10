@@ -178,8 +178,8 @@ class Step:
     def require(self, variables, environ, bitbucket):
         missing = [name for name, variable in variables.items() if variable['required'] and not environ.get(name)]
         if missing:
-            raise MissingVariables(f"Deployment variables missing or empty (Repository settings -> Deployments -> {bitbucket}): "
-                          f"{' '.join(missing)}")
+            raise MissingVariables("Deployment variables missing or empty (Repository settings -> Deployments -> "
+                                   f"{bitbucket}): {' '.join(missing)}")
 
 
 def environment_of(environment, bitbucket):
@@ -275,7 +275,8 @@ def run_step(step, environ, bitbucket, ref, switches):
             target = step.resolve(ref)
         state['restore'] = True
         step.checkout(target)
-        print(f'==> {step.directory} at {target[:12]}, env/{step.environment}.env written from its example', file=step.out, flush=True)
+        print(f'==> {step.directory} at {target[:12]}, env/{step.environment}.env written from its example',
+              file=step.out, flush=True)
         # The deployed commit's own lists: a name it adds is checked before anything runs.
         try:
             variables = deployment_variables(step.directory, step.environment)
@@ -304,11 +305,11 @@ def run_step(step, environ, bitbucket, ref, switches):
                 step.say(f'Warning: setup deployed {deployed}, not {target}; the build root follows it.')
                 step.checkout(deployed)
         return 0
-    except (Refusal, subprocess.CalledProcessError, OSError) as error:
+    except (Refusal, subprocess.CalledProcessError, OSError, ValueError) as error:
         if isinstance(error, subprocess.CalledProcessError):
             step.say(f'git {" ".join(error.cmd[3:])} failed: {(error.stderr or "").strip()}')
             status = error.returncode or 1
-        elif isinstance(error, OSError):
+        elif not isinstance(error, Refusal):  # OSError, or a ValueError of an env or history file
             step.say(f'Error: {error}')
             status = 1
         else:
@@ -336,7 +337,7 @@ def restore(step, live, target, state):
         return
     try:
         step.checkout(live)
-    except (subprocess.CalledProcessError, OSError, Refusal):
+    except (subprocess.CalledProcessError, OSError, ValueError, Refusal):
         say(f'The deploy failed and the build root could not return to {live}: check it out by hand '
             f'(git -C {step.directory} checkout --detach {live}) and rewrite env/{step.environment}.env.')
         return
