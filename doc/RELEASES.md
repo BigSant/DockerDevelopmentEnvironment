@@ -4,6 +4,15 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **`CRON_SCHEDULE=off`** keeps the cron service and its UI but runs nothing on schedule, on any ENV
+  (default `on`; other values stop the runner). supercronic does not start; the crontab is still
+  checked with `supercronic -test` at start and on UI edits. The UI lists the jobs, shows the schedule
+  off instead of the next run, and "Run now" still runs through `cron-run.sh` and records the run.
+  With `metrics`, `setup_cron_schedule_enabled` is `0` and no expected run is served, so the
+  missing-run alert stays quiet. Apply with `make restart service=cron`. No project needs to change.
+
 ## 2.2.0
 
 Application settings reach the containers by name. No project needs to change.
