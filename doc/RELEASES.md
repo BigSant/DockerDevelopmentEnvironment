@@ -43,7 +43,8 @@ No image changes.
 2. Create the environments `staging` and `production` (Settings → Environments) and fill them:
    `make deploy-variables ENV=prod token=… from=FILE` (needs `gh`).
 3. Register a self-hosted runner with the label `setup.build` on the build server and update its setup
-   checkout to this release.
+   checkout to this release. The build root is `vars.BUILD_ROOT`, else
+   `$SETUP_SERVER_ROOT/projects/<repository name in lower case>` (setup-server's layout).
 
 ## 2.3.0
 

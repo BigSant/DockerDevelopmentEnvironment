@@ -7,7 +7,8 @@
 # (the file must be on the default branch for the button to appear). The job runs on the self-hosted
 # runner of the build server (the labels below); environment: makes GitHub record the deployment and
 # gives the job that environment's secrets and variables. The build root holds this repository in app/
-# and setup beside it; BUILD_ROOT is a repository variable, or the setup-server layout below.
+# and setup beside it: the repository variable BUILD_ROOT, else setup-server's layout
+# $SETUP_SERVER_ROOT/projects/<repository name in lower case> (the runner sets SETUP_SERVER_ROOT).
 # Secrets are environment secrets of staging / production (DEPLOY_PLAIN_VARIABLES: environment
 # variables); make deploy-variables ENV=prod lists and checks them. GitHub does not export them: the
 # step passes the JSON of every secret and variable the job can read, and make pipeline-deploy expands
@@ -71,6 +72,8 @@ jobs:
           BUILD_ROOT: ${{ vars.BUILD_ROOT }}
           DEPLOY_SECRETS_JSON: ${{ toJSON(secrets) }}
           DEPLOY_VARIABLES_JSON: ${{ toJSON(vars) }}
+        shell: bash
         run: |
-          BUILD_ROOT=${BUILD_ROOT:-${SETUP_SERVER_ROOT:-/srv/setup-server}/projects/${GITHUB_REPOSITORY#*/}}
+          repository=${GITHUB_REPOSITORY#*/}
+          BUILD_ROOT=${BUILD_ROOT:-${SETUP_SERVER_ROOT:-/srv/setup-server}/projects/${repository,,}}
           make -C "$BUILD_ROOT/app" pipeline-deploy

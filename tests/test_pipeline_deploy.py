@@ -541,7 +541,17 @@ class TemplateTest(unittest.TestCase):
             "BUILD_ROOT": "${{ vars.BUILD_ROOT }}", SECRETS_JSON: "${{ toJSON(secrets) }}",
             VARIABLES_JSON: "${{ toJSON(vars) }}"})
         self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["run"])
+        self.assertEqual(step["shell"], "bash")
         self.assertNotIn("checkout", json.dumps(job), "the build root, not a runner clone, is deployed")
+        # The build root: vars.BUILD_ROOT, else setup-server's projects/<repository name in lower case>.
+        script = step["run"].replace('make -C "$BUILD_ROOT/app" pipeline-deploy', 'echo "$BUILD_ROOT"')
+        for variables, expected in (({}, "/srv/setup-server/projects/dockerdevelopmentenvironment"),
+                                    ({"SETUP_SERVER_ROOT": "/opt/ss"}, "/opt/ss/projects/dockerdevelopmentenvironment"),
+                                    ({"BUILD_ROOT": "/srv/elsewhere"}, "/srv/elsewhere")):
+            environment = {"PATH": os.environ["PATH"], "GITHUB_REPOSITORY": "BigSant/DockerDevelopmentEnvironment",
+                           "BUILD_ROOT": "", **variables}
+            result = subprocess.run(["bash", "-e", "-c", script], env=environment, capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(), expected, result.stderr)
 
 
 if __name__ == "__main__":
