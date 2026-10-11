@@ -31,7 +31,7 @@ class HostProxyTest(unittest.TestCase):
 
     def test_http_and_https_preserve_original_host_and_scheme(self):
         config = configuration('demo.local', '32001', self.ssl).decode()
-        self.assertIn('server_name demo.local pma.demo.local mailpit.demo.local cron.demo.local dbmonitor.demo.local;', config)
+        self.assertIn('server_name demo.local pma.demo.local mailpit.demo.local cron.demo.local dbmonitor.demo.local tables.demo.local;', config)
         self.assertEqual(config.count('proxy_pass http://127.0.0.1:32001;'), 2)
         self.assertIn('listen 80;', config)
         self.assertIn('listen 443 ssl http2;', config)

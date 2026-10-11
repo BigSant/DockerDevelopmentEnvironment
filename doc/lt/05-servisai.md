@@ -16,6 +16,7 @@ SERVICES="pma mailpit cron"
 | `mailpit` | Laiškų gaudyklė | UI `https://mailpit.demo.local/`, SMTP `mailpit:1025` projekto tinkle. |
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
 | `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` su token'u. Žr. [DB monitorius](#db-monitorius). |
+| `tables` | Lentelių registro sąsaja: kiekviena DB lentelė ir jos taisyklė | UI `https://tables.demo.local/`. Žr. [lentelių registras](#lentelių-registras-tables). |
 | `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
@@ -47,7 +48,7 @@ make up
 
 `make build` sukuria naujo serviso image'ą, `make up` jį paleidžia. Išjungus servisą, pašalink seną konteinerį: `make down`, tada `make up`.
 
-Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
+Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.`, `tables.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `tables`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
 
 ## Drop-in failai: papildyti CORE konfigūraciją
 
@@ -211,7 +212,7 @@ Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius, `/met
 | --- | --- |
 | `ALLOWED_IPS` | Visiems įėjimams, **įskaitant svetainę**. |
 | `SITE_ALLOWED_IPS` | Tik svetainei. |
-| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja tik `/metrics` keliui, ne visai svetainei. |
+| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `TABLES_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja tik `/metrics` keliui, ne visai svetainei. |
 
 Taisyklės:
 
@@ -219,7 +220,7 @@ Taisyklės:
 - Įėjimo sąrašas (`PMA_ALLOWED_IPS`) pakeičia bendrą `ALLOWED_IPS` tam įėjimui.
 - Ne iš sąrašo atėjęs klientas gauna `403`.
 - **Local/test** su tuščiu sąrašu viskas atvira.
-- **Stage/prod** su tuščiu sąrašu svetainė vieša, o įrankiai uždrausti. Be to, runner'is atsisako paleisti `pma`, `mailpit`, `cron`, `dbmonitor`, `metrics` be sąrašo: `pma on prod requires PMA_ALLOWED_IPS or ALLOWED_IPS`.
+- **Stage/prod** su tuščiu sąrašu svetainė vieša, o įrankiai uždrausti. Be to, runner'is atsisako paleisti `pma`, `mailpit`, `cron`, `dbmonitor`, `tables`, `metrics` be sąrašo: `pma on prod requires PMA_ALLOWED_IPS or ALLOWED_IPS`.
 
 Viešai LIVE parduotuvei `ALLOWED_IPS` nenaudok, nes jis uždarytų ir svetainę. Rašyk įrankių sąrašus:
 
@@ -350,6 +351,26 @@ make restart service=cron
 - Su `metrics` servisu `setup_cron_schedule_enabled` yra `0`, o `setup_cron_job_expected_run_timestamp_seconds` neatiduodama, todėl trūkstamo paleidimo alert'as nesuveikia.
 
 Numatyta `CRON_SCHEDULE=on`; kita reikšmė nei `on` / `off` – klaida.
+
+## Lentelių registras (tables)
+
+[Lentelių registrą](07-duomenu-baze.md#c-lentelių-registras) galima tvarkyti naršyklėje, kaip cron'ą:
+
+```dotenv
+SERVICES="cron tables"
+```
+
+```bash
+make up
+```
+
+Sąsaja `https://tables.demo.local/`:
+
+- rodo visas projekto DB lenteles: eilučių skaičių, dydį, taisyklę (`grupė rinkinys importas`) ir iš kur ji (projekto registras, `prestashop` profilio numatytoji ar jokios). Pirmiausia rodomos lentelės, kurių registre **nėra** (jos stabdo commit'ą, `db-import` ir `db-dataset`); šalia – pasiūlymas, kaip `make schema-resolve`;
+- local/test leidžia nustatyti lentelės taisyklę, pažymėti ją `drop` ir pašalinti projekto eilutę, o mygtukas „Accept all suggestions“ įrašo visų neklasifikuotų lentelių pasiūlymus. Pakeitimas iškart rašomas į `app/database/table-registry.txt` (nauja eilutė – failo pradžioje, kad laimėtų prieš `*` šablonus; PrestaShop lentelės rašomos su `{p}`). Failą peržiūrėk ir commit'ink;
+- stage/prod registrą tik rodo: serveryje jis keičiamas tik per Git.
+
+Servisas veikia tik su DB kaip kodu (be `DATABASE_AS_CODE=off`) ir skaito DB aplikacijos vartotoju. Kol nėra `app/database` (schema dar neeksportuota), sąsaja tai pasako ir nieko nerašo. Stage/prod be `TABLES_ALLOWED_IPS` ar `ALLOWED_IPS` nepasileidžia. Sąsaja atsako tik nginx-proxy. Naujas `tables.` poddomenis atsiranda po `setup/install-host` ir `make bootstrap`.
 
 ## DB monitorius
 
@@ -533,6 +554,18 @@ DB prisijungia prie metrikų serviso tinklo, todėl servisas DB randa vardu `dat
 | `database_performance_schema` (nauja) | `@@performance_schema` | `1` – įjungta, `0` – išjungta |
 
 **Laiko langas.** Senas scriptas po kiekvieno paleidimo (kas 5 min.) išvalydavo `events_statements_summary_by_digest`, todėl `database_slow_query_*`, `database_table_scan_query_*` ir `database_total_time_query_*` rodė paskutinių 5 minučių užklausas. Monitoriaus paskyra lentelės valyti negali (ir neturi), todėl servisas pats skaičiuoja skirtumą nuo ankstesnio nuskaitymo: langas = Prometheus `scrape_interval` (5 min., kaip anksčiau). Pirmas nuskaitymas po metrikų serviso paleidimo apima laiką nuo DB paleidimo. Rankinis `curl` taip pat yra nuskaitymas – jis sutrumpina Prometheus langą. Vienas šablonas keliose schemose rodomas viena eilute (sumuojama).
+
+### Lentelių registras
+
+Su DB kaip kodu (numatyta) metrikų servisas tik skaitymui prijungia `data/<ENV>/table-registry/status.json`. Jį rašo kiekvienas `make db-backup` ir kopija prieš deploy'ų: kurios DB lentelės neturi eilutės registre.
+
+| Metrika | Reikšmė |
+| --- | --- |
+| `setup_database_unregistered_tables` | kiek lentelių nėra registre (paskutinė patikra) |
+| `setup_database_unregistered_table_info{table}` | kiekviena tokia lentelė (iki 100) |
+| `setup_database_registry_check_timestamp_seconds` | kada patikrinta (kopijos laikas) |
+
+Kol kopijos nebuvo, grupė nieko neatiduoda. Alert'o pavyzdys: `setup_database_unregistered_tables > 0`.
 
 ### Konteineriai, cron ir procesai
 

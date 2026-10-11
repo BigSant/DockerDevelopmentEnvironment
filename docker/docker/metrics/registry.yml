@@ -1,0 +1,11 @@
+services:
+  # With database as code (the default): the registry group reads what the last backup found about the
+  # table registry (data/<env>/table-registry/status.json, written by make db-backup), read-only.
+  metrics:
+    environment:
+      METRICS_REGISTRY: "1"
+    volumes:
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}/table-registry
+        target: /host/table-registry
+        read_only: true

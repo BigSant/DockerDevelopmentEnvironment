@@ -46,6 +46,7 @@ RESOURCES = {
     'PHP': ('1g', '2'), 'DATABASE': ('2g', '2'), 'WEBSERVER': ('256m', '1'), 'PROXY': ('128m', '0.5'),
     'CRON': ('512m', '1'), 'MEMCACHED': ('256m', '0.5'), 'REDIS': ('256m', '0.5'), 'PMA': ('256m', '0.5'),
     'MAILPIT': ('256m', '0.5'), 'DBMONITOR': ('128m', '0.25'), 'METRICS': ('128m', '0.25'),
+    'TABLES': ('128m', '0.25'),
 }
 REMOTE_REQUIRED = ('PHP', 'DATABASE', 'WEBSERVER', 'PROXY')
 # Previous shared names remain accepted as fallbacks during the transition.

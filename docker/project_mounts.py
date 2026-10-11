@@ -19,6 +19,7 @@ def attach_optional_config_mounts(project):
         ('php-fpm', '/opt/setup/project'): {root},
         ('cron', '/etc/cron.d'): {application / 'cron'},
         ('metrics', '/host/cron-config'): {application / 'cron'},
+        ('tables', '/opt/setup/project-database'): {Path(project.process_env['PROJECT_DATABASE_DIRECTORY'])},
         ('php-phpstan', '/tmp/phpstan/config'): {application / 'phpstan'},
         ('php-cs', '/tmp/php-cs-fixer/config'): {application / 'php-cs'},
         ('playwright', '/e2e/config'): {application / 'playwright'},

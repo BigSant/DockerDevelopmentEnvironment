@@ -629,7 +629,9 @@ class SettingsTest(unittest.TestCase):
         release = release_model(project, "/srv/demo")
         released = release["services"]["metrics"]["volumes"]
         self.assertEqual({(v["source"], v["target"]) for v in released if v["type"] == "bind"},
-                         {("/proc", "/host/proc"), ("/srv/demo/data/stage", "/host/disk")})
+                         {("/proc", "/host/proc"), ("/srv/demo/data/stage", "/host/disk"),
+                          # What the last backup found about the table registry (database as code is on by default).
+                          ("/srv/demo/data/stage/table-registry", "/host/table-registry")})
         self.assertIn((logs["source"], "/host/http-logs"), {(v["source"], v["target"]) for v in released if v["type"] == "volume"})
         self.assertEqual(release["volumes"], model["volumes"])
         self.assertEqual(services["php-fpm"]["environment"]["SETUP_ENABLE_METRICS"], "1")

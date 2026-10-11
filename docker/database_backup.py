@@ -2,11 +2,13 @@
 
 from datetime import datetime, timezone
 import gzip
+import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 
 from database_client import DUMP, extra_schemas
 
@@ -99,7 +101,38 @@ def backup_database(project, destination=None, registry=False):
         # overwrite an existing destination after the initial existence check.
         os.link(temporary, target)
         print(f'Database backup: {target}')
+        record_unregistered(project, target)
         return target
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def record_unregistered(project, backup):
+    """After a backup: the tables the registry does not know, printed and kept for /metrics.
+
+    data/<env>/table-registry/status.json holds table names only (no data). A failed check never fails
+    the backup it follows."""
+    if not project.settings.get('SCHEMA_DIRECTORY'):
+        return None
+    from database_registry import load, unknown_tables
+    from database_schema import database_tables
+    try:
+        tables = database_tables(project)
+        unknown = sorted(unknown_tables(load(project), tables))
+    except ValueError as error:
+        print(f'Warning: the table registry was not checked after the backup: {error}')
+        return None
+    status = {'checked': int(time.time()), 'backup': backup.name, 'tables': len(tables), 'unregistered': unknown}
+    directory = project.data_directory / 'table-registry'
+    directory.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile('w', dir=directory, delete=False, suffix='.tmp') as handle:
+        json.dump(status, handle, indent=1)
+        handle.write('\n')
+    os.chmod(handle.name, 0o644)
+    os.replace(handle.name, directory / 'status.json')
+    if unknown:
+        shown = ', '.join(unknown[:10]) + (' …' if len(unknown) > 10 else '')
+        print(f'Warning: {len(unknown)} tables are not in the table registry ({shown}); their data is in this backup. '
+              'Classify them in the tables UI or with make schema-resolve.')
+    return status

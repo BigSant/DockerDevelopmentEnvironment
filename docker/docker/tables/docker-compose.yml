@@ -1,0 +1,43 @@
+services:
+  tables:
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+    container_name: ${PROJECT_NAME}-${ENV}-tables
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    profiles:
+      - tables
+    # A thin UI on :8082 (reached through nginx-proxy) lists the database tables with their table registry
+    # line and, locally, edits app/database/table-registry.txt. No supercronic, no jobs: PHP's built-in server.
+    entrypoint: ["php", "-S", "0.0.0.0:8082", "-t", "/opt/setup/runtime/tables/ui", "/opt/setup/runtime/tables/ui/index.php"]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - network_app
+    mem_limit: ${TABLES_MEMORY}
+    cpus: ${TABLES_CPUS}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      ENV: ${ENV}
+      PROJECT_NAME: ${PROJECT_NAME}
+      DOMAIN: ${DOMAIN}
+      PROFILE: ${PROFILE-}
+      PS_DATABASE_PREFIX: ${PS_DATABASE_PREFIX-}
+      # Table names and sizes of the project's own database, read as the application user.
+      DATABASE_HOST: ${APP_DATABASE_HOST:-database}
+      DATABASE_PORT: ${APP_DATABASE_PORT:-3306}
+      DATABASE_NAME: ${DATABASE_NAME-}
+      DATABASE_USER: ${DATABASE_USER-}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD-}
+    volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      # setup's profile defaults (PrestaShop core tables), read after the project registry.
+      - ${ROOT_DIRECTORY}/database-profile/:/opt/setup/database-profile/:ro
+      # Where the project registry lives (beside the schema). Writable only where the UI may edit it
+      # (local/test); servers change it through git. Optional: dropped while the directory is missing.
+      - ${PROJECT_DATABASE_DIRECTORY}:/opt/setup/project-database:${SETUP_TABLES_ACCESS:-ro}

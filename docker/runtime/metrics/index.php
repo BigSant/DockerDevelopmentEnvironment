@@ -15,7 +15,7 @@ if (parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) !== '/metrics') metrics_res
 // One file per group, runtime/metrics/<group>.php with metrics_<group>_parts(). host follows database
 // (it reuses the database group's connection for the version).
 $metrics = new Metrics();
-foreach (array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron') as $group) {
+foreach (array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry') as $group) {
     metrics_collect($metrics, $group);
 }
 metrics_respond(200, $metrics->render());

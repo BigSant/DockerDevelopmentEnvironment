@@ -50,7 +50,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `PROJECT_NAME` | Privalomas | Konteinerių, tinklo ir image'ų vardų pagrindas. Mažosios raidės, skaitmenys, `_`, `-`. Laikyk `common.env`. |
 | `PROJECT_DISPLAY_NAME` | Tuščias | PhpStorm projekto pavadinimas. Be jo išsaugomas `.idea/.name` arba naudojamas `PROJECT_NAME`. |
 | `PROFILE` | Tuščias (bendras PHP) | `prestashop` įjungia PS veiksmus, `akeneo` – Akeneo image'o papildymus. Kitas vardas veikia kaip bendras PHP. |
-| `SERVICES` | Tuščias | Papildomi CORE servisai per tarpus: `pma mailpit cron dbmonitor metrics memcached redis playwright php-phpstan php-cs php-doctrine-migrations`. Nežinomas vardas – klaida. Žr. [servisai](05-servisai.md#servisų-katalogas-services). |
+| `SERVICES` | Tuščias | Papildomi CORE servisai per tarpus: `pma mailpit cron dbmonitor tables metrics memcached redis playwright php-phpstan php-cs php-doctrine-migrations`. Nežinomas vardas – klaida. Žr. [servisai](05-servisai.md#servisų-katalogas-services). |
 | `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
 | `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
 | `APP_ENVIRONMENT` | Tuščias | Aplikacijos savų env kintamųjų **vardai** per tarpus (be reikšmių), kuriuos setup perduoda `php-fpm` ir `cron`. Laikyk `common.env`. Žr. [Savi aplikacijos parametrai](#savi-aplikacijos-parametrai-app_environment). |
@@ -69,7 +69,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `WEBSERVICE_TIMEOUT` | `90` | Nginx proxy užklausos laikas sekundėmis. |
 | `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
 | `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
-| `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
+| `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `TABLES_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
 | `TRUSTED_PROXIES` | Tuščias | Iš kurių adresų nginx-proxy priima `X-Forwarded-For` ir `X-Forwarded-Proto`. Tuščias: su `PUBLISH_ADDRESS` ant loopback – tik `127.0.0.1`, `::1` ir projekto Docker tinklo gateway (taip ateina kompiuterio Nginx / DirectAdmin); su kitu adresu – niekas. Nurodytas sąrašas su loopback galioja iškart, su kitu adresu – tik kartu su `TRUSTED_PROXIES_DIRECT=on`, kitaip klaida. |
 | `TRUSTED_PROXIES_DIRECT` | `off` | `on` – leisti `TRUSTED_PROXIES`, kai `PUBLISH_ADDRESS` nėra loopback ir klientai jungiasi tiesiai. Nurodyk tik kai sąraše vien tikri proxy, kurių klientai negali naudoti ([Tikras kliento IP](05-servisai.md#ip-apribojimai)). |
 

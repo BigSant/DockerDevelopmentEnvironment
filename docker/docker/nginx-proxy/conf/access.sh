@@ -2,7 +2,7 @@
 # Render the client IP rules for every web entry point and the trusted proxy list.
 #
 # ALLOWED_IPS applies to all entry points; <NAME>_ALLOWED_IPS replaces it for one
-# (SITE, PMA, MAILPIT, CRON, DBMONITOR, METRICS). A non-empty list allows only those IPs/CIDRs.
+# (SITE, PMA, MAILPIT, CRON, DBMONITOR, TABLES, METRICS). A non-empty list allows only those IPs/CIDRs.
 # An empty list leaves local/test and the site open; on stage/prod the tools are
 # denied (the runner already refuses to start them without a list).
 set -euo pipefail
@@ -26,7 +26,7 @@ addresses() {
     done
 }
 
-for name in site pma mailpit cron dbmonitor metrics; do
+for name in site pma mailpit cron dbmonitor tables metrics; do
     setting="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')_ALLOWED_IPS"
     [[ -n "${!setting:-}" ]] || setting=ALLOWED_IPS
     list="$(addresses "$setting")"

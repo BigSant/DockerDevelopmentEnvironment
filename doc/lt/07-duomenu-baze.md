@@ -101,7 +101,7 @@ Snapshot'as apima tik lenteles. Views, triggers, procedūros ir events į jį ne
 
 ## C. Lentelių registras
 
-Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo commit'ą ir bazinio rinkinio kūrimą. Taip LIVE šiukšlės (`*_bak_*`, `tmp_*`) nepasilieka nepastebėtos.
+Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo commit'ą ir bazinio rinkinio kūrimą. Taip LIVE šiukšlės (`*_bak_*`, `tmp_*`) nepasilieka nepastebėtos. Registrą patogiausia tvarkyti naršyklėje: [lentelių registro sąsaja](05-servisai.md#lentelių-registras-tables) (`SERVICES` su `tables`).
 
 `database/table-registry.txt` – viena eilutė lentelei:
 
@@ -245,6 +245,8 @@ make db-backup file=/privatus/kelias/pries-atnaujinima.sql.gz
 ```
 
 Kopija rašoma į `.generated/backups/<projektas>-<ENV>-<laikas>.sql.gz` (teisės `0600`). Esamas failas neperrašomas, nepavykusi kopija galutiniu vardu neišsaugoma. Stage/prod kopija daroma pagal registrą: visų lentelių struktūra ir tik `import` lentelių duomenys, todėl ji maža ir naudinga.
+
+Po kiekvienos kopijos (ir prieš deploy'ų) setup patikrina, ar visos DB lentelės yra registre. Neregistruotos lentelės išvardijamos įspėjime (jų duomenys kopijoje yra) ir įrašomos į `data/<ENV>/table-registry/status.json`, iš kurio jas rodo [metrikos](05-servisai.md#lentelių-registras). Nepavykusi patikra kopijos nesustabdo.
 
 ```bash
 make db-backup-prune
