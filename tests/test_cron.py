@@ -215,7 +215,7 @@ class CronUiTest(unittest.TestCase):
         self.start("prod", CRON_SCHEDULE="on")
         page = self.get("/")
         self.assertNotIn("Schedule off", page)
-        self.assertRegex(page, r"<td>\d{4}-\d\d-\d\d \d\d:\d\d</td>")
+        self.assertRegex(page, r'<time class="next" datetime="[^"]+">\d{4}-\d\d-\d\d \d\d:\d\d</time>')
 
     def test_only_nginx_proxy_or_loopback_reaches_the_ui(self):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
