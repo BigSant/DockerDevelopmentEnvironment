@@ -187,6 +187,12 @@ class DatabaseSchemaTest(unittest.TestCase):
             install_schema_hook(self.project)
         self.assertEqual(hook.read_text(), "#!/bin/sh\nexit 3\n")
 
+    def test_hooks_path_naming_the_default_directory_is_not_a_hook_manager(self):
+        git(self.root, "config", "core.hooksPath", str(self.root / ".git/hooks"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            install_schema_hook(self.project)
+        self.assertIn("schema-commit", (self.root / ".git/hooks/pre-commit").read_text())
+
     def test_custom_hook_manager_and_outside_project_directory_are_rejected(self):
         git(self.root, "config", "core.hooksPath", ".githooks")
         with self.assertRaisesRegex(ValueError, "core.hooksPath"):

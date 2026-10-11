@@ -360,7 +360,10 @@ def install_schema_hook(project):
     directory = schema_directory(project)
     root, _ = schema_repository(directory)
     custom = subprocess.run(["git", "-C", str(root), "config", "--get", "core.hooksPath"], capture_output=True, env=git_env())
-    if custom.returncode != 1:
+    # A hooksPath that names the repository's own hooks directory is the default, not a hook manager.
+    common = Path(os.fsdecode(git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")).strip())
+    default = custom.returncode == 0 and (root / os.fsdecode(custom.stdout).strip()).resolve() == (common / "hooks").resolve()
+    if custom.returncode != 1 and not default:
         raise ValueError("core.hooksPath is configured or unreadable; add schema-check to the existing hook manager")
     hook = Path(os.fsdecode(git(root, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit")).strip())
     command = [sys.executable, str(Path(__file__).with_name("project.py")),

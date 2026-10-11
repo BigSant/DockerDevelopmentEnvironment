@@ -14,6 +14,8 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 - **`DATABASE_AS_CODE=off`** in `env/common.env` turns all of it off (schema commands then stop with an
   error, `make setup` installs no hook, an already installed hook lets commits through with a note).
 - **`SCHEMA_DIRECTORY`** now only overrides the default path.
+- **`core.hooksPath` naming the repository's own `.git/hooks`** no longer counts as a hook manager:
+  the schema hook is installed there as without the setting.
 - **Migrating:** a project that has not recorded its schema yet has its commits stopped by the hook
   after the next `make setup` until it runs `make schema-export` and `make schema-resolve` (or sets
   `DATABASE_AS_CODE=off`).
