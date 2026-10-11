@@ -35,6 +35,7 @@ cd ~/Projects/setup
 - **[Vadovas lietuviškai](doc/lt/README.md)** – nuo pirmo paleidimo iki servisų, DB kaip kodo, testų, release ir deploy'aus.
 - **[ARCHITECTURE.md](doc/ARCHITECTURE.md)** – trumpas angliškas architektūros aprašas agentams ir prižiūrėtojams.
 - **[RELEASES.md](doc/RELEASES.md)** – kas pasikeitė kiekvienoje versijoje ir kaip perkelti v1 projektą.
+- **[LIVE zondas](tools/live-probe/README.md)** – vienas PHP failas, kuris LIVE serveryje nustato setup env reikšmes ir paruošia ataskaitą LLM.
 
 Projekte `make help` parodo visas komandas.
 

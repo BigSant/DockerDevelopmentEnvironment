@@ -46,6 +46,10 @@ LIVE serveris: tik Docker, kodas, duomenys ir DirectAdmin web serveris
 - **VPN serveris be DirectAdmin** (pvz. asana.local): `PUBLISH_ADDRESS` – serverio VPN sąsajos adresas (`env/prod.env`, pvz. `PUBLISH_ADDRESS=10.8.0.14`). Portai publikuojami tik toje sąsajoje, viešų portų nėra; VPN klientai jungiasi `http://<DOMAIN>:<LOCALHOST_PORT>` (vardas jų `/etc/hosts` rodo į VPN adresą). Klientų `X-Forwarded-*` antraštės ignoruojamos, IP sąrašuose – VPN klientų adresai ([Tikras kliento IP](05-servisai.md#ip-apribojimai)). Kliento IP išlieka tik su Docker numatytu iptables NAT; jei Docker'io iptables išjungti, visi klientai atrodo kaip gateway.
 - **Sertifikatai serveryje nebūtini.** TLS baigiasi nginx-proxy, Apache dirba tik HTTP ir sertifikatų nenaudoja. Jei `data/<env>/ssl/` tuščias (DirectAdmin baigia TLS pats, VPN serveris dirba per HTTP), nginx-proxy paleidimo metu sugeneruoja savo pasirašytą porą `domain.crt`/`domain.key` konteinerio viduje (`/etc/nginx/ssl-generated`, savininkas `root`, raktas `0600`). Rankinio žingsnio nereikia, o `make doctor` tai tik pažymi. Jei kataloge yra tikra pora, ji naudojama ir niekada neperrašoma. Jei yra tik vienas iš dviejų failų, nginx-proxy nepasileidžia.
 
+## LIVE parametrai iš esamo serverio
+
+Perkeliant esamą projektą reikia žinoti, kuo veikia LIVE: PHP ir DB versijas, `php.ini` ribas, plėtinius, `sql_mode`, koduotes, cron. Juos surenka [LIVE zondas](../../tools/live-probe/README.md): vienas PHP 5.6–8.5 failas, kurį trumpam įkeli į serverį (arba paleidi per SSH). Jis grąžina `env/common.env` ir `env/prod.env` reikšmes, `config/php` ir `config/mysql` drop-in'us, projekto `Dockerfile` plėtinius ir rizikas, o Markdown ataskaitą galima atiduoti LLM. Zondas tik skaito, slaptų reikšmių nespausdina, o po darbo jį būtina ištrinti (`?action=delete`).
+
 ## Paruošimas vieną kartą
 
 1. **Serveryje:** Docker, DirectAdmin vartotojas ir projekto katalogas (`DEPLOY_PATH`), kuriame bus `app/` ir `data/`.

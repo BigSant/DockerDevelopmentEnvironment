@@ -4,6 +4,22 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### LIVE environment probe
+
+- **`tools/live-probe/setup-probe.php`**: one read-only PHP 5.6-8.5 file uploaded to a LIVE server
+  for a short time (or run over SSH: `php setup-probe.php --format=md --root=…`). It reports the
+  `env/common.env` / `env/prod.env` values, `config/php` and `config/mysql` drop-ins, the project
+  Dockerfile extensions, after-import and table-registry drafts and the risks, as `?format=json|env|md`;
+  the Markdown report ends with instructions for an LLM. Token (`hash_equals`, no default),
+  `REMOTE_ADDR` allowlist and a hard expiry of at most 7 days; SELECT/SHOW only, no shop boot, no
+  personal data, secret values never printed; `?action=delete` removes it. Guide (LT):
+  `tools/live-probe/README.md`. Its embedded setup tables (`sp_setup_data()`) follow
+  `compatibility.json`, `php.ini`, the PHP Dockerfiles and the PrestaShop registry; `tests/test_live_probe.py` fails when they drift.
+
+No image changes; no project needs to change.
+
 ## 2.3.0
 
 ### Bitbucket deploy step in setup
