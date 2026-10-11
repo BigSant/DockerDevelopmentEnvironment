@@ -11,7 +11,8 @@ def extra_schemas(settings):
     """DATABASE_EXTRA_SCHEMAS as a list: schemas besides DATABASE_NAME that belong to the project.
 
     The application user owns them like the main database; backup, import and the grant
-    restriction cover them, while the schema snapshot, table registry and data set stay on the main one.
+    restriction cover them, and the table registry classifies their tables as schema.table; the schema
+    snapshot, migrations and data set stay on the main one.
     """
     names = str(settings.get('DATABASE_EXTRA_SCHEMAS') or '').split()
     for name in names:

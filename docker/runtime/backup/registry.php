@@ -1,14 +1,16 @@
 <?php
 // The table registry as docker/database_registry.py reads it, for the backup UI: the project registry
 // (app/database/table-registry.txt) first, then setup's profile defaults; the first matching line wins.
-// Lines: `table group base live`, table with * wildcards and {p} for the PrestaShop table prefix.
+// Lines: `table group base live`, table with * wildcards and {p} for the PrestaShop table prefix. A table of an
+// extra schema is schema.table: a line with a dot is about the extra schemas only, one without about the main database.
 
 const TABLES_BASE_RULES = array('full', 'slice', 'faker', 'empty', 'drop');
 const TABLES_LIVE_RULES = array('import', 'skip', '-');
 // Setup's own bookkeeping (applied migrations) needs no line.
 const TABLES_SETUP_TABLES = array('setup_migrations');
 const TABLES_HEADER = "# Project table registry: table  group  base-rule(full|slice|faker|empty|drop)  live-import(import|skip)\n"
-    . "# Read before the profile defaults; every table must be classified (make schema-resolve).\n";
+    . "# Read before the profile defaults; every table must be classified (make schema-resolve).\n"
+    . "# A table of an extra schema (DATABASE_EXTRA_SCHEMAS) is schema.table.\n";
 
 // The PrestaShop table prefix behind {p}; null for a generic project, whose tables are named in full.
 function tablesPrefix()
@@ -62,6 +64,7 @@ function tablesMatch($registry, $table)
 {
     foreach (array('project', 'profile') as $source) {
         foreach ($registry[$source] as $entry) {
+            if ((strpos($entry[0], '.') !== false) !== (strpos($table, '.') !== false)) continue;
             if (fnmatch($entry[0], $table)) return array($source, $entry[0], $entry[1], $entry[2], $entry[3]);
         }
     }
@@ -89,6 +92,7 @@ function tablesValidRule($group, $base, $live)
 function tablesRegistryName($table)
 {
     $prefix = tablesPrefix();
+    if (strpos($table, '.') !== false) return $table;  // an extra schema's table: schema.table, never {p}
     return ($prefix !== null && strpos($table, $prefix) === 0) ? '{p}' . substr($table, strlen($prefix)) : $table;
 }
 

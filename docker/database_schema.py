@@ -80,6 +80,24 @@ def database_tables(project):
     return [bytes.fromhex(line).decode("utf-8") for line in mysql_query(project, TABLES_SQL).splitlines()]
 
 
+def extra_tables(project):
+    """Tables of DATABASE_EXTRA_SCHEMAS as schema.table, the table registry's names for them."""
+    from database_client import extra_schemas
+    schemas = extra_schemas(project.settings)
+    if not schemas:
+        return []
+    listed = ','.join(f"'{schema}'" for schema in schemas)  # validated names: letters, digits, _
+    rows = mysql_query(project, "SELECT HEX(TABLE_SCHEMA), HEX(TABLE_NAME) FROM information_schema.TABLES "
+                                f"WHERE TABLE_SCHEMA IN ({listed}) AND TABLE_TYPE = 'BASE TABLE' ORDER BY 1, 2;\n")
+    return [bytes.fromhex(schema).decode("utf-8") + "." + bytes.fromhex(table).decode("utf-8")
+            for schema, table in (line.split("\t") for line in rows.splitlines() if line)]
+
+
+def registry_tables(project):
+    """Every table the table registry must classify: the main database's, then the extra schemas'."""
+    return database_tables(project) + extra_tables(project)
+
+
 def read_schema(project, require_classified=False):
     """Snapshot files of every base table except those the registry marks for a guarded DROP."""
     tables = database_tables(project)
@@ -310,6 +328,11 @@ def commit_schema(project):
         print("Warning: the database is not reachable; the schema was not checked for this commit.")
         return
     actual = read_schema(project, require_classified=True)
+    from database_registry import load, unknown_tables
+    unknown = unknown_tables(load(project), extra_tables(project))
+    if unknown:
+        raise ValueError(f"{len(unknown)} tables of the extra schemas are not in the table registry: {', '.join(unknown[:8])}"
+                         f"{' …' if len(unknown) > 8 else ''}\nClassify them in the backup UI or with make schema-resolve.")
     export_schema(project, actual)
     staged = staged_schema(directory)
     problems = [f"schema {line}" for line in schema_differences(staged, actual)]

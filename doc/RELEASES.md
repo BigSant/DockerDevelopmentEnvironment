@@ -20,6 +20,19 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   after the next `make setup` until it runs `make schema-export` and `make schema-resolve` (or sets
   `DATABASE_AS_CODE=off`).
 
+### The table registry covers the extra schemas
+
+- A table of `DATABASE_EXTRA_SCHEMAS` is named `schema.table` in `database/table-registry.txt` (`*` works
+  in both parts, e.g. `asana_git.*`). A line with a dot is about the extra schemas only, one without about
+  the main database only, so `*_log` does not reach `asana_git.commit_log`.
+- Every table of every schema must be classified: the commit hook, `make db-import` (and
+  `make schema-resolve`) stop on an unclassified one; the backup check and `/metrics` list them as
+  `schema.table`.
+- `skip` applies to the extra schemas too: `db-import` leaves out their data, and a stage/prod backup
+  dumps their structure only, under their own `USE` (restored without dropping the table on the server).
+- The schema snapshot, migrations, data set and `db-load` stay on the main database (note 3542 kept
+  for those). The backup UI shows one tab per schema.
+
 ### Table registry in the browser (`backup` service)
 
 - **`SERVICES="backup"`** serves `https://backup.<DOMAIN>/`, like the cron UI: every table of the project

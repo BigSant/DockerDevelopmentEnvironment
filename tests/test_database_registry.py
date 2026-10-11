@@ -47,6 +47,15 @@ class RegistryTest(unittest.TestCase):
         self.assertIsNotNone(classify(entries, "fs_product"), "the prestashop profile classifies core tables")
         self.assertEqual(unknown_tables(entries, ["fs_product", "fs_custom_widget"]), ["fs_custom_widget"])
 
+    def test_a_line_with_a_dot_is_about_the_extra_schemas_and_one_without_about_the_main_database(self):
+        self.write("*_log logs empty skip\nasana_graph.*  graph full import\nasana_git.raw_* git empty skip\n")
+        entries = load(self.project)
+        self.assertEqual(classify(entries, "fs_api_log")[1], "logs")
+        self.assertIsNone(classify(entries, "asana_bitbucket.commit_log"), "a main-database line does not reach an extra schema")
+        self.assertEqual(classify(entries, "asana_graph.edges")[1], "graph")
+        self.assertEqual(classify(entries, "asana_git.raw_blobs")[1:], ("git", "empty", "skip"))
+        self.assertEqual(unknown_tables(entries, ["asana_git.refs", "asana_graph.x"]), ["asana_git.refs"])
+
     def test_profile_defaults_cover_the_core_tables(self):
         self.project.settings["PS_DATABASE_PREFIX"] = "ps_"
         entries = load(self.project)

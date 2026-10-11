@@ -19,19 +19,29 @@ def keep_existing(structure):
 
 
 def registry_passes(project, database):
-    """mysqldump option sets: everything without the data of skip tables, then their structure only.
+    """(schema, mysqldump options) passes: everything without the data of skip tables, then their structure.
 
     Restoring such a backup must not wipe the skip tables on the server (payment tokens, API
     keys), so their structure carries no DROP TABLE and creates a table only when it is missing.
+    The extra schemas' skip tables (schema.table in the registry) get a structure pass of their own.
     """
     from database_import import skip_rule
-    from database_schema import database_tables
+    from database_schema import database_tables, extra_tables
     rule = skip_rule(project)
-    skipped = [table for table in database_tables(project) if rule(table)] if rule else []
-    if not skipped:
-        return [[]]
-    return [[f'--ignore-table={database}.{table}' for table in skipped],
-            ['--no-data', '--skip-add-drop-table', '--skip-routines', '--skip-events', *skipped]]
+    if not rule:
+        return [(database, [])]
+    skipped = [table for table in database_tables(project) if rule(table)]
+    extra = [name for name in extra_tables(project) if rule(name)]
+    passes = [(database, [f'--ignore-table={database}.{table}' for table in skipped] + [f'--ignore-table={name}' for name in extra])]
+    structure = ['--no-data', '--skip-add-drop-table', '--skip-routines', '--skip-events']
+    if skipped:
+        passes.append((database, [*structure, *skipped]))
+    by_schema = {}
+    for name in extra:
+        schema, _, table = name.partition('.')
+        by_schema.setdefault(schema, []).append(table)
+    passes += [(schema, [*structure, *tables]) for schema, tables in by_schema.items()]
+    return passes
 
 
 def backup_database(project, destination=None, registry=False):
@@ -49,17 +59,17 @@ def backup_database(project, destination=None, registry=False):
     from project_storage import require_space
     require_space(project, target.parent)
     # registry=True: structure of every table, data only of tables the registry imports from LIVE.
-    passes = registry_passes(project, database) if registry else [[]]
+    passes = registry_passes(project, database) if registry else [(database, [])]
     extras = extra_schemas(project.settings)
     if extras:
         # One dump run reads the main and the extra schemas in a single transaction (a consistent copy)
         # and names each one (CREATE DATABASE IF NOT EXISTS + USE), so a restore recreates every schema.
         # The run ends inside the last schema, so the header-less structure pass of the main
         # database's skipped tables goes first. The registry covers the main database only.
-        data, *structure = passes
-        passes = [*structure, [*data, '--databases', *extras]]
-    commands = [project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', database, *options]
-                for options in passes]
+        (_, data), *structure = passes
+        passes = [*structure, (database, [*data, '--databases', *extras])]
+    commands = [(schema, project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', schema, *options])
+                for schema, options in passes]
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as raw:
@@ -68,7 +78,7 @@ def backup_database(project, destination=None, registry=False):
             # in a temporary descriptor; failed/truncated output is never published.
             writer = gzip.GzipFile(fileobj=raw, mode='wb', mtime=0) if target.name.endswith('.gz') else raw
             try:
-                for command in commands:
+                for schema, command in commands:
                     with tempfile.TemporaryFile(dir=target.parent) as errors:
                         process = subprocess.Popen(command, env=project.child_env(), stdout=subprocess.PIPE,
                                                    stderr=errors)
@@ -77,6 +87,9 @@ def backup_database(project, destination=None, registry=False):
                             if '--no-data' in command:
                                 # Structure only: small enough to rewrite in memory.
                                 block = keep_existing(process.stdout.read())
+                                if schema != database:
+                                    # An extra schema's skip tables: its structure dump names no schema.
+                                    block = b'\nUSE `' + schema.encode() + b'`;\n' + block
                                 writer.write(block)
                                 count = len(block)
                             while True:
@@ -116,9 +129,9 @@ def record_unregistered(project, backup):
     if not project.settings.get('SCHEMA_DIRECTORY'):
         return None
     from database_registry import load, unknown_tables
-    from database_schema import database_tables
+    from database_schema import registry_tables
     try:
-        tables = database_tables(project)
+        tables = registry_tables(project)
         unknown = sorted(unknown_tables(load(project), tables))
     except ValueError as error:
         print(f'Warning: the table registry was not checked after the backup: {error}')

@@ -2,6 +2,8 @@
 
 The project registry (database/table-registry.txt beside the schema directory) is read first, then the
 profile defaults. Lines: `table group base live`; table may use * wildcards and {p} for the prefix.
+A table of an extra schema (DATABASE_EXTRA_SCHEMAS) is named schema.table; a line without a dot is about
+the main database only, a line with one only about the extra schemas.
 """
 
 from fnmatch import fnmatchcase
@@ -15,7 +17,8 @@ DOCKER_ROOT = Path(__file__).resolve().parent
 # Setup's own bookkeeping (applied migrations) travels with the data and needs no classification.
 SETUP_TABLES = ('setup_migrations',)
 HEADER = ('# Project table registry: table  group  base-rule(full|slice|faker|empty|drop)  live-import(import|skip)\n'
-          '# Read before the profile defaults; every table must be classified (make schema-resolve).\n')
+          '# Read before the profile defaults; every table must be classified (make schema-resolve).\n'
+          '# A table of an extra schema (DATABASE_EXTRA_SCHEMAS) is schema.table.\n')
 
 
 def registry_file(project):
@@ -65,8 +68,9 @@ def load(project):
 
 
 def classify(entries, table):
+    qualified = '.' in table
     return next(((pattern, group, base, live) for pattern, group, base, live in entries
-                 if fnmatchcase(table, pattern)), None)
+                 if ('.' in pattern) == qualified and fnmatchcase(table, pattern)), None)
 
 
 def unknown_tables(entries, tables):
@@ -105,16 +109,22 @@ def guess(table, columns):
 
 
 def table_columns(project, tables):
+    """{name: column names}; schema.table names are read from their extra schema."""
     from database_schema import mysql_query
-    if not tables:
-        return {}
-    names = ','.join("'" + t.replace("'", "''") + "'" for t in tables)
-    rows = mysql_query(project, 'SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE '
-                                f'TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({names});\n')
+    by_schema = {}
+    for name in tables:
+        schema, _, table = name.rpartition('.')
+        by_schema.setdefault(schema, []).append(table)
     columns = {}
-    for line in rows.splitlines():
-        table, column = line.split('\t')
-        columns.setdefault(table, set()).add(column)
+    for schema, names in by_schema.items():
+        listed = ','.join("'" + t.replace("'", "''") + "'" for t in names)
+        # Extra schema names are validated (letters, digits, _), so they are safe inside the quotes.
+        where = f"TABLE_SCHEMA = '{schema}'" if schema else 'TABLE_SCHEMA = DATABASE()'
+        rows = mysql_query(project, f'SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE '
+                                    f'{where} AND TABLE_NAME IN ({listed});\n')
+        for line in rows.splitlines():
+            table, column = line.split('\t')
+            columns.setdefault(f'{schema}.{table}' if schema else table, set()).add(column)
     return columns
 
 
@@ -125,8 +135,8 @@ def resolve(project, ask=input, interactive=None, tables=None, columns=None):
     """
     entries = load(project)
     if tables is None:
-        from database_schema import database_tables
-        tables = database_tables(project)
+        from database_schema import registry_tables
+        tables = registry_tables(project)
     tables = unknown_tables(entries, tables)
     if not tables:
         print('Every database table is classified.')

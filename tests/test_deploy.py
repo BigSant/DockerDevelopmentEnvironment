@@ -364,12 +364,13 @@ class RemoteRoutingTest(unittest.TestCase):
     def test_registry_backup_leaves_out_skipped_data_but_keeps_structure(self):
         from database_backup import registry_passes
         with patch("database_import.skip_rule", return_value=lambda table: table == "ps_connections"), \
-                patch("database_schema.database_tables", return_value=["ps_orders", "ps_connections"]):
+                patch("database_schema.database_tables", return_value=["ps_orders", "ps_connections"]), \
+                patch("database_schema.extra_tables", return_value=[]):
             passes = registry_passes(SimpleNamespace(), "shop")
-        self.assertEqual(passes, [["--ignore-table=shop.ps_connections"],
-                                  ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "ps_connections"]])
+        self.assertEqual(passes, [("shop", ["--ignore-table=shop.ps_connections"]),
+                                  ("shop", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "ps_connections"])])
         with patch("database_import.skip_rule", return_value=None):
-            self.assertEqual(registry_passes(SimpleNamespace(), "shop"), [[]])
+            self.assertEqual(registry_passes(SimpleNamespace(), "shop"), [("shop", [])])
 
 
 if __name__ == "__main__":

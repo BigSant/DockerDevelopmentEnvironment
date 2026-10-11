@@ -1,6 +1,6 @@
 <?php
-// Backup UI: every table of the project database with its table registry line (project, profile default
-// or none) and a suggestion; locally (ENV=local/test) it edits app/database/table-registry.txt, which the
+// Backup UI: every table of the project database and its extra schemas (DATABASE_EXTRA_SCHEMAS, one tab
+// each) with its table registry line (project, profile default or none) and a suggestion; locally (ENV=local/test) it edits app/database/table-registry.txt, which the
 // developer then commits. Servers only show it: there the registry changes through git.
 // Reached only through nginx-proxy with the BACKUP_ALLOWED_IPS / ALLOWED_IPS allowlist.
 // Self-contained on purpose: no web fonts, scripts or styles from elsewhere.
@@ -32,27 +32,50 @@ function size($bytes)
     }
 }
 
-// [name => [rows, bytes, columns]] of the project database, as the application user sees it.
-function databaseTables()
+// The main database first, then the extra schemas; names are validated like setup does (letters, digits, _).
+function databaseSchemas()
+{
+    $schemas = array((string) getenv('DATABASE_NAME'));
+    foreach (preg_split('/\s+/', trim((string) getenv('DATABASE_EXTRA_SCHEMAS'))) as $name) {
+        if (preg_match('/^[A-Za-z0-9_]{1,64}$/', $name) && !in_array($name, $schemas, true)) $schemas[] = $name;
+    }
+    return $schemas;
+}
+
+// The registry's name of a table: the main database's tables by name, an extra schema's as schema.table.
+function registryName($schema, $table)
+{
+    return $schema === getenv('DATABASE_NAME') ? $table : $schema . '.' . $table;
+}
+
+// [schema => [registry name => [rows, bytes, columns, table]]], columns only for $selected (suggestions).
+function databaseTables($schemas, $selected)
 {
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', getenv('DATABASE_HOST') ?: 'database',
         getenv('DATABASE_PORT') ?: '3306', getenv('DATABASE_NAME'));
     $pdo = new PDO($dsn, getenv('DATABASE_USER'), getenv('DATABASE_PASSWORD'), array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
-    $tables = array();
-    foreach ($pdo->query("SELECT TABLE_NAME, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH FROM information_schema.TABLES "
-        . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'") as $row) {
-        if (in_array($row[0], TABLES_SETUP_TABLES, true)) continue;
-        $tables[$row[0]] = array((int) $row[1], (int) $row[2], array());
+    $all = array_fill_keys($schemas, array());
+    $listed = implode(',', array_map(function ($name) { return "'" . $name . "'"; }, $schemas));
+    foreach ($pdo->query("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH FROM information_schema.TABLES "
+        . "WHERE TABLE_SCHEMA IN ($listed) AND TABLE_TYPE = 'BASE TABLE'") as $row) {
+        if ($row[0] === $schemas[0] && in_array($row[1], TABLES_SETUP_TABLES, true)) continue;
+        $all[$row[0]][registryName($row[0], $row[1])] = array((int) $row[2], (int) $row[3], array(), $row[1]);
     }
-    foreach ($pdo->query('SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()') as $row) {
-        if (isset($tables[$row[0]])) $tables[$row[0]][2][] = $row[1];
+    $columns = $pdo->prepare('SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?');
+    $columns->execute(array($selected));
+    foreach ($columns as $row) {
+        $name = registryName($selected, $row[0]);
+        if (isset($all[$selected][$name])) $all[$selected][$name][2][] = $row[1];
     }
-    ksort($tables);
-    return $tables;
+    foreach ($all as &$tables) ksort($tables);
+    return $all;
 }
 
 $path = parse_url(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/', PHP_URL_PATH);
 $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+$schemas = databaseSchemas();
+$asked = isset($_POST['schema']) ? (string) $_POST['schema'] : (isset($_GET['schema']) ? (string) $_GET['schema'] : '');
+$schema = in_array($asked, $schemas, true) ? $asked : $schemas[0];
 $view = isset($_GET['view']) ? (string) $_GET['view'] : 'unclassified';
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 // A click on a column header sorts by it; a second click reverses the order.
@@ -63,9 +86,11 @@ $message = isset($_GET['saved']) ? (string) $_GET['saved'] : '';
 $error = '';
 
 try {
-    $tables = databaseTables();
+    $all = databaseTables($schemas, $schema);
+    $tables = $all[$schema];
     $registry = tablesLoad($registryFile);
 } catch (Exception $exception) {
+    $all = array();
     $tables = array();
     $registry = array('project' => array(), 'profile' => array());
     $error = $exception instanceof PDOException ? 'Cannot read the database tables; check the database service and credentials.' : $exception->getMessage();
@@ -110,6 +135,13 @@ if ($method === 'POST') {
     exit;
 }
 
+// Tables without a registry line, per schema, for the tabs.
+$missing = array();
+foreach ($all as $name => $list) {
+    $missing[$name] = 0;
+    foreach ($list as $registered => $table) if (tablesMatch($registry, $registered) === null) $missing[$name]++;
+}
+
 $rows = array();
 $counts = array('all' => 0, 'unclassified' => 0, 'project' => 0, 'profile' => 0, 'drop' => 0);
 $bytes = 0;
@@ -121,7 +153,7 @@ foreach ($tables as $name => $table) {
     if ($match && $match[3] === 'drop') $counts['drop']++;
     $bytes += $table[1];
     if ($view !== 'all' && $view !== $source) continue;
-    if ($query !== '' && stripos($name, $query) === false) continue;
+    if ($query !== '' && stripos($table[3], $query) === false) continue;
     $rows[] = array($name, $table, $match, tablesGuess($name, $table[2]));
 }
 
@@ -134,7 +166,7 @@ $sortKey = function ($row) use ($sort) {
         case 'rule': return $match ? implode(' ', array($match[2], $match[3], $match[4])) : '';
         case 'suggestion': return $match ? '' : implode(' ', $guess);
     }
-    return $name;
+    return $table[3];
 };
 usort($rows, function ($a, $b) use ($sortKey, $descending) {
     $x = $sortKey($a);
@@ -157,7 +189,7 @@ main{padding:22px 28px 60px;max-width:1500px;margin:0 auto}
 .callout{border:1px solid var(--rule);border-left:4px solid var(--go);background:var(--panel);padding:10px 14px;margin:0 0 16px;border-radius:3px}
 .callout.error{border-left-color:var(--stop)}.callout.wait{border-left-color:var(--amber)}
 .stats{display:flex;gap:28px;flex-wrap:wrap;margin:0 0 18px}.stat b{display:block;font-size:22px}.stat span{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint)}
-.stat.bad b{color:var(--stop)}
+.stat.bad b{color:var(--stop)}.bad{color:var(--stop)}
 .bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
 .btn,button,input,select{font:inherit;color:var(--ink);background:#191e14;border:1px solid var(--rule);padding:5px 10px;border-radius:3px}
 .btn,button{cursor:pointer;text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.06em}
@@ -182,7 +214,7 @@ header('Content-Type: text/html; charset=utf-8');
 $sign = in_array($environment, array('stage', 'prod'), true) ? $environment : '';
 echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     . '<title>Backup · ' . h(getenv('PROJECT_NAME')) . '</title><style>' . $style . '</style></head><body>'
-    . '<div class="top"><div class="mark">BACKUP<small>' . h(getenv('PROJECT_NAME')) . ' · ' . h(getenv('DATABASE_NAME')) . '</small></div>'
+    . '<div class="top"><div class="mark">BACKUP<small>' . h(getenv('PROJECT_NAME')) . ' · ' . h($schema) . '</small></div>'
     . '<span class="sign ' . h($sign) . '">' . h($environment) . '</span><span class="spacer"></span></div><main>';
 
 if ($error !== '') echo '<div class="callout error">' . h($error) . '</div>';
@@ -191,6 +223,18 @@ if (!$present) {
     echo '<div class="callout wait">No app/database directory yet: run <code>make schema-export</code> first; the registry lives beside the schema.</div>';
 } elseif (!$editable) {
     echo '<div class="callout wait">Read-only on ' . h($environment) . ': the table registry changes through git.</div>';
+}
+
+$at = '&schema=' . rawurlencode($schema);
+$hidden = '<input type="hidden" name="schema" value="' . h($schema) . '">';
+if (count($schemas) > 1) {
+    // One tab per schema: the main database first, then DATABASE_EXTRA_SCHEMAS (schema.table in the registry).
+    echo '<div class="bar">';
+    foreach ($schemas as $index => $name) {
+        echo '<a class="btn' . ($name === $schema ? ' on' : '') . '" href="/?schema=' . rawurlencode($name) . '&view=' . rawurlencode($view) . '">'
+            . h($name) . ($index === 0 ? ' (main)' : '') . (empty($missing[$name]) ? '' : ' · <span class="bad">' . $missing[$name] . '</span>') . '</a>';
+    }
+    echo '</div>';
 }
 
 echo '<div class="stats">'
@@ -203,19 +247,19 @@ echo '<div class="stats">'
 
 echo '<div class="bar">';
 foreach (array('unclassified' => 'Not in the registry', 'project' => 'Project lines', 'profile' => 'Profile defaults', 'all' => 'All') as $key => $label) {
-    echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . ($query !== '' ? '&q=' . rawurlencode($query) : '')
+    echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . $at . ($query !== '' ? '&q=' . rawurlencode($query) : '')
         . '&sort=' . $sort . ($descending ? '&dir=desc' : '') . '">' . h($label) . ' (' . $counts[$key] . ')</a>';
 }
-echo '<form method="get" class="inline"><input type="hidden" name="view" value="' . h($view) . '"><input type="hidden" name="sort" value="' . h($sort) . '">'
+echo '<form method="get" class="inline">' . $hidden . '<input type="hidden" name="view" value="' . h($view) . '"><input type="hidden" name="sort" value="' . h($sort) . '">'
     . ($descending ? '<input type="hidden" name="dir" value="desc">' : '') . '<input name="q" value="' . h($query) . '" placeholder="filter by name"> <button>Filter</button></form>';
 if ($editable && $counts['unclassified']) {
     echo '<span class="spacer"></span><form method="post" action="/accept-all" class="inline" onsubmit="return confirm(\'Write the suggestion of all '
-        . $counts['unclassified'] . ' tables not in the registry?\')"><input type="hidden" name="token" value="' . h($token) . '">'
-        . '<input type="hidden" name="back" value="/?view=' . h($view) . '"><button class="go">Accept all suggestions</button></form>';
+        . $counts['unclassified'] . ' tables of ' . h($schema) . ' not in the registry?\')"><input type="hidden" name="token" value="' . h($token) . '">'
+        . $hidden . '<input type="hidden" name="back" value="/?view=' . h($view) . h($at) . '"><button class="go">Accept all suggestions</button></form>';
 }
 echo '</div>';
 
-$list = '/?view=' . rawurlencode($view) . ($query !== '' ? '&q=' . rawurlencode($query) : '');
+$list = '/?view=' . rawurlencode($view) . $at . ($query !== '' ? '&q=' . rawurlencode($query) : '');
 $back = $list . '&sort=' . $sort . ($descending ? '&dir=desc' : '');
 $header = function ($column, $label) use ($list, $sort, $descending) {
     $reverse = $column === $sort && !$descending;
@@ -233,13 +277,13 @@ if (!$rows) {
         $source = $match ? $match[0] : 'unclassified';
         $rules = $match ? array($match[2], $match[3], $match[4]) : $guess;
         $class = $match ? ($match[3] === 'drop' ? 'drop' : '') : 'unclassified';
-        echo '<tr class="' . $class . '"><td>' . h($name) . '</td><td class="num">' . number_format($table[0], 0, '.', ' ') . '</td><td class="num">' . h(size($table[1])) . '</td>'
+        echo '<tr class="' . $class . '"><td>' . h($table[3]) . '</td><td class="num">' . number_format($table[0], 0, '.', ' ') . '</td><td class="num">' . h(size($table[1])) . '</td>'
             . '<td><span class="chip ' . h($source) . '">' . h($source === 'unclassified' ? 'none' : $source) . '</span>'
             . ($match && $match[1] !== $name ? '<br><span class="hint">' . h($match[1]) . '</span>' : '') . '</td>'
             . '<td class="rule">' . ($match ? h(implode(' ', $rules)) : '—') . '</td>'
             . '<td class="hint">' . ($match ? '' : h(implode(' ', $guess))) . '</td>';
         if ($editable) {
-            echo '<td><form method="post" action="/set" class="edit"><input type="hidden" name="token" value="' . h($token) . '">'
+            echo '<td><form method="post" action="/set" class="edit"><input type="hidden" name="token" value="' . h($token) . '">' . $hidden
                 . '<input type="hidden" name="table" value="' . h($name) . '"><input type="hidden" name="back" value="' . h($back) . '">'
                 . '<input name="group" value="' . h($rules[0]) . '" aria-label="group"><select name="base" aria-label="base rule">';
             foreach (TABLES_BASE_RULES as $option) echo '<option' . ($option === $rules[1] ? ' selected' : '') . '>' . $option . '</option>';
@@ -247,7 +291,7 @@ if (!$rows) {
             foreach (array('import', 'skip') as $option) echo '<option' . ($option === $rules[2] ? ' selected' : '') . '>' . $option . '</option>';
             echo '</select><button>' . ($match ? 'Save' : 'Add') . '</button></form>';
             if ($match && $match[0] === 'project' && $match[1] === $name) {
-                echo '<form method="post" action="/remove" class="inline"><input type="hidden" name="token" value="' . h($token) . '">'
+                echo '<form method="post" action="/remove" class="inline"><input type="hidden" name="token" value="' . h($token) . '">' . $hidden
                     . '<input type="hidden" name="table" value="' . h($name) . '"><input type="hidden" name="back" value="' . h($back) . '">'
                     . '<button title="Remove the project line">Remove</button></form>';
             }

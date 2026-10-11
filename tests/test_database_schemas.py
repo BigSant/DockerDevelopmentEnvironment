@@ -263,10 +263,12 @@ class BackupPlanTest(unittest.TestCase):
         with patch("database_backup.subprocess.Popen", side_effect=FakeDump(commands)), \
                 patch("database_import.skip_rule", return_value=(lambda table: table in skipped) if skipped else None), \
                 patch("database_schema.database_tables", return_value=["asana_log", "asana_task"]), \
+                patch("database_schema.extra_tables", return_value=["asana_graph.edges", "asana_graph.nodes"]), \
                 contextlib.redirect_stdout(io.StringIO()):
             target = backup_database(self.project, self.root / f"backup-{len(list(self.root.iterdir()))}.sql.gz",
                                      registry=registry)
-        self.assertTrue(gzip.decompress(target.read_bytes()))
+        self.written = gzip.decompress(target.read_bytes())
+        self.assertTrue(self.written)
         return [command[command.index("database-backup") + 1:] for command in commands]
 
     def test_without_extra_schemas_the_backup_runs_as_before(self):
@@ -285,6 +287,17 @@ class BackupPlanTest(unittest.TestCase):
         self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log"}),
                          [["asana", "--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"],
                           ["asana", "--ignore-table=asana.asana_log", "--databases", "asana_graph"]])
+
+    def test_an_extra_schemas_skip_tables_keep_structure_under_their_own_schema(self):
+        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph"
+        structure = ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events"]
+        self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log", "asana_graph.edges"}),
+                         [["asana", *structure, "asana_log"], ["asana_graph", *structure, "edges"],
+                          ["asana", "--ignore-table=asana.asana_log", "--ignore-table=asana_graph.edges", "--databases", "asana_graph"]])
+        # The main structure restores into the target database; the extra schema's names its schema first.
+        first, second = self.written.split(b"USE `asana_graph`;", 1)
+        self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", first)
+        self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", second)
 
     def test_the_dump_client_still_checks_the_main_database_name(self):
         self.assertIn('if [ "$MYSQL_DATABASE" != "$1" ]', DUMP)
@@ -308,14 +321,14 @@ class MultiSchemaImportTest(unittest.TestCase):
         self.project = SimpleNamespace(root=self.root, directory=self.root / "docker", environment="local",
                                        settings={"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph"})
 
-    def test_registry_skip_applies_only_to_the_main_database(self):
+    def test_registry_skip_names_an_extra_schemas_table_schema_table(self):
         out = io.BytesIO()
-        skipped = filter_dump(io.BytesIO(self.DUMP), out, lambda table: table == "asana_log", main="asana")
-        self.assertEqual(skipped, {"asana_log"})
+        skipped = filter_dump(io.BytesIO(self.DUMP), out, lambda table: table in ("asana_log", "asana_graph.edges"), main="asana")
+        self.assertEqual(skipped, {"asana_log", "asana_graph.edges"})
         kept = out.getvalue()
         self.assertNotIn(b"VALUES (1)", kept)
-        self.assertIn(b"INSERT INTO `asana_log` VALUES (2);", kept)
-        self.assertIn(b"INSERT INTO `edges` VALUES (3);", kept)
+        self.assertIn(b"INSERT INTO `asana_log` VALUES (2);", kept, "asana_log of asana_graph is another table")
+        self.assertNotIn(b"VALUES (3)", kept)
         self.assertNotIn(b"VALUES (4)", kept)
         # A header-less (single schema) dump is the main database.
         out = io.BytesIO()
@@ -327,12 +340,18 @@ class MultiSchemaImportTest(unittest.TestCase):
         filter_dump(io.BytesIO(self.DUMP), out, lambda table: table == "asana_log")
         self.assertNotIn(b"VALUES (2)", out.getvalue())
 
-    def test_the_registry_check_reads_only_main_database_tables(self):
+    def test_the_registry_check_reads_every_schema(self):
         self.assertEqual(dump_tables(self.dump, main="asana"), {"asana_log": {"id"}})
+        self.assertEqual(dump_tables(self.dump, main="asana", qualified=True),
+                         {"asana_log": {"id"}, "asana_graph.asana_log": {"node"}, "asana_graph.edges": {"id"}})
         self.assertEqual(set(dump_tables(self.dump)), {"asana_log", "edges"})
         self.project.settings.update(SCHEMA_DIRECTORY="database/schema")
         (self.root / "database").mkdir()
-        (self.root / "database/table-registry.txt").write_text("asana_log logs empty skip\n")
+        registry = self.root / "database/table-registry.txt"
+        registry.write_text("asana_log logs empty skip\n")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "2 tables are not classified"):
+            check_dump_tables(self.project, self.dump, interactive=False)
+        registry.write_text("asana_log logs empty skip\nasana_graph.*  graph full import\n")
         check_dump_tables(self.project, self.dump, interactive=False)
 
     def test_a_dump_that_switches_to_an_unlisted_schema_is_refused_before_loading(self):

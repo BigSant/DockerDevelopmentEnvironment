@@ -114,7 +114,7 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 
 | Laukas | Reikšmės |
 | --- | --- |
-| lentelė | Vardas. `{p}` – PrestaShop prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`; generic projekte atmetamas), `*` – bet kokia seka. |
+| lentelė | Vardas. `{p}` – PrestaShop prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`; generic projekte atmetamas), `*` – bet kokia seka. [Papildomos schemos](#papildomos-schemos) lentelė – `schema.lentelė` (pvz. `asana_git.*`): eilutė su tašku galioja tik papildomoms schemoms, be taško – tik pagrindinei DB. |
 | grupė | Laisvas vardas, pvz. `config`, `catalog`, `customers`, `orders`, `cache`. Pagal jį grupuojami rinkinio failai. |
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
 | LIVE importas | `import` – importuoti duomenis; `skip` – importuoti tik struktūrą. |
@@ -294,11 +294,12 @@ Vardai – raidės, skaitmenys ir `_` (iki 64 simbolių), be pasikartojimų, ne 
 | `make db-restrict-grants` | Susiaurina teises iki pagrindinės ir išvardintų schemų, trūkstamas sukuria. Kartoti saugu. |
 | `make db-backup`, kopija prieš deploy'ų | Apima visas schemas (formatas žemiau). |
 | `make db-import` | Užkelia ir kelių schemų dump'ą. |
-| Snapshot'as, registras, migracijos, bazinis rinkinys, `db-load` | Tik `DATABASE_NAME`. |
+| Lentelių registras | Visos schemos: papildomos schemos lentelė rašoma `schema.lentelė` (žr. [C dalį](#c-lentelių-registras)). Neklasifikuota bet kurios schemos lentelė stabdo commit'ą ir `db-import`; backup'o patikra ir metrikos apima visas schemas. |
+| Snapshot'as, migracijos, bazinis rinkinys, `db-load` | Tik `DATABASE_NAME`. |
 
-**Kopijos formatas.** Su papildomomis schemomis kopija daroma vienu `mysqldump --databases` paleidimu: visos schemos nuskaitomos vienoje transakcijoje (suderinta kopija), o kiekviena schema kopijoje turi `CREATE DATABASE IF NOT EXISTS` ir `USE`. Todėl kopija atkuria visas schemas tais pačiais vardais: `make db-import file=…` (arba `mysql < kopija.sql`). Stage/prod kopijoje registras taikomas tik pagrindinei DB, papildomos schemos kopijuojamos pilnai. Be papildomų schemų kopija tokia pati kaip anksčiau: be `USE`, todėl ją galima užkelti ir į kitą `DATABASE_NAME`.
+**Kopijos formatas.** Su papildomomis schemomis kopija daroma vienu `mysqldump --databases` paleidimu: visos schemos nuskaitomos vienoje transakcijoje (suderinta kopija), o kiekviena schema kopijoje turi `CREATE DATABASE IF NOT EXISTS` ir `USE`. Todėl kopija atkuria visas schemas tais pačiais vardais: `make db-import file=…` (arba `mysql < kopija.sql`). Stage/prod kopijoje registras taikomas visoms schemoms: `skip` lentelių duomenys nekopijuojami, o papildomos schemos `skip` lentelių struktūra rašoma po savo `USE`. Be papildomų schemų kopija tokia pati kaip anksčiau: be `USE`, todėl ją galima užkelti ir į kitą `DATABASE_NAME`.
 
-**Importas.** Dump'as gali perjungti schemą (`USE`) tik į `DATABASE_NAME` arba išvardintas schemas. Kitaip importas sustoja dar nieko nekeitęs. Dažniausia priežastis – LIVE pagrindinės DB vardas kitoks: suvienodink `DATABASE_NAME` arba pataisyk `USE` dump'e. Registro patikra ir `skip` taisyklė taikomos tik pagrindinės DB lentelėms.
+**Importas.** Dump'as gali perjungti schemą (`USE`) tik į `DATABASE_NAME` arba išvardintas schemas. Kitaip importas sustoja dar nieko nekeitęs. Dažniausia priežastis – LIVE pagrindinės DB vardas kitoks: suvienodink `DATABASE_NAME` arba pataisyk `USE` dump'e. Registro patikra ir `skip` taisyklė taikomos visoms schemoms; papildomos schemos lentelė registre yra `schema.lentelė`.
 
 **Jau veikianti DB.** Schemos kuriamos tik pirmą kartą paleidžiant tuščią DB. Jei schemą įrašai į sąrašą vėliau, paleisk `make db-restrict-grants`: jis sukurs schemą ir suteiks teises. Iš sąrašo išbrauktos schemos teisės savaime neatimamos.
 

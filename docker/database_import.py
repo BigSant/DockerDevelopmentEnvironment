@@ -91,20 +91,23 @@ def skip_rule(project, full=False):
     return lambda table: (classify(entries, table) or ("", "", "", "import"))[3] in ("skip", "-")
 
 
-def dump_tables(path, main=None):
+def dump_tables(path, main=None, qualified=False):
     """Tables a dump creates, with their column names (read from the CREATE TABLE statements).
 
-    With `main`, only tables of the main database count; other schemas of the dump are not read.
+    With `main`, only tables of the main database count; with `qualified` too, the other schemas' tables
+    count as schema.table (the table registry's names for them).
     """
     tables, current, schema = {}, None, main
     with open_dump(path) as source:
         for line in source:
             if main is not None and (used := used_schema(line)) is not None:
                 schema = used
-            if schema != main:
+            if schema != main and not qualified:
                 continue
             if line[:1] in (b"C", b"c") and (match := CREATE.match(line)):
                 current = match[1].replace(b"``", b"`").decode("utf-8", "replace")
+                if schema != main:
+                    current = f"{schema}.{current}"
                 tables[current] = set(COLUMN.findall(line[match.end():]))
                 if line.rstrip().endswith(b";"):
                     current = None
@@ -124,7 +127,7 @@ def check_dump_tables(project, dump, ask=input, interactive=None):
     entries = load(project)
     if not entries:
         return
-    tables = dump_tables(Path(dump), main_schema(project))
+    tables = dump_tables(Path(dump), main_schema(project), qualified=True)
     unknown = unknown_tables(entries, tables)
     if not unknown:
         return
@@ -139,8 +142,8 @@ def filter_dump(source, sink, skip, main=None):
     """Copy a dump without the data statements of skipped tables; returns the skipped table names.
 
     Structure statements are kept, so a skipped table exists and is empty. A multi-line INSERT is
-    skipped up to the line that ends the statement. With `main`, only the main database's part is
-    filtered; data of the extra schemas passes unchanged.
+    skipped up to the line that ends the statement. With `main`, a table of another schema is asked about
+    as schema.table, the table registry's name for it.
     """
     skipped, skipping, schema = set(), False, main
     for line in source:
@@ -149,8 +152,10 @@ def filter_dump(source, sink, skip, main=None):
             continue
         if main is not None and (used := used_schema(line)) is not None:
             schema = used
-        if schema == main and line[:1] in (b"I", b"i", b"R", b"r") and (match := INSERT.match(line)):
+        if line[:1] in (b"I", b"i", b"R", b"r") and (match := INSERT.match(line)):
             table = match[1].replace(b"``", b"`").decode("utf-8", "replace")
+            if schema != main:
+                table = f"{schema}.{table}"
             if skip(table):
                 skipped.add(table)
                 skipping = not line.rstrip().endswith(b";")
