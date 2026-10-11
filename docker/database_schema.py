@@ -1,5 +1,7 @@
 """Read MySQL table DDL and compare it with the exact Git index being committed."""
 
+import copy
+import functools
 import json
 import hashlib
 import os
@@ -113,6 +115,9 @@ def read_schema(project, require_classified=False):
 
 
 def schema_directory(project):
+    committing = getattr(project, "committing_schema_directory", None)
+    if committing is not None:
+        return committing  # Set by in_committing_checkout for a linked worktree's commit.
     configured = project.settings.get("SCHEMA_DIRECTORY", "")
     if not configured:
         raise ValueError("Set SCHEMA_DIRECTORY relative to the project root (for example database/schema)")
@@ -184,13 +189,63 @@ def export_schema(project, files=None):
     print(f"Exported {len(files) - 1} tables to {directory}. Review, then git add -A that directory.")
 
 
-def git_env():
+HOOK_GIT_VARIABLES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
+
+
+def git_env(clean=False):
     # Hooks may export relative index/Git paths; preserve their meaning across git -C.
     env = os.environ.copy()
-    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
-        if env.get(key):
+    for key in HOOK_GIT_VARIABLES:
+        if clean:
+            env.pop(key, None)  # Let git -C find the repository of the directory it is given.
+        elif env.get(key):
             env[key] = str(Path(env[key]).absolute())
+    if not clean and env.get("GIT_DIR") and not env.get("GIT_WORK_TREE"):
+        # A linked worktree's hook gets GIT_DIR alone, and git takes the hook's directory as the work
+        # tree; git -C into the schema directory would make that subdirectory the work tree.
+        top = hook_work_tree(env["GIT_DIR"], os.getcwd())
+        if top:
+            env["GIT_WORK_TREE"] = top
     return env
+
+
+@functools.lru_cache(maxsize=None)
+def hook_work_tree(git_directory, directory):
+    env = {key: value for key, value in os.environ.items() if key not in HOOK_GIT_VARIABLES}
+    result = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=directory, capture_output=True,
+                            env=dict(env, GIT_DIR=git_directory))
+    return os.fsdecode(result.stdout).strip() if not result.returncode else None
+
+
+def checkout(directory, env):
+    """(work tree, common Git directory) of the checkout holding directory, or None outside one."""
+    result = subprocess.run(["git", "-C", str(directory), "rev-parse", "--show-toplevel",
+                             "--path-format=absolute", "--git-common-dir"], capture_output=True, env=env)
+    lines = os.fsdecode(result.stdout).splitlines()
+    if result.returncode or len(lines) != 2:
+        return None
+    return Path(lines[0]).resolve(), Path(lines[1]).resolve()
+
+
+def in_committing_checkout(project):
+    """The project as seen by a commit in a linked worktree of the schema's repository.
+
+    The settings and the DB stay the main checkout's (a worktree has no env/local.env of its own),
+    but the snapshot is exported into and compared with the committing worktree's copy and index.
+    Outside such a worktree the project is returned unchanged."""
+    directory = schema_directory(project)
+    ancestor = directory
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    schema = checkout(ancestor, git_env(clean=True))
+    committing = checkout(Path.cwd(), git_env())
+    if (schema is None or committing is None or committing == schema or committing[1] != schema[1]
+            or not directory.is_relative_to(schema[0])):
+        return project
+    project = copy.copy(project)
+    project.committing_schema_directory = committing[0] / directory.relative_to(schema[0])
+    print(f"Committing in the worktree {committing[0]}; DB and settings from {schema[0]}.")
+    return project
 
 
 def git(directory, *args):
@@ -243,6 +298,7 @@ def schema_differences(staged, actual):
 def commit_schema(project):
     """Pre-commit: export the schema, require classification and a finished migration, stop if anything is open."""
     from database_migrations_guarded import commit_problems, write_draft
+    project = in_committing_checkout(project)
     directory = schema_directory(project)
     try:
         database_tables(project)
@@ -285,6 +341,7 @@ def schema_report(project):
 
 
 def check_schema(project):
+    project = in_committing_checkout(project)  # A hook manager may run it for a worktree's commit.
     directory = schema_directory(project)
     staged = staged_schema(directory)
     actual = read_schema(project)

@@ -81,13 +81,15 @@ git commit -m "Add supplier code"
 
 Hook'as veikia toje repozitorijoje, kuriai priklauso schemos katalogas (Forsenoje – aplinkos `app/`, ne parduotuvės `app/public`). Jei repozitorija naudoja `core.hooksPath` arba jau turi savo `pre-commit`, installeris jo neperrašo ir praneša, ką įrašyti rankomis.
 
+**Commit'as `git worktree` kopijoje.** Hook'as bendras visoms tos repozitorijos darbo kopijoms (`git worktree add`). Kai commit'ini susietoje kopijoje, nustatymai ir DB lieka pagrindinės kopijos (ten yra `env/local.env` ir veikianti vietinė DB), bet schema eksportuojama į **commit'inamos kopijos** schemos katalogą (tas pats santykinis kelias) ir lyginama su **jos** indeksu; ten pat atsiranda migracijos juodraštis, o pranešimai rodo tos kopijos kelią. Pagrindinė kopija nekeičiama. Hook'as tai praneša eilute `Committing in the worktree …; DB and settings from …`. Jei kopijos šaka turi kitą (pvz. senesnį) snapshot'ą nei DB, commit'as sustabdomas kaip įprasta, o eksportas lieka toje kopijoje peržiūrai.
+
 Rankinė patikra be commit'o:
 
 ```bash
 make schema-check
 ```
 
-Palygina DB su Git indeksu (tuo, kas pridėta `git add`).
+Palygina DB su Git indeksu (tuo, kas pridėta `git add`). Paleista iš susietos `git worktree` kopijos (pvz. hook'ų tvarkyklės), lygina su tos kopijos indeksu, kaip ir hook'as. `make schema-export` ir DB užkrovimo ataskaita dirba su ta kopija, kurios nustatymus įkelia (`make` – aplinkos kopija su `env/local.env`); į susietą kopiją eksportą įrašo hook'as, sustabdęs commit'ą.
 
 Snapshot'as apima tik lenteles. Views, triggers, procedūros ir events į jį nepatenka.
 
