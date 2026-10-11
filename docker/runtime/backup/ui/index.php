@@ -207,7 +207,7 @@ main{padding:22px 28px 60px;max-width:1400px;margin:0 auto}
 .help h3{margin:0 0 4px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
 .help h3 span{color:var(--faint);letter-spacing:0;text-transform:none;font-weight:400}
 .help dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 10px;margin:0}.help dt{color:var(--amber)}.help dd{margin:0;color:var(--dim)}
-.help .cols>div>p{margin:0;color:var(--dim)}
+.help .cols>div>p{margin:0;color:var(--dim)}.help .cols>div>p+dl{margin-top:6px}
 .stats{display:flex;gap:28px;flex-wrap:wrap;margin:0 0 16px}.stat b{display:block;font-size:20px}.stat span{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint)}
 .stat.bad b,.bad{color:var(--stop)}
 .bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
@@ -249,23 +249,26 @@ if (!$present) {
     echo '<div class="callout wait">Read-only on ' . h($environment) . ': the table registry changes through git.</div>';
 }
 
-// How it works, once, at the top.
-echo '<div class="help"><p>Every table needs a rule. A table without one (red) stops commits, <code>make db-import</code> and '
-    . '<code>make db-dataset</code>. A rule is three fields, saved to <code>app/database/table-registry.txt</code> – commit that file.</p>'
+// How it works, once, at the top: what each field is for, in plain words.
+echo '<div class="help"><p>The database gets copied in two ways: into a small <b>developer copy</b> that lets anyone run the shop '
+    . 'without the live database, and from the <b>live shop</b> to a computer or into a server backup. For every table you decide '
+    . 'what each copy takes from it.</p>'
     . '<div class="cols">'
-    . '<div><h3>Group</h3><p>A free label: catalog, customers, orders, config, cache… <code>make db-dataset</code> writes one file per group. It changes nothing else.</p></div>'
-    . '<div><h3>Data set <span>– make db-dataset, make db-load: the small dev data set in git</span></h3><dl>'
-    . '<dt>full</dt><dd>every row</dd>'
-    . '<dt>slice</dt><dd>only rows of the product sample (2000 active products)</dd>'
-    . '<dt>faker</dt><dd>every row, names, e-mails, phones and addresses replaced</dd>'
-    . '<dt>empty</dt><dd>structure only</dd>'
-    . '<dt>drop</dt><dd>not wanted: removed with a guarded DROP (LIVE does not apply)</dd></dl></div>'
-    . '<div><h3>LIVE <span>– make db-import, stage/prod backups</span></h3><dl>'
-    . '<dt>import</dt><dd>its rows are loaded and kept in backups</dd>'
-    . '<dt>skip</dt><dd>structure only: data that rebuilds itself or is not needed (cache, logs, indexes)</dd></dl></div>'
-    . '</div><p class="note">Listed: the tables this project classifies – <b>project</b> (a line in the file; Remove deletes it) or <b>none</b> '
-    . '(no rule yet; the dashed fields hold a suggestion from the name and columns). '
-    . ($counts['profile'] ? 'The ' . $counts['profile'] . ' standard PrestaShop tables are not listed: setup\'s profile classifies them for every project and they change in setup.' : '')
+    . '<div><h3>Group</h3><p>A name to sort tables, e.g. orders, catalog, cache. Only for order: it does not change what gets copied.</p></div>'
+    . '<div><h3>Dev copy</h3><p>A small, safe copy of the database kept with the code, so a new developer starts the shop with one command. '
+    . 'What this table puts in it:</p><dl>'
+    . '<dt>full</dt><dd>all its rows</dd>'
+    . '<dt>slice</dt><dd>only the rows of a sample of products, to keep the copy small</dd>'
+    . '<dt>faker</dt><dd>all rows, but names, e-mails, phones and addresses are made up – no real customer data</dd>'
+    . '<dt>empty</dt><dd>no rows, just the empty table</dd>'
+    . '<dt>drop</dt><dd>the table is not needed at all and gets deleted</dd></dl></div>'
+    . '<div><h3>Live copy</h3><p>When the live shop\'s database is copied to a computer or backed up on the server:</p><dl>'
+    . '<dt>import</dt><dd>take its data</dd>'
+    . '<dt>skip</dt><dd>take only the empty table – for data that rebuilds itself or is not needed (cache, logs, search indexes)</dd></dl></div>'
+    . '</div><p class="note">Every table needs a decision. A red one has none yet – its fields hold a suggestion – and until it gets one, '
+    . 'changes cannot be committed and no database can be loaded. Add or Save stores the decision in <code>app/database/table-registry.txt</code> '
+    . '(commit it); Remove takes it back. '
+    . ($counts['profile'] ? 'The ' . $counts['profile'] . ' standard PrestaShop tables are not listed: setup decides them for every shop.' : '')
     . '</p></div>';
 
 $at = '&schema=' . rawurlencode($schema);
@@ -282,13 +285,13 @@ if (count($schemas) > 1) {
 
 echo '<div class="stats">'
     . '<div class="stat"><b>' . $counts['all'] . '</b><span>project tables</span></div>'
-    . '<div class="stat' . ($counts['unclassified'] ? ' bad' : '') . '"><b>' . $counts['unclassified'] . '</b><span>without a rule</span></div>'
+    . '<div class="stat' . ($counts['unclassified'] ? ' bad' : '') . '"><b>' . $counts['unclassified'] . '</b><span>without a decision</span></div>'
     . '<div class="stat"><b>' . $counts['project'] . '</b><span>project lines</span></div>'
     . '<div class="stat"><b>' . $counts['drop'] . '</b><span>marked drop</span></div>'
     . '<div class="stat"><b>' . h(size($bytes)) . '</b><span>data + index</span></div></div>';
 
 echo '<div class="bar">';
-foreach (array('unclassified' => 'Without a rule', 'project' => 'Project lines', 'all' => 'All') as $key => $label) {
+foreach (array('unclassified' => 'Without a decision', 'project' => 'Project lines', 'all' => 'All') as $key => $label) {
     echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . $at . ($query !== '' ? '&q=' . rawurlencode($query) : '')
         . '&sort=' . $sort . ($descending ? '&dir=desc' : '') . '">' . h($label) . ' (' . $counts[$key] . ')</a>';
 }
@@ -296,7 +299,7 @@ echo '<form method="get" class="inline">' . $hidden . '<input type="hidden" name
     . ($descending ? '<input type="hidden" name="dir" value="desc">' : '') . '<input name="q" value="' . h($query) . '" placeholder="filter by name"> <button>Filter</button></form>';
 if ($editable && $counts['unclassified']) {
     echo '<span class="spacer"></span><form method="post" action="/accept-all" class="inline" onsubmit="return confirm(\'Save the suggestion of all '
-        . $counts['unclassified'] . ' tables of ' . h($schema) . ' without a rule?\')"><input type="hidden" name="token" value="' . h($token) . '">'
+        . $counts['unclassified'] . ' tables of ' . h($schema) . ' without a decision?\')"><input type="hidden" name="token" value="' . h($token) . '">'
         . $hidden . '<input type="hidden" name="back" value="/?view=' . h($view) . h($at) . '"><button class="go">Save all suggestions</button></form>';
 }
 echo '</div>';
@@ -310,10 +313,10 @@ $header = function ($column, $label, $class = '') use ($list, $sort, $descending
         . h($list . '&sort=' . $column . ($reverse ? '&dir=desc' : '')) . '">' . h($label) . $arrow . '</a></th>';
 };
 if (!$rows) {
-    echo '<div class="empty">' . ($view === 'unclassified' && $counts['all'] ? 'Every table has a rule.' : 'No tables.') . '</div>';
+    echo '<div class="empty">' . ($view === 'unclassified' && $counts['all'] ? 'Every table has a decision.' : 'No tables.') . '</div>';
 } else {
     echo '<table class="registry"><thead><tr>' . $header('table', 'Table') . $header('rows', 'Rows', 'num') . $header('size', 'Size', 'num')
-        . $header('source', 'Source') . $header('group', 'Group') . $header('base', 'Data set') . $header('live', 'LIVE')
+        . $header('source', 'Source') . $header('group', 'Group') . $header('base', 'Dev copy') . $header('live', 'Live copy')
         . ($editable ? '<th></th>' : '') . '</tr></thead><tbody>';
     foreach ($rows as $index => $row) {
         list($name, $table, $match, $guess) = $row;
@@ -330,9 +333,9 @@ if (!$rows) {
         // The fields sit in their own cells and belong to the row's form (the HTML form attribute).
         $form = 'rule-' . $index;
         echo '<td class="field"><input form="' . $form . '" name="group" value="' . h($rule[0]) . '" aria-label="group"></td>'
-            . '<td class="field"><select form="' . $form . '" name="base" aria-label="data set">';
+            . '<td class="field"><select form="' . $form . '" name="base" aria-label="dev copy">';
         foreach (TABLES_BASE_RULES as $option) echo '<option' . ($option === $rule[1] ? ' selected' : '') . '>' . $option . '</option>';
-        echo '</select></td><td class="field"><select form="' . $form . '" name="live" aria-label="LIVE">';
+        echo '</select></td><td class="field"><select form="' . $form . '" name="live" aria-label="live copy">';
         foreach (array('import', 'skip') as $option) echo '<option' . ($option === $rule[2] ? ' selected' : '') . '>' . $option . '</option>';
         echo '</select></td><td class="actions"><form id="' . $form . '" method="post" action="/set" class="inline"><input type="hidden" name="token" value="' . h($token) . '">'
             . $hidden . '<input type="hidden" name="table" value="' . h($name) . '"><input type="hidden" name="back" value="' . h($back) . '">'
