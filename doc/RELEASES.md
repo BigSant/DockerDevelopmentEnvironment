@@ -37,8 +37,8 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 - **`SERVICES="backup"`** serves `https://backup.<DOMAIN>/`, like the cron UI: every table of the project
   database with its rows, size, registry rule and where the rule comes from (project line, profile default,
-  none), tables without a line first, with schema-resolve's suggestion; a click on a column header sorts by it. A help panel and
-  tooltips say when each field is used (group, data set, LIVE) and what every value means. Local/test set a table's rule, mark
+  none), tables without a line first, with schema-resolve's suggestion; a click on a column header sorts by it. An explanation at
+  the top says when each field is used (group, data set, LIVE) and what every value means; each field has its own column. Local/test set a table's rule, mark
   it `drop`, remove a project line, or accept every suggestion at once; the UI writes
   `app/database/table-registry.txt` (new lines first, so they win over wildcards; `{p}` for PrestaShop
   tables), which the developer commits. Stage/prod only show it, behind `BACKUP_ALLOWED_IPS` / `ALLOWED_IPS`.
