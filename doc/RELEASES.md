@@ -46,6 +46,15 @@ No image changes.
    checkout to this release. The build root is `vars.BUILD_ROOT`, else
    `$SETUP_SERVER_ROOT/projects/<repository name in lower case>` (setup-server's layout).
 
+### Cron UI
+
+- The cron UI is a departures board: jobs ordered by their next run (amber flaps with the date and
+  "in 12 min"), the last twelve runs as signal lamps, the environment as a station sign. Prod has a red
+  sign and rule, and "Run now" asks to confirm there. `CRON_SCHEDULE=off` crosses the board with hazard
+  tape. History shows the success rate, average and longest run and a duration bar per run, and after
+  "Run now" refreshes itself until the run is recorded; output opens in a numbered terminal pane.
+  Self-contained (no fonts, scripts or styles from elsewhere). Routes, access and messages are unchanged.
+
 ### Fixes
 
 - **Schema pre-commit hook in a linked `git worktree`.** The hook is shared by every worktree of the
