@@ -127,6 +127,8 @@ Terminale paklausia apie kiekvieną nežinomą lentelę ir pasiūlo klasifikacij
 make db-import file=/kelias/forsena.sql.gz
 ```
 
+Prieš pirmą importą verta žinoti LIVE DB variklį, versiją, `sql_mode`, koduotes, didžiausias lenteles ir `DEFINER` objektus. Juos parodo [LIVE zondas](../../tools/live-probe/README.md), kartu su `config/mysql` drop-in'u ir lentelių registro juodraščiu.
+
 Tvarka:
 
 ```text

@@ -24,6 +24,7 @@ setup/
     runtime/                          scripts used inside containers (start, templates, PS adapters, cron, dbmonitor, metrics)
     compatibility.json                PrestaShop line -> supported PHP / MySQL / MariaDB
   templates/                          scaffold sources (minimal, grouped, shared Makefile), pipelines/ (Bitbucket, GitHub)
+  tools/live-probe/                   setup-probe.php: read-only PHP 5.6+ probe uploaded to a LIVE server -> setup settings report
   tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
 ```
 
