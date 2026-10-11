@@ -4,6 +4,19 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### Fixes
+
+- **Schema pre-commit hook in a linked `git worktree`.** The hook is shared by every worktree of the
+  repository, but it exported the schema into the main checkout and judged the worktree's commit with
+  a mixed-up Git index (every table "not staged", "stage the table registry"). It now keeps the main
+  checkout's settings and running DB but exports into, drafts the migration in and compares with the
+  committing worktree's schema directory and index (same relative path, same `--git-common-dir`), and
+  names that directory in its messages. `schema-check` does the same when a hook manager runs it in a
+  worktree; `schema-export` and the post-load schema report keep working on the checkout whose
+  settings they load. Commits in the main checkout are unchanged. No project needs to change.
+
 ## 2.3.0
 
 ### Bitbucket deploy step in setup
