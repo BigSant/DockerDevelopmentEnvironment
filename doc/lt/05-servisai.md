@@ -368,7 +368,8 @@ Sąsaja `https://backup.demo.local/`:
 
 - rodo visas projekto DB lenteles, su [papildomomis schemomis](07-duomenu-baze.md#papildomos-schemos) – po skirtuką kiekvienai (šalia – kiek jos lentelių nėra registre): eilučių skaičių, dydį, taisyklę (`grupė rinkinys importas`) ir iš kur ji (projekto registras, `prestashop` profilio numatytoji ar jokios). Pirmiausia rodomos lentelės, kurių registre **nėra** (jos stabdo commit'ą, `db-import` ir `db-dataset`); šalia – pasiūlymas, kaip `make schema-resolve`. Paspaudus stulpelio antraštę įrašai rikiuojami pagal jį, antras paspaudimas – atvirkščiai;
 - local/test leidžia nustatyti lentelės taisyklę, pažymėti ją `drop` ir pašalinti projekto eilutę, o mygtukas „Accept all suggestions“ įrašo visų neklasifikuotų lentelių pasiūlymus. Pakeitimas iškart rašomas į `app/database/table-registry.txt` (nauja eilutė – failo pradžioje, kad laimėtų prieš `*` šablonus; PrestaShop lentelės rašomos su `{p}`, papildomos schemos – `schema.lentelė`). „Accept all suggestions“ taikomas pasirinktai schemai. Failą peržiūrėk ir commit'ink;
-- stage/prod registrą tik rodo: serveryje jis keičiamas tik per Git.
+- stage/prod registrą tik rodo: serveryje jis keičiamas tik per Git;
+- skydelis „How the table registry is used“ (atviras, kol yra neklasifikuotų lentelių) paaiškina, kada naudojamas kiekvienas laukas (`group`, rinkinys, LIVE) ir ką reiškia kiekviena reikšmė; tie patys paaiškinimai rodomi užvedus pelę ant antraščių, šaltinio ir pasirinkimų.
 
 Servisas veikia tik su DB kaip kodu (be `DATABASE_AS_CODE=off`) ir skaito DB aplikacijos vartotoju. Kol nėra `app/database` (schema dar neeksportuota), sąsaja tai pasako ir nieko nerašo. Stage/prod be `BACKUP_ALLOWED_IPS` ar `ALLOWED_IPS` nepasileidžia. Sąsaja atsako tik nginx-proxy. Naujas `backup.` poddomenis atsiranda po `setup/install-host` ir `make bootstrap`.
 
