@@ -120,7 +120,8 @@ def schema_directory(project):
         return committing  # Set by in_committing_checkout for a linked worktree's commit.
     configured = project.settings.get("SCHEMA_DIRECTORY", "")
     if not configured:
-        raise ValueError("Set SCHEMA_DIRECTORY relative to the project root (for example database/schema)")
+        raise ValueError("Database as code is off (DATABASE_AS_CODE=off); remove that line to use the schema, "
+                         "registry and migrations")
     directory = (project.root / configured).resolve()
     if directory == project.root or not directory.is_relative_to(project.root):
         raise ValueError("SCHEMA_DIRECTORY must be a subdirectory inside the project")
@@ -298,6 +299,9 @@ def schema_differences(staged, actual):
 def commit_schema(project):
     """Pre-commit: export the schema, require classification and a finished migration, stop if anything is open."""
     from database_migrations_guarded import commit_problems, write_draft
+    if not project.settings.get("SCHEMA_DIRECTORY"):
+        print("Database as code is off (DATABASE_AS_CODE=off); the schema hook checks nothing.")
+        return
     project = in_committing_checkout(project)
     directory = schema_directory(project)
     try:

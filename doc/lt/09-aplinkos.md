@@ -121,7 +121,7 @@ make deploy ENV=prod ref=v1.4.0
    - PrestaShop moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
 4. **Projekto hook'as** `config/deploy/after-rsync.sh`, jei jis yra: vykdomas taikinio `php-fpm` konteineryje (`sh -e`, kodo šaknyje), kai naujas kodas jau ten, pvz. `php bin/console doctrine:migrations:migrate --no-interaction`. Jam nepavykus deploy'us sustoja: migracijos ir cache valymas nevykdomi, o deploy'us įrašomas į istoriją kaip nepavykęs (`"failed": "after-rsync"`), nes naujas kodas jau taikinyje. Pataisęs deploy'ink iš naujo arba grįžk `rollback=1` į ankstesnį release'ą; kitas deploy'us failus šalina lyginant su tuo, kas iš tikrųjų taikinyje.
 5. **Modulių upgrade'ai** pasikeitusiems moduliams – tik PrestaShop (PS 1.6 – per administravimo skydelį). Generic deploy'us `ps_module` lentelės neskaito.
-6. **Setup SQL migracijos**, jei projektas jas turi (`SCHEMA_DIRECTORY` su `migrations/`), ir schemos ataskaita.
+6. **Setup SQL migracijos**, jei projektas jas turi (`database/migrations/`, be `DATABASE_AS_CODE=off`), ir schemos ataskaita.
 7. **Cache išvalymas:** PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas).
 8. **php-fpm perkrovimas** (visiems profiliams): `USR2` php-fpm master procesui. Nauji worker'iai pradeda su tuščiu OPcache, todėl prod iškart vykdo naują kodą. Vykdomos užklausos gauna iki 30 s pabaigti (`process_control_timeout` CORE image'e). `DEPLOY_PHP_RELOAD=off` perkrovimą išjungia (tada OPcache gali rodyti seną kodą iki konteinerio restart'o).
 

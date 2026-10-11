@@ -13,6 +13,8 @@ DEFAULTS = {
     'PS_OBJECT_CACHE': 'auto', 'MAIL_MODE': 'auto', 'HTTP_FORCE_HTTPS': 'auto',
     # After a DB import: shop SSL flag, and the external integrations left enabled (local/test/stage).
     'PS_SSL': 'on', 'INTEGRATIONS_ENABLED': '',
+    # Schema snapshot, table registry, migrations, data sets and the schema commit hook.
+    'DATABASE_AS_CODE': 'on',
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
     # off keeps the cron service and its UI (run now, history) but runs nothing on schedule.
     'CRON_SCHEDULE': 'on',
@@ -170,6 +172,7 @@ def resolve_policy(settings, environment):
     elif values['MAIL_MODE'] == 'mailpit' and 'mailpit' not in str(settings.get('SERVICES') or '').split():
         raise ValueError('MAIL_MODE=mailpit requires mailpit in SERVICES')
     choice(values, 'PS_SSL', ('on', 'off'))
+    choice(values, 'DATABASE_AS_CODE', ('on', 'off'))
     choice(values, 'DATABASE_PERFORMANCE_SCHEMA', ('on', 'off'))
     choice(values, 'CRON_SCHEDULE', ('on', 'off'))
     if not re.fullmatch(r'[a-z0-9_-]*(?: [a-z0-9_-]+)*', ' '.join(values['INTEGRATIONS_ENABLED'].split())):

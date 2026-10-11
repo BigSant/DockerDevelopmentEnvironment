@@ -54,6 +54,8 @@ services:
       PUBLISH_ADDRESS: ${PUBLISH_ADDRESS-}
       DATA_DIRECTORY: ${DATA_DIRECTORY-}
       APP_SOURCE_DIRECTORY: ${APP_SOURCE_DIRECTORY-}
+      # Database as code (schema snapshot, registry, migrations, data sets, commit hook): on unless off.
+      DATABASE_AS_CODE: ${DATABASE_AS_CODE-}
       SCHEMA_DIRECTORY: ${SCHEMA_DIRECTORY-}
       POST_IMPORT_SQL_DIRECTORY: ${POST_IMPORT_SQL_DIRECTORY-}
       FIXTURES_DIRECTORY: ${FIXTURES_DIRECTORY-}

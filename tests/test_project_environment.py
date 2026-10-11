@@ -82,6 +82,27 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertEqual((app / "config/sql/existing.sql").read_text(), "SELECT 1;\n")
         self.assertFalse((root / "docker").exists())
 
+    def test_database_as_code_is_on_by_default_and_off_on_request(self):
+        root = Path(self.temporary.name) / "schema-default"
+        app = root / "app"
+        with contextlib.redirect_stdout(io.StringIO()):
+            prepare(root, layout="app")
+        (app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
+                                          "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test\n")
+        common = app / "env/common.env"
+        lines = [line for line in common.read_text().splitlines() if not line.startswith("SCHEMA_DIRECTORY=")]
+        common.write_text("\n".join(lines) + "\n")
+        project = Project(app)
+        self.assertEqual(project.settings["DATABASE_AS_CODE"], "on")
+        self.assertEqual(project.settings["SCHEMA_DIRECTORY"], "app/database/schema")
+        common.write_text("\n".join(lines) + "\nSCHEMA_DIRECTORY=app/db/snapshot\n")
+        self.assertEqual(Project(app).settings["SCHEMA_DIRECTORY"], "app/db/snapshot")
+        common.write_text("\n".join(lines) + "\nSCHEMA_DIRECTORY=app/db/snapshot\nDATABASE_AS_CODE=off\n")
+        self.assertEqual(Project(app).settings["SCHEMA_DIRECTORY"], "")
+        common.write_text("\n".join(lines) + "\nDATABASE_AS_CODE=maybe\n")
+        with self.assertRaisesRegex(ValueError, "DATABASE_AS_CODE"):
+            Project(app)
+
     def test_grouped_model_and_init_preserve_application_and_data(self):
         self.initialize()
         project = Project(self.directory)

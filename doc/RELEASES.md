@@ -4,6 +4,25 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### Database as code is on by default
+
+- **No setting needed:** the schema lives in `app/database/schema` (the registry, migrations and data
+  sets beside it), as `SCHEMA_DIRECTORY` was set in Forsena. `make setup` installs the schema commit
+  hook, `db-import` stops on an unclassified table and loads apply pending migrations in every project.
+- **`DATABASE_AS_CODE=off`** in `env/common.env` turns all of it off (schema commands then stop with an
+  error, `make setup` installs no hook, an already installed hook lets commits through with a note).
+- **`SCHEMA_DIRECTORY`** now only overrides the default path.
+- **Migrating:** a project that has not recorded its schema yet has its commits stopped by the hook
+  after the next `make setup` until it runs `make schema-export` and `make schema-resolve` (or sets
+  `DATABASE_AS_CODE=off`).
+
+### PHP 7.2 image builds again
+
+- `php:7.2-fpm` is Debian buster, whose mirrors moved to `archive.debian.org`; the 7.2 Dockerfile now
+  switches its sources like 7.0 and 7.1 do.
+
 ## 2.4.0
 
 ### GitHub Actions as a second CI provider

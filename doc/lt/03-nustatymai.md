@@ -140,7 +140,8 @@ Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stag
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `SCHEMA_DIRECTORY` | Tuščias | Schemos snapshot'o katalogas nuo projekto šaknies, pvz. `app/database/schema`. Be jo neveikia schema, registras, migracijos ir rinkiniai. |
+| `DATABASE_AS_CODE` | `on` | `off` išjungia schemą, registrą, migracijas, rinkinius ir schemos commit hook'ą (žr. [DB kaip kodas](07-duomenu-baze.md)). |
+| `SCHEMA_DIRECTORY` | `app/database/schema` | Kitas schemos snapshot'o katalogas nuo projekto šaknies. Su `DATABASE_AS_CODE=off` nenaudojamas. |
 | `POST_IMPORT_SQL_DIRECTORY` | `database/after-import` šalia Makefile | Kitas after-import katalogas nuo projekto šaknies. |
 | `FIXTURES_DIRECTORY` | Tuščias | Fixtures katalogas nuo projekto šaknies, pvz. `app/database/fixtures`. |
 | `INTEGRATIONS_ENABLED` | Tuščias | Integracijos, kurias po užkėlimo palikti įjungtas, per tarpus. |

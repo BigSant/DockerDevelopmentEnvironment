@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
-from database_schema import (MANIFEST, MYSQL_READ, check_schema, export_schema, git,
+from database_schema import (MANIFEST, MYSQL_READ, check_schema, commit_schema, export_schema, git,
                              install_schema_hook, mysql_query, normalize_ddl,
                              read_schema, schema_directory, staged_schema, table_file,
                              unescape_batch)
@@ -194,6 +194,12 @@ class DatabaseSchemaTest(unittest.TestCase):
         self.project.settings["SCHEMA_DIRECTORY"] = "../outside"
         with self.assertRaisesRegex(ValueError, "inside"):
             schema_directory(self.project)
+        self.project.settings["SCHEMA_DIRECTORY"] = ""  # what DATABASE_AS_CODE=off resolves to
+        with self.assertRaisesRegex(ValueError, "DATABASE_AS_CODE=off"):
+            schema_directory(self.project)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            commit_schema(self.project)  # a hook installed before the switch must not block commits
+        self.assertIn("DATABASE_AS_CODE=off", output.getvalue())
 
     def test_failed_mysql_and_wrong_database_do_not_pass(self):
         failure = subprocess.CompletedProcess([], 1, stdout=b"", stderr=b"private diagnostics")

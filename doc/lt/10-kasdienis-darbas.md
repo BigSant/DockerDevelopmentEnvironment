@@ -41,7 +41,7 @@ Kas paruošiama:
 | Setup: Start / Stop | `make up` / `make down` |
 | Setup: Check | `make doctor` |
 | Setup: PHP shell | `make shell` |
-| Setup: Export schema / Check schema | `make schema-export` / `make schema-check` (kai nurodytas `SCHEMA_DIRECTORY`) |
+| Setup: Export schema / Check schema | `make schema-export` / `make schema-check` (be `DATABASE_AS_CODE=off`) |
 | Setup: Prepare tests | `make test-prepare` |
 | Setup: Sync test copy | `make test-sync` |
 | Setup: PHPUnit (all suites) | `make phpunit` |

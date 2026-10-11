@@ -171,6 +171,10 @@ class Project:
             raise ValueError(f"{error}\n{limit_suggestion(error)}") from None
         settings.update(policy)
         self.process_env.update(policy)
+        if settings['DATABASE_AS_CODE'] == 'off':
+            settings['SCHEMA_DIRECTORY'] = ''  # every database-as-code step checks this one setting
+        elif not settings['SCHEMA_DIRECTORY'] and self.directory.is_relative_to(self.root):
+            settings['SCHEMA_DIRECTORY'] = str((self.directory / 'database/schema').relative_to(self.root))
         for key, attribute in [('DATA_DIRECTORY', 'data_directory'), ('APP_SOURCE_DIRECTORY', 'web_directory')]:
             if settings[key]:
                 path = (self.root / settings[key]).resolve()

@@ -16,14 +16,20 @@ DB struktūra, migracijos, lentelių registras ir anonimizuotas bazinis rinkinys
 | Fixtures | Papildomi SQL rinkiniai | `database/fixtures/<rinkinys>/` |
 | Dump / kopija | Visos DB kopija | Privatus `.sql` / `.sql.gz`; kopijos `.generated/backups/` |
 
-Nustatymai `env/common.env` (keliai nuo projekto šaknies):
+DB kaip kodas įjungtas pagal nutylėjimą: schema laikoma `app/database/schema`, o registras, migracijos ir rinkiniai ieškomi šalia jos (`app/database/`). After-import pagal nutylėjimą yra `app/database/after-import`. Nieko rašyti nereikia; `env/common.env` keičia tik nestandartinius kelius (nuo projekto šaknies):
 
 ```dotenv
 SCHEMA_DIRECTORY=app/database/schema
 FIXTURES_DIRECTORY=app/database/fixtures
 ```
 
-Registras, migracijos ir rinkiniai ieškomi šalia schemos katalogo (`app/database/`). Be `SCHEMA_DIRECTORY` jie neveikia. After-import pagal nutylėjimą yra `app/database/after-import`.
+Įjungtas režimas reiškia: `make setup` įdiegia schemos commit hook'ą, `db-import` sustoja ties neklasifikuota lentele, po užkėlimo taikomos migracijos. Kol schema neeksportuota ir lentelės neklasifikuotos (žr. B ir C dalis), hook'as stabdo commit'us. Projektas, kuris DB kaip kodo nenaudoja (pvz. be DB arba su savo migracijų įrankiu), jį išjungia:
+
+```dotenv
+DATABASE_AS_CODE=off
+```
+
+Tada schemos komandos (`schema-export`, `schema-check`, `db-dataset`…) sustoja su klaida, o `make setup` hook'o nediegia. Anksčiau įdiegtas hook'as commit'ų nestabdo: tik praneša, kad režimas išjungtas.
 
 ## A. Pirmas DB užkėlimas
 
