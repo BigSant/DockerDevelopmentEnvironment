@@ -13,6 +13,7 @@ sys.path.insert(0, str(SETUP / 'docker'))
 
 from prepare_project import minimal_files
 from project_bootstrap import set_env_values
+from project_ci import DEFAULT as DEFAULT_CI, PROVIDERS as CI_PROVIDERS, TEMPLATES as CI_TEMPLATES, WORKFLOWS
 from project_ide import checked_path, replace_file
 
 MARKER = 'app/.generated/create-project.json'
@@ -48,8 +49,9 @@ def prepare_project_name(app, name):
             output.write(name + '\n')
 
 
-def scaffold(name, parent, options=None):
-    """Project files for a new project; options come from the wizard (profile, versions, engine, services)."""
+def scaffold(name, parent, options=None, ci=DEFAULT_CI):
+    """Project files for a new project; options come from the wizard (profile, versions, engine, services),
+    ci names the deploy pipeline written beside them (bitbucket or github)."""
     display_name = name
     name = normalize_name(name)
     root = Path(parent).resolve() / name
@@ -81,6 +83,7 @@ def scaffold(name, parent, options=None):
             handle.write(contents)
     if options:
         apply_options(app, options)
+    write_ci(app, ci)
     public = app / 'public'
     if options and options.get('profile') == 'prestashop':
         # The shop code comes from its own repository: git clone it into app/public.
@@ -113,6 +116,34 @@ PROFILES = ('prestashop', 'generic')
 ENGINES = ('mysql', 'mariadb')
 DEFAULT_PS = '9.0.2'
 DEFAULT_SERVICES = 'pma mailpit'
+
+
+def write_ci(app, provider):
+    """The provider's deploy pipeline from templates/pipelines, and CI_PROVIDER for make deploy-variables."""
+    source, target = WORKFLOWS[provider]
+    path = app / target
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('xb') as handle:
+        handle.write((CI_TEMPLATES / source).read_bytes())
+    set_env_values(app / 'env/common.env', {'CI_PROVIDER': provider})
+
+
+CI_LABELS = {'bitbucket': 'Bitbucket Pipelines', 'github': 'GitHub Actions'}
+
+
+def ci_next_steps(app, provider):
+    """What the new project's deploy pipeline still needs; printed after the files are written."""
+    workflow = app / WORKFLOWS[provider][1]
+    if provider == 'github':
+        where = ('GitHub: Settings -> Environments: staging and production (their secrets and variables); '
+                 'a self-hosted runner with the label setup.build on the build server')
+    else:
+        where = ('Bitbucket: Repository settings -> Deployments: Staging and Production (their Deployment '
+                 'variables); a self-hosted runner with the labels self.hosted, linux.shell, setup.build')
+    return (f'CI: {CI_LABELS[provider]}, {workflow} runs make pipeline-deploy.\n'
+            f'  Before the first deploy: {where}.\n'
+            f'  make -C {app} deploy-variables ENV=prod names=1 lists the secrets it needs '
+            f'({SETUP / "doc/lt/09-aplinkos.md"}).')
 
 
 def php_versions():
@@ -214,16 +245,19 @@ def ask_options(name, given, ask=input):
         options['services'] = question('Services (space separated, - for none)', DEFAULT_SERVICES)
         if options['services'] == '-':
             options['services'] = ''
+    if 'ci' not in options:
+        options['ci'] = question('CI (deploy pipeline)', DEFAULT_CI, CI_PROVIDERS)
     return name, options
 
 
-def summary(name, options):
+def summary(name, options, ci=DEFAULT_CI):
     domain = normalize_name(name).replace('_', '-') + '.local'
     rows = [('Project', f'{name} ({normalize_name(name)})'), ('Domain', domain), ('Profile', options['profile'])]
     if options.get('ps_version'):
         rows.append(('PrestaShop', options['ps_version']))
     rows += [('PHP', options['php_version']), ('Database', f"{options['database']} {options['database_version']}"),
-             ('Services', options['services'] or '(none)'), ('Time zone', 'Europe/Vilnius')]
+             ('Services', options['services'] or '(none)'), ('Time zone', 'Europe/Vilnius'),
+             ('CI', f'{CI_LABELS[ci]} ({WORKFLOWS[ci][1]})')]
     return '\n'.join(f'  {label:<11} {value}' for label, value in rows)
 
 
@@ -262,6 +296,8 @@ def main(argv=None, ask=input, interactive=None):
     parser.add_argument('--database', choices=ENGINES)
     parser.add_argument('--database-version', help='e.g. 8.4 or 10.11')
     parser.add_argument('--services', help=f'catalogue services, space separated (default "{DEFAULT_SERVICES}"; "" for none)')
+    parser.add_argument('--ci', choices=CI_PROVIDERS, help=f'deploy pipeline written into the project (default {DEFAULT_CI}): '
+                        'bitbucket-pipelines.yml or .github/workflows/deploy.yml')
     parser.add_argument('--yes', action='store_true', help='write without the confirmation question')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--start', action='store_true', help='Also prepare the host, TLS and IDE, build images and start the environment')
@@ -269,7 +305,8 @@ def main(argv=None, ask=input, interactive=None):
     args = parser.parse_args(argv)
     given = {key: value for key, value in (('profile', args.profile), ('ps_version', args.ps_version),
                                            ('php_version', args.php_version), ('database', args.database),
-                                           ('database_version', args.database_version), ('services', args.services))
+                                           ('database_version', args.database_version), ('services', args.services),
+                                           ('ci', args.ci))
              if value is not None}
     interactive = sys.stdin.isatty() if interactive is None else interactive
     try:
@@ -277,18 +314,23 @@ def main(argv=None, ask=input, interactive=None):
         if not name and not interactive:
             raise ValueError('Name the project, or run create-project in a terminal to be asked')
         # In a terminal every answer not given as a parameter is asked; all parameters ask nothing.
-        asked = interactive and not args.yes and (not name or len(given) < 6)
+        asked = interactive and not args.yes and (not name or len(given) < 7)
         if asked:
             name, given = ask_options(name, given, ask)
+        # The pipeline is not a project option: --ci alone keeps the minimal project.
+        ci = given.pop('ci', DEFAULT_CI)
         options = complete_options(given) if (given or asked) else None
         if options:
-            print('\nNew project:\n' + summary(name, options))
+            print('\nNew project:\n' + summary(name, options, ci))
             if interactive and not args.yes and ask('Create these files? [Y/n]: ').strip().lower() not in ('', 'y', 'yes', 't', 'taip'):
                 print('Cancelled; nothing was created.')
                 return 1
         if args.start:
             prerequisites()
-        app = scaffold(name, SETUP.parent, options)
+        new = not (SETUP.parent / normalize_name(name) / MARKER).exists()
+        app = scaffold(name, SETUP.parent, options, ci)
+        if new:
+            print(ci_next_steps(app, ci))
         if args.start:
             start(app)
         else:

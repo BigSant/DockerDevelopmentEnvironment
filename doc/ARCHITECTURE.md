@@ -12,7 +12,7 @@ scaffolds once.
 
 ```
 setup/
-  create-project, create_project.py   new project scaffold / wizard
+  create-project, create_project.py   new project scaffold / wizard (writes the --ci bitbucket|github pipeline)
   install-host, install_host.py       once per machine: packages, root-owned host helpers, sudoers rule
   docker/
     project.py, project.mk            the runner and the Make front end every project includes
@@ -23,7 +23,7 @@ setup/
     database-profile/<profile>/       NOT baked: default table registry, data-set recipe, safe after-import SQL
     runtime/                          scripts used inside containers (start, templates, PS adapters, cron, dbmonitor, metrics)
     compatibility.json                PrestaShop line -> supported PHP / MySQL / MariaDB
-  templates/                          scaffold sources (minimal, grouped, shared Makefile), pipelines/ example
+  templates/                          scaffold sources (minimal, grouped, shared Makefile), pipelines/ (Bitbucket, GitHub)
   tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
 ```
 
@@ -56,7 +56,7 @@ no env/<env>.env needed): they read the committed env files with `project_env_fi
    this stack. Exception: the pipeline secrets (`PROCESS_SECRETS`: DB/monitor passwords, dbmonitor
    and metrics tokens, PS keys) keep their process value when the env files leave them blank or
    unset, and Compose gives the process environment precedence — that is how Bitbucket Deployment
-   variables arrive. Setup's own `.env` sets no secret defaults. `APP_ENVIRONMENT` names have no
+   variables and GitHub environment secrets (expanded by `pipeline-deploy`) arrive. Setup's own `.env` sets no secret defaults. `APP_ENVIRONMENT` names have no
    blank exception: a server env file must not mention them at all for the process value to arrive.
 2. Settings: only the keys in `project-settings.yaml` are read. A new setting must be added there.
 3. Policy (`project_policy.resolve_policy`): defaults, validation and derived values: cache modes,
@@ -197,9 +197,17 @@ Every application-specific step follows `PROFILE`: protected paths are `PRESTASH
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
 
-`make pipeline-deploy` (`project_pipeline`) is the Bitbucket Pipelines deploy step; projects keep only
-`bitbucket-pipelines.yml` (`templates/pipelines/`). It runs in the build root's environment checkout:
-ENV from `BITBUCKET_DEPLOYMENT_ENVIRONMENT`; `REF` (aliases `APP_REF`, `SHOP_REF`), `IMAGES`, `ROLLBACK`,
+`make pipeline-deploy` (`project_pipeline`) is the CI deploy step of both providers; projects keep only
+`bitbucket-pipelines.yml` or `.github/workflows/deploy.yml` (`templates/pipelines/`; `create-project --ci`
+writes one and sets `CI_PROVIDER`). The provider comes from the job's environment (`Provider`):
+GitHub Actions when `GITHUB_ACTIONS=true` (environment name from `DEPLOY_ENVIRONMENT`, which the workflow
+passes because GitHub has no such variable; commit `GITHUB_SHA`), Bitbucket when any `BITBUCKET_*` is
+set (`BITBUCKET_DEPLOYMENT_ENVIRONMENT`, `BITBUCKET_COMMIT`). GitHub does not export secrets: the
+workflow passes `toJSON(secrets)` / `toJSON(vars)` in `DEPLOY_SECRETS_JSON` / `DEPLOY_VARIABLES_JSON`,
+and `expand_json` sets every valid name the process lacks (never `GITHUB_*`, `RUNNER_*`, `ACTIONS_*`;
+the job's env wins, a secret wins over a variable); the JSON itself is dropped from the child steps.
+It runs in the build root's environment checkout:
+ENV from the deployment environment (staging/production); `REF` (aliases `APP_REF`, `SHOP_REF`), `IMAGES`, `ROLLBACK`,
 `BACKUP`. Layout decides the ref: one repository (no `app/public/.git`) checks out the deployed commit
 (REF, the pipeline commit, or the history's rollback target) and follows the history afterwards; a
 separate code repository keeps the environment checkout on the pipeline commit and deploys REF of
@@ -213,15 +221,22 @@ The Deployment variables list (`project_pipeline.deployment_variables`) is setup
 (DB passwords, `METRICS_TOKEN` with metrics, PS keys of `PS_VERSION`; monitor password/token optional) +
 `DEPLOY_REQUIRED_VARIABLES` + `DEPLOY_OPTIONAL_VARIABLES` + `APP_ENVIRONMENT` names the env files do not
 mention; a name an env file sets is not a Deployment variable, a blank one (other than `PROCESS_SECRETS`)
-is refused because it would hide the process value. `make deploy-variables` (`project_bitbucket`) compares
-the same list with the Bitbucket environment (names and secured flag) and creates/replaces from a private
-dotenv file; urllib only (no subprocess, so no value or token on a command line), no redirects, next
-links only within the API, token and values files owned by the user with mode 0600.
+is refused because it would hide the process value. `make deploy-variables` (`project_ci` picks the
+provider: `CI_PROVIDER`, else a single `DEPLOY_*_REPOSITORY`, else the origin host, else Bitbucket).
+`project_bitbucket` compares the same list with the Bitbucket environment (names and secured flag) and
+creates/replaces from a private dotenv file; urllib only (no subprocess, so no value or token on a
+command line), no redirects, next links only within the API, token and values files owned by the user
+with mode 0600. `project_github` does the same against a GitHub environment: plain names are
+environment variables, the rest environment secrets; listing and variable writes use the REST API
+(page numbers, not Link headers), secrets go through `gh secret set --env` (gh seals the value with the
+environment's public key; libsodium is not in the standard library) with the value on stdin and the
+token in `GH_TOKEN`; without `gh` nothing is written.
 
 ## 8. Tests
 
 `python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB; the
-pipeline step against git fixtures and a fake `make`, `deploy-variables` against a fake Bitbucket API). B tests
+pipeline step for both providers against git fixtures and a fake `make`, `deploy-variables` against fake
+Bitbucket and GitHub APIs and a fake `gh`). B tests
 run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
 `SETUP_DIND_IMAGE`, `SETUP_MYSQL_SCHEMA_INTEGRATION=1`, … (see each test's skip reason).
 `SETUP_OLD_BASH_IMAGE=mysql:5.7` runs the DB first-start hooks under bash 4.2: shell hooks that run

@@ -36,7 +36,7 @@ DATABASE_PASSWORD='vietinis-pavyzdys-pakeisk'
 SERVICES="pma mailpit"
 ```
 
-Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Taip ankstesnio projekto `export` neperjungia šio projekto. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Slaptažodžiams (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, `DATABASE_MONITOR_PASSWORD`, `DBMONITOR_TOKEN`, `METRICS_TOKEN`, PS raktai) yra išimtis: jei env faile jie tušti (`DATABASE_PASSWORD=`), naudojama proceso aplinkos reikšmė. Taip Bitbucket Pipelines perduoda slaptažodžius (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)). Jei slaptažodis įrašytas env faile, laimi failas. Tas pats galioja [`APP_ENVIRONMENT`](#savi-aplikacijos-parametrai-app_environment) vardams, tik be išimties tuščiai reikšmei: env faile paminėtas vardas (net tuščias) proceso aplinkos reikšmę uždengia.
+Runner'is iš terminalo aplinkos pašalina raktus, kurie paminėti env failuose, todėl `make PHP_VERSION=8.3 up` versijos nepakeis – keisk failą. Taip ankstesnio projekto `export` neperjungia šio projekto. Raktas, kurio env failuose **nėra**, gali ateiti iš proceso aplinkos. Slaptažodžiams (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, `DATABASE_MONITOR_PASSWORD`, `DBMONITOR_TOKEN`, `METRICS_TOKEN`, PS raktai) yra išimtis: jei env faile jie tušti (`DATABASE_PASSWORD=`), naudojama proceso aplinkos reikšmė. Taip Bitbucket Pipelines ir GitHub Actions perduoda slaptažodžius (žr. [deploy](09-aplinkos.md#bitbucket-pipelines)). Jei slaptažodis įrašytas env faile, laimi failas. Tas pats galioja [`APP_ENVIRONMENT`](#savi-aplikacijos-parametrai-app_environment) vardams, tik be išimties tuščiai reikšmei: env faile paminėtas vardas (net tuščias) proceso aplinkos reikšmę uždengia.
 
 Env failas nėra shell scriptas: nerašyk `$(komanda)` ir nenaudok `source env/local.env`. Slaptažodžiams su `$` naudok viengubas kabutes. Reikšmes su tarpais (pvz. `SERVICES`) rašyk kabutėse. Taisyklės: [Docker dotenv interpoliacija](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/).
 
@@ -134,7 +134,7 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | `PS_SSL` | `on` | Ką after-import įrašo į `PS_SSL_ENABLED` ir `PS_SSL_ENABLED_EVERYWHERE` ne prod aplinkose. |
 | `SETUP_COMPATIBILITY_CHECK` | Įjungta | `off` išjungia PS ir PHP versijų patikrą (fork'ams, pvz. thirty bees). |
 
-Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stage/prod raktai ateina iš serverio env arba Bitbucket Deployment variables. Plačiau: [aplikacijos skyrius](06-aplikacija.md).
+Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stage/prod raktai ateina iš serverio env, Bitbucket Deployment variables arba GitHub environment secrets. Plačiau: [aplikacijos skyrius](06-aplikacija.md).
 
 ## Duomenų bazė kaip kodas ir importas
 
@@ -167,10 +167,12 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 | `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
 | `DEPLOY_PROTECTED_PATHS` | Tuščias | Papildomi kodo medžio keliai (nuo kodo šaknies, per tarpą), kurių deploy'us niekada neperrašo ir netrina, pvz. `"var/data/ var/log/ config/local.php"`. Katalogas baigiasi `/`, leidžiamas `*`. Papildo profilio sąrašą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 | `DEPLOY_PHP_RELOAD` | `on` | `off` – deploy'aus pabaigoje neperkrauti php-fpm (`USR2`). Be perkrovimo prod OPcache gali rodyti seną kodą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
-| `DEPLOY_REQUIRED_VARIABLES` | Tuščias | Aplikacijos Bitbucket Deployment variables **vardai** (per tarpus), be kurių deploy'us nepradedamas, pvz. `"SEARCH_MASTER_KEY HTPASSWD_WEB"`. Papildo setup'o privalomus (DB slaptažodžiai, `METRICS_TOKEN`, PS raktai). Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |
+| `DEPLOY_REQUIRED_VARIABLES` | Tuščias | Aplikacijos Deployment variables (Bitbucket) ar environment secrets (GitHub) **vardai** (per tarpus), be kurių deploy'us nepradedamas, pvz. `"SEARCH_MASTER_KEY HTPASSWD_WEB"`. Papildo setup'o privalomus (DB slaptažodžiai, `METRICS_TOKEN`, PS raktai). Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |
 | `DEPLOY_OPTIONAL_VARIABLES` | Tuščias | Neprivalomi Deployment variables vardai, kurių nėra `APP_ENVIRONMENT` (pvz. tik Compose naudojamas raktas). Tušti – tik įspėjimas. `APP_ENVIRONMENT` vardų čia kartoti nereikia. |
-| `DEPLOY_PLAIN_VARIABLES` | Tuščias | Sąrašų vardai, kuriuos `make deploy-variables` saugo ne Secured (pvz. URL, ID). Vardas, kurio nėra jokiame sąraše, – klaida. |
+| `DEPLOY_PLAIN_VARIABLES` | Tuščias | Sąrašų vardai, kuriuos `make deploy-variables` saugo ne Secured (Bitbucket) arba kaip aplinkos variables, ne secrets (GitHub), pvz. URL, ID. Vardas, kurio nėra jokiame sąraše, – klaida. |
+| `CI_PROVIDER` | Pagal repozitoriją | `bitbucket` arba `github`: kurio tiekėjo kintamuosius tikrina `make deploy-variables`. Įrašo `create-project`. Be jo – vienintelis `DEPLOY_*_REPOSITORY`, tada `origin` remote'as (`github.com` – GitHub), kitaip `bitbucket`. `make pipeline-deploy` tiekėją atpažįsta pats. Žr. [GitHub Actions](09-aplinkos.md#github-actions). |
 | `DEPLOY_BITBUCKET_REPOSITORY` | `origin` remote'as | `workspace/repo`, kurio Deployment variables tikrina `make deploy-variables`. Reikia, kai `origin` nėra `bitbucket.org`. |
+| `DEPLOY_GITHUB_REPOSITORY` | `origin` remote'as | `savininkas/repo`, kurio aplinkos secrets ir variables tikrina `make deploy-variables`. Reikia, kai `origin` nėra `github.com`. |
 
 Stage/prod dar privalomi keturių pagrindinių servisų limitai, žr. [resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui).
 
@@ -267,7 +269,7 @@ APP_ENVIRONMENT="SUPPLIER_URL SUPPLIER_TOKEN"
 SUPPLIER_URL=https://supplier.example.com
 ```
 
-2. Slaptą reikšmę įrašyk `env/local.env` (`SUPPLIER_TOKEN='...'`), o stage/prod – į Bitbucket Deployment variables. Serverio env faile to vardo nerašyk, net tuščio: paminėtas vardas uždengia proceso aplinkos reikšmę.
+2. Slaptą reikšmę įrašyk `env/local.env` (`SUPPLIER_TOKEN='...'`), o stage/prod – į Bitbucket Deployment variables arba GitHub environment secrets. Serverio env faile to vardo nerašyk, net tuščio: paminėtas vardas uždengia proceso aplinkos reikšmę.
 3. Paleisk `make check` ir `make restart service=php-fpm` (ir `service=cron`, jei jis įjungtas).
 
 Kas vyksta:

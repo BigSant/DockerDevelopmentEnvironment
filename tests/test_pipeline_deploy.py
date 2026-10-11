@@ -1,10 +1,11 @@
-"""make pipeline-deploy: the Bitbucket deploy step, with git fixtures and a fake `make` (no Docker).
+"""make pipeline-deploy: the CI deploy step, with git fixtures and a fake `make` (no Docker).
 
 The fixture build roots have commits whose env/prod.env.example and config/mark carry their name. The
 fake make logs the checkout it sees (commit subject, config, env file) and keeps setup's deploy history
 (.generated/release/<env>/deployments.json) with setup's rollback rule. FAIL=<step> makes one step fail:
 release, deploy-images, deploy (before the rsync, nothing recorded), after-rsync (recorded as failed).
-Every run has the required Deployment variables (values containing VALUE, which no output may show).
+Every run has the required Deployment variables (values containing VALUE, which no output may show):
+Bitbucket's as process environment, GitHub's as the JSON of toJSON(secrets) / toJSON(vars).
 """
 
 import json
@@ -33,7 +34,8 @@ with open(os.environ['MAKE_LOG'], 'a') as log:
     log.write(f"make {' '.join(args)} | head={git('log', '-1', '--format=%s')} "
               f"config={Path('config/mark').read_text().strip()} env={marks[-1] if marks else ''}\n")
 with open(os.environ['MAKE_LOG'] + '.env', 'a') as log:
-    log.write(json.dumps({key: os.environ.get(key) for key in ('DOCKER_HOST', 'MAKEFLAGS', 'MAKELEVEL', 'SETUP_DIRECTORY')}) + '\n')
+    keys = os.environ.get('LOG_KEYS', 'DOCKER_HOST MAKEFLAGS MAKELEVEL SETUP_DIRECTORY').split()
+    log.write(json.dumps({key: os.environ.get(key) for key in keys}) + '\n')
 target, fail = args[0], os.environ.get('FAIL', '')
 if fail == target:
     print(f'fake make: {target} failed', file=sys.stderr)
@@ -79,6 +81,12 @@ def git(directory, *args):
 
 
 class Fixture(unittest.TestCase):
+    rerun = "run the pipeline on commit {commit}"
+
+    def ci_environment(self):
+        """The provider's own variables and the secrets, as a Bitbucket deployment step has them."""
+        return {"BITBUCKET_DEPLOYMENT_ENVIRONMENT": "production", "BITBUCKET_COMMIT": self.pipeline_commit, **self.secrets}
+
     def setUp(self):
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
@@ -114,8 +122,7 @@ class Fixture(unittest.TestCase):
     def run_step(self, expected, environment="local", **variables):
         self.log.write_text("")
         env = {"PATH": f"{self.work / 'bin'}:{os.environ['PATH']}", "HOME": os.environ.get("HOME", str(self.work)),
-               "MAKE_LOG": str(self.log), "BITBUCKET_DEPLOYMENT_ENVIRONMENT": "production",
-               "BITBUCKET_COMMIT": self.pipeline_commit, **self.secrets}
+               "MAKE_LOG": str(self.log), **self.ci_environment()}
         for key, value in variables.items():
             if value is None:
                 env.pop(key, None)
@@ -338,8 +345,119 @@ class SeparateCodeRepositoryTest(Fixture):
         self.assert_out(f"The deploy failed: the build root is back at the previously live commit {self.environments['E1']}")
         self.assert_root("E1")
         self.run_step(2, SHOP_REF="v2", FAIL="deploy", IMAGES="yes")
-        self.assert_out(f"run the pipeline on commit {self.environments['E1']} with IMAGES=yes")
+        self.assert_out(self.rerun.format(commit=self.environments['E1']) + " with IMAGES=yes")
         self.assert_root("E2")
+
+
+class GitHub:
+    """A GitHub Actions job: environment: production, DEPLOY_ENVIRONMENT, GITHUB_SHA and the JSON contexts.
+
+    The secrets JSON holds GitHub's own github_token as the secrets context does; plain names go to vars.
+    """
+    rerun = "run the workflow from a branch or tag at commit {commit}"
+    plain = {"GRAFANA_BASE_URL"}
+
+    def ci_environment(self):
+        secrets = {name: value for name, value in self.secrets.items() if name not in self.plain}
+        variables = {name: value for name, value in self.secrets.items() if name in self.plain}
+        return {"GITHUB_ACTIONS": "true", "CI": "true", "DEPLOY_ENVIRONMENT": "production",
+                "GITHUB_SHA": self.pipeline_commit, "GITHUB_REPOSITORY": "owner/fixture",
+                "DEPLOY_SECRETS_JSON": json.dumps({"github_token": "ghs_T0KEN-VALUE", **secrets}),
+                "DEPLOY_VARIABLES_JSON": json.dumps({"BUILD_ROOT": "", **variables})}
+
+    def recorded(self, *keys, **variables):
+        """The environment the last make step had for these keys."""
+        self.run_step(0, LOG_KEYS=" ".join(keys), **variables)
+        return json.loads(Path(f"{self.log}.env").read_text().splitlines()[-1])
+
+
+class GitHubOneRepositoryTest(GitHub, OneRepositoryTest):
+    """The same step from GitHub Actions: every inherited test runs again with GitHub's variables."""
+
+    def test_required_variables_missing_nothing_runs_and_the_names_are_given(self):
+        del self.secrets["HTPASSWD_API"]
+        self.run_step(64, DATABASE_ROOT_PASSWORD="")
+        self.assert_out("Environment secrets or variables missing or empty (Settings -> Environments -> production): "
+                        "DATABASE_ROOT_PASSWORD HTPASSWD_API")
+        self.assert_out("make deploy-variables ENV=prod lists every name and checks GitHub.")
+        self.assertNotIn("The job passes no", self.output)
+        self.assertEqual(self.make_log(), "")
+        self.assert_root("A")
+        self.run_step(64, DEPLOY_SECRETS_JSON=None, DEPLOY_VARIABLES_JSON=None)
+        self.assert_out("The job passes no DEPLOY_SECRETS_JSON: give it env DEPLOY_SECRETS_JSON: ${{ toJSON(secrets) }}")
+        self.assertEqual(self.make_log(), "")
+
+    def test_refuses_outside_a_deployment_step_and_conflicting_settings(self):
+        for variables, message in [({"DEPLOY_ENVIRONMENT": "test"}, "Run this from a Staging or Production"),
+                                   ({"DEPLOY_ENVIRONMENT": None}, "DEPLOY_ENVIRONMENT is not set"),
+                                   ({"GITHUB_ACTIONS": None, "DEPLOY_ENVIRONMENT": None},
+                                    "neither BITBUCKET_DEPLOYMENT_ENVIRONMENT nor GITHUB_ACTIONS is set"),
+                                   ({"GITHUB_SHA": None}, "Neither REF nor GITHUB_SHA names the commit"),
+                                   ({"DEPLOY_SECRETS_JSON": '{"DATABASE_PASSWORD": "VALUE'}, "DEPLOY_SECRETS_JSON is not a JSON object"),
+                                   ({"DEPLOY_VARIABLES_JSON": '["VALUE"]'}, "pass ${{ toJSON(vars) }} in the workflow")]:
+            self.run_step(64, **variables)
+            self.assert_out(message)
+            self.assert_out("Nothing was changed.")
+        self.assertEqual(self.make_log(), "")
+        self.run_step(64, environment="stage")
+        self.assert_out("ENV=stage does not match the GitHub deployment environment production")
+        self.run_step(0, environment="prod", DEPLOY_ENVIRONMENT="Production-EU")
+        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=1")
+        # GitHub's environment names are matched without case, as Bitbucket's.
+        self.run_step(0, DEPLOY_ENVIRONMENT="Production")
+        self.assert_root("C")
+
+    def test_secrets_and_variables_reach_the_steps_by_name_only(self):
+        self.secrets["GRAFANA_BASE_URL"] = "https://grafana.example/VALUE"
+        recorded = self.recorded("DATABASE_PASSWORD", "GRAFANA_BASE_URL", "github_token", "BUILD_ROOT",
+                                 "DEPLOY_SECRETS_JSON", "DEPLOY_VARIABLES_JSON")
+        self.assertEqual(recorded, {"DATABASE_PASSWORD": "db-VALUE-1", "GRAFANA_BASE_URL": "https://grafana.example/VALUE",
+                                    "github_token": None, "BUILD_ROOT": "", "DEPLOY_SECRETS_JSON": None,
+                                    "DEPLOY_VARIABLES_JSON": None})
+
+    def test_the_jobs_own_environment_wins_and_reserved_names_are_skipped(self):
+        self.secrets.update({"REF": "secret-ref", "PATH": "/nowhere", "GITHUB_TOKEN": "x", "RUNNER_TEMP": "/x",
+                             "lower_case": "kept-VALUE", "bad-name": "skipped"})
+        # The workflow sets REF from its input, empty when not given.
+        recorded = self.recorded("PATH", "GITHUB_TOKEN", "RUNNER_TEMP", "lower_case", "bad-name", "DATABASE_PASSWORD",
+                                 REF="")
+        self.assertNotEqual(recorded["PATH"], "/nowhere")
+        self.assertEqual((recorded["GITHUB_TOKEN"], recorded["RUNNER_TEMP"], recorded["bad-name"]), (None, None, None))
+        self.assertEqual(recorded["lower_case"], "kept-VALUE")
+        # REF set by the job (even empty) wins over a secret of that name.
+        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']}")
+        self.assertEqual(recorded["DATABASE_PASSWORD"], "db-VALUE-1")
+        self.run_step(0, DATABASE_PASSWORD="from-the-job-VALUE", LOG_KEYS="DATABASE_PASSWORD", REF="")
+        self.assertEqual(json.loads(Path(f"{self.log}.env").read_text().splitlines()[-1]),
+                         {"DATABASE_PASSWORD": "from-the-job-VALUE"})
+
+    def test_a_name_both_secret_and_variable_uses_the_secret(self):
+        environment = self.ci_environment()
+        variables = json.loads(environment["DEPLOY_VARIABLES_JSON"])
+        variables["DATABASE_PASSWORD"] = "plain-VALUE"
+        self.run_step(0, DEPLOY_VARIABLES_JSON=json.dumps(variables), LOG_KEYS="DATABASE_PASSWORD")
+        self.assert_out("Warning: DATABASE_PASSWORD is both a secret and a configuration variable; the secret is used.")
+        self.assertEqual(json.loads(Path(f"{self.log}.env").read_text().splitlines()[-1]),
+                         {"DATABASE_PASSWORD": "db-VALUE-1"})
+
+
+class GitHubSeparateCodeRepositoryTest(GitHub, SeparateCodeRepositoryTest):
+    def test_the_environment_follows_the_pipeline_commit_and_the_shop_ref_is_deployed(self):
+        self.run_step(64)
+        self.assert_out("Name the code tag or commit to deploy with REF (SHOP_REF)")
+        self.run_step(64, SHOP_REF="v1", GITHUB_SHA=None)
+        self.assert_out("GITHUB_SHA is not set: the environment checkout follows the pipeline commit")
+        del self.secrets["PS_SECRET"]
+        self.run_step(64, SHOP_REF="v2", PS_API_PUBLIC_KEY="")
+        self.assert_out("production): PS_SECRET PS_API_PUBLIC_KEY")
+        self.assert_root("E1")
+        self.secrets["PS_SECRET"] = "PS_SECRET-VALUE"
+        self.run_step(0, SHOP_REF="v1", IMAGES="yes")
+        self.assert_log("make deploy ENV=prod ref=v1 backup=1 | head=E2 config=E2 env=E2")
+        self.assert_root("E2")
+        self.run_step(0, SHOP_REF="v2")
+        self.run_step(0, ROLLBACK="yes", REF="")
+        self.assert_log("make deploy ENV=prod rollback=1 | head=E2")
 
 
 class DeploymentVariablesListTest(unittest.TestCase):
@@ -397,6 +515,43 @@ class TemplateTest(unittest.TestCase):
             self.assertEqual(step["step"]["deployment"], deployment)
             self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["step"]["script"])
             self.assertIn("self.hosted", step["step"]["runs-on"])
+
+    def test_the_github_workflow_runs_the_step_with_the_variables_it_reads(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        from project_pipeline import DEPLOYMENT_ENVIRONMENTS, SECRETS_JSON, VARIABLES_JSON
+        model = yaml.safe_load((ROOT / "templates/pipelines/github-deploy.yml").read_text())
+        inputs = model[True]["workflow_dispatch"]["inputs"]  # YAML 1.1 reads the key on as true
+        self.assertEqual(list(inputs), ["environment", "ref", "images", "rollback", "backup"])
+        self.assertEqual(inputs["environment"]["options"], list(DEPLOYMENT_ENVIRONMENTS))
+        for name, default in (("images", "no"), ("rollback", "no"), ("backup", "yes")):
+            self.assertEqual((inputs[name]["type"], sorted(inputs[name]["options"]), inputs[name]["default"]),
+                             ("choice", ["no", "yes"], default))
+        job = model["jobs"]["deploy"]
+        self.assertEqual(job["runs-on"], ["self-hosted", "linux", "setup.build"])
+        self.assertEqual(job["environment"], "${{ inputs.environment }}")
+        self.assertEqual(job["concurrency"], {"group": "deploy-${{ inputs.environment }}", "cancel-in-progress": False})
+        self.assertEqual(model["permissions"], {"contents": "read"})
+        [step] = job["steps"]
+        self.assertEqual(step["env"], {
+            "DEPLOY_ENVIRONMENT": "${{ inputs.environment }}", "REF": "${{ inputs.ref }}",
+            "IMAGES": "${{ inputs.images }}", "ROLLBACK": "${{ inputs.rollback }}", "BACKUP": "${{ inputs.backup }}",
+            "BUILD_ROOT": "${{ vars.BUILD_ROOT }}", SECRETS_JSON: "${{ toJSON(secrets) }}",
+            VARIABLES_JSON: "${{ toJSON(vars) }}"})
+        self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["run"])
+        self.assertEqual(step["shell"], "bash")
+        self.assertNotIn("checkout", json.dumps(job), "the build root, not a runner clone, is deployed")
+        # The build root: vars.BUILD_ROOT, else setup-server's projects/<repository name in lower case>.
+        script = step["run"].replace('make -C "$BUILD_ROOT/app" pipeline-deploy', 'echo "$BUILD_ROOT"')
+        for variables, expected in (({}, "/srv/setup-server/projects/dockerdevelopmentenvironment"),
+                                    ({"SETUP_SERVER_ROOT": "/opt/ss"}, "/opt/ss/projects/dockerdevelopmentenvironment"),
+                                    ({"BUILD_ROOT": "/srv/elsewhere"}, "/srv/elsewhere")):
+            environment = {"PATH": os.environ["PATH"], "GITHUB_REPOSITORY": "BigSant/DockerDevelopmentEnvironment",
+                           "BUILD_ROOT": "", **variables}
+            result = subprocess.run(["bash", "-e", "-c", script], env=environment, capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(), expected, result.stderr)
 
 
 if __name__ == "__main__":

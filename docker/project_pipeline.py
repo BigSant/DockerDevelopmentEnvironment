@@ -1,9 +1,15 @@
-"""Bitbucket Pipelines deploy step: make pipeline-deploy [ENV=stage|prod] in the build root.
+"""The CI deploy step: make pipeline-deploy [ENV=stage|prod] in the build root.
+
+Two CI providers run it the same way. Bitbucket Pipelines: a deployment step (deployment: Staging or
+Production) whose Deployment variables are the step's process environment. GitHub Actions: a job with
+environment: staging or production that passes the environment's name in DEPLOY_ENVIRONMENT (GitHub
+has no built-in variable for it) and its secrets and configuration variables as JSON in
+DEPLOY_SECRETS_JSON (toJSON(secrets)) and DEPLOY_VARIABLES_JSON (toJSON(vars)); the step expands
+each name the job's own environment lacks into its process environment and never prints a value.
 
 The step runs on a self-hosted shell runner of the build server; the work happens in the persistent
 build root (its environment checkout, the directory this runs in), not in the runner's own clone,
-which only identifies the commit. Secrets stay in the step's process environment (Deployment
-variables). Two layouts:
+which only identifies the commit (BITBUCKET_COMMIT, GITHUB_SHA). Two layouts:
 
   one repository (asana.local): the code is part of the environment repository (app/public has no
       .git of its own). The checkout is the commit being deployed: REF (APP_REF), else the pipeline
@@ -32,15 +38,24 @@ import sys
 from project_env_files import file_settings, names_setting, require_setup_version
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
-BITBUCKET_ENVIRONMENTS = {'staging': 'stage', 'production': 'prod'}
-BITBUCKET_NAMES = {setup: bitbucket for bitbucket, setup in BITBUCKET_ENVIRONMENTS.items()}
+# The deployment environment names of both providers: staging -> ENV=stage, production -> ENV=prod.
+DEPLOYMENT_ENVIRONMENTS = {'staging': 'stage', 'production': 'prod'}
+BITBUCKET_ENVIRONMENTS = DEPLOYMENT_ENVIRONMENTS
+DEPLOYMENT_NAMES = {setup: name for name, setup in DEPLOYMENT_ENVIRONMENTS.items()}
+BITBUCKET_NAMES = DEPLOYMENT_NAMES
+# GitHub Actions: the job's secrets and configuration variables, as toJSON(secrets) / toJSON(vars).
+SECRETS_JSON, VARIABLES_JSON = 'DEPLOY_SECRETS_JSON', 'DEPLOY_VARIABLES_JSON'
+# Names the expansion never sets: GitHub's own (GITHUB_TOKEN is in the secrets context) and the runner's.
+RESERVED_PREFIXES = ('GITHUB_', 'RUNNER_', 'ACTIONS_')
+ENVIRONMENT_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 # One ref variable; the per-layout names of the former project scripts keep working.
 REF_VARIABLES = ('REF', 'APP_REF', 'SHOP_REF')
 SWITCHES = (('IMAGES', 'no'), ('ROLLBACK', 'no'), ('BACKUP', 'yes'))
 USAGE = 64
 # The step's make variables would leak into the make steps it starts; Bitbucket's DOCKER_HOST points
-# at its cloud Docker service and would override DEPLOY_CONTEXT (Docker reads it first).
-DROPPED_VARIABLES = ('MAKEFLAGS', 'MFLAGS', 'MAKELEVEL', 'MAKEOVERRIDES', 'DOCKER_HOST')
+# at its cloud Docker service and would override DEPLOY_CONTEXT (Docker reads it first). The JSON of
+# every GitHub secret stays in this process: the steps get the expanded names only.
+DROPPED_VARIABLES = ('MAKEFLAGS', 'MFLAGS', 'MAKELEVEL', 'MAKEOVERRIDES', 'DOCKER_HOST', SECRETS_JSON, VARIABLES_JSON)
 
 
 class Refusal(Exception):
@@ -57,6 +72,72 @@ class MissingVariables(Refusal):
 
 class StepFailed(Refusal):
     """A make step failed; it has printed its own error."""
+
+
+class Provider:
+    """What differs between the CI providers: where the environment name, the commit and the secrets come from."""
+
+    def __init__(self, label, environment, commit, settings, outside, rerun):
+        self.label, self.environment, self.commit = label, environment, commit
+        self.settings, self.outside, self.rerun = settings, outside, rerun
+
+
+BITBUCKET = Provider(
+    'Bitbucket', 'BITBUCKET_DEPLOYMENT_ENVIRONMENT', 'BITBUCKET_COMMIT',
+    'Deployment variables missing or empty (Repository settings -> Deployments -> {name})',
+    'Run make pipeline-deploy from a Bitbucket deployment step (deployment: Staging or Production); '
+    'BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set',
+    'run the pipeline on commit {commit}')
+GITHUB = Provider(
+    'GitHub', 'DEPLOY_ENVIRONMENT', 'GITHUB_SHA',
+    'Environment secrets or variables missing or empty (Settings -> Environments -> {name})',
+    'Run make pipeline-deploy from a GitHub Actions job with environment: staging or production that passes '
+    'the same name in DEPLOY_ENVIRONMENT (templates/pipelines/github-deploy.yml); DEPLOY_ENVIRONMENT is not set',
+    'run the workflow from a branch or tag at commit {commit}')
+NO_PROVIDER = Provider(
+    'CI', '', '', '',
+    'Run make pipeline-deploy from a Bitbucket deployment step or a GitHub Actions deployment job; neither '
+    'BITBUCKET_DEPLOYMENT_ENVIRONMENT nor GITHUB_ACTIONS is set', '')
+
+
+def provider_of(environ):
+    """GitHub Actions (GITHUB_ACTIONS=true), Bitbucket Pipelines (any BITBUCKET_ variable), else none."""
+    if environ.get('GITHUB_ACTIONS') == 'true':
+        return GITHUB
+    if any(key.startswith('BITBUCKET_') for key in environ):
+        return BITBUCKET
+    return NO_PROVIDER
+
+
+def expand_json(environ):
+    """Adds the names of DEPLOY_VARIABLES_JSON and DEPLOY_SECRETS_JSON that environ lacks; returns the
+    names that are both a secret and a variable (the secret is used).
+
+    A name the job's own environment sets (even empty) wins, so the workflow's inputs (REF, IMAGES, ...)
+    and the runner's PATH or HOME cannot be replaced by a secret; GITHUB_*, RUNNER_* and ACTIONS_* names
+    (GITHUB_TOKEN among the secrets) are never set. No value or part of the JSON is ever printed.
+    """
+    present, found, both = set(environ), {}, []
+    for key, kind in ((VARIABLES_JSON, 'variable'), (SECRETS_JSON, 'secret')):
+        text = environ.get(key, '')
+        if not text.strip():
+            continue
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            source = 'secrets' if kind == 'secret' else 'vars'
+            raise Refusal(f'{key} is not a JSON object: pass ${{{{ toJSON({source}) }}}} in the workflow')
+        for name, value in data.items():
+            if (not isinstance(value, str) or not ENVIRONMENT_NAME.fullmatch(name) or name in present
+                    or name.upper().startswith(RESERVED_PREFIXES)):
+                continue
+            if name in found and found[name][0] != kind:
+                both.append(name)
+            found[name] = (kind, value)
+    environ.update({name: value for name, (_, value) in found.items()})
+    return both
 
 
 def deployment_variables(directory, environment):
@@ -175,27 +256,29 @@ class Step:
         if status:
             raise StepFailed(f'make {target} failed (exit {status})', status)
 
-    def require(self, variables, environ, bitbucket):
-        missing = [name for name, variable in variables.items() if variable['required'] and not environ.get(name)]
+    def require(self, variables, environ, provider, name):
+        missing = [key for key, variable in variables.items() if variable['required'] and not environ.get(key)]
         if missing:
-            raise MissingVariables("Deployment variables missing or empty (Repository settings -> Deployments -> "
-                                   f"{bitbucket}): {' '.join(missing)}")
+            hint = ''
+            if provider is GITHUB and not environ.get(SECRETS_JSON):
+                hint = (f'\nThe job passes no {SECRETS_JSON}: give it env {SECRETS_JSON}: ${{{{ toJSON(secrets) }}}} '
+                        f'and {VARIABLES_JSON}: ${{{{ toJSON(vars) }}}}, or map each name in its env.')
+            raise MissingVariables(f"{provider.settings.format(name=name)}: {' '.join(missing)}{hint}")
 
 
-def environment_of(environment, bitbucket):
-    """The setup ENV of this step: ENV=stage|prod, or the one the Bitbucket deployment environment names."""
-    derived = BITBUCKET_ENVIRONMENTS.get(bitbucket.lower())
-    if not bitbucket:
-        raise Refusal('Run make pipeline-deploy from a Bitbucket deployment step (deployment: Staging or Production); '
-                      'BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set')
+def environment_of(environment, name, provider=BITBUCKET):
+    """The setup ENV of this step: ENV=stage|prod, or the one the deployment environment names."""
+    derived = DEPLOYMENT_ENVIRONMENTS.get(name.lower())
+    if not name:
+        raise Refusal(provider.outside)
     if environment in ('stage', 'prod'):
         if derived and derived != environment:
-            raise Refusal(f'ENV={environment} does not match the Bitbucket deployment environment {bitbucket} '
+            raise Refusal(f'ENV={environment} does not match the {provider.label} deployment environment {name} '
                           f'(ENV={derived})')
         return environment
     if environment == 'local' and derived:
         return derived
-    raise Refusal(f'Run this from a Staging or Production deployment step (this one is {bitbucket}), '
+    raise Refusal(f'Run this from a Staging or Production deployment step (this one is {name}), '
                   'or pass ENV=stage|prod for a deployment environment with another name')
 
 
@@ -212,9 +295,13 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
         print('Nothing was changed.', file=err)
         return USAGE
 
-    bitbucket = environ.get('BITBUCKET_DEPLOYMENT_ENVIRONMENT', '')
+    provider = provider_of(environ)
+    deployment = environ.get(provider.environment, '') if provider.environment else ''
     try:
-        environment = environment_of(environment, bitbucket)
+        environment = environment_of(environment, deployment, provider)
+        for duplicate in expand_json(environ):
+            print(f'Warning: {duplicate} is both a secret and a configuration variable; the secret is used.',
+                  file=err)
         switches = {}
         for name, default in SWITCHES:
             switches[name] = environ.get(name) or default
@@ -229,26 +316,26 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
         if step.separate and not rollback and not ref:
             raise Refusal('Name the code tag or commit to deploy with REF (SHOP_REF): app/public is its own '
                           'repository, and the pipeline commit belongs to this environment repository')
-        if not step.separate and not rollback and not (ref or environ.get('BITBUCKET_COMMIT')):
-            raise Refusal('Neither REF nor BITBUCKET_COMMIT names the commit to deploy')
-        if step.separate and not environ.get('BITBUCKET_COMMIT'):
-            raise Refusal('BITBUCKET_COMMIT is not set: the environment checkout follows the pipeline commit')
+        if not step.separate and not rollback and not (ref or environ.get(provider.commit)):
+            raise Refusal(f'Neither REF nor {provider.commit} names the commit to deploy')
+        if step.separate and not environ.get(provider.commit):
+            raise Refusal(f'{provider.commit} is not set: the environment checkout follows the pipeline commit')
         try:
             variables = deployment_variables(directory, environment)
         except ValueError as error:
             raise Refusal(str(error)) from None
-        step.require(variables, environ, bitbucket)
+        step.require(variables, environ, provider, deployment)
     except MissingVariables as refusal:
         print(refusal, file=err)
-        print(f'Nothing was changed. make deploy-variables ENV={environment} lists every name and checks Bitbucket.',
-              file=err)
+        print(f'Nothing was changed. make deploy-variables ENV={environment} lists every name and checks '
+              f'{provider.label}.', file=err)
         return USAGE
     except Refusal as refusal:
         return refuse(str(refusal))
-    return run_step(step, environ, bitbucket, ref, switches)
+    return run_step(step, environ, provider, deployment, ref, switches)
 
 
-def run_step(step, environ, bitbucket, ref, switches):
+def run_step(step, environ, provider, deployment, ref, switches):
     rollback, images = switches['ROLLBACK'] == 'yes', switches['IMAGES'] == 'yes'
     try:
         live = step.git('rev-parse', '--verify', 'HEAD')
@@ -265,13 +352,13 @@ def run_step(step, environ, bitbucket, ref, switches):
         if rollback and not history_commit(step.history, 'rollback'):
             raise Refusal(f'No earlier completed deploy in {step.history.relative_to(step.directory)} to roll back to')
         if step.separate:
-            target = step.resolve(environ['BITBUCKET_COMMIT'])
+            target = step.resolve(environ[provider.commit])
             if not rollback:
                 step.resolve(ref, directory=step.code)
         elif rollback:
             target = history_commit(step.history, 'rollback')
         else:
-            ref = ref or environ['BITBUCKET_COMMIT']
+            ref = ref or environ[provider.commit]
             target = step.resolve(ref)
         state['restore'] = True
         step.checkout(target)
@@ -283,7 +370,7 @@ def run_step(step, environ, bitbucket, ref, switches):
             require_setup_version(step.directory)
         except ValueError as error:
             raise Refusal(str(error)) from None
-        step.require(variables, environ, bitbucket)
+        step.require(variables, environ, provider, deployment)
         empty = [name for name, variable in variables.items() if not variable['required'] and not environ.get(name)]
         if empty:
             step.say(f"Warning: empty Deployment variables, their integrations stay off: {' '.join(empty)}")
@@ -317,20 +404,20 @@ def run_step(step, environ, bitbucket, ref, switches):
                 step.say(str(error))
             status = error.status
         if state['restore']:
-            restore(step, live, target, state)
+            restore(step, live, target, state, provider)
         elif status == USAGE:
             step.say('Nothing was changed.')
         return status
 
 
-def restore(step, live, target, state):
+def restore(step, live, target, state, provider=BITBUCKET):
     say = step.say
     if state['images']:
         say(f'The deploy failed after the containers were restarted on the images of {target[:12]}; the build root '
             'stays at that commit (the running containers mount its config).')
         if step.separate:
-            say(f'Fix and deploy again with IMAGES=yes, or run the pipeline on commit {live} with IMAGES=yes and the '
-                'code that was live (REF=..., or ROLLBACK=yes).')
+            say(f'Fix and deploy again with IMAGES=yes, or {provider.rerun.format(commit=live)} with IMAGES=yes and '
+                'the code that was live (REF=..., or ROLLBACK=yes).')
         else:
             say(f'Fix and deploy again with IMAGES=yes, or return with REF={live} IMAGES=yes (ROLLBACK=yes when the '
                 f'history already records a deploy of {target}).')

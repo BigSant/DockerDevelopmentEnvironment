@@ -142,8 +142,9 @@ Komanda paklausia, o kiekvienas klausimas turi numatytąjį atsakymą (Enter):
 | DB variklis | `mysql` | `mysql` arba `mariadb`. |
 | DB versija | naujausia tinkama | Iš suderinamumo lentelės. |
 | Servisai | `pma mailpit` | Sąrašas per tarpus, `-` – jokių. |
+| CI (deploy pipeline) | `bitbucket` | `bitbucket` arba `github`: kuris deploy failas įrašomas, žr. [CI failas](#ci-failas). |
 
-Prieš rašant failus parodoma santrauka (vardas, domenas, profilis, versijos, servisai, laiko zona `Europe/Vilnius`) ir klausimas `Create these files? [Y/n]`. Atšaukus niekas nesukuriama. Domenas išvedamas iš vardo (`demo.local`), slaptažodžiai sugeneruojami, portus vėliau parenka `make setup`.
+Prieš rašant failus parodoma santrauka (vardas, domenas, profilis, versijos, servisai, laiko zona `Europe/Vilnius`, CI) ir klausimas `Create these files? [Y/n]`. Atšaukus niekas nesukuriama. Domenas išvedamas iš vardo (`demo.local`), slaptažodžiai sugeneruojami, portus vėliau parenka `make setup`.
 
 `./create-project demo` terminale paklaus tik likusių klausimų.
 
@@ -151,12 +152,12 @@ Prieš rašant failus parodoma santrauka (vardas, domenas, profilis, versijos, s
 
 ```bash
 ./create-project demo --profile prestashop --ps-version 9.0.2 --php-version 8.4 \
-  --database mysql --database-version 8.4 --services "pma mailpit"
+  --database mysql --database-version 8.4 --services "pma mailpit" --ci bitbucket
 ```
 
-Kai pateikti visi parametrai, komanda nieko neklausia. `--yes` praleidžia patvirtinimo klausimą. `--services ""` reiškia „jokių papildomų servisų“. Nesuderinama PHP ir PS pora atmetama prieš rašant failus.
+Kai pateikti visi parametrai (ir `--ci`), komanda nieko neklausia. `--yes` praleidžia visus likusius klausimus ir patvirtinimą. `--services ""` reiškia „jokių papildomų servisų“. Nesuderinama PHP ir PS pora atmetama prieš rašant failus.
 
-Ne terminale (pvz. scripte) vardas privalomas. Su vien vardu ir be kitų parametrų sukuriamas minimalus bendro PHP projektas.
+Ne terminale (pvz. scripte) vardas privalomas. Su vien vardu ir be kitų parametrų sukuriamas minimalus bendro PHP projektas. `--ci github` prie vardo projekto nekeičia, tik įrašo GitHub workflow vietoje Bitbucket pipeline.
 
 ### Kas sukuriama
 
@@ -164,13 +165,26 @@ Ne terminale (pvz. scripte) vardas privalomas. Su vien vardu ir be kitų paramet
 ~/Projects/demo/app/
 ├── Makefile
 ├── .gitignore
-├── env/common.env            # PROJECT_NAME, PROFILE, PS_VERSION, PHP_VERSION, DB variklis ir versija, SERVICES
+├── env/common.env            # PROJECT_NAME, PROFILE, PS_VERSION, PHP_VERSION, DB variklis ir versija, SERVICES, CI_PROVIDER
+├── bitbucket-pipelines.yml   # Numatyta (--ci bitbucket): Bitbucket deploy pipeline
+├── .github/workflows/deploy.yml  # Vietoje jo su --ci github: GitHub Actions deploy workflow
 ├── env/local.env             # DOMAIN, DB vardas, vartotojas, slaptažodis, DATABASE_ROOT_PASSWORD
 ├── .idea/.name               # PhpStorm projekto pavadinimas
 └── public/index.php          # Tik generic profiliui: bandomasis puslapis
 ```
 
 Dar sukuriama ignoruojama žyma `.generated/create-project.json`, kad pakartota komanda atpažintų savo projektą. Pakartojus `./create-project demo` esami failai ir slaptažodžiai išsaugomi. Svetimas esamas katalogas neperimamas.
+
+### CI failas
+
+Projektas gauna vieną deploy failą, kurį vykdo build serverio runner'is ir setup komanda `make pipeline-deploy`:
+
+| `--ci` | Failas | Kas dar reikalinga prieš pirmą deploy'ų |
+| --- | --- | --- |
+| `bitbucket` (numatyta) | `bitbucket-pipelines.yml` | **Repository settings → Deployments**: Staging ir Production su Deployment variables; runner'is su žymomis `self.hosted`, `linux.shell`, `setup.build`. |
+| `github` | `.github/workflows/deploy.yml` | **Settings → Environments**: `staging` ir `production` su secrets ir variables; self-hosted runner'is su žyma `setup.build`. |
+
+`CI_PROVIDER` faile `env/common.env` pasako `make deploy-variables`, kurio tiekėjo kintamuosius tikrinti. Komanda pabaigoje parašo šiuos žingsnius. Kokių vardų reikia: `make deploy-variables ENV=prod names=1`. Plačiau: [Bitbucket Pipelines](09-aplinkos.md#bitbucket-pipelines), [GitHub Actions](09-aplinkos.md#github-actions).
 
 **PrestaShop projektui `public/` nekuriamas:** ten klonuok parduotuvės repozitoriją ir paleisk `make setup`:
 

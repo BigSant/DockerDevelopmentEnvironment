@@ -27,7 +27,7 @@ Naujo projekto failai sukuriami su klausimais arba parametrais:
 cd ~/Projects/setup
 ./create-project
 ./create-project demo --profile prestashop --ps-version 9.0.2 --php-version 8.4 \
-  --database mysql --database-version 8.4 --services "pma mailpit"
+  --database mysql --database-version 8.4 --services "pma mailpit" --ci bitbucket
 ```
 
 ## Dokumentacija

@@ -1,0 +1,79 @@
+# Example GitHub Actions workflow for a project's environment repository: copy it to
+# .github/workflows/deploy.yml (create-project --ci github writes it). setup does the work: make
+# pipeline-deploy in the build root (setup/doc/lt/09-aplinkos.md, "GitHub Actions"); keep only the
+# inputs and the job here.
+#
+# Deploys are started by hand: Actions -> Deploy -> Run workflow, with the environment and the inputs
+# (the file must be on the default branch for the button to appear). The job runs on the self-hosted
+# runner of the build server (the labels below); environment: makes GitHub record the deployment and
+# gives the job that environment's secrets and variables. The build root holds this repository in app/
+# and setup beside it: the repository variable BUILD_ROOT, else setup-server's layout
+# $SETUP_SERVER_ROOT/projects/<repository name in lower case> (the runner sets SETUP_SERVER_ROOT).
+# Secrets are environment secrets of staging / production (DEPLOY_PLAIN_VARIABLES: environment
+# variables); make deploy-variables ENV=prod lists and checks them. GitHub does not export them: the
+# step passes the JSON of every secret and variable the job can read, and make pipeline-deploy expands
+# the names its own environment lacks (never printing a value; the runner masks each secret also in
+# its JSON-escaped form).
+name: Deploy
+run-name: Deploy to ${{ inputs.environment }} ${{ inputs.rollback == 'yes' && '(rollback)' || inputs.ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment (staging = ENV=stage, production = ENV=prod)
+        type: choice
+        options: [staging, production]
+        default: staging
+      ref:
+        # One repository: empty = the commit this workflow runs on. Separate code repository in app/public
+        # (PrestaShop): the code tag or commit, required unless rollback is yes.
+        description: Tag or commit to deploy (ignored with rollback)
+        type: string
+        default: ""
+      images:
+        description: Rebuild and restart the images first (prod needs setup on a release tag; the first deploy needs yes)
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
+      rollback:
+        description: Deploy the previous release again
+        type: choice
+        options: ["no", "yes"]
+        default: "no"
+      backup:
+        description: Back up the target database before the hooks, upgrades and migrations
+        type: choice
+        options: ["yes", "no"]
+        default: "yes"
+
+# The step needs no GitHub API access: the build root fetches with the build server's own key.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: [self-hosted, linux, setup.build]
+    environment: ${{ inputs.environment }}
+    # One deploy per environment at a time; a newer one waits instead of cancelling the running one.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - name: make pipeline-deploy
+        env:
+          # GitHub has no variable with the job's environment name: the step passes it.
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          REF: ${{ inputs.ref }}
+          IMAGES: ${{ inputs.images }}
+          ROLLBACK: ${{ inputs.rollback }}
+          BACKUP: ${{ inputs.backup }}
+          BUILD_ROOT: ${{ vars.BUILD_ROOT }}
+          DEPLOY_SECRETS_JSON: ${{ toJSON(secrets) }}
+          DEPLOY_VARIABLES_JSON: ${{ toJSON(vars) }}
+        shell: bash
+        run: |
+          repository=${GITHUB_REPOSITORY#*/}
+          BUILD_ROOT=${BUILD_ROOT:-${SETUP_SERVER_ROOT:-/srv/setup-server}/projects/${repository,,}}
+          make -C "$BUILD_ROOT/app" pipeline-deploy
