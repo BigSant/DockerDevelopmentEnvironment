@@ -4,6 +4,47 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### GitHub Actions as a second CI provider
+
+A project on GitHub deploys the same way as one on Bitbucket: the same `make pipeline-deploy` step, the
+same inputs, checks, restore and history. Bitbucket projects need no change.
+
+- **`make pipeline-deploy` runs from a GitHub Actions job** with `environment: staging|production`
+  (`GITHUB_ACTIONS=true`; commit `GITHUB_SHA`). GitHub has no variable with the job's environment name,
+  so the workflow passes it in `DEPLOY_ENVIRONMENT`. GitHub does not export secrets either: the workflow
+  passes `DEPLOY_SECRETS_JSON: ${{ toJSON(secrets) }}` and `DEPLOY_VARIABLES_JSON: ${{ toJSON(vars) }}`,
+  and the step sets each name the job's own environment lacks (never `GITHUB_*`, `RUNNER_*`,
+  `ACTIONS_*`; a secret wins over a variable of the same name, with a warning). No value is printed and
+  the JSON does not reach the `make` steps. Trade-off: the step sees every secret the job can read
+  (environment, repository, organisation), as a Bitbucket deploy step sees every variable; the workflow
+  only runs by hand (`workflow_dispatch`) with `permissions: contents: read`.
+- **`templates/pipelines/github-deploy.yml`**, to be used as `.github/workflows/deploy.yml`: Run
+  workflow with `environment` (staging/production), `ref`, `images`, `rollback`, `backup`;
+  `runs-on: [self-hosted, linux, setup.build]`; one deploy per environment at a time.
+- **`make deploy-variables` checks and fills GitHub environment secrets and variables** when
+  `CI_PROVIDER=github` (else a single `DEPLOY_GITHUB_REPOSITORY` / `DEPLOY_BITBUCKET_REPOSITORY`, else
+  the origin remote decides). `DEPLOY_PLAIN_VARIABLES` become environment variables, the rest secrets.
+  Token: `token=PATH`, `GH_TOKEN` or `GITHUB_TOKEN`, fine-grained with the repository permission
+  Environments (Read-only to check, Read and write to apply). Secrets are written with the GitHub CLI
+  (`gh secret set --env`, value on stdin), which seals them with the environment's public key; without
+  `gh` nothing is written. New settings `CI_PROVIDER`, `DEPLOY_GITHUB_REPOSITORY`.
+- **`create-project --ci bitbucket|github`** (also asked; default `bitbucket`) writes
+  `bitbucket-pipelines.yml` or `.github/workflows/deploy.yml`, sets `CI_PROVIDER` and prints what the
+  provider still needs before the first deploy. Until now a new project got no CI file.
+
+No image changes.
+
+**Moving a project to GitHub Actions** (environment repository):
+
+1. Add `.github/workflows/deploy.yml` from `templates/pipelines/github-deploy.yml`; `CI_PROVIDER=github`
+   in `env/common.env` (and `DEPLOY_GITHUB_REPOSITORY` when `origin` is not on github.com).
+2. Create the environments `staging` and `production` (Settings → Environments) and fill them:
+   `make deploy-variables ENV=prod token=… from=FILE` (needs `gh`).
+3. Register a self-hosted runner with the label `setup.build` on the build server and update its setup
+   checkout to this release.
+
 ## 2.3.0
 
 ### Bitbucket deploy step in setup
