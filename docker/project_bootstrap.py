@@ -109,7 +109,7 @@ def resolves_locally(host):
     return bool(addresses) and addresses.issubset({'127.0.0.1', '::1'})
 
 
-SERVICE_HOSTS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'tables')
+SERVICE_HOSTS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'backup')
 
 
 def route_exists(domain, port, nginx=Path('/etc/nginx')):

@@ -1,24 +1,24 @@
 <?php
-// Tables UI: every table of the project database with its table registry line (project, profile default
+// Backup UI: every table of the project database with its table registry line (project, profile default
 // or none) and a suggestion; locally (ENV=local/test) it edits app/database/table-registry.txt, which the
 // developer then commits. Servers only show it: there the registry changes through git.
-// Reached only through nginx-proxy with the TABLES_ALLOWED_IPS / ALLOWED_IPS allowlist.
+// Reached only through nginx-proxy with the BACKUP_ALLOWED_IPS / ALLOWED_IPS allowlist.
 // Self-contained on purpose: no web fonts, scripts or styles from elsewhere.
 require __DIR__ . '/../registry.php';
 
 $peer = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
-$proxy = gethostbynamel(getenv('TABLES_UI_PROXY') ?: 'nginx-proxy') ?: array();
+$proxy = gethostbynamel(getenv('BACKUP_UI_PROXY') ?: 'nginx-proxy') ?: array();
 if (!in_array($peer, array_merge(array('127.0.0.1', '::1'), $proxy), true)) {
     http_response_code(403);
-    exit("Reach the tables UI through nginx-proxy.\n");
+    exit("Reach the backup UI through nginx-proxy.\n");
 }
 
 $environment = getenv('ENV') ?: 'local';
-$directory = getenv('TABLES_REGISTRY_DIRECTORY') ?: '/opt/setup/project-database';
+$directory = getenv('BACKUP_REGISTRY_DIRECTORY') ?: '/opt/setup/project-database';
 $registryFile = $directory . '/table-registry.txt';
 $present = is_dir($directory);
 $editable = in_array($environment, array('local', 'test'), true) && $present && is_writable($directory);
-$tokenFile = getenv('TABLES_UI_TOKEN_FILE') ?: '/tmp/tables-ui-token';
+$tokenFile = getenv('BACKUP_UI_TOKEN_FILE') ?: '/tmp/backup-ui-token';
 if (!is_file($tokenFile)) file_put_contents($tokenFile, bin2hex(random_bytes(16)));
 $token = trim(file_get_contents($tokenFile));
 
@@ -55,6 +55,10 @@ $path = parse_url(isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/'
 $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
 $view = isset($_GET['view']) ? (string) $_GET['view'] : 'unclassified';
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
+// A click on a column header sorts by it; a second click reverses the order.
+const SORTS = array('table', 'rows', 'size', 'source', 'rule', 'suggestion');
+$sort = isset($_GET['sort']) && in_array($_GET['sort'], SORTS, true) ? (string) $_GET['sort'] : 'table';
+$descending = isset($_GET['dir']) && $_GET['dir'] === 'desc';
 $message = isset($_GET['saved']) ? (string) $_GET['saved'] : '';
 $error = '';
 
@@ -121,6 +125,25 @@ foreach ($tables as $name => $table) {
     $rows[] = array($name, $table, $match, tablesGuess($name, $table[2]));
 }
 
+$sortKey = function ($row) use ($sort) {
+    list($name, $table, $match, $guess) = $row;
+    switch ($sort) {
+        case 'rows': return $table[0];
+        case 'size': return $table[1];
+        case 'source': return $match ? $match[0] : '';
+        case 'rule': return $match ? implode(' ', array($match[2], $match[3], $match[4])) : '';
+        case 'suggestion': return $match ? '' : implode(' ', $guess);
+    }
+    return $name;
+};
+usort($rows, function ($a, $b) use ($sortKey, $descending) {
+    $x = $sortKey($a);
+    $y = $sortKey($b);
+    $order = is_int($x) ? ($x > $y) - ($x < $y) : strcmp($x, $y);
+    if ($order === 0) $order = strcmp($a[0], $b[0]);  // ties by table name, always ascending
+    return $descending ? -$order : $order;
+});
+
 $style = <<<'CSS'
 :root{--bg:#0c0e0b;--panel:#13170f;--rule:#283022;--ink:#ece6d3;--dim:#8d917f;--faint:#5c6152;--amber:#ffb22e;--go:#4fe08c;--stop:#ff5b4f;--steel:#6f93c9;
 --mono:ui-monospace,"JetBrains Mono","IBM Plex Mono","DejaVu Sans Mono",Menlo,Consolas,monospace}
@@ -142,6 +165,7 @@ main{padding:22px 28px 60px;max-width:1500px;margin:0 auto}
 button.go{background:var(--amber);border-color:var(--amber);color:#1a1205}
 table{width:100%;border-collapse:separate;border-spacing:0 4px}
 th{text-align:left;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:0 10px}
+th a{color:inherit}th a:hover{color:var(--amber);text-decoration:none}th a.on{color:var(--amber)}
 td{background:var(--panel);padding:8px 10px;vertical-align:middle;border-top:1px solid var(--rule)}
 td:first-child{border-left:3px solid var(--go);border-radius:4px 0 0 4px;word-break:break-all}
 tr.unclassified td:first-child{border-left-color:var(--stop)}tr.drop td:first-child{border-left-color:var(--faint)}
@@ -157,8 +181,8 @@ CSS;
 header('Content-Type: text/html; charset=utf-8');
 $sign = in_array($environment, array('stage', 'prod'), true) ? $environment : '';
 echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-    . '<title>Tables · ' . h(getenv('PROJECT_NAME')) . '</title><style>' . $style . '</style></head><body>'
-    . '<div class="top"><div class="mark">TABLES<small>' . h(getenv('PROJECT_NAME')) . ' · ' . h(getenv('DATABASE_NAME')) . '</small></div>'
+    . '<title>Backup · ' . h(getenv('PROJECT_NAME')) . '</title><style>' . $style . '</style></head><body>'
+    . '<div class="top"><div class="mark">BACKUP<small>' . h(getenv('PROJECT_NAME')) . ' · ' . h(getenv('DATABASE_NAME')) . '</small></div>'
     . '<span class="sign ' . h($sign) . '">' . h($environment) . '</span><span class="spacer"></span></div><main>';
 
 if ($error !== '') echo '<div class="callout error">' . h($error) . '</div>';
@@ -179,9 +203,11 @@ echo '<div class="stats">'
 
 echo '<div class="bar">';
 foreach (array('unclassified' => 'Not in the registry', 'project' => 'Project lines', 'profile' => 'Profile defaults', 'all' => 'All') as $key => $label) {
-    echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . ($query !== '' ? '&q=' . rawurlencode($query) : '') . '">' . h($label) . ' (' . $counts[$key] . ')</a>';
+    echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . ($query !== '' ? '&q=' . rawurlencode($query) : '')
+        . '&sort=' . $sort . ($descending ? '&dir=desc' : '') . '">' . h($label) . ' (' . $counts[$key] . ')</a>';
 }
-echo '<form method="get" class="inline"><input type="hidden" name="view" value="' . h($view) . '"><input name="q" value="' . h($query) . '" placeholder="filter by name"> <button>Filter</button></form>';
+echo '<form method="get" class="inline"><input type="hidden" name="view" value="' . h($view) . '"><input type="hidden" name="sort" value="' . h($sort) . '">'
+    . ($descending ? '<input type="hidden" name="dir" value="desc">' : '') . '<input name="q" value="' . h($query) . '" placeholder="filter by name"> <button>Filter</button></form>';
 if ($editable && $counts['unclassified']) {
     echo '<span class="spacer"></span><form method="post" action="/accept-all" class="inline" onsubmit="return confirm(\'Write the suggestion of all '
         . $counts['unclassified'] . ' tables not in the registry?\')"><input type="hidden" name="token" value="' . h($token) . '">'
@@ -189,12 +215,19 @@ if ($editable && $counts['unclassified']) {
 }
 echo '</div>';
 
-$back = '/?view=' . rawurlencode($view) . ($query !== '' ? '&q=' . rawurlencode($query) : '');
+$list = '/?view=' . rawurlencode($view) . ($query !== '' ? '&q=' . rawurlencode($query) : '');
+$back = $list . '&sort=' . $sort . ($descending ? '&dir=desc' : '');
+$header = function ($column, $label) use ($list, $sort, $descending) {
+    $reverse = $column === $sort && !$descending;
+    $arrow = $column === $sort ? ($descending ? ' ▼' : ' ▲') : '';
+    return '<th><a' . ($column === $sort ? ' class="on"' : '') . ' href="' . h($list . '&sort=' . $column . ($reverse ? '&dir=desc' : '')) . '">'
+        . h($label) . $arrow . '</a></th>';
+};
 if (!$rows) {
     echo '<div class="empty">' . ($view === 'unclassified' && $counts['all'] ? 'Every table is in the registry.' : 'No tables.') . '</div>';
 } else {
-    echo '<table><thead><tr><th>Table</th><th>Rows</th><th>Size</th><th>Source</th><th>Rule (group base live)</th><th>Suggestion</th>'
-        . ($editable ? '<th>Set</th>' : '') . '</tr></thead><tbody>';
+    echo '<table><thead><tr>' . $header('table', 'Table') . $header('rows', 'Rows') . $header('size', 'Size') . $header('source', 'Source')
+        . $header('rule', 'Rule (group base live)') . $header('suggestion', 'Suggestion') . ($editable ? '<th>Set</th>' : '') . '</tr></thead><tbody>';
     foreach ($rows as $row) {
         list($name, $table, $match, $guess) = $row;
         $source = $match ? $match[0] : 'unclassified';

@@ -1,20 +1,20 @@
 services:
-  tables:
+  backup:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
-    container_name: ${PROJECT_NAME}-${ENV}-tables
+    container_name: ${PROJECT_NAME}-${ENV}-backup
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     profiles:
-      - tables
+      - backup
     # A thin UI on :8082 (reached through nginx-proxy) lists the database tables with their table registry
     # line and, locally, edits app/database/table-registry.txt. No supercronic, no jobs: PHP's built-in server.
-    entrypoint: ["php", "-S", "0.0.0.0:8082", "-t", "/opt/setup/runtime/tables/ui", "/opt/setup/runtime/tables/ui/index.php"]
+    entrypoint: ["php", "-S", "0.0.0.0:8082", "-t", "/opt/setup/runtime/backup/ui", "/opt/setup/runtime/backup/ui/index.php"]
     depends_on:
       database:
         condition: service_healthy
     networks:
       - network_app
-    mem_limit: ${TABLES_MEMORY}
-    cpus: ${TABLES_CPUS}
+    mem_limit: ${BACKUP_MEMORY}
+    cpus: ${BACKUP_CPUS}
     logging:
       driver: json-file
       options:
@@ -40,4 +40,4 @@ services:
       - ${ROOT_DIRECTORY}/database-profile/:/opt/setup/database-profile/:ro
       # Where the project registry lives (beside the schema). Writable only where the UI may edit it
       # (local/test); servers change it through git. Optional: dropped while the directory is missing.
-      - ${PROJECT_DATABASE_DIRECTORY}:/opt/setup/project-database:${SETUP_TABLES_ACCESS:-ro}
+      - ${PROJECT_DATABASE_DIRECTORY}:/opt/setup/project-database:${SETUP_BACKUP_ACCESS:-ro}

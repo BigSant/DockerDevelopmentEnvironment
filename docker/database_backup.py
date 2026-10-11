@@ -134,5 +134,5 @@ def record_unregistered(project, backup):
     if unknown:
         shown = ', '.join(unknown[:10]) + (' …' if len(unknown) > 10 else '')
         print(f'Warning: {len(unknown)} tables are not in the table registry ({shown}); their data is in this backup. '
-              'Classify them in the tables UI or with make schema-resolve.')
+              'Classify them in the backup UI or with make schema-resolve.')
     return status

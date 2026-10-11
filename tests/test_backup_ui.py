@@ -1,4 +1,4 @@
-"""The tables service (table registry UI), the registry check after a backup and its /metrics group."""
+"""The backup service (table registry UI), the registry check after a backup and its /metrics group."""
 
 import contextlib
 import io
@@ -19,7 +19,7 @@ from database_backup import record_unregistered
 from database_registry import classify, load
 from project import Project
 
-TABLES = ROOT / "docker/runtime/tables"
+UI = ROOT / "docker/runtime/backup"
 PROD = ("PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\n"
         "WEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\n"
         "DATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n")
@@ -31,12 +31,12 @@ def scratch():
     return tempfile.TemporaryDirectory(dir=directory)
 
 
-class TablesServiceTest(unittest.TestCase):
+class BackupServiceTest(unittest.TestCase):
     def setUp(self):
         temporary = scratch()
         self.addCleanup(temporary.cleanup)
         with contextlib.redirect_stdout(io.StringIO()):
-            self.app = scaffold("tables-ui", temporary.name)
+            self.app = scaffold("backup-ui", temporary.name)
         (self.app / "database/schema").mkdir(parents=True)
 
     def services(self, environment="local"):
@@ -44,23 +44,23 @@ class TablesServiceTest(unittest.TestCase):
 
     def enable(self, extra=""):
         with (self.app / "env/common.env").open("a") as env:
-            env.write("SERVICES=tables\n" + extra)
+            env.write("SERVICES=backup\n" + extra)
 
     def test_local_ui_edits_the_registry_beside_the_schema_and_servers_only_read_it(self):
         self.enable()
         services = self.services()
-        mount = next(v for v in services["tables"]["volumes"] if v["target"] == "/opt/setup/project-database")
+        mount = next(v for v in services["backup"]["volumes"] if v["target"] == "/opt/setup/project-database")
         self.assertEqual((Path(mount["source"]), mount.get("read_only", False)), (self.app / "database", False))
-        self.assertEqual(services["nginx-proxy"]["environment"]["SETUP_ENABLE_TABLES"], "1")
-        (self.app / "env/prod.env").write_text(PROD + "TABLES_ALLOWED_IPS=203.0.113.7\n")
+        self.assertEqual(services["nginx-proxy"]["environment"]["SETUP_ENABLE_BACKUP"], "1")
+        (self.app / "env/prod.env").write_text(PROD + "BACKUP_ALLOWED_IPS=203.0.113.7\n")
         prod = self.services("prod")
-        mount = next(v for v in prod["tables"]["volumes"] if v["target"] == "/opt/setup/project-database")
+        mount = next(v for v in prod["backup"]["volumes"] if v["target"] == "/opt/setup/project-database")
         self.assertTrue(mount.get("read_only", False))
 
     def test_servers_need_an_allowlist_and_the_service_needs_database_as_code(self):
         self.enable()
         (self.app / "env/prod.env").write_text(PROD)
-        with self.assertRaisesRegex(ValueError, "tables on prod requires TABLES_ALLOWED_IPS or ALLOWED_IPS"):
+        with self.assertRaisesRegex(ValueError, "backup on prod requires BACKUP_ALLOWED_IPS or ALLOWED_IPS"):
             Project(self.app, "prod")
         with (self.app / "env/common.env").open("a") as env:
             env.write("DATABASE_AS_CODE=off\n")
@@ -70,7 +70,7 @@ class TablesServiceTest(unittest.TestCase):
     def test_a_missing_database_directory_is_not_created_by_compose(self):
         shutil.rmtree(self.app / "database")
         self.enable()
-        mounts = {v["target"] for v in self.services()["tables"]["volumes"]}
+        mounts = {v["target"] for v in self.services()["backup"]["volumes"]}
         self.assertNotIn("/opt/setup/project-database", mounts)
 
 
@@ -117,13 +117,13 @@ def php(code, env=None):
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
-class TablesRegistryPhpTest(unittest.TestCase):
+class BackupRegistryPhpTest(unittest.TestCase):
     def test_lines_the_ui_writes_are_read_the_same_way_by_setup(self):
         with scratch() as temporary:
             registry = Path(temporary) / "table-registry.txt"
             registry.write_text("{p}tmp_*  review empty skip\n")
-            env = {"PROFILE": "prestashop", "PS_DATABASE_PREFIX": "ps_", "TABLES_PROFILE_DIRECTORY": str(ROOT / "docker/database-profile")}
-            php(f"require '{TABLES}/registry.php'; tablesWrite({json.dumps(str(registry))}, array("
+            env = {"PROFILE": "prestashop", "PS_DATABASE_PREFIX": "ps_", "BACKUP_PROFILE_DIRECTORY": str(ROOT / "docker/database-profile")}
+            php(f"require '{UI}/registry.php'; tablesWrite({json.dumps(str(registry))}, array("
                 "'ps_tmp_feed' => array('feeds', 'full', 'import'), 'ps_old' => array('drop', 'drop', '-')));", env)
             self.assertTrue(registry.read_text().splitlines()[0].startswith("{p}tmp_feed "), "a new line wins over wildcards")
             project = SimpleNamespace(root=Path(temporary), directory=Path(temporary),
@@ -132,12 +132,12 @@ class TablesRegistryPhpTest(unittest.TestCase):
             self.assertEqual(classify(entries, "ps_tmp_feed")[1:], ("feeds", "full", "import"))
             self.assertEqual(classify(entries, "ps_tmp_other")[1:], ("review", "empty", "skip"))
             self.assertEqual(classify(entries, "ps_old")[2], "drop")
-            matched = json.loads(php(f"require '{TABLES}/registry.php'; echo json_encode(tablesMatch(tablesLoad("
+            matched = json.loads(php(f"require '{UI}/registry.php'; echo json_encode(tablesMatch(tablesLoad("
                                      f"{json.dumps(str(registry))}), 'ps_product'));", env))
             self.assertEqual(matched[0], "profile", "PrestaShop core tables come from the profile defaults")
 
     def test_rules_are_validated(self):
-        valid = php(f"require '{TABLES}/registry.php'; echo json_encode(array(tablesValidRule('catalog', 'slice', 'import'), "
+        valid = php(f"require '{UI}/registry.php'; echo json_encode(array(tablesValidRule('catalog', 'slice', 'import'), "
                     "tablesValidRule('bad group', 'full', 'import'), tablesValidRule('x', 'drop', 'import'), tablesValidRule('x', 'full', '-')));")
         self.assertEqual(json.loads(valid), [True, False, False, False])
 

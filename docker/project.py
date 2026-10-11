@@ -27,12 +27,12 @@ from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolv
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 # Optional CORE services a project enables with SERVICES=...; the four core services always run.
-SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'dbmonitor', 'tables', 'metrics', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
+SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'dbmonitor', 'backup', 'metrics', 'memcached', 'redis', 'playwright', 'php-phpstan', 'php-cs',
                      'php-doctrine-migrations')
 # Long-running catalogue services start with `up`; the others are tools started by their command.
-RUNTIME_PROFILES = {'cron': 'cron', 'tables': 'tables'}
+RUNTIME_PROFILES = {'cron': 'cron', 'backup': 'backup'}
 # Web tools that stage/prod start only behind a client IP allowlist.
-ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'tables', 'metrics')
+ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'backup', 'metrics')
 # With DEPLOY_CONTEXT, stage/prod containers run on the target: exec/ps/logs go there, builds
 # and model rendering stay on this build machine, and lifecycle commands use the release model.
 LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
@@ -175,7 +175,7 @@ class Project:
             settings['SCHEMA_DIRECTORY'] = ''  # every database-as-code step checks this one setting
         elif not settings['SCHEMA_DIRECTORY'] and self.directory.is_relative_to(self.root):
             settings['SCHEMA_DIRECTORY'] = str((self.directory / 'database/schema').relative_to(self.root))
-        # The table registry lives beside the schema; the tables service mounts that directory.
+        # The table registry lives beside the schema; the backup service mounts that directory.
         schema = (self.root / settings['SCHEMA_DIRECTORY']) if settings['SCHEMA_DIRECTORY'] else self.directory / 'database/schema'
         self.process_env['PROJECT_DATABASE_DIRECTORY'] = str(schema.resolve().parent)
         for key, attribute in [('DATA_DIRECTORY', 'data_directory'), ('APP_SOURCE_DIRECTORY', 'web_directory')]:
@@ -220,8 +220,8 @@ class Project:
         self.name = f"{name}-{environment}"
         services = settings["SERVICES"].split()
         unknown = [name for name in services if name not in SERVICE_CATALOGUE]
-        if 'tables' in services and not settings['SCHEMA_DIRECTORY']:
-            raise ValueError('The tables service edits the table registry of database as code, which is off (DATABASE_AS_CODE=off)')
+        if 'backup' in services and not settings['SCHEMA_DIRECTORY']:
+            raise ValueError('The backup service edits the table registry of database as code, which is off (DATABASE_AS_CODE=off)')
         if unknown:
             raise ValueError(f"Unknown SERVICES entry: {', '.join(unknown)}; available: {' '.join(SERVICE_CATALOGUE)}")
         self.services = services
@@ -267,8 +267,8 @@ class Project:
         # The cron UI edits the crontab only where git is not the deploy path. Set before the
         # optional-mount overlay, which freezes the interpolated volume list.
         self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment in ('local', 'test') else 'ro'
-        # The tables UI edits the table registry the same way: locally, servers through git.
-        self.process_env['SETUP_TABLES_ACCESS'] = self.process_env['SETUP_CRON_CONFIG_ACCESS']
+        # The backup UI edits the table registry the same way: locally, servers through git.
+        self.process_env['SETUP_BACKUP_ACCESS'] = self.process_env['SETUP_CRON_CONFIG_ACCESS']
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
         active = json.loads(self.capture(['config', '--format', 'json']))['services']
@@ -282,7 +282,7 @@ class Project:
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0',
                                 SETUP_ENABLE_CRON='1' if 'cron' in active else '0',
                                 SETUP_ENABLE_DBMONITOR='1' if 'dbmonitor' in active else '0',
-                                SETUP_ENABLE_TABLES='1' if 'tables' in active else '0',
+                                SETUP_ENABLE_BACKUP='1' if 'backup' in active else '0',
                                 SETUP_ENABLE_METRICS='1' if 'metrics' in active else '0')
         # One fingerprint per built image, computed from that image's own inputs only.
         self.image_suffixes = image_suffixes(profile, self.model()['services'])

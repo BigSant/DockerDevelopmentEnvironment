@@ -1,5 +1,5 @@
 <?php
-// The table registry as docker/database_registry.py reads it, for the tables UI: the project registry
+// The table registry as docker/database_registry.py reads it, for the backup UI: the project registry
 // (app/database/table-registry.txt) first, then setup's profile defaults; the first matching line wins.
 // Lines: `table group base live`, table with * wildcards and {p} for the PrestaShop table prefix.
 
@@ -43,7 +43,7 @@ function tablesProfileFile()
     $profile = getenv('PROFILE') ?: '';
     if ($profile === '') return null;
     if ($profile === 'ps') $profile = 'prestashop';
-    $file = (getenv('TABLES_PROFILE_DIRECTORY') ?: '/opt/setup/database-profile') . '/' . basename($profile) . '/table-registry.txt';
+    $file = (getenv('BACKUP_PROFILE_DIRECTORY') ?: '/opt/setup/database-profile') . '/' . basename($profile) . '/table-registry.txt';
     return is_file($file) ? $file : null;
 }
 

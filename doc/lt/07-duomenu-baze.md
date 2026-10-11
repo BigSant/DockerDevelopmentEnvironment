@@ -101,7 +101,7 @@ Snapshot'as apima tik lenteles. Views, triggers, procedūros ir events į jį ne
 
 ## C. Lentelių registras
 
-Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo commit'ą ir bazinio rinkinio kūrimą. Taip LIVE šiukšlės (`*_bak_*`, `tmp_*`) nepasilieka nepastebėtos. Registrą patogiausia tvarkyti naršyklėje: [lentelių registro sąsaja](05-servisai.md#lentelių-registras-tables) (`SERVICES` su `tables`).
+Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo commit'ą ir bazinio rinkinio kūrimą. Taip LIVE šiukšlės (`*_bak_*`, `tmp_*`) nepasilieka nepastebėtos. Registrą patogiausia tvarkyti naršyklėje: [lentelių registro sąsaja](05-servisai.md#lentelių-registras-backup) (`SERVICES` su `backup`).
 
 `database/table-registry.txt` – viena eilutė lentelei:
 

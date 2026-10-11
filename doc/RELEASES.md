@@ -20,15 +20,15 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   after the next `make setup` until it runs `make schema-export` and `make schema-resolve` (or sets
   `DATABASE_AS_CODE=off`).
 
-### Table registry in the browser (`tables` service)
+### Table registry in the browser (`backup` service)
 
-- **`SERVICES="tables"`** serves `https://tables.<DOMAIN>/`, like the cron UI: every table of the project
+- **`SERVICES="backup"`** serves `https://backup.<DOMAIN>/`, like the cron UI: every table of the project
   database with its rows, size, registry rule and where the rule comes from (project line, profile default,
-  none), tables without a line first, with schema-resolve's suggestion. Local/test set a table's rule, mark
+  none), tables without a line first, with schema-resolve's suggestion; a click on a column header sorts by it. Local/test set a table's rule, mark
   it `drop`, remove a project line, or accept every suggestion at once; the UI writes
   `app/database/table-registry.txt` (new lines first, so they win over wildcards; `{p}` for PrestaShop
-  tables), which the developer commits. Stage/prod only show it, behind `TABLES_ALLOWED_IPS` / `ALLOWED_IPS`.
-  Needs database as code. The `tables.` host name needs `setup/install-host` once, then `make bootstrap`.
+  tables), which the developer commits. Stage/prod only show it, behind `BACKUP_ALLOWED_IPS` / `ALLOWED_IPS`.
+  Needs database as code. The `backup.` host name needs `setup/install-host` once, then `make bootstrap`.
 - The registry stays mandatory: a table without a line still stops commits, `db-import` and `db-dataset`.
 - **Every backup checks the registry** (`make db-backup`, the pre-deploy backup): tables without a line are
   printed and kept in `data/<env>/table-registry/status.json` (names only); a failed check never fails the

@@ -135,7 +135,7 @@ Kiekvienas servisas turi savo atminties ir CPU ribą: `<SERVISAS>_MEMORY` ir `<S
 | pma | `PMA_MEMORY`, `PMA_CPUS` | `256m`, `0.5` |
 | mailpit | `MAILPIT_MEMORY`, `MAILPIT_CPUS` | `256m`, `0.5` |
 | dbmonitor | `DBMONITOR_MEMORY`, `DBMONITOR_CPUS` | `128m`, `0.25` |
-| tables | `TABLES_MEMORY`, `TABLES_CPUS` | `128m`, `0.25` |
+| backup | `BACKUP_MEMORY`, `BACKUP_CPUS` | `128m`, `0.25` |
 | metrics | `METRICS_MEMORY`, `METRICS_CPUS` | `128m`, `0.25` |
 
 Atmintis rašoma `k`, `m` arba `g` (pvz. `512m`, `2g`), CPU – skaičius iki 1024, galima trupmena (`1.5`).

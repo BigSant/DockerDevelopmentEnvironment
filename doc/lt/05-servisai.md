@@ -16,7 +16,7 @@ SERVICES="pma mailpit cron"
 | `mailpit` | Laiškų gaudyklė | UI `https://mailpit.demo.local/`, SMTP `mailpit:1025` projekto tinkle. |
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
 | `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` su token'u. Žr. [DB monitorius](#db-monitorius). |
-| `tables` | Lentelių registro sąsaja: kiekviena DB lentelė ir jos taisyklė | UI `https://tables.demo.local/`. Žr. [lentelių registras](#lentelių-registras-tables). |
+| `backup` | Lentelių registras: kiekviena DB lentelė ir jos taisyklė kopijoms, importui ir dev rinkiniui | UI `https://backup.demo.local/`. Žr. [lentelių registras](#lentelių-registras-backup). |
 | `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
@@ -48,7 +48,7 @@ make up
 
 `make build` sukuria naujo serviso image'ą, `make up` jį paleidžia. Išjungus servisą, pašalink seną konteinerį: `make down`, tada `make up`.
 
-Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.`, `tables.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `tables`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
+Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.`, `backup.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `backup`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
 
 ## Drop-in failai: papildyti CORE konfigūraciją
 
@@ -212,7 +212,7 @@ Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius, `/met
 | --- | --- |
 | `ALLOWED_IPS` | Visiems įėjimams, **įskaitant svetainę**. |
 | `SITE_ALLOWED_IPS` | Tik svetainei. |
-| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `TABLES_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja tik `/metrics` keliui, ne visai svetainei. |
+| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `BACKUP_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja tik `/metrics` keliui, ne visai svetainei. |
 
 Taisyklės:
 
@@ -220,7 +220,7 @@ Taisyklės:
 - Įėjimo sąrašas (`PMA_ALLOWED_IPS`) pakeičia bendrą `ALLOWED_IPS` tam įėjimui.
 - Ne iš sąrašo atėjęs klientas gauna `403`.
 - **Local/test** su tuščiu sąrašu viskas atvira.
-- **Stage/prod** su tuščiu sąrašu svetainė vieša, o įrankiai uždrausti. Be to, runner'is atsisako paleisti `pma`, `mailpit`, `cron`, `dbmonitor`, `tables`, `metrics` be sąrašo: `pma on prod requires PMA_ALLOWED_IPS or ALLOWED_IPS`.
+- **Stage/prod** su tuščiu sąrašu svetainė vieša, o įrankiai uždrausti. Be to, runner'is atsisako paleisti `pma`, `mailpit`, `cron`, `dbmonitor`, `backup`, `metrics` be sąrašo: `pma on prod requires PMA_ALLOWED_IPS or ALLOWED_IPS`.
 
 Viešai LIVE parduotuvei `ALLOWED_IPS` nenaudok, nes jis uždarytų ir svetainę. Rašyk įrankių sąrašus:
 
@@ -352,25 +352,25 @@ make restart service=cron
 
 Numatyta `CRON_SCHEDULE=on`; kita reikšmė nei `on` / `off` – klaida.
 
-## Lentelių registras (tables)
+## Lentelių registras (backup)
 
 [Lentelių registrą](07-duomenu-baze.md#c-lentelių-registras) galima tvarkyti naršyklėje, kaip cron'ą:
 
 ```dotenv
-SERVICES="cron tables"
+SERVICES="cron backup"
 ```
 
 ```bash
 make up
 ```
 
-Sąsaja `https://tables.demo.local/`:
+Sąsaja `https://backup.demo.local/`:
 
-- rodo visas projekto DB lenteles: eilučių skaičių, dydį, taisyklę (`grupė rinkinys importas`) ir iš kur ji (projekto registras, `prestashop` profilio numatytoji ar jokios). Pirmiausia rodomos lentelės, kurių registre **nėra** (jos stabdo commit'ą, `db-import` ir `db-dataset`); šalia – pasiūlymas, kaip `make schema-resolve`;
+- rodo visas projekto DB lenteles: eilučių skaičių, dydį, taisyklę (`grupė rinkinys importas`) ir iš kur ji (projekto registras, `prestashop` profilio numatytoji ar jokios). Pirmiausia rodomos lentelės, kurių registre **nėra** (jos stabdo commit'ą, `db-import` ir `db-dataset`); šalia – pasiūlymas, kaip `make schema-resolve`. Paspaudus stulpelio antraštę įrašai rikiuojami pagal jį, antras paspaudimas – atvirkščiai;
 - local/test leidžia nustatyti lentelės taisyklę, pažymėti ją `drop` ir pašalinti projekto eilutę, o mygtukas „Accept all suggestions“ įrašo visų neklasifikuotų lentelių pasiūlymus. Pakeitimas iškart rašomas į `app/database/table-registry.txt` (nauja eilutė – failo pradžioje, kad laimėtų prieš `*` šablonus; PrestaShop lentelės rašomos su `{p}`). Failą peržiūrėk ir commit'ink;
 - stage/prod registrą tik rodo: serveryje jis keičiamas tik per Git.
 
-Servisas veikia tik su DB kaip kodu (be `DATABASE_AS_CODE=off`) ir skaito DB aplikacijos vartotoju. Kol nėra `app/database` (schema dar neeksportuota), sąsaja tai pasako ir nieko nerašo. Stage/prod be `TABLES_ALLOWED_IPS` ar `ALLOWED_IPS` nepasileidžia. Sąsaja atsako tik nginx-proxy. Naujas `tables.` poddomenis atsiranda po `setup/install-host` ir `make bootstrap`.
+Servisas veikia tik su DB kaip kodu (be `DATABASE_AS_CODE=off`) ir skaito DB aplikacijos vartotoju. Kol nėra `app/database` (schema dar neeksportuota), sąsaja tai pasako ir nieko nerašo. Stage/prod be `BACKUP_ALLOWED_IPS` ar `ALLOWED_IPS` nepasileidžia. Sąsaja atsako tik nginx-proxy. Naujas `backup.` poddomenis atsiranda po `setup/install-host` ir `make bootstrap`.
 
 ## DB monitorius
 
