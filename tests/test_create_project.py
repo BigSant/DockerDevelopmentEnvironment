@@ -41,7 +41,7 @@ class CreateProjectTest(unittest.TestCase):
     def test_new_project_has_working_core_config_and_private_credentials(self):
         app = self.create()
         self.assertEqual({p.relative_to(app).as_posix() for p in app.rglob('*') if p.is_file()}, {
-            'Makefile', '.gitignore', 'env/common.env',
+            'Makefile', '.gitignore', 'env/common.env', 'bitbucket-pipelines.yml',
             'env/local.env', 'public/index.php', '.generated/create-project.json', '.idea/.name',
         })
         self.assertEqual({p.name for p in app.iterdir() if p.is_dir()}, {'env', 'public', '.generated', '.idea'})
@@ -51,7 +51,7 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base', 'php-fpm-core'})
         self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/docker/php-fpm/project/Dockerfile')
         self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
-        self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\n')
+        self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\nCI_PROVIDER=bitbucket\n')
         self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line},
                          {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD'})
         self.assertEqual(project.settings['LOCALHOST_PORT'], '0')
@@ -182,7 +182,7 @@ class CreateProjectTest(unittest.TestCase):
                 self.assertEqual(app.parent.name, normalized)
                 project = Project(app)
                 self.assertEqual(project.settings['PROJECT_NAME'], normalized)
-                self.assertEqual((app / 'env/common.env').read_text(), f'PROJECT_NAME={normalized}\n')
+                self.assertEqual((app / 'env/common.env').read_text(), f'PROJECT_NAME={normalized}\nCI_PROVIDER=bitbucket\n')
                 self.assertEqual(project.settings['DATABASE_NAME'], normalized.replace('-', '_'))
                 self.assertEqual(project.settings['DOMAIN'], normalized.replace('_', '-') + '.local')
                 self.assertEqual((app / '.idea/.name').read_text(), entered + '\n')
@@ -285,24 +285,32 @@ class WizardTest(unittest.TestCase):
             return next(replies)
 
         created = []
-        with patch('create_project.scaffold', lambda name, parent, options=None: created.append((name, options)) or self.parent), \
+        def scaffold(name, parent, options=None, ci='bitbucket'):
+            created.append((name, options))
+            self.ci = ci
+            return self.parent
+
+        with patch('create_project.scaffold', scaffold), \
                 contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
             code = main(argv, ask=ask, interactive=interactive)
         return code, created, asked, output.getvalue() + errors.getvalue()
 
     def test_enter_everywhere_gives_a_prestashop_9_project(self):
-        code, created, asked, output = self.run_main([], ['Melga'] + [''] * 7)
+        code, created, asked, output = self.run_main([], ['Melga'] + [''] * 8)
         self.assertEqual(code, 0)
         name, options = created[0]
         self.assertEqual(name, 'Melga')
         self.assertEqual(options, {'profile': 'prestashop', 'ps_version': '9.0.2', 'php_version': '8.4', 'database': 'mysql',
                                    'database_version': '8.4', 'services': 'pma mailpit'})
+        self.assertEqual(self.ci, 'bitbucket')
+        self.assertTrue(asked[-2].startswith('CI (deploy pipeline) (bitbucket/github) [bitbucket]'))
+        self.assertIn('CI          Bitbucket Pipelines (bitbucket-pipelines.yml)', output)
         self.assertIn('Domain      melga.local', output)
         self.assertIn('Time zone   Europe/Vilnius', output)
         self.assertTrue(asked[-1].startswith('Create these files?'))
 
     def test_only_compatible_php_versions_are_offered(self):
-        code, created, asked, output = self.run_main(['Oldshop', '--ps-version', '1.6.1.24'], ['', '8.4', '7.1', '', '', '', ''])
+        code, created, asked, output = self.run_main(['Oldshop', '--ps-version', '1.6.1.24'], ['', '8.4', '7.1', '', '', '', '', ''])
         self.assertIn('Choose one of: 5.6, 7.0, 7.1', output)
         self.assertEqual(created[0][1]['php_version'], '7.1')
         self.assertEqual(created[0][1]['database_version'], '5.7')
@@ -319,8 +327,42 @@ class WizardTest(unittest.TestCase):
         code, created, _, output = self.run_main(['Shop', '--services', 'pma rabbit', '--yes'], interactive=False)
         self.assertIn('Unknown services: rabbit', output)
 
+    def test_ci_is_asked_or_given_and_alone_keeps_the_minimal_project(self):
+        code, created, asked, output = self.run_main(['Demo', '--ci', 'github'], interactive=False)
+        self.assertEqual((code, created, asked, self.ci), (0, [('Demo', None)], [], 'github'))
+        self.assertIn('CI: GitHub Actions, ', output)
+        self.assertIn('Settings -> Environments: staging and production', output)
+        self.assertIn('deploy-variables ENV=prod names=1', output)
+        argv = ['Shop', '--profile', 'generic', '--php-version', '8.4', '--database', 'mysql',
+                '--database-version', '8.4', '--services', '']
+        code, created, asked, output = self.run_main(argv, ['github', ''])
+        self.assertEqual((code, self.ci, len(asked)), (0, 'github', 2))
+        self.assertIn('CI          GitHub Actions (.github/workflows/deploy.yml)', output)
+        code, created, asked, output = self.run_main(argv + ['--ci', 'bitbucket', '--yes'])
+        self.assertEqual((code, self.ci, asked), (0, 'bitbucket', []))
+        self.assertIn('Repository settings -> Deployments: Staging and Production', output)
+        with self.assertRaises(SystemExit):
+            self.run_main(['Demo', '--ci', 'gitlab'], interactive=False)
+
+    def test_the_chosen_pipeline_is_written_with_ci_provider(self):
+        from project_ci import ci_provider
+        from project_env_files import file_settings
+        for ci, path, other in (('bitbucket', 'bitbucket-pipelines.yml', '.github'),
+                                ('github', '.github/workflows/deploy.yml', 'bitbucket-pipelines.yml')):
+            with self.subTest(ci=ci), contextlib.redirect_stdout(io.StringIO()):
+                app = scaffold(f'ci-{ci}', self.parent, ci=ci)
+                source = 'github-deploy.yml' if ci == 'github' else 'bitbucket-pipelines.yml'
+                self.assertEqual((app / path).read_bytes(), (ROOT / 'templates/pipelines' / source).read_bytes())
+                self.assertFalse((app / other).exists())
+                self.assertEqual(ci_provider(app, file_settings(app, 'prod')[0]), ci)
+                result = subprocess.run(['make', '-s', '-C', str(app), f'SETUP_DIRECTORY={ROOT}', 'deploy-variables', 'names=1'],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                kind = 'secret' if ci == 'github' else 'secured'
+                self.assertIn(f'DATABASE_PASSWORD {kind} required (setup)', result.stdout)
+
     def test_cancel_writes_nothing(self):
-        code, created, _, output = self.run_main([], ['Melga'] + [''] * 6 + ['n'])
+        code, created, _, output = self.run_main([], ['Melga'] + [''] * 7 + ['n'])
         self.assertEqual((code, created), (1, []))
         self.assertIn('nothing was created', output)
 
