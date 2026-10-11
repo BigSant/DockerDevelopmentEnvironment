@@ -155,7 +155,7 @@ Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiute
 
 ## Bitbucket Pipelines
 
-Deploy'ų iš Bitbucket'o atlieka setup'o komanda `make pipeline-deploy`. Projektas laiko tik `bitbucket-pipelines.yml` ir vardų sąrašus `env/common.env` faile. Savo `deploy/pipeline.sh` ar kintamųjų scripto nebereikia. Pavyzdys: [templates/pipelines/bitbucket-pipelines.yml](../../templates/pipelines/bitbucket-pipelines.yml) (nukopijuok į aplinkos repozitorijos šaknį).
+Deploy'ų iš Bitbucket'o atlieka setup'o komanda `make pipeline-deploy`. Projektas laiko tik `bitbucket-pipelines.yml` ir vardų sąrašus `env/common.env` faile. Savo `deploy/pipeline.sh` ar kintamųjų scripto nebereikia. Pavyzdys: [templates/pipelines/bitbucket-pipelines.yml](../../templates/pipelines/bitbucket-pipelines.yml) (nukopijuok į aplinkos repozitorijos šaknį; `./create-project` jį įrašo pats). GitHub projektas deploy'inamas ta pačia komanda iš GitHub Actions, žr. [GitHub Actions](#github-actions).
 
 - Deploy'ų paleidžia žmogus: **Pipelines → Run pipeline → Custom: deploy-stage / deploy-production**. Kiekvienas paleidimas matomas **Deployments** istorijoje.
 - Žingsnį vykdo self-hosted runner'is build serveryje (žymos `self.hosted`, `linux.shell`, `setup.build`). Jam reikia Docker teisių ir prieigos prie build root.
@@ -227,6 +227,64 @@ make deploy-variables ENV=prod token=… from=~/prod-secrets.env replace=1  # pe
 - Išėjimo kodai: 0 – visi vardai yra, 1 – kai kurių trūksta, 2 – Bitbucket klaida (atsakymas paaiškina, kurios teisės trūksta), 64 – argumentų, failų teisių ar sąrašo klaida.
 
 Deploy teisių ribojimas (tik tam tikri žmonės ar šakos konkrečiai aplinkai) Bitbucket'e yra Premium plano funkcija. Be jos produkcijos deploy'ų gali paleisti kiekvienas, turintis rašymo teisę į repozitoriją.
+
+## GitHub Actions
+
+GitHub projektas deploy'inamas taip pat kaip Bitbucket: ta pati komanda `make pipeline-deploy` build root'e, tie patys paleidimo kintamieji, patikros, abu išdėstymai, grąžinimas nepavykus ir deploy istorija (žr. [Bitbucket Pipelines](#bitbucket-pipelines)). Projektas laiko tik `.github/workflows/deploy.yml` ir tuos pačius vardų sąrašus `env/common.env`. Pavyzdys: [templates/pipelines/github-deploy.yml](../../templates/pipelines/github-deploy.yml); `./create-project --ci github` jį įrašo pats.
+
+- Deploy'ų paleidžia žmogus: **Actions → Deploy → Run workflow**. Pasirenkama `environment` (`staging` arba `production`) ir `ref`, `images`, `rollback`, `backup` – tai Bitbucket'o `REF`, `IMAGES`, `ROLLBACK`, `BACKUP` su tomis pačiomis reikšmėmis. Mygtukas atsiranda, kai workflow failas yra numatytojoje šakoje. **Use workflow from** šaka ar tag'as nurodo pipeline commit'ą (`GITHUB_SHA`).
+- Job'as turi `environment: staging` arba `production`. Todėl GitHub įrašo deploy'ų į **Deployments** istoriją ir atiduoda job'ui tos aplinkos secrets ir variables. Abi aplinkas sukurk **Settings → Environments**. Produkcijai verta įjungti **Required reviewers** ir **Deployment branches and tags**.
+- Job'ą vykdo build serverio self-hosted runner'is su žyma `setup.build` (`runs-on: [self-hosted, linux, setup.build]`). `actions/checkout` nereikia: darbas vyksta build root'e.
+- **Build root** – Repository variable `BUILD_ROOT`, o be jo – `/srv/setup-server/projects/<repo>`, kur `<repo>` yra repozitorijos vardas be savininko (`GITHUB_REPOSITORY` antroji dalis).
+- `concurrency: deploy-<aplinka>`: į vieną aplinką vienu metu vyksta vienas deploy'us. Naujas laukia, o laukiantį pakeičia dar naujesnis paleidimas.
+- GitHub neturi kintamojo su job'o aplinkos vardu, todėl workflow jį perduoda kintamuoju `DEPLOY_ENVIRONMENT`. Be jo komanda atsisako (`DEPLOY_ENVIRONMENT is not set`). Kitaip pavadintai aplinkai pridėk `ENV=stage` arba `ENV=prod`. GitHub aplinkos vardas lyginamas be didžiųjų raidžių skirtumo.
+- Setup atpažįsta GitHub pagal `GITHUB_ACTIONS=true`, Bitbucket – pagal `BITBUCKET_*` kintamuosius.
+
+Privačioje repozitorijoje environment secrets veikia tik su GitHub Pro, Team arba Enterprise planu. **Required reviewers** privačioje repozitorijoje yra tik Enterprise plane.
+
+### Secrets ir variables
+
+Bitbucket Deployment variables patenka į žingsnio aplinką patys. GitHub secrets – ne: kiekvieną reikia perduoti per `env:`, o sąrašas kiekviename projekte kitas. Todėl workflow žingsniui perduoda juos visus iš karto:
+
+```yaml
+env:
+  DEPLOY_SECRETS_JSON: ${{ toJSON(secrets) }}
+  DEPLOY_VARIABLES_JSON: ${{ toJSON(vars) }}
+```
+
+`make pipeline-deploy` iš šių JSON įrašo į savo proceso aplinką kiekvieną vardą, kurio job'o aplinkoje dar nėra:
+
+- Job'o `env:` laimi, net tuščias. Taip secret'as negali pakeisti `REF`, `IMAGES` ar runner'io `PATH`. Vardą galima perduoti ir aiškiai (`DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}`).
+- `GITHUB_*`, `RUNNER_*` ir `ACTIONS_*` vardai praleidžiami. Tarp jų – `GITHUB_TOKEN`, kuris visada yra `secrets` kontekste.
+- Jei vardas yra ir secret, ir variable, naudojamas secret ir parašomas įspėjimas.
+- Patys JSON į `make` žingsnius neperduodami. Reikšmės niekur nespausdinamos.
+
+Vardų sąrašas tas pats kaip [Deployment variables](#deployment-variables). GitHub'e `DEPLOY_PLAIN_VARIABLES` vardai yra aplinkos **variables** (jų reikšmės matomos nustatymuose ir paleidimo log'e), visi kiti – aplinkos **secrets**. Pranešimas apie trūkstamus vardus: `Environment secrets or variables missing or empty (Settings -> Environments -> production): …`.
+
+**Saugumo kaina.** `toJSON(secrets)` atiduoda žingsniui visus job'ui matomus secrets: aplinkos, repozitorijos ir organizacijos, ne tik deploy'ui reikalingus. Tiek pat Bitbucket'as atiduoda deploy žingsniui (visus Deployment ir Repository variables). Statiniai tikrintuvai (pvz. zizmor `overprovisioned-secrets`) tokį perdavimą žymi – čia tai sąmoningas pasirinkimas. Rizika ribojama taip:
+
+- Workflow paleidžiamas tik rankomis (`workflow_dispatch`), ne iš pull request'ų, todėl svetimas kodas prie secrets ir runner'io neprieina. Self-hosted runner'į naudok tik privačiai repozitorijai.
+- `permissions: contents: read`: workflow `GITHUB_TOKEN` gali tik skaityti. Build root kodą parsisiunčia su build serverio raktu.
+- Runner'is log'e slepia secret reikšmes, taip pat jų JSON pavidalą (`\"`, `\n`). Variables neslepiami, todėl slaptų reikšmių į juos nedėk.
+
+Jei projektui reikia griežčiau, JSON eilutes iš workflow išimk ir kiekvieną vardą perduok `env:` atskirai. Trūkstamą privalomą vardą `make pipeline-deploy` vis tiek praneš prieš bet kokį pakeitimą.
+
+### make deploy-variables GitHub'e
+
+Ta pati komanda tikrina ir pildo GitHub aplinkos secrets ir variables (komandos kaip [Deployment variables](#deployment-variables) skyriuje):
+
+```bash
+make deploy-variables ENV=prod names=1                                # sąrašas be tinklo
+make deploy-variables ENV=prod token=~/.config/github/demo-token       # ko trūksta (exit 1, jei trūksta)
+make deploy-variables ENV=prod token=… from=~/prod-secrets.env         # sukuria trūkstamus iš failo
+```
+
+- Tiekėją nurodo `CI_PROVIDER=github` (`env/common.env`, įrašo `create-project`). Be jo – vienintelis `DEPLOY_GITHUB_REPOSITORY` arba `DEPLOY_BITBUCKET_REPOSITORY`, o be jų – `origin` remote'as (`github.com` reiškia GitHub). Kitaip – Bitbucket.
+- Repozitorija – `DEPLOY_GITHUB_REPOSITORY` (`savininkas/repo`), o be jos – `origin` remote'as. Aplinka – `staging` (`ENV=stage`) arba `production` (`ENV=prod`).
+- Raktas – fine-grained personal access token'as tai repozitorijai su teise **Environments: Read-only** tikrinimui arba **Environments: Read and write** pildymui (**Metadata: Read-only** pridedama automatiškai). Tinka ir classic token'as su `repo`. Jį perduok failu `token=KELIAS` (`0600`) arba kintamuoju `GH_TOKEN` ar `GITHUB_TOKEN`.
+- Variables setup rašo per GitHub API. Secret reikšmę reikia užšifruoti aplinkos viešuoju raktu (libsodium sealed box), todėl secrets rašo oficialus GitHub CLI: `gh secret set VARDAS --env production --repo savininkas/repo`, reikšmė perduodama per standartinį įvedimą, token'as – `GH_TOKEN` kintamuoju. Be `gh` (`apt install gh`, https://cli.github.com) nieko neįrašoma.
+- `gh` nuskaito reikšmę be paskutinio eilutės lūžio. Secret'ą, kurio reikšmė baigiasi eilutės lūžiu, komanda praleidžia: įrašyk jį ranka.
+- Secret reikšmių GitHub neparodo, todėl lyginami tik vardai ir rūšis (secret ar variable). Išėjimo kodai tokie patys: 0, 1, 2 (GitHub ar `gh` klaida), 64.
 
 ## Bandymas iš savo kompiuterio
 

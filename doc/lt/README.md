@@ -14,7 +14,7 @@
 | 6 | [Aplikacija: PrestaShop ir kiti](06-aplikacija.md) | PS konfigūracijos failas iš env, `PS_VERSION`, `PS_RELEASE`, debug, kitų aplikacijų startup scriptai. |
 | 7 | [Duomenų bazė kaip kodas](07-duomenu-baze.md) | Schema ir commit hook'as, lentelių registras, migracijos, `db-import`, bazinis rinkinys, kopijos. |
 | 8 | [Testai ir kodo kokybė](08-kodo-kokybe.md) | `make test-prepare`, `make phpunit`, e2e, PHPStan ir PHP-CS-Fixer. |
-| 9 | [Aplinkos, release ir deploy](09-aplinkos.md) | local, test, stage, prod; `make release`, `make deploy`, Bitbucket Pipelines. |
+| 9 | [Aplinkos, release ir deploy](09-aplinkos.md) | local, test, stage, prod; `make release`, `make deploy`, Bitbucket Pipelines, GitHub Actions. |
 | 10 | [Kasdienis darbas, IDE ir atnaujinimai](10-kasdienis-darbas.md) | PhpStorm, dvi Git repozitorijos, setup atnaujinimas, vietos atlaisvinimas. |
 | 11 | [Komandos ir klaidos](11-komandos-ir-klaidos.md) | Visos `make` komandos, jų argumentai ir dažniausių klaidų sprendimai. |
 | 12 | [Cache, paštas ir resursai](12-cache-ir-hibridines-aplinkos.md) | `CACHE_MODE`, `MAIL_MODE`, `<SERVISAS>_MEMORY/_CPUS`, log'ai ir diskas. |

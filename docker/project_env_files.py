@@ -1,7 +1,7 @@
 """Project settings read straight from the env files, for commands that run before (or without) Compose.
 
 The runner resolves settings through Compose (project-settings.yaml), which needs env/<env>.env and
-Docker. A Bitbucket deploy step decides what to check before that file exists, and the Deployment
+Docker. A CI deploy step decides what to check before that file exists, and the Deployment
 variables list is read on any machine, so both read the committed files themselves: setup's
 docker/.env, env/common.env and env/<env>.env.example (env/<env>.env when there is no example).
 The parser follows the dotenv rules setup documents (KEY=value, 'single quotes' literal, "double
@@ -87,7 +87,7 @@ def environment_file(directory, environment):
 def file_settings(directory, environment):
     """(values, mentioned): the merged settings, and every key the project's files name -> its value.
 
-    A key the project files name hides the process environment (Bitbucket Deployment variables),
+    A key the project files name hides the process environment (Deployment variables, GitHub secrets),
     except setup's own secrets left blank (project.PROCESS_SECRETS).
     """
     directory = Path(directory)
