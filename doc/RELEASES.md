@@ -4,7 +4,7 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.4.0
 
 ### GitHub Actions as a second CI provider
 
