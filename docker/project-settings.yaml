@@ -29,11 +29,15 @@ services:
       DEPLOY_SSH: ${DEPLOY_SSH-}
       DEPLOY_PROTECTED_PATHS: ${DEPLOY_PROTECTED_PATHS-}
       DEPLOY_PHP_RELOAD: ${DEPLOY_PHP_RELOAD-}
-      # Bitbucket Deployment variables beyond setup's own (make pipeline-deploy, make deploy-variables): names only.
+      # Deployment variables (Bitbucket) / environment secrets (GitHub) beyond setup's own
+      # (make pipeline-deploy, make deploy-variables): names only.
       DEPLOY_REQUIRED_VARIABLES: ${DEPLOY_REQUIRED_VARIABLES-}
       DEPLOY_OPTIONAL_VARIABLES: ${DEPLOY_OPTIONAL_VARIABLES-}
       DEPLOY_PLAIN_VARIABLES: ${DEPLOY_PLAIN_VARIABLES-}
       DEPLOY_BITBUCKET_REPOSITORY: ${DEPLOY_BITBUCKET_REPOSITORY-}
+      DEPLOY_GITHUB_REPOSITORY: ${DEPLOY_GITHUB_REPOSITORY-}
+      # bitbucket or github: whose CI make deploy-variables checks (create-project writes it).
+      CI_PROVIDER: ${CI_PROVIDER-}
       PHP_VERSION: ${PHP_VERSION-}
       MYSQL_VERSION: ${MYSQL_VERSION-}
       MARIADB_VERSION: ${MARIADB_VERSION-}

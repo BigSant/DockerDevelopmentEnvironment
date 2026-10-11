@@ -33,6 +33,7 @@ API = 'https://api.bitbucket.org/2.0'
 SCOPES = ('Repositories: Read and Pipelines: Read (scope pipeline) to check; apply also needs '
           'Pipelines: Edit variables (scope pipeline:variable)')
 MAX_PAGES = 100
+KINDS = ('secured', 'plain')
 REMOTE = re.compile(r'bitbucket\.org[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/*$')
 REPOSITORY = re.compile(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+')
 
@@ -149,27 +150,63 @@ def environment_url(client, base, wanted):
     raise Failure(f'no Bitbucket deployment environment named {wanted} (the repository has: {names})', 2)
 
 
-def compare(listed, present, label, out):
-    """The check report; returns the number of missing names."""
+def compare(listed, present, label, out, provider='Bitbucket', kinds=KINDS):
+    """The check report; returns the number of missing names.
+
+    present: {name: {'secured': bool, 'both': bool}}; kinds names a secured and a plain one.
+    """
     missing = mismatched = 0
     print(f'{label}: {len(listed)} listed variables', file=out)
     for name, variable in listed.items():
-        kind = 'secured' if variable['secured'] else 'plain'
+        kind = kinds[0] if variable['secured'] else kinds[1]
         if name not in present:
             missing += 1
             print(f"  MISSING   {name} ({kind}{', required' if variable['required'] else ''})", file=out)
+        elif present[name].get('both'):
+            mismatched += 1
+            print(f'  present   {name}: both a {kinds[0]} and a {kinds[1]} in {provider} (the {kinds[0]} is used), '
+                  f'the list says {kind}', file=out)
         elif present[name]['secured'] != variable['secured']:
             mismatched += 1
-            have = 'secured' if present[name]['secured'] else 'plain'
-            print(f'  present   {name}: {have} in Bitbucket, the list says {kind}', file=out)
+            have = kinds[0] if present[name]['secured'] else kinds[1]
+            print(f'  present   {name}: {have} in {provider}, the list says {kind}', file=out)
         else:
             print(f'  present   {name}', file=out)
     for name in present:
         if name not in listed:
             print(f'  extra     {name} (not in the list)', file=out)
-    print(f'{len(listed) - missing} present, {missing} missing, {mismatched} secured/plain mismatch'
-          + ('es' if mismatched != 1 else ''), file=out)
+    print(summary(len(listed) - missing, missing, mismatched, kinds), file=out)
     return missing
+
+
+def summary(present, missing, mismatched, kinds=KINDS):
+    return (f'{present} present, {missing} missing, {mismatched} {kinds[0]}/{kinds[1]} mismatch'
+            + ('es' if mismatched != 1 else ''))
+
+
+def load_list(directory, environment, source, replace):
+    """(ENV, the listed variables, the values of from=FILE or None): the checks every provider shares."""
+    # The default is production, as in the deploy step that runs it most.
+    environment = 'prod' if environment == 'local' else environment
+    if environment not in BITBUCKET_NAMES:
+        raise Failure('Deployment variables belong to ENV=stage or ENV=prod')
+    if replace and not source:
+        raise Failure('replace=1 belongs to from=FILE (apply)')
+    try:
+        listed = deployment_variables(directory, environment)
+        values = None
+        if source:
+            private(source, 'Values file')
+            values = read_dotenv(source, strict=True)
+    except (ValueError, OSError) as error:
+        raise Failure(str(error)) from None
+    return environment, listed, values
+
+
+def print_names(listed, out, kinds=KINDS):
+    for name, variable in listed.items():
+        print(f"{name} {kinds[0] if variable['secured'] else kinds[1]} "
+              f"{'required' if variable['required'] else 'optional'} ({variable['source']})", file=out)
 
 
 def deploy_variables(directory, environment='local', source=None, replace=False, token_file=None, names_only=False,
@@ -184,24 +221,9 @@ def deploy_variables(directory, environment='local', source=None, replace=False,
 
 
 def run(directory, environment, source, replace, token_file, names_only, environ, out):
-    # The default is production, as in Bitbucket's deploy step that runs it most.
-    environment = 'prod' if environment == 'local' else environment
-    if environment not in BITBUCKET_NAMES:
-        raise Failure('Deployment variables belong to ENV=stage or ENV=prod')
-    if replace and not source:
-        raise Failure('replace=1 belongs to from=FILE (apply)')
-    try:
-        listed = deployment_variables(directory, environment)
-        values = None
-        if source:
-            private(source, 'Values file')
-            values = read_dotenv(source, strict=True)
-    except (ValueError, OSError) as error:
-        raise Failure(str(error)) from None
+    environment, listed, values = load_list(directory, environment, source, replace)
     if names_only:
-        for name, variable in listed.items():
-            print(f"{name} {'secured' if variable['secured'] else 'plain'} "
-                  f"{'required' if variable['required'] else 'optional'} ({variable['source']})", file=out)
+        print_names(listed, out)
         return 0
     settings, _ = file_settings(directory, environment)
     slug = repository(directory, settings)
@@ -260,6 +282,5 @@ def run(directory, environment, source, replace, token_file, names_only, environ
     now = present()
     missing = sum(1 for name in listed if name not in now)
     mismatched = sum(1 for name in listed if name in now and now[name]['secured'] != listed[name]['secured'])
-    print(f'Now: {len(listed) - missing} present, {missing} missing, {mismatched} secured/plain mismatch'
-          + ('es' if mismatched != 1 else ''), file=out)
+    print(f'Now: {summary(len(listed) - missing, missing, mismatched)}', file=out)
     return 1 if missing else 0

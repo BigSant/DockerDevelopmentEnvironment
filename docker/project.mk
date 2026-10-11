@@ -55,8 +55,8 @@ help:
 	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
 	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the code, back up, rsync, hook, upgrade, migrate'
 	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
-	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
-	@echo 'deploy-variables [ENV=stage|prod] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables'
+	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
+	@echo 'deploy-variables [ENV=stage|prod] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
 
 setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@

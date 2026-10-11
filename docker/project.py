@@ -39,8 +39,9 @@ LOCAL_COMPOSE_COMMANDS = ('build', 'config', 'images', 'pull')
 RELEASE_COMPOSE_COMMANDS = ('up', 'down', 'run', 'create', 'start', 'rm')
 LEGACY_CORE_INCLUDE = re.compile(r"ROOT_DIRECTORY\}?/docker/(nginx-proxy|apache|mysql|mariadb|php-fpm)/docker-compose\.yml")
 ENV_ENTRY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:][ \t]*(.*)$", re.M)
-# Secrets a pipeline passes as process environment (Bitbucket Deployment variables). An env file
-# that leaves one blank does not hide the process value; any other key named in an env file does.
+# Secrets a pipeline passes as process environment (Bitbucket Deployment variables, GitHub environment
+# secrets). An env file that leaves one blank does not hide the process value; any other key named in an
+# env file does.
 PROCESS_SECRETS = ('DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD', 'DATABASE_MONITOR_PASSWORD',
                    'DBMONITOR_TOKEN', 'METRICS_TOKEN', *PRESTASHOP_KEYS)
 
@@ -348,9 +349,10 @@ def main():
     parser.add_argument('--full', action='store_true', help='db-import: import the data of every table, ignoring registry skip rules')
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
-                        'deploy-variables: also replace the Bitbucket variables that exist')
+                        'deploy-variables: also replace the Bitbucket / GitHub variables that exist')
     parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600)')
-    parser.add_argument('--token-file', help='deploy-variables: Bitbucket access token file (0600); default BITBUCKET_ACCESS_TOKEN')
+    parser.add_argument('--token-file', help='deploy-variables: access token file (0600); default BITBUCKET_ACCESS_TOKEN, '
+                        'on GitHub GH_TOKEN or GITHUB_TOKEN')
     parser.add_argument('--names', action='store_true', help='deploy-variables: print the list only (no network)')
     parser.add_argument('--module', help='phpunit: run only this module suite (or shop)')
     parser.add_argument('--filter', dest='test_filter', help='phpunit: --filter pattern')
@@ -384,7 +386,7 @@ def main():
             from project_pipeline import pipeline_deploy
             return pipeline_deploy(args.docker_directory, args.env, args.project_directory)
         if args.action == 'deploy-variables':
-            from project_bitbucket import deploy_variables
+            from project_ci import deploy_variables
             return deploy_variables(args.docker_directory, args.env, source=args.source, replace=args.replace,
                                     token_file=args.token_file, names_only=args.names)
         if args.action in ("init", "ide-init", "bootstrap", "setup"):
