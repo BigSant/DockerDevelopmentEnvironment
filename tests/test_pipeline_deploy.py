@@ -516,6 +516,33 @@ class TemplateTest(unittest.TestCase):
             self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["step"]["script"])
             self.assertIn("self.hosted", step["step"]["runs-on"])
 
+    def test_the_github_workflow_runs_the_step_with_the_variables_it_reads(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        from project_pipeline import DEPLOYMENT_ENVIRONMENTS, SECRETS_JSON, VARIABLES_JSON
+        model = yaml.safe_load((ROOT / "templates/pipelines/github-deploy.yml").read_text())
+        inputs = model[True]["workflow_dispatch"]["inputs"]  # YAML 1.1 reads the key on as true
+        self.assertEqual(list(inputs), ["environment", "ref", "images", "rollback", "backup"])
+        self.assertEqual(inputs["environment"]["options"], list(DEPLOYMENT_ENVIRONMENTS))
+        for name, default in (("images", "no"), ("rollback", "no"), ("backup", "yes")):
+            self.assertEqual((inputs[name]["type"], sorted(inputs[name]["options"]), inputs[name]["default"]),
+                             ("choice", ["no", "yes"], default))
+        job = model["jobs"]["deploy"]
+        self.assertEqual(job["runs-on"], ["self-hosted", "linux", "setup.build"])
+        self.assertEqual(job["environment"], "${{ inputs.environment }}")
+        self.assertEqual(job["concurrency"], {"group": "deploy-${{ inputs.environment }}", "cancel-in-progress": False})
+        self.assertEqual(model["permissions"], {"contents": "read"})
+        [step] = job["steps"]
+        self.assertEqual(step["env"], {
+            "DEPLOY_ENVIRONMENT": "${{ inputs.environment }}", "REF": "${{ inputs.ref }}",
+            "IMAGES": "${{ inputs.images }}", "ROLLBACK": "${{ inputs.rollback }}", "BACKUP": "${{ inputs.backup }}",
+            "BUILD_ROOT": "${{ vars.BUILD_ROOT }}", SECRETS_JSON: "${{ toJSON(secrets) }}",
+            VARIABLES_JSON: "${{ toJSON(vars) }}"})
+        self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["run"])
+        self.assertNotIn("checkout", json.dumps(job), "the build root, not a runner clone, is deployed")
+
 
 if __name__ == "__main__":
     unittest.main()
