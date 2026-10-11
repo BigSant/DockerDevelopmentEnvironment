@@ -51,9 +51,11 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(set(project.model()['services']), set(active) | {'php-fpm-base', 'php-fpm-core'})
         self.assertEqual(Path(active['php-fpm']['build']['dockerfile']), ROOT / 'docker/docker/php-fpm/project/Dockerfile')
         self.assertEqual(project.settings['EXTRA_COMPOSE_FILES'], '')
-        self.assertEqual((app / 'env/common.env').read_text(), 'PROJECT_NAME=new-shop\nCI_PROVIDER=bitbucket\n')
-        self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line},
+        self.assertEqual((app / 'env/common.env').read_text(), '# Project\nPROJECT_NAME=new-shop\nCI_PROVIDER=bitbucket\n')
+        self.assertEqual({line.split('=', 1)[0] for line in (app / 'env/local.env').read_text().splitlines() if line and not line.startswith('#')},
                          {'DOMAIN', 'DATABASE_USER', 'DATABASE_NAME', 'DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD'})
+        self.assertEqual([line for line in (app / 'env/local.env').read_text().splitlines() if line.startswith('#')],
+                         ['# Address', '# Database'])
         self.assertEqual(project.settings['LOCALHOST_PORT'], '0')
         self.assertEqual(project.profiles, '')
         self.assertRegex(active['database']['image'], r'-s[0-9a-f]{12}$')
@@ -182,7 +184,7 @@ class CreateProjectTest(unittest.TestCase):
                 self.assertEqual(app.parent.name, normalized)
                 project = Project(app)
                 self.assertEqual(project.settings['PROJECT_NAME'], normalized)
-                self.assertEqual((app / 'env/common.env').read_text(), f'PROJECT_NAME={normalized}\nCI_PROVIDER=bitbucket\n')
+                self.assertEqual((app / 'env/common.env').read_text(), f'# Project\nPROJECT_NAME={normalized}\nCI_PROVIDER=bitbucket\n')
                 self.assertEqual(project.settings['DATABASE_NAME'], normalized.replace('-', '_'))
                 self.assertEqual(project.settings['DOMAIN'], normalized.replace('_', '-') + '.local')
                 self.assertEqual((app / '.idea/.name').read_text(), entered + '\n')

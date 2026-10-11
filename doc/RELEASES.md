@@ -20,6 +20,14 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   after the next `make setup` until it runs `make schema-export` and `make schema-resolve` (or sets
   `DATABASE_AS_CODE=off`).
 
+### Env files written in sections
+
+- `create-project`, `make init`, `make bootstrap` and `make test-init` put a key they add under its
+  section header (`# Project`, `# Versions`, `# PrestaShop`, `# Services`, `# Address`, `# Access`,
+  `# Database`, `# PrestaShop keys`, `# Database as code`, `# Runtime`, `# Tools`), sections in that
+  order, instead of appending one long list. Existing lines are still replaced in place; keys setup does
+  not know go last. The grouped templates use the same sections. The catalogue is `docker/env_layout.py`.
+
 ### PHP 7.2 image builds again
 
 - `php:7.2-fpm` is Debian buster, whose mirrors moved to `archive.debian.org`; the 7.2 Dockerfile now

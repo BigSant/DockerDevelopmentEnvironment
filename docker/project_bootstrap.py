@@ -10,6 +10,7 @@ import socket
 import subprocess
 import tempfile
 
+from env_layout import insert
 from project_environment import initialize_directories
 from project_ide import initialize_ide, replace_file
 
@@ -48,7 +49,7 @@ def set_env_values(path, values):
         else:
             raise ValueError(f'Cannot store {key} safely in an env file')
         pattern = rf'^{re.escape(key)}=.*$'
-        contents = re.sub(pattern, lambda m: line, contents, flags=re.M) if re.search(pattern, contents, re.M) else (contents.rstrip()+'\n' if contents.strip() else '')+line+'\n'
+        contents = re.sub(pattern, lambda m: line, contents, flags=re.M) if re.search(pattern, contents, re.M) else insert(contents, key, line)
     replace_file(path, contents.encode(), private=True)
 
 

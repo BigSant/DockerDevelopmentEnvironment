@@ -13,6 +13,7 @@ setup/docker/.env → projekto env/common.env → projekto env/<ENV>.env
 - `env/common.env` – bendri projekto nustatymai visoms aplinkoms. Commit'inamas, slaptažodžių jame nėra.
 - `env/<ENV>.env` – vienos aplinkos reikšmės ir slaptažodžiai (`local.env`, `test.env`, `stage.env`, `prod.env`). Į Git nededami. Vietoj jų commit'inami `*.env.example` be slaptažodžių.
 - `ENV=test` skaito `test.env`, o ne `local.env`.
+- Kai setup pats įrašo reikšmę (`create-project`, `make init`, `make bootstrap`, `make test-init`), ją deda po sekcijos antrašte (`# Project`, `# Versions`, `# PrestaShop`, `# Services`, `# Address`, `# Access`, `# Database`, `# PrestaShop keys`, `# Database as code`, `# Runtime`, `# Tools`), sekcijas – šia tvarka; trūkstamą sekciją sukuria. Sekcija baigiasi tuščia eilute. Esama eilutė keičiama vietoje, nežinomi raktai rašomi failo gale. Sąrašas: [env_layout.py](../../docker/env_layout.py).
 
 Pavyzdys: visur PHP 8.4, bet DB slaptažodis kiekvienoje aplinkoje savas.
 
