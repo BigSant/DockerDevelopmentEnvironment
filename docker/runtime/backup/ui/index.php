@@ -1,6 +1,7 @@
 <?php
 // Backup UI: every table of the project database and its extra schemas (DATABASE_EXTRA_SCHEMAS, one tab
-// each) with its table registry line (project, profile default or none) and a suggestion; locally (ENV=local/test) it edits app/database/table-registry.txt, which the
+// each) that the project classifies: its registry line or none yet, with a suggestion. Standard PrestaShop tables
+// follow setup's profile for every project and are not listed (they change in setup); locally (ENV=local/test) it edits app/database/table-registry.txt, which the
 // developer then commits. Servers only show it: there the registry changes through git.
 // Reached only through nginx-proxy with the BACKUP_ALLOWED_IPS / ALLOWED_IPS allowlist.
 // Self-contained on purpose: no web fonts, scripts or styles from elsewhere.
@@ -76,7 +77,7 @@ $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET'
 $schemas = databaseSchemas();
 $asked = isset($_POST['schema']) ? (string) $_POST['schema'] : (isset($_GET['schema']) ? (string) $_GET['schema'] : '');
 $schema = in_array($asked, $schemas, true) ? $asked : $schemas[0];
-$view = isset($_GET['view']) ? (string) $_GET['view'] : 'unclassified';
+$view = isset($_GET['view']) && in_array($_GET['view'], array('unclassified', 'project', 'all'), true) ? (string) $_GET['view'] : 'unclassified';
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 // A click on a column header sorts by it; a second click reverses the order.
 const SORTS = array('table', 'rows', 'size', 'source', 'group', 'base', 'live');
@@ -113,6 +114,11 @@ if ($method === 'POST') {
     } else {
         $name = isset($_POST['table']) ? (string) $_POST['table'] : '';
         if (!isset($tables[$name])) { http_response_code(404); exit("Unknown table.\n"); }
+        $current = tablesMatch($registry, $name);
+        if ($current && $current[0] === 'profile') {
+            http_response_code(403);
+            exit("A standard PrestaShop table follows setup's profile; change it in setup.\n");
+        }
         if ($path === '/remove') {
             $changes[$name] = null;
         } else {
@@ -148,6 +154,8 @@ $bytes = 0;
 foreach ($tables as $name => $table) {
     $match = tablesMatch($registry, $name);
     $source = $match ? $match[0] : 'unclassified';
+    // Standard PrestaShop tables follow setup's profile: counted, not listed.
+    if ($source === 'profile') { $counts['profile']++; continue; }
     $counts['all']++;
     $counts[$source]++;
     if ($match && $match[3] === 'drop') $counts['drop']++;
@@ -255,8 +263,10 @@ echo '<div class="help"><p>Every table needs a rule. A table without one (red) s
     . '<div><h3>LIVE <span>– make db-import, stage/prod backups</span></h3><dl>'
     . '<dt>import</dt><dd>its rows are loaded and kept in backups</dd>'
     . '<dt>skip</dt><dd>structure only: data that rebuilds itself or is not needed (cache, logs, indexes)</dd></dl></div>'
-    . '</div><p class="note">Source: <b>project</b> – your line (Remove deletes it) · <b>profile</b> – setup\'s default for a standard PrestaShop table '
-    . '(Save overrides it) · <b>none</b> – no rule yet; the dashed fields hold a suggestion from the name and columns.</p></div>';
+    . '</div><p class="note">Listed: the tables this project classifies – <b>project</b> (a line in the file; Remove deletes it) or <b>none</b> '
+    . '(no rule yet; the dashed fields hold a suggestion from the name and columns). '
+    . ($counts['profile'] ? 'The ' . $counts['profile'] . ' standard PrestaShop tables are not listed: setup\'s profile classifies them for every project and they change in setup.' : '')
+    . '</p></div>';
 
 $at = '&schema=' . rawurlencode($schema);
 $hidden = '<input type="hidden" name="schema" value="' . h($schema) . '">';
@@ -271,15 +281,14 @@ if (count($schemas) > 1) {
 }
 
 echo '<div class="stats">'
-    . '<div class="stat"><b>' . $counts['all'] . '</b><span>tables</span></div>'
+    . '<div class="stat"><b>' . $counts['all'] . '</b><span>project tables</span></div>'
     . '<div class="stat' . ($counts['unclassified'] ? ' bad' : '') . '"><b>' . $counts['unclassified'] . '</b><span>without a rule</span></div>'
     . '<div class="stat"><b>' . $counts['project'] . '</b><span>project lines</span></div>'
-    . '<div class="stat"><b>' . $counts['profile'] . '</b><span>profile defaults</span></div>'
     . '<div class="stat"><b>' . $counts['drop'] . '</b><span>marked drop</span></div>'
     . '<div class="stat"><b>' . h(size($bytes)) . '</b><span>data + index</span></div></div>';
 
 echo '<div class="bar">';
-foreach (array('unclassified' => 'Without a rule', 'project' => 'Project lines', 'profile' => 'Profile defaults', 'all' => 'All') as $key => $label) {
+foreach (array('unclassified' => 'Without a rule', 'project' => 'Project lines', 'all' => 'All') as $key => $label) {
     echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . $at . ($query !== '' ? '&q=' . rawurlencode($query) : '')
         . '&sort=' . $sort . ($descending ? '&dir=desc' : '') . '">' . h($label) . ' (' . $counts[$key] . ')</a>';
 }
