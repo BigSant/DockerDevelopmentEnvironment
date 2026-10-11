@@ -20,6 +20,20 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   after the next `make setup` until it runs `make schema-export` and `make schema-resolve` (or sets
   `DATABASE_AS_CODE=off`).
 
+### Newest server backup with make db-pull
+
+- **`make db-pull [from=prod|stage]`** downloads the newest backup the setup-server keeps of the project
+  (nightly, backup now or pre-deploy, whichever is newest) over SSH into `.generated/backups` (0600) and
+  prints the import command; `import=1` also loads it like `make db-import` (`backup=1` first backs up the
+  local DB). A file already downloaded is not fetched again; a cut download is not kept. LIVE is never
+  reached.
+- Settings: `BACKUP_SSH` (the setup-server account on the VPN, e.g. `setup@10.8.0.14`, in `common.env`),
+  `BACKUP_SERVER_PROJECT` (the project's directory on the server; default `PROJECT_NAME`), `BACKUP_SSH_KEY`
+  (another private key, in `local.env`).
+- The server side is setup-server's `bin/add-backup-key`: the developer's public key works only from the
+  VPN network and only for this download (`from=`, `restrict`, a forced command), and every request is
+  logged. The backup holds real customer data; the command says so.
+
 ### The table registry covers the extra schemas
 
 - A table of `DATABASE_EXTRA_SCHEMAS` is named `schema.table` in `database/table-registry.txt` (`*` works

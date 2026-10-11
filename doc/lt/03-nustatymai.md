@@ -145,6 +145,9 @@ Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stag
 | `SCHEMA_DIRECTORY` | `app/database/schema` | Kitas schemos snapshot'o katalogas nuo projekto šaknies. Su `DATABASE_AS_CODE=off` nenaudojamas. |
 | `POST_IMPORT_SQL_DIRECTORY` | `database/after-import` šalia Makefile | Kitas after-import katalogas nuo projekto šaknies. |
 | `FIXTURES_DIRECTORY` | Tuščias | Fixtures katalogas nuo projekto šaknies, pvz. `app/database/fixtures`. |
+| `BACKUP_SSH` | Tuščias | `make db-pull`: setup-server paskyra VPN adresu, pvz. `setup@10.8.0.14`. Laikyk `common.env`. |
+| `BACKUP_SERVER_PROJECT` | `PROJECT_NAME` | Projekto katalogo vardas serveryje (`projects/<vardas>`, pvz. `asana_tracker`). |
+| `BACKUP_SSH_KEY` | Tuščias | Kitas privatus SSH raktas `make db-pull` (pvz. `~/.ssh/kopijoms_ed25519`); laikyk `local.env`. |
 | `INTEGRATIONS_ENABLED` | Tuščias | Integracijos, kurias po užkėlimo palikti įjungtas, per tarpus. |
 | `MAIL_MODE` | `auto` | `auto`, `off`, `mailpit`, `preserve`. Žr. [paštas](12-cache-ir-hibridines-aplinkos.md#paštas-mail_mode). |
 

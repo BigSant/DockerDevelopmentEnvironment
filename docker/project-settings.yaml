@@ -57,6 +57,10 @@ services:
       # Database as code (schema snapshot, registry, migrations, data sets, commit hook): on unless off.
       DATABASE_AS_CODE: ${DATABASE_AS_CODE-}
       SCHEMA_DIRECTORY: ${SCHEMA_DIRECTORY-}
+      # make db-pull: the setup-server account (user@host on the VPN), the project's directory there, a key.
+      BACKUP_SSH: ${BACKUP_SSH-}
+      BACKUP_SERVER_PROJECT: ${BACKUP_SERVER_PROJECT-}
+      BACKUP_SSH_KEY: ${BACKUP_SSH_KEY-}
       POST_IMPORT_SQL_DIRECTORY: ${POST_IMPORT_SQL_DIRECTORY-}
       FIXTURES_DIRECTORY: ${FIXTURES_DIRECTORY-}
       PHPSTAN_BASELINE_FILE: ${PHPSTAN_BASELINE_FILE-}

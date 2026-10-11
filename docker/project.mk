@@ -4,7 +4,7 @@ PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_
 PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
-.PHONY: init doctor pull shell ide-init ide-refresh db-backup db-prepare bootstrap test-init setup-info
+.PHONY: init doctor pull shell ide-init ide-refresh db-backup db-pull db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
@@ -21,6 +21,7 @@ help:
 	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
 	@echo 'db-backup [file=backup.sql.gz]; setup-info: shared version'
+	@echo 'db-pull [from=prod|stage] [import=1] [backup=1]: newest server backup over SSH (BACKUP_SSH)'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
 	@echo 'check / config: validate / render shared sources without starting containers'
@@ -118,6 +119,9 @@ db-dataset db-load:
 
 db-backup:
 	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),)
+
+db-pull:
+	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(import)),--import,) $(if $(filter 1,$(backup)),--backup,)
 
 test-init:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(refresh)),--refresh-test,)

@@ -259,6 +259,38 @@ Atkūrimas yra tas pats `make db-import`, todėl po jo vėl vykdomi after-import
 
 Jei projektas turi [papildomų schemų](#papildomos-schemos), kopija apima jas visas ir atkuria jas visas.
 
+### Naujausia serverio kopija (db-pull)
+
+Kai reikia veikiančios aplinkos su tikrais duomenimis, nebūtina prašyti dump'o: setup-server kas naktį (ir prieš kiekvieną deploy'ų) daro kopijas, o programuotojas naujausią parsisiunčia per SSH. LIVE serveris neliečiamas.
+
+Vieną kartą:
+
+1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas>`. Raktas veiks tik iš VPN ir tik kopijoms gauti (be shell'o).
+2. `env/common.env` (bendra visiems):
+
+```dotenv
+BACKUP_SSH=setup@10.8.0.14           # setup-server paskyra VPN adresu
+BACKUP_SERVER_PROJECT=asana_tracker  # projekto katalogas serveryje (projects/<vardas>); numatyta PROJECT_NAME
+```
+
+Jei raktas ne numatytasis, `env/local.env`: `BACKUP_SSH_KEY=~/.ssh/kopijoms_ed25519`.
+
+Kaskart (prisijungus prie VPN):
+
+```bash
+make db-pull                 # naujausia prod kopija -> .generated/backups (0600), parašo importo komandą
+make db-pull from=stage      # stage
+make db-pull import=1        # atsisiunčia ir iškart užkelia (kaip make db-import: registras, after-import, migracijos)
+make db-pull import=1 backup=1   # prieš užkeliant pasidaro vietinės DB kopiją
+```
+
+- Imama naujausia tos aplinkos kopija (naktinė, „backup dabar“ ar prieš deploy'ų). Jau parsisiųsta antrą kartą nesiunčiama.
+- Kopija daroma pagal registrą (stage/prod): `skip` lentelės joje tik su struktūra.
+- Nutrūkęs atsisiuntimas neišsaugomas (`.sql.gz` patikrinamas iki galo).
+- **Kopijoje yra tikri klientų duomenys.** Failas privatus (`0600`); ištrink, kai nebereikia. Kasdieniam darbui be asmens duomenų – [dev rinkinys](#f-bazinis-rinkinys).
+- Kopija su [papildomomis schemomis](#papildomos-schemos) turi serverio schemų vardus (`USE`): vietinis `DATABASE_NAME` ir schemos turi sutapti su serverio.
+- Klaida „Cannot reach the backup server“ – patikrink VPN, `BACKUP_SSH` ir ar raktas įrašytas serveryje.
+
 ## H. Fixtures
 
 Fixtures – papildomi SQL rinkiniai, pvz. testams reikalingi įrašai.

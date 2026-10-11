@@ -57,6 +57,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make schema-resolve` | Klasifikuoja registre nežinomas lenteles (įtraukti / pašalinti). |
 | `make db-backup [file=…]` | Sukuria DB kopiją (`.generated/backups/`). |
 | `make db-backup-prune [apply=1]` | Peržiūrėti / ištrinti senas kopijas. |
+| `make db-pull [from=prod\|stage] [import=1] [backup=1]` | Parsisiunčia naujausią setup-server kopiją per SSH (`BACKUP_SSH`), su `import=1` ir užkelia. Žr. [db-pull](07-duomenu-baze.md#naujausia-serverio-kopija-db-pull). |
 | `make db-fixtures-plan set=…` / `make db-fixtures-load set=…` | Peržiūrėti / įkelti fixtures rinkinį. |
 | `make db-restrict-grants` | Vieną kartą susiaurina senos DB teises, root gauna atskirą slaptažodį. |
 | `make db-monitor-user` | Sukuria arba atnaujina DB monitoriaus vartotoją. |

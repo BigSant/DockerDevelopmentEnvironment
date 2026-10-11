@@ -352,7 +352,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "schema-commit", "schema-resolve", "db-migrate", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-pull", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
@@ -365,7 +365,9 @@ def main():
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
                         'deploy-variables: also replace the Bitbucket / GitHub variables that exist')
-    parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600)')
+    parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600); '
+                        'db-pull: stage or prod (default prod)')
+    parser.add_argument('--import', dest='import_now', action='store_true', help='db-pull: load the downloaded backup (as db-import)')
     parser.add_argument('--token-file', help='deploy-variables: access token file (0600); default BITBUCKET_ACCESS_TOKEN, '
                         'on GitHub GH_TOKEN or GITHUB_TOKEN')
     parser.add_argument('--names', action='store_true', help='deploy-variables: print the list only (no network)')
@@ -518,6 +520,15 @@ def main():
         elif args.action in ("schema-export", "schema-check", "schema-hook-install"):
             {"schema-export": export_schema, "schema-check": check_schema,
              "schema-hook-install": install_schema_hook}[args.action](project)
+        elif args.action == "db-pull":
+            from database_pull import pull
+            target = pull(project, args.source or 'prod')
+            if args.import_now:
+                plan = plan_import(project, str(target))
+                check_dump_tables(project, plan[0])
+                import_database(project, plan, backup=args.backup)
+            else:
+                print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
         elif args.action in ("db-import", "db-import-plan"):
             plan = plan_import(project, args.dump)
             # Every dump table must be classified; the plan only reports, the import may ask.
