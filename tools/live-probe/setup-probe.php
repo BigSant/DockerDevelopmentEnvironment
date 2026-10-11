@@ -2384,8 +2384,9 @@ function sp_plan($r)
         $service_notes[] = 'cron: ' . $cron_jobs . ' crontab line(s)' . (sp_get((array) $ps, 'cron_modules') ? ', modules ' . implode(', ', $ps['cron_modules']) : '');
     }
     $common[] = sp_entry('SERVICES', implode(' ', $services), $service_notes ? implode('; ', $service_notes) : 'no cache or cron use found',
-        'session handler, application cache, crontab', $services ? 'live' : 'default',
-        'local.env usually adds the tools: SERVICES="pma mailpit' . ($services ? ' ' . implode(' ', $services) : '') . '"');
+        'session handler, application cache, crontab', $services ? 'live' : 'hint',
+        'local.env usually adds the tools: SERVICES="pma mailpit' . ($services ? ' ' . implode(' ', $services) : '') . '"',
+        !$services);
     if ($platform['type'] !== 'prestashop' && $platform['type'] !== 'thirtybees') {
         $names = array();
         foreach ((array) sp_get($platform['config'], 'env_names', array()) as $name) {
