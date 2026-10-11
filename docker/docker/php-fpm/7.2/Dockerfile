@@ -10,6 +10,13 @@ ARG PHP_VERSION=""
 ARG APCU_VERSION
 ENV ACCEPT_EULA=Y
 
+# php:7.2-fpm is Debian buster, which moved to archive.debian.org (as for 7.0 and 7.1).
+RUN sed -i \
+    -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+    -e 's|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+    -e '/buster-updates/d' \
+    /etc/apt/sources.list
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libmcrypt-dev \
