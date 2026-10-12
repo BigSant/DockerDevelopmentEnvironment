@@ -58,9 +58,11 @@ RUN set -eu; mkdir -p /opt/prestashop/release; \
     fi; \
     rm -rf /opt/prestashop/release-image
 
-# Setup runtime (start, templates, PrestaShop adapters, cron) travels in the image so a release
-# target needs no setup checkout; local development mounts the checkout over it.
+# Setup runtime (start, templates, PrestaShop adapters, cron) and the profiles' table registry defaults
+# (the backup service reads them) travel in the image so a release target needs no setup checkout;
+# local development mounts the checkout over them.
 COPY /runtime/ /opt/setup/runtime/
+COPY /database-profile/ /opt/setup/database-profile/
 
 FROM base AS env-local
 FROM base AS env-prod

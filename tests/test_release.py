@@ -70,6 +70,18 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(php['user'], '1012:1013')
         self.assertEqual(model['name'], project.name)
 
+    def test_the_backup_service_reads_the_profiles_from_the_image(self):
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('SERVICES=backup\n')
+        project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=shop-stage\n'
+                             'BACKUP_ALLOWED_IPS=10.8.0.0/24\n')
+        model = release_model(project, '/home/shop/site')
+        targets = [volume['target'] for volume in model['services']['backup']['volumes']]
+        self.assertNotIn('/opt/setup/database-profile', targets, 'baked into the image, not mounted')
+        self.assertNotIn(str(ROOT), json.dumps(model))
+        dockerfile = (ROOT / 'docker/Dockerfile').read_text()
+        self.assertIn('COPY /database-profile/ /opt/setup/database-profile/', dockerfile)
+
     def test_a_release_never_comes_from_uncommitted_setup(self):
         dirty = subprocess.CompletedProcess([], 0, 'v2.0.0-3-gabc1234-dirty\n', '')
         with patch('project_release.subprocess.run', return_value=dirty):

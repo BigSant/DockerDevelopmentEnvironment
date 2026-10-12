@@ -6,6 +6,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### The backup service can be released
+
+- **The profiles' table registry defaults travel in the PHP image** (`/opt/setup/database-profile`, like the
+  runtime). A stage/prod release with `SERVICES=backup` stopped with "backup mounts a setup file
+  (…/database-profile); the target has no setup checkout". Local development still mounts the checkout.
+
 ### A deploy brings setup up to the version its project needs
 
 - **On a setup-server worker** (`SETUP_SERVER_ROOT` from the runner, the shared checkout of its own account),
