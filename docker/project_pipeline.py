@@ -20,8 +20,11 @@ which only identifies the commit (BITBUCKET_COMMIT, GITHUB_SHA). Two layouts:
       required unless ROLLBACK=yes.
 
 Before anything changes: the required Deployment variables (setup's and DEPLOY_REQUIRED_VARIABLES)
-must be set. Then env/<env>.env is written from the deployed commit's env/<env>.env.example (plus
-the runner account's APP_UID/APP_GID when DEPLOY_CONTEXT=default deploys to this same host),
+must be set. Then env/<env>.env is written from the deployed commit's env/<env>.env.example plus the
+deploy target setup-server registered in the build root (target.env: DEPLOY_CONTEXT, DEPLOY_SSH,
+DEPLOY_PATH, APP_UID, APP_GID; the example must not name them). Without target.env the example names
+the target itself (plus the runner account's APP_UID/APP_GID when DEPLOY_CONTEXT=default deploys to
+this same host).
 IMAGES=yes runs make release + make deploy-images, then make deploy (BACKUP=no: backup=0) or
 make deploy rollback=1. A failure returns the checkout and env file to the previously live commit,
 unless this run already restarted the containers on the new images: then nothing is undone and the
@@ -35,7 +38,8 @@ import re
 import subprocess
 import sys
 
-from project_env_files import file_settings, names_setting, require_setup_version
+from project_env_files import (TARGET_KEYS, file_settings, names_setting, read_dotenv, require_setup_version,
+                               target_file, target_settings)
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
 # The deployment environment names of both providers: staging -> ENV=stage, production -> ENV=prod.
@@ -228,16 +232,27 @@ class Step:
         return result.stdout.strip()
 
     def write_env(self):
-        """env/<env>.env: the checked-out example, plus this account's ids when it deploys to this host."""
+        """env/<env>.env: the checked-out example plus the server's deploy target (target.env)."""
         example = self.directory / f'env/{self.environment}.env.example'
         if not example.is_file():
             raise Refusal(f'env/{self.environment}.env.example is missing in commit {self.git("rev-parse", "HEAD")[:12]}')
         text = example.read_text()
         if text and not text.endswith('\n'):
             text += '\n'
+        target = target_settings(self.directory)
         values, _ = file_settings(self.directory, self.environment)
         self.same_host = values.get('DEPLOY_CONTEXT') == 'default' and not values.get('DEPLOY_SSH')
-        if self.same_host and not values.get('APP_UID'):
+        if target:
+            named = [key for key in TARGET_KEYS if key in read_dotenv(example)]
+            if named:
+                raise Refusal(f"env/{self.environment}.env.example sets {' '.join(named)}, but the deploy target is "
+                              f"the server's ({target_file(self.directory)}): remove them from the example")
+            text += "# Added by make pipeline-deploy from setup-server's target.env: where this server deploys.\n"
+            text += ''.join(f'{key}={target[key]}\n' for key in TARGET_KEYS if key in target)
+        elif not values.get('DEPLOY_PATH'):
+            raise Refusal(f'No deploy target: {target_file(self.directory)} is missing (setup-server registers it: '
+                          f'sudo bin/add-project) and env/{self.environment}.env.example sets no DEPLOY_PATH')
+        elif self.same_host and not values.get('APP_UID'):
             text += f'# Added by make pipeline-deploy: the runner account owns the build root and the target.\n' \
                     f'APP_UID={os.getuid()}\nAPP_GID={os.getgid()}\n'
         path = self.directory / f'env/{self.environment}.env'

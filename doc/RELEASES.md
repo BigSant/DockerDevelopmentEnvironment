@@ -4,6 +4,20 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### The server owns the deploy target (target.env)
+
+- **`target.env` in the build root** (beside `app/`), written by setup-server's `bin/add-project`, names
+  where the server deploys: `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`.
+  `make pipeline-deploy` appends it to `env/<env>.env`; stage/prod commands (the secret store lookup too)
+  read it.
+- **The project's `env/<env>.env.example` must not name them** when `target.env` exists: the deploy is
+  refused before anything changes. Without `target.env` and without `DEPLOY_PATH` in the example the step
+  stops with `No deploy target`.
+- **Migrating:** register the target (`sudo bin/add-project …` on the setup-server, setup-server README),
+  then remove `DEPLOY_*` and `APP_UID`/`APP_GID` from `env/stage.env.example` / `env/prod.env.example`.
+
 ## 2.5.0
 
 ### Stage/prod keep their Deployment variables (secrets service)

@@ -93,6 +93,13 @@ class SecretStoreTest(unittest.TestCase):
         for command in calls:
             self.assertEqual(command[:3], ["docker", "--context", "shop-live"])
 
+    def test_the_server_registered_target_names_the_context(self):
+        from project_env_files import target_file
+        target_file(self.app).write_text("DEPLOY_CONTEXT=registered-ctx\nDEPLOY_PATH=/srv/x\n")
+        run, calls = inspect(SECRETS)
+        fill_from_store(self.app, "stage", {}, run)
+        self.assertEqual(calls[0][:3], ["docker", "--context", "registered-ctx"])
+
     def test_the_stage_model_holds_references_in_a_sleeping_container_without_network(self):
         with mock.patch.dict(os.environ, SECRETS):
             project = Project(self.app, "stage")

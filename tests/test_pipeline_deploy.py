@@ -169,6 +169,8 @@ class OneRepositoryTest(Fixture):
                               "env/prod.env.example": example.format("E"), "config/mark": "E\n"}))
         # F has an env file the reader refuses.
         commits.append(("F", {"env/common.env": COMMON, "env/prod.env.example": "MARK=F\nBROKEN='open\n", "config/mark": "F\n"}))
+        # G leaves the deploy target to the server (target.env).
+        commits.append(("G", {"env/common.env": COMMON, "env/prod.env.example": "MARK=G\n", "config/mark": "G\n"}))
         origin, self.commits = self.repository("environment", commits)
         self.app = self.work / "root/app"
         git(self.work, "clone", "-q", str(origin), str(self.app))
@@ -266,6 +268,27 @@ class OneRepositoryTest(Fixture):
         self.assert_out("env/prod.env.example:2: BROKEN has no closing single quote")
         self.assert_out("Nothing was deployed: the build root is back")
         self.assert_root("A")
+
+    def test_the_server_registers_the_deploy_target(self):
+        target = self.work / "root/target.env"
+        target.write_text("DEPLOY_CONTEXT=default\nDEPLOY_SSH=\nDEPLOY_PATH=/srv/registered\nAPP_UID=4242\nAPP_GID=4243\n")
+        self.run_step(0, REF=self.commits["G"], IMAGES="yes")
+        env = parse_dotenv((self.app / "env/prod.env").read_text())
+        self.assertEqual({key: env[key] for key in ("DEPLOY_CONTEXT", "DEPLOY_PATH", "APP_UID", "APP_GID")},
+                         {"DEPLOY_CONTEXT": "default", "DEPLOY_PATH": "/srv/registered", "APP_UID": "4242", "APP_GID": "4243"})
+        self.assert_log("make deploy-images ENV=prod transfer=0")
+        self.assert_root("G")
+        # An example that still names the target is refused: one owner only.
+        self.run_step(64, REF=self.commits["A"])
+        self.assert_out("env/prod.env.example sets DEPLOY_CONTEXT DEPLOY_SSH DEPLOY_PATH, but the deploy target is the server's")
+        self.assert_root("G")
+        target.write_text("DEPLOY_PATH=/srv/x\nDATABASE_PASSWORD=no\n")
+        self.run_step(64, REF=self.commits["G"])  # checked before anything changes
+        self.assert_out("holds only DEPLOY_CONTEXT DEPLOY_SSH DEPLOY_PATH APP_UID APP_GID")
+        target.unlink()
+        self.run_step(64, REF=self.commits["G"])
+        self.assert_out("No deploy target:")
+        self.assert_root("G")
 
     def test_the_checkout_follows_what_setup_deployed(self):
         self.run_step(0, FAKE_DEPLOYED=self.commits["B"])

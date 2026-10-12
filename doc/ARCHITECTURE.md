@@ -213,8 +213,10 @@ ENV from the deployment environment (staging/production); `REF` (aliases `APP_RE
 (REF, the pipeline commit, or the history's rollback target) and follows the history afterwards; a
 separate code repository keeps the environment checkout on the pipeline commit and deploys REF of
 `app/public`, which is only fetched. Order: refusals before any change (exit 64; required Deployment
-variables included) → fetch → checkout → `env/<env>.env` from the example (+ the runner's `APP_UID/APP_GID`
-when `DEPLOY_CONTEXT=default` without `DEPLOY_SSH`) → the same checks with the deployed commit's files →
+variables included) → fetch → checkout → `env/<env>.env` from the example + the build root's `target.env`
+(the deploy target setup-server registers: `DEPLOY_CONTEXT/SSH/PATH`, `APP_UID/GID`; an example naming
+them is refused; without `target.env` the example's own target, + the runner's ids on the same host)
+→ the same checks with the deployed commit's files →
 `make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy`. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.

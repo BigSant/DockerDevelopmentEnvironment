@@ -166,10 +166,10 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `APP_UID`, `APP_GID` | Tuščias | Stage/prod: hosting'o (DirectAdmin) vartotojo skaitiniai ID. Konteineriai veikia šiuo vartotoju. Release'ui privalomi. |
+| `APP_UID`, `APP_GID` | Tuščias | Stage/prod: hosting'o (DirectAdmin) vartotojo skaitiniai ID. Konteineriai veikia šiuo vartotoju. Release'ui privalomi. Su setup-server – iš build katalogo `target.env`, ne iš projekto env failų. |
 | `DEPLOY_CONTEXT` | Tuščias | Docker context'o vardas taikinio serveriui. Su juo stage/prod konteineriai valdomi serveryje. |
 | `DEPLOY_SSH` | Tuščias | `vartotojas@host`, kur `rsync` siunčia kodą. Tuščias – vietinis kelias. |
-| `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
+| `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). `DEPLOY_CONTEXT`, `DEPLOY_SSH` ir `DEPLOY_PATH` su setup-server ateina iš build katalogo `target.env`; projekto `env/*.env.example` jų nerašo. |
 | `DEPLOY_PROTECTED_PATHS` | Tuščias | Papildomi kodo medžio keliai (nuo kodo šaknies, per tarpą), kurių deploy'us niekada neperrašo ir netrina, pvz. `"var/data/ var/log/ config/local.php"`. Katalogas baigiasi `/`, leidžiamas `*`. Papildo profilio sąrašą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 | `DEPLOY_PHP_RELOAD` | `on` | `off` – deploy'aus pabaigoje neperkrauti php-fpm (`USR2`). Be perkrovimo prod OPcache gali rodyti seną kodą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 | `DEPLOY_REQUIRED_VARIABLES` | Tuščias | Aplikacijos Deployment variables (Bitbucket) ar environment secrets (GitHub) **vardai** (per tarpus), be kurių deploy'us nepradedamas, pvz. `"SEARCH_MASTER_KEY HTPASSWD_WEB"`. Papildo setup'o privalomus (DB slaptažodžiai, PS raktai). Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |

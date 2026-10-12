@@ -14,6 +14,11 @@ import re
 DOCKER_ROOT = Path(__file__).resolve().parent
 ENTRY = re.compile(r'(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*[=:][ \t]*')
 NAME = re.compile(r'[A-Z][A-Z0-9_]*')
+# Where a server deploys stage/prod is the server's knowledge, not the project's: setup-server registers it
+# as target.env in the build root, beside the environment repository (bin/add-project).
+TARGET_KEYS = ('DEPLOY_CONTEXT', 'DEPLOY_SSH', 'DEPLOY_PATH', 'APP_UID', 'APP_GID')
+TARGET_FILE = 'target.env'
+TARGET_VALUE = re.compile(r'[A-Za-z0-9@._:/+-]*')
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r'}
 
 
@@ -84,6 +89,27 @@ def environment_file(directory, environment):
     return None
 
 
+def target_file(directory):
+    """The build root's target.env: beside app/ (or beside app/ of the older app/docker layout)."""
+    directory = Path(directory)
+    return (directory.parent.parent if directory.parent.name == 'app' else directory.parent) / TARGET_FILE
+
+
+def target_settings(directory):
+    """The deploy target setup-server registered for this build root; {} when there is none."""
+    path = target_file(directory)
+    if not path.is_file():
+        return {}
+    values = read_dotenv(path)
+    unknown = sorted(set(values) - set(TARGET_KEYS))
+    if unknown:
+        raise ValueError(f"{path} sets {', '.join(unknown)}; it holds only {' '.join(TARGET_KEYS)}")
+    odd = sorted(key for key, value in values.items() if not TARGET_VALUE.fullmatch(value))
+    if odd:
+        raise ValueError(f"{path}: unexpected characters in {', '.join(odd)}")
+    return values
+
+
 def file_settings(directory, environment):
     """(values, mentioned): the merged settings, and every key the project's files name -> its value.
 
@@ -99,6 +125,8 @@ def file_settings(directory, environment):
             entries = read_dotenv(path)
             values.update(entries)
             mentioned.update(entries)
+    if environment in ('stage', 'prod'):
+        values.update(target_settings(directory))
     return values, mentioned
 
 

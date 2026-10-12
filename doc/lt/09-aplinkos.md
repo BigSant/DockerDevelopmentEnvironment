@@ -75,13 +75,17 @@ WEBSERVER_CPUS=0.5
 PROXY_MEMORY=128m
 PROXY_CPUS=0.5
 
+PMA_ALLOWED_IPS="203.0.113.10"
+```
+
+   **Kur deploy'inama, nusprendžia serveris, ne projektas.** Su setup-server taikinį (`DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`) užregistruoja `bin/add-project` build kataloge (`target.env`), o `make pipeline-deploy` jį prideda prie `env/<env>.env`. Pavyzdys tų vardų rašyti negali: jei `target.env` yra, deploy'us tokį pavyzdį atmeta. Be setup-server (bandant iš savo kompiuterio) taikinį rašyk privačiame `env/prod.env`:
+
+```dotenv
 APP_UID=1001
 APP_GID=1001
 DEPLOY_CONTEXT=demo-prod
 DEPLOY_SSH=VARTOTOJAS@SERVERIS
 DEPLOY_PATH=/home/VARTOTOJAS/demo
-
-PMA_ALLOWED_IPS="203.0.113.10"
 ```
 
 4. **Slaptažodžiai** (`DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD`, PS raktai) į failus nerašomi. Jie ateina iš Bitbucket Deployment variables kaip proceso aplinka. Env faile jų nerašyk arba palik tuščius – tuščia reikšmė proceso aplinkos neuždengia. Bandant iš savo kompiuterio jie gali būti privačiame `env/prod.env`; tada laimi failas. Visų vardų sąrašą sudaro setup, žr. [Deployment variables](#deployment-variables).
@@ -185,7 +189,7 @@ Eiga:
 
 1. **Patikros prieš bet kokį pakeitimą:** Deployment aplinka, `REF`, `IMAGES`/`ROLLBACK`/`BACKUP` reikšmės, privalomi [Deployment variables](#deployment-variables). Jei kas nors negerai, komanda baigiasi kodu 64 ir pranešimu `Nothing was changed`.
 2. `git fetch --tags` (abiem repozitorijoms) ir commit'o checkout'as build root'e.
-3. `env/<env>.env` perrašomas iš to commit'o `env/<env>.env.example`. Kai `DEPLOY_CONTEXT=default` ir `DEPLOY_SSH` tuščias (taikinys yra pats build serveris), prie jo pridedami runner'io vartotojo `APP_UID`/`APP_GID`, jei pavyzdys jų neturi.
+3. `env/<env>.env` perrašomas iš to commit'o `env/<env>.env.example` ir build katalogo `target.env` (setup-server užregistruotas taikinys: `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`). Pavyzdys, kuris pats mini kurį nors iš jų, atmetamas; be `target.env` ir be `DEPLOY_PATH` pavyzdyje deploy'us nepradedamas (`No deploy target`). Be `target.env` lieka ankstesnė taisyklė: taikinys pavyzdyje, o kai `DEPLOY_CONTEXT=default` ir `DEPLOY_SSH` tuščias, pridedami runner'io vartotojo `APP_UID`/`APP_GID`.
 4. Patikros dar kartą su deploy'inamo commit'o sąrašais ir `SETUP_MIN_VERSION`, kad naujas privalomas vardas būtų patikrintas jau pirmame deploy'uje. Tušti neprivalomi vardai išvardijami įspėjime (`Warning: empty Deployment variables`).
 5. `IMAGES=yes`: `make release`, `make deploy-images`. Tada `make deploy ref=… backup=…` arba `make deploy rollback=1`.
 
