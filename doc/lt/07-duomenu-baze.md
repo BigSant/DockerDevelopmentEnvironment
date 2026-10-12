@@ -345,6 +345,12 @@ make db-restrict-grants
 
 Root gauna atskirą slaptažodį `DATABASE_ROOT_PASSWORD`, aplikacijos vartotojas lieka tik su teisėmis į savo DB ir [papildomas schemas](#papildomos-schemos) (be `GRANT OPTION`). Naujos DB taip kuriamos iš karto. Teisėse `_` ekranuojamas (`shop\_main`): kitaip `_` reikštų bet kurį simbolį ir vartotojas galėtų susikurti panašaus vardo DB, pvz. `shopXmain`. Seną DB, kurios vardas turi `_`, sutvarko tas pats `make db-restrict-grants`.
 
+Komanda prisijungia nauju root slaptažodžiu, root su aplikacijos slaptažodžiu arba aplikacijos vartotoju (senos DB root dažnai turėjo aplikacijos slaptažodį). Jei **abu** slaptažodžiai nauji (pvz. DB failai perkelti iš seno stack'o, o Deployment variables nustatyti iš naujo), prisijungti ji negali (`Cannot connect as root or as a privileged application user`). Tada pirma senu root slaptažodžiu suteik aplikacijos vartotojui naują slaptažodį (jį konteineris jau turi `MYSQL_PASSWORD`), paskui paleisk `make db-restrict-grants`:
+
+```bash
+docker exec -it <projektas>-<env>-mysql-<versija> bash -c 'mysql -uroot -p -e "ALTER USER <vartotojas>@\"%\" IDENTIFIED BY \"$MYSQL_PASSWORD\""'
+```
+
 ## Stebėjimo paskyra
 
 DB statistiką (Prometheus [DB metrikos](05-servisai.md#db-metrikos), [DB monitorius](05-servisai.md#db-monitorius)) skaito atskira paskyra `DATABASE_MONITOR_USER` (numatyta `<DATABASE_NAME>_monitor`), ne aplikacijos vartotojas ir ne root:

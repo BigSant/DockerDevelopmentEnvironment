@@ -189,6 +189,73 @@ def prepare_runtime_directories(project, model, deploy_path):
     return paths
 
 
+def published_ports(model):
+    """(host address, port) of every published port in the model; '' for all addresses."""
+    return sorted({(str(port.get('host_ip') or ''), str(port['published'])) for service in model['services'].values()
+                   for port in service.get('ports', []) if isinstance(port, dict) and port.get('published')})
+
+
+def check_ports(project, context, compose_project, model):
+    """Stop before anything starts when another process holds a published port on the target.
+
+    Started anyway, Docker gives up on that container's networking halfway: it is left on some of its networks
+    only, and later deploys restart it unchanged. Only a target this machine can look at is checked (its own
+    Docker, or DEPLOY_SSH); ports this project's containers publish already are theirs."""
+    ssh = project.settings.get('DEPLOY_SSH') or ''
+    if not ssh and context != 'default':
+        return
+    wanted = published_ports(model)
+    if not wanted:
+        return
+    listing = subprocess.run([*(['ssh', ssh] if ssh else []), 'ss', '-Hltn'], capture_output=True, text=True)
+    if listing.returncode:
+        return
+    own = subprocess.run(['docker', '--context', context, 'ps', '--filter', f'label=com.docker.compose.project={compose_project}',
+                          '--format', '{{.Ports}}'], capture_output=True, text=True).stdout
+    owned = set(re.findall(r'(?:^|[\s,])\[?([0-9a-fA-F.:]*?)\]?:(\d+)->', own))
+    owned_ports = {port for _, port in owned}
+    listeners = set()
+    for line in listing.stdout.splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and ':' in fields[3]:
+            address, port = fields[3].rsplit(':', 1)
+            listeners.add((address.strip('[]'), port))
+    wildcard = {'', '0.0.0.0', '*', '::'}
+    taken = [f'{address or "*"}:{port}' for address, port in wanted if port not in owned_ports and any(
+        port == held_port and (held in wildcard or address in wildcard or held == address) for held, held_port in listeners)]
+    if taken:
+        raise ValueError(f'Port {", ".join(taken)} is already in use on the target by another process (a host web server, '
+                         'another stack); free it first, nothing was started')
+
+
+def recreate_detached(project, context, compose_project, model):
+    """Remove this project's containers that miss one of the networks the model gives them; compose up recreates them.
+
+    A start that failed (a taken port) can leave a container on some of its networks only; compose sees an
+    unchanged config and just restarts it, so it never reaches its upstreams ("host not found")."""
+    ids = subprocess.run(['docker', '--context', context, 'ps', '-aq', '--filter', f'label=com.docker.compose.project={compose_project}'],
+                         capture_output=True, text=True).stdout.split()
+    if not ids:
+        return []
+    found = subprocess.run(['docker', '--context', context, 'inspect', *ids], capture_output=True, text=True)
+    if found.returncode:
+        return []
+    names = {key: (value or {}).get('name', key) for key, value in (model.get('networks') or {}).items()}
+    removed = []
+    for container in json.loads(found.stdout):
+        service = model['services'].get((container.get('Config', {}).get('Labels') or {}).get('com.docker.compose.service', ''))
+        if not service or not service.get('networks'):
+            continue
+        attached = set((container.get('NetworkSettings') or {}).get('Networks') or {})
+        missing = sorted(names.get(key, key) for key in service['networks'] if names.get(key, key) not in attached)
+        if missing:
+            name = container['Name'].lstrip('/')
+            print(f'==> {name} is not on {", ".join(missing)} (an earlier start failed halfway): recreating it', flush=True)
+            subprocess.run(['docker', '--context', context, 'rm', '-f', name], check=True, capture_output=True)
+            removed.append(name)
+    return removed
+
+
 def image_names(model):
     return sorted({service['image'] for service in model['services'].values() if service.get('image')})
 
@@ -320,6 +387,8 @@ def deploy_images(project, transfer=True):
     # The containers mount the environment files from DEPLOY_PATH: they are there before anything starts.
     sync_environment(project, deploy_path, model)
     prepare_runtime_directories(project, model, deploy_path)
+    check_ports(project, context, lock['project'], model)
+    recreate_detached(project, context, lock['project'], model)
     subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', '-',
                     'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'],
                    input=json.dumps(model), text=True, check=True)

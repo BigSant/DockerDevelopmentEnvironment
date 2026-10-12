@@ -206,10 +206,68 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
         self.assertEqual(calls[2], ['prepare', '/home/shop/site'], 'the directories exist before the containers start')
-        self.assertEqual(calls[3][:6], ['docker', '--context', 'shop-stage', 'compose', '-p', 'release-demo-stage'])
-        self.assertIn('--no-build', calls[3])
-        self.assertEqual(calls[3][6:8], ['-f', '-'], 'the model is piped, not written to disk')
+        self.assertEqual(calls[3][3:5], ['ps', '-aq'], 'containers left off their networks are found first')
+        compose = calls[-1]
+        self.assertEqual(compose[:6], ['docker', '--context', 'shop-stage', 'compose', '-p', 'release-demo-stage'])
+        self.assertIn('--no-build', compose)
+        self.assertEqual(compose[6:8], ['-f', '-'], 'the model is piped, not written to disk')
         self.assertFalse(any(directory.glob('*compose*')))
+
+    def test_a_container_missing_one_of_its_networks_is_recreated(self):
+        # A start that failed on a taken port can leave a container with only some of its networks; compose sees
+        # an unchanged config and only restarts it ("host not found in upstream" for good).
+        project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=shop-stage\n')
+        model = {'networks': {'network_app': {'name': 'shop-stage-network'}, 'network_metrics': {'name': 'shop-stage-metrics'}},
+                 'services': {'nginx-proxy': {'networks': {'network_app': {'aliases': ['x']}, 'network_metrics': {}}},
+                              'webserver': {'networks': {'network_app': None}}, 'cron': {}}}
+        inspected = [{'Name': '/shop-stage-nginx-proxy', 'Config': {'Labels': {'com.docker.compose.service': 'nginx-proxy'}},
+                      'NetworkSettings': {'Networks': {'shop-stage-metrics': {}}}},
+                     {'Name': '/shop-stage-webserver', 'Config': {'Labels': {'com.docker.compose.service': 'webserver'}},
+                      'NetworkSettings': {'Networks': {'shop-stage-network': {}}}},
+                     {'Name': '/shop-stage-cron', 'Config': {'Labels': {'com.docker.compose.service': 'cron'}},
+                      'NetworkSettings': {'Networks': {'shop-stage-default': {}}}}]
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command[3:5] == ['ps', '-aq']:
+                return subprocess.CompletedProcess(command, 0, 'a\nb\nc\n', '')
+            if command[3] == 'inspect':
+                return subprocess.CompletedProcess(command, 0, json.dumps(inspected), '')
+            return subprocess.CompletedProcess(command, 0, '', '')
+
+        with patch('project_release.subprocess.run', run), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(project_release.recreate_detached(project, 'shop-stage', 'release-demo-stage', model),
+                             ['shop-stage-nginx-proxy'])
+        self.assertEqual(calls[0][:6], ['docker', '--context', 'shop-stage', 'ps', '-aq', '--filter'])
+        self.assertIn('label=com.docker.compose.project=release-demo-stage', calls[0])
+        self.assertEqual(calls[-1], ['docker', '--context', 'shop-stage', 'rm', '-f', 'shop-stage-nginx-proxy'])
+        self.assertIn('shop-stage-network', out.getvalue())
+
+    def test_a_published_port_held_by_something_else_stops_the_deploy_first(self):
+        project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=default\n')
+        model = {'services': {'nginx-proxy': {'ports': [
+            {'host_ip': '10.8.0.14', 'published': '80', 'target': 80, 'protocol': 'tcp'},
+            {'host_ip': '10.8.0.14', 'published': '443', 'target': 443, 'protocol': 'tcp'}]}}}
+        listening = 'LISTEN 0 511 0.0.0.0:80 0.0.0.0:*\nLISTEN 0 4096 10.8.0.14:443 0.0.0.0:*\nLISTEN 0 511 [::]:80 [::]:*\n' \
+                    'LISTEN 0 4096 127.0.0.1:9102 0.0.0.0:*\n'
+
+        def target(own):
+            def run(command, **kwargs):
+                if command[0] == 'ss':
+                    return subprocess.CompletedProcess(command, 0, listening, '')
+                return subprocess.CompletedProcess(command, 0, own, '')
+            return run
+
+        with patch('project_release.subprocess.run', target('10.8.0.14:443->443/tcp\n')):
+            with self.assertRaisesRegex(ValueError, r'10\.8\.0\.14:80 .*in use on the target.*nothing was started'):
+                project_release.check_ports(project, 'default', 'release-demo-stage', model)
+        # This project's own proxy holds both: nothing to free.
+        with patch('project_release.subprocess.run', target('10.8.0.14:80->80/tcp, 10.8.0.14:443->443/tcp\n')):
+            project_release.check_ports(project, 'default', 'release-demo-stage', model)
+        # A remote Docker context without DEPLOY_SSH: no way to look, compose reports it as before.
+        with patch('project_release.subprocess.run', side_effect=AssertionError('no lookup')):
+            project_release.check_ports(project, 'shop-stage', 'release-demo-stage', model)
 
     def test_deploy_creates_the_code_and_data_directories_as_the_deploying_account(self):
         # Directories Docker creates for a missing bind source belong to root: php-fpm and MySQL, which run as

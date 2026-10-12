@@ -107,6 +107,12 @@ make deploy-images ENV=prod
 
 Nusiunčia image'us į `DEPLOY_CONTEXT` (`docker save` → `docker load`) ir paleidžia konteinerius serveryje. Compose modelis su env reikšmėmis sugeneruojamas siuntimo metu ir perduodamas tiesiai, į diską nerašomas. Jame projekto keliai pakeisti į `DEPLOY_PATH`; prieš paleidžiant ten nukopijuojami prijungiami aplinkos failai (žr. „Aplinkos failai“ žemiau). `transfer=0` – image'ai jau serveryje, tik paleisti.
 
+Prieš paleisdamas konteinerius `make deploy-images`:
+
+- **sukuria kodo ir duomenų katalogus** `DEPLOY_PATH` vietoje deploy'inančios paskyros vardu. Kitaip pirmą kartą juos sukurtų Docker kaip `root`, ir `APP_UID` konteineriai (php-fpm, MySQL) negalėtų į juos rašyti. Jei ankstesnis deploy'us katalogą paliko `root`, komanda sustoja ir parašo `chown` komandą;
+- **patikrina publikuojamus portus** (savas Docker arba `DEPLOY_SSH`): jei portą laiko kitas procesas (kompiuterio web serveris, kitas stack'as), deploy'us sustoja dar nieko nepaleidęs. Taip pat paleistas, Docker konteinerio tinklų nesukonfigūruotų iki galo;
+- **perkuria konteinerį, kuriam trūksta kurio nors modelio tinklo** (likutis po pusiau nepavykusio paleidimo, pvz. nginx-proxy tik metrics tinkle → `host not found in upstream "webserver"`). Compose tokio konteinerio pats nekeistų, nes jo konfigūracija nepasikeitusi.
+
 Pakeitus serverio env (limitus, IP sąrašus) pakartok `make deploy-images ENV=prod transfer=0`.
 
 ## Kodo deploy'us

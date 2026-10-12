@@ -6,6 +6,14 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### A failed start no longer leaves a container off its networks
+
+- **`make deploy-images` checks the published ports first** (on its own Docker or over `DEPLOY_SSH`): a port held
+  by another process (a host web server, another stack) stops the deploy before anything starts. Started anyway,
+  Docker left the container on some of its networks only.
+- **It recreates this project's containers that miss one of their networks** (left by such a start; nginx-proxy
+  answered `host not found in upstream "webserver"` and later deploys only restarted it, its config unchanged).
+
 ### Passwords for the tools on top of their IP allowlist
 
 - **`PMA_HTPASSWD`, `MAILPIT_HTPASSWD`, `CRON_HTPASSWD`, `BACKUP_HTPASSWD`** (htpasswd lines `user:hash`, separated by
