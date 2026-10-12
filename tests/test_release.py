@@ -76,6 +76,8 @@ class ReleaseTest(unittest.TestCase):
         project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=shop-stage\n'
                              'BACKUP_ALLOWED_IPS=10.8.0.0/24\n')
         model = release_model(project, '/home/shop/site')
+        self.assertNotIn('profiles', model['services']['backup'],
+                         'the model holds the selected services only; compose up would skip a profiled one')
         targets = [volume['target'] for volume in model['services']['backup']['volumes']]
         self.assertNotIn('/opt/setup/database-profile', targets, 'baked into the image, not mounted')
         self.assertNotIn(str(ROOT), json.dumps(model))

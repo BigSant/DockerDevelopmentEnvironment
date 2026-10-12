@@ -15,6 +15,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   compose gave up ("container …-php-fpm is unhealthy"). A directory left root-owned by such a deploy stops
   the next one with the `chown` command that fixes it.
 
+### Profiled services start on the target
+
+- **The release model no longer carries `profiles`.** It already holds only the selected services, but
+  `compose up` on the target runs without `COMPOSE_PROFILES`, so `SERVICES=cron` and `backup` and a
+  project's `COMPOSE_PROFILES` services (graphify) were built and then silently left out of the release.
+
 ## 2.7.0
 
 ### The backup service can be released

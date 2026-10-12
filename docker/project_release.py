@@ -66,6 +66,9 @@ def release_model(project, deploy_path):
     local_root = project.root.resolve()
     for name, service in model['services'].items():
         service.pop('build', None)
+        # The model already holds the selected services (SERVICES, COMPOSE_PROFILES); compose up on the target
+        # runs without COMPOSE_PROFILES and would skip cron, backup or a project's profiled service.
+        service.pop('profiles', None)
         volumes = []
         for volume in service.get('volumes', []):
             if volume.get('type') != 'bind':
