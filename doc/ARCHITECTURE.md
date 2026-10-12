@@ -217,7 +217,9 @@ variables included) → fetch → checkout → `env/<env>.env` from the example 
 (the deploy target setup-server registers: `DEPLOY_CONTEXT/SSH/PATH`, `APP_UID/GID`; an example naming
 them is refused; without `target.env` the example's own target, + the runner's ids on the same host)
 → the same checks with the deployed commit's files →
-`make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy`. A failure restores
+`make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy`. `project_release.sync_environment` copies the environment
+checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH` in deploy-images and deploy
+whenever `DEPLOY_PATH` is not the project root. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
 The Deployment variables list (`project_pipeline.deployment_variables`) is setup's secrets for the env

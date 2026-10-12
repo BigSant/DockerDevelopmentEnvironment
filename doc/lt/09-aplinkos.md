@@ -105,7 +105,7 @@ Sukuria visus prod image'us iš commit'into setup ir užrašo `.generated/releas
 make deploy-images ENV=prod
 ```
 
-Nusiunčia image'us į `DEPLOY_CONTEXT` (`docker save` → `docker load`) ir paleidžia konteinerius serveryje. Compose modelis su env reikšmėmis sugeneruojamas siuntimo metu ir perduodamas tiesiai, į diską nerašomas. Jame projekto keliai pakeisti į `DEPLOY_PATH`. `transfer=0` – image'ai jau serveryje, tik paleisti.
+Nusiunčia image'us į `DEPLOY_CONTEXT` (`docker save` → `docker load`) ir paleidžia konteinerius serveryje. Compose modelis su env reikšmėmis sugeneruojamas siuntimo metu ir perduodamas tiesiai, į diską nerašomas. Jame projekto keliai pakeisti į `DEPLOY_PATH`; prieš paleidžiant ten nukopijuojami prijungiami aplinkos failai (žr. „Aplinkos failai“ žemiau). `transfer=0` – image'ai jau serveryje, tik paleisti.
 
 Pakeitus serverio env (limitus, IP sąrašus) pakartok `make deploy-images ENV=prod transfer=0`.
 
@@ -123,6 +123,7 @@ make deploy ENV=prod ref=v1.4.0
    - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml` ir kt. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
    - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
    - PrestaShop moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
+   - **Aplinkos failai.** Konteineriai iš `DEPLOY_PATH` prijungia ir aplinkos repo dalis (`config/`, schemos katalogą ir pan.). Kai `DEPLOY_PATH` nėra pats šio checkout'o projekto šaknis (kitas katalogas ar serveris), jos kopijuojamos ten pagal deploy'inamą commit'ą (`rsync --delete`: iš repo pašalintas failas dingsta ir taikinyje). `.generated/` (kopijos, build būsena) niekada nekopijuojamas. Tą patį daro `make deploy-images` prieš paleisdamas konteinerius.
 4. **Projekto hook'as** `config/deploy/after-rsync.sh`, jei jis yra: vykdomas taikinio `php-fpm` konteineryje (`sh -e`, kodo šaknyje), kai naujas kodas jau ten, pvz. `php bin/console doctrine:migrations:migrate --no-interaction`. Jam nepavykus deploy'us sustoja: migracijos ir cache valymas nevykdomi, o deploy'us įrašomas į istoriją kaip nepavykęs (`"failed": "after-rsync"`), nes naujas kodas jau taikinyje. Pataisęs deploy'ink iš naujo arba grįžk `rollback=1` į ankstesnį release'ą; kitas deploy'us failus šalina lyginant su tuo, kas iš tikrųjų taikinyje.
 5. **Modulių upgrade'ai** pasikeitusiems moduliams – tik PrestaShop (PS 1.6 – per administravimo skydelį). Generic deploy'us `ps_module` lentelės neskaito.
 6. **Setup SQL migracijos**, jei projektas jas turi (`database/migrations/`, be `DATABASE_AS_CODE=off`), ir schemos ataskaita.

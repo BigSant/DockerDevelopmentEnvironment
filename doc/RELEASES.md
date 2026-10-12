@@ -4,6 +4,17 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### The environment files reach DEPLOY_PATH
+
+- **`make deploy-images` and `make deploy` copy the environment repository's mounted files** (`config/`, the
+  schema directory, ...: every bind mount from the environment checkout except the code, the data and
+  `.generated/`) to `DEPLOY_PATH` when it is not this checkout's project root - another directory or a server
+  (`rsync --delete`, over `DEPLOY_SSH` when set). Before, only the code went there, so a target other than the
+  build root ran without the project's config. `.generated/` (backups, build state) never leaves.
+- Nothing changes for a build root that is its own target (the setup-server default).
+
 ## 2.6.0
 
 ### The server owns the deploy target (target.env)
