@@ -42,10 +42,10 @@ on:
         options: ["no", "yes"]
         default: "no"
       backup:
-        description: Back up the target database before the hooks, upgrades and migrations
+        description: Back up the target database before the hooks, upgrades and migrations (yes when the deploy changes data)
         type: choice
-        options: ["yes", "no"]
-        default: "yes"
+        options: ["no", "yes"]
+        default: "no"
 
 # The step needs no GitHub API access: the build root fetches with the build server's own key.
 permissions:

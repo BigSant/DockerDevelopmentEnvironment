@@ -1,9 +1,9 @@
 """Code deploy: build a release of the application on this machine and carry it to the target with rsync.
 
-make deploy ENV=stage|prod [ref=TAG] [backup=0] [rollback=1]
+make deploy ENV=stage|prod [ref=TAG] [backup=1] [rollback=1]
   1. release: git archive of the code ref, composer install --no-dev (and PS_RELEASE_PATHS for
      PrestaShop) in the release PHP image, the project's config/deploy/build.sh (assets) if present;
-  2. a DB backup of the target to this machine, following the table registry (backup=0 skips);
+  2. with backup=1, a DB backup of the target to this machine, following the table registry (off by default);
   3. rsync of the code without --delete: files that exist only on the target (protected paths,
      vendors installed there, PrestaShop modules not in the code) stay; a file is removed only when
      the previously deployed release had it and this one does not (release manifests);
@@ -309,7 +309,7 @@ def newer(candidate, current):
         return candidate != current
 
 
-def deploy_code(project, ref=None, backup=True, rollback=False):
+def deploy_code(project, ref=None, backup=False, rollback=False):
     from project_release import release_settings
     _, deploy_path = release_settings(project)
     php_reload(project)  # a bad value stops the deploy before anything changes

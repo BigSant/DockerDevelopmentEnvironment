@@ -36,9 +36,9 @@ pipelines:
           default: "no"
           allowed-values: ["no", "yes"]
         - name: BACKUP
-          description: Back up the target database before the hooks, upgrades and migrations
-          default: "yes"
-          allowed-values: ["yes", "no"]
+          description: Back up the target database before the hooks, upgrades and migrations (yes when the deploy changes data)
+          default: "no"
+          allowed-values: ["no", "yes"]
       - step:
           <<: *deploy
           name: Deploy to stage

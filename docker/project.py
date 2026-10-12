@@ -366,7 +366,7 @@ def main():
     parser.add_argument("--ref", default="HEAD", help="Committed schema baseline for doctrine-diff (default: HEAD)")
     parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
-    parser.add_argument('--backup', action='store_true', help='Create a private backup before importing')
+    parser.add_argument('--backup', action='store_true', help='Create a private backup first (db-import, db-load, db-pull import, deploy)')
     parser.add_argument('--full', action='store_true', help='db-import: import the data of every table, ignoring registry skip rules')
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
@@ -383,7 +383,6 @@ def main():
     parser.add_argument('--allow-dirty', action='store_true', help='release: allow uncommitted setup changes (not for real releases)')
     parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
     parser.add_argument('--release-ref', help='deploy: shop tag or commit to deploy')
-    parser.add_argument('--no-backup', action='store_true', help='deploy: skip the pre-deploy DB backup')
     parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
     parser.add_argument('--name', help='module-pull: module directory name')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
@@ -516,7 +515,7 @@ def main():
             deploy_images(project, transfer=not args.no_transfer)
         elif args.action == "deploy":
             from project_deploy import deploy_code
-            deploy_code(project, args.release_ref, backup=not args.no_backup, rollback=args.rollback)
+            deploy_code(project, args.release_ref, backup=args.backup, rollback=args.rollback)
         elif args.action == "module-pull":
             from project_deploy import module_pull
             module_pull(project, args.name)

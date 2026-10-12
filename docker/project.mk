@@ -54,7 +54,7 @@ help:
 	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
 	@echo 'release ENV=stage|prod: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
-	@echo 'deploy ENV=stage|prod ref=TAG [backup=0] | rollback=1: release the code, back up, rsync, hook, upgrade, migrate'
+	@echo 'deploy ENV=stage|prod ref=TAG [backup=1] | rollback=1: release the code, (back up), rsync, hook, upgrade, migrate'
 	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
 	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
 	@echo 'deploy-variables [ENV=stage|prod] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
@@ -94,7 +94,7 @@ release:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(allow_dirty)),--allow-dirty,)
 
 deploy:
-	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 0,$(backup)),--no-backup,) $(if $(filter 1,$(rollback)),--rollback,)
+	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,)
 
 pipeline-deploy:
 	@$(RUN_PROJECT) $@

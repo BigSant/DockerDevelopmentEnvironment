@@ -25,7 +25,7 @@ deploy target setup-server registered in the build root (target.env: DEPLOY_CONT
 DEPLOY_PATH, APP_UID, APP_GID; the example must not name them). Without target.env the example names
 the target itself (plus the runner account's APP_UID/APP_GID when DEPLOY_CONTEXT=default deploys to
 this same host).
-IMAGES=yes runs make release + make deploy-images, then make deploy (BACKUP=no: backup=0) or
+IMAGES=yes runs make release + make deploy-images, then make deploy (BACKUP=yes: backup=1) or
 make deploy rollback=1. A failure returns the checkout and env file to the previously live commit,
 unless this run already restarted the containers on the new images: then nothing is undone and the
 step prints the way back.
@@ -54,7 +54,7 @@ RESERVED_PREFIXES = ('GITHUB_', 'RUNNER_', 'ACTIONS_')
 ENVIRONMENT_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 # One ref variable; the per-layout names of the former project scripts keep working.
 REF_VARIABLES = ('REF', 'APP_REF', 'SHOP_REF')
-SWITCHES = (('IMAGES', 'no'), ('ROLLBACK', 'no'), ('BACKUP', 'yes'))
+SWITCHES = (('IMAGES', 'no'), ('ROLLBACK', 'no'), ('BACKUP', 'no'))
 USAGE = 64
 # The step's make variables would leak into the make steps it starts; Bitbucket's DOCKER_HOST points
 # at its cloud Docker service and would override DEPLOY_CONTEXT (Docker reads it first). The JSON of
@@ -410,7 +410,7 @@ def run_step(step, environ, provider, deployment, ref, switches):
         if rollback:
             step.make('deploy', 'rollback=1')
         else:
-            step.make('deploy', f'ref={ref}', f'backup={0 if switches["BACKUP"] == "no" else 1}')
+            step.make('deploy', f'ref={ref}', f'backup={1 if switches["BACKUP"] == "yes" else 0}')
         state['restore'] = False
         if not step.separate:
             # Setup decides what it deployed; the checkout follows it if the two ever disagree.

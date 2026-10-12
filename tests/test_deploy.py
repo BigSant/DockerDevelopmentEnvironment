@@ -135,7 +135,7 @@ class DeployTest(unittest.TestCase):
             self.build("v9")
 
     def test_deploy_updates_code_keeps_server_files_and_rolls_back(self):
-        self.deploy(ref="v1")
+        self.deploy(ref="v1", backup=True)
         public = self.target / "app/public"
         self.assertEqual((public / "index.php").read_text(), "<?php // v1\n")
         self.assertIn("First deploy: nothing removed", self.output.getvalue())

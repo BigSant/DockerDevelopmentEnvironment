@@ -118,7 +118,7 @@ make deploy ENV=prod ref=v1.4.0
 `ref` – kodo (parduotuvės ar kitos aplikacijos) repozitorijos tag'as arba commit'as. Žingsniai, kurie skaito ar keičia aplikacijos specifinius dalykus, priklauso nuo `PROFILE`: PrestaShop dalykai vykdomi tik su `PROFILE=prestashop`, tuščias (generic) profilis jų neliečia. Eiga:
 
 1. **Release'as:** `git archive` iš kodo repozitorijos, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS` (PrestaShop), projekto `config/deploy/build.sh` (pvz. frontend'o `npm ci && npm run build`), jei jis yra.
-2. **DB kopija:** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). `backup=0` ją praleidžia.
+2. **DB kopija (tik su `backup=1`):** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). Pagal nutylėjimą nedaroma; rinkis `backup=1`, kai deploy'us keičia duomenis (migracijos, modulių upgrade'ai).
 3. **rsync** į `DEPLOY_SSH:DEPLOY_PATH/app/prod/public`:
    - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml` ir kt. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
    - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
@@ -160,7 +160,7 @@ Modulis nukopijuojamas į `app/public/modules/mymodule`. Peržiūrėk ir commit'
 make deploy ENV=prod rollback=1
 ```
 
-Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiuteris jų laiko kelis); release'ai, kurių hook'as nepavyko, ir dabartinio commit'o pakartotiniai deploy'ai praleidžiami. DB automatiškai negrąžinama: jei reikia, atkurk ją iš prieš-deploy kopijos `.generated/backups/` su `make db-import`.
+Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiuteris jų laiko kelis); release'ai, kurių hook'as nepavyko, ir dabartinio commit'o pakartotiniai deploy'ai praleidžiami. DB automatiškai negrąžinama: jei reikia, atkurk ją su `make db-import` iš prieš-deploy kopijos `.generated/backups/` (jei deploy'us buvo su `backup=1`) arba iš naujausios naktinės kopijos (setup-server).
 
 ## Bitbucket Pipelines
 
@@ -179,7 +179,7 @@ Paleidimo kintamieji (pipeline'o `variables`):
 | `REF` | Tuščias | Ką deploy'inti: tag'as arba commit'as. Viena repozitorija: tuščias reiškia pipeline commit'ą. Atskira kodo repozitorija: kodo repo ref'as, privalomas (išskyrus `ROLLBACK=yes`). Seni vardai `APP_REF` ir `SHOP_REF` irgi veikia. Jei nurodyti keli skirtingi, komanda atsisako. |
 | `IMAGES` | `no` | `yes`: prieš kodą `make release` ir `make deploy-images` (kai taikinys yra pats build serveris – `transfer=0`). Pirmam deploy'ui ir pakeitus serverio env būtina. |
 | `ROLLBACK` | `no` | `yes`: `make deploy rollback=1`. `REF` ignoruojamas. |
-| `BACKUP` | `yes` | `no`: `make deploy backup=0`, be DB kopijos. |
+| `BACKUP` | `no` | `yes`: `make deploy backup=1`, prieš hook'us ir migracijas pasidaroma DB kopija. |
 
 Du išdėstymai. Setup juos atskiria pagal tai, ar `app/public` turi savo `.git`:
 

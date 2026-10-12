@@ -4,6 +4,14 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### No pre-deploy backup unless asked for
+
+- **`make deploy` backs up the target database only with `backup=1`**; `BACKUP` in `make pipeline-deploy` and
+  the Bitbucket / GitHub templates defaults to `no` (`yes` gives `backup=1`). Choose it for a deploy that changes
+  data; the nightly backups of a setup-server worker cover the rest. `backup=0` is no longer needed.
+
 ## 2.7.1
 
 ### A first deploy starts with writable code and data directories
