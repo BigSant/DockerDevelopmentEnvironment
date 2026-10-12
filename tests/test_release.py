@@ -160,7 +160,7 @@ class ReleaseTest(unittest.TestCase):
         model = release_model(project, '/home/shop/site')
         with patch('project_release.subprocess.Popen', Save), patch('project_release.release_model', return_value=model), \
                 patch('project_release.subprocess.run', lambda command, **k: subprocess.CompletedProcess(command, 0, '', '')), \
-                contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.prepare_runtime_directories'), contextlib.redirect_stdout(io.StringIO()):
             deploy_images(project)
         self.assertIn('getmeili/meilisearch:v1.10', saved[0], 'the external image travels with docker save')
 
@@ -196,15 +196,45 @@ class ReleaseTest(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, '', '')
 
         model = release_model(project, '/home/shop/site')
+        prepare = lambda project, model, path: calls.append(['prepare', path])
         with patch('project_release.subprocess.Popen', Save), patch('project_release.subprocess.run', run), \
-                patch('project_release.release_model', return_value=model), contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.release_model', return_value=model), \
+                patch('project_release.prepare_runtime_directories', prepare), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(deploy_images(project), ['a:1', 'b:1'])
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
-        self.assertEqual(calls[2][:6], ['docker', '--context', 'shop-stage', 'compose', '-p', 'release-demo-stage'])
-        self.assertIn('--no-build', calls[2])
-        self.assertEqual(calls[2][6:8], ['-f', '-'], 'the model is piped, not written to disk')
+        self.assertEqual(calls[2], ['prepare', '/home/shop/site'], 'the directories exist before the containers start')
+        self.assertEqual(calls[3][:6], ['docker', '--context', 'shop-stage', 'compose', '-p', 'release-demo-stage'])
+        self.assertIn('--no-build', calls[3])
+        self.assertEqual(calls[3][6:8], ['-f', '-'], 'the model is piped, not written to disk')
         self.assertFalse(any(directory.glob('*compose*')))
+
+    def test_deploy_creates_the_code_and_data_directories_as_the_deploying_account(self):
+        # Directories Docker creates for a missing bind source belong to root: php-fpm and MySQL, which run as
+        # APP_UID, could not write the code directory or their data on a first deploy.
+        target = self.app.parent / 'target'
+        project = self.stage(f'APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH={target}\nDEPLOY_CONTEXT=default\n')
+        model = release_model(project, str(target))
+        runtime = project_release.runtime_directories(project, model, str(target))
+        self.assertIn(str(target / 'app/stage/public'), runtime, 'the code directory, filled later by make deploy')
+        self.assertIn(str(target / 'data/stage/mysql'), runtime)
+        self.assertFalse([path for path in runtime if '/config/' in path], 'configuration comes from the checkout')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(project_release.prepare_runtime_directories(project, model, str(target)), runtime)
+        self.assertTrue(all(Path(path).is_dir() for path in runtime))
+        locked = target / 'data/stage/mysql'
+        locked.chmod(0o500)
+        self.addCleanup(locked.chmod, 0o700)
+        with patch('project_release.os.access', lambda path, mode: Path(path) != locked), \
+                self.assertRaisesRegex(ValueError, f'not writable.*{locked}.*chown'):
+            project_release.prepare_runtime_directories(project, model, str(target))
+        project.settings['DEPLOY_SSH'] = 'shop@host.example'
+        calls = []
+        with patch('project_release.subprocess.run', lambda command, **kwargs: calls.append(command)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            project_release.prepare_runtime_directories(project, model, str(target))
+        self.assertEqual(calls[0][:5], ['ssh', 'shop@host.example', 'mkdir', '-p', '--'])
+        self.assertEqual(calls[0][5:], runtime)
 
 
 if __name__ == '__main__':

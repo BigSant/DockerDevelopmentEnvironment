@@ -4,6 +4,17 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### A first deploy starts with writable code and data directories
+
+- **`make deploy-images` creates the containers' code and data directories on `DEPLOY_PATH`** (every bind
+  mount inside the code directory or the data directory) as the deploying account before `compose up`. Before,
+  Docker created the missing ones as root on a first deploy, while the containers run as `APP_UID`: php-fpm's
+  startup hooks could not write the code directory, MySQL could not write its data, and both restarted until
+  compose gave up ("container …-php-fpm is unhealthy"). A directory left root-owned by such a deploy stops
+  the next one with the `chown` command that fixes it.
+
 ## 2.7.0
 
 ### The backup service can be released

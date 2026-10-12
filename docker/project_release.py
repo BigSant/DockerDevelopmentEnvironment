@@ -7,6 +7,7 @@ model carries env values (passwords), so it is rendered at deploy time and piped
 """
 
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -146,6 +147,45 @@ def sync_environment(project, deploy_path, model=None):
     return paths
 
 
+def runtime_directories(project, model, deploy_path):
+    """The release model's bind sources inside the code and data directories on DEPLOY_PATH: what the
+    containers write. Configuration is not among them (sync_environment copies it)."""
+    local_root = project.root.resolve()
+    on_target = lambda path: Path(deploy_path, Path(path).resolve().relative_to(local_root))
+    bases = [on_target(project.web_directory), on_target(project.data_directory)]
+    found = set()
+    for service in model['services'].values():
+        for volume in service.get('volumes', []):
+            source = Path(volume['source']) if volume.get('type') == 'bind' else None
+            if source is None or not any(source == base or source.is_relative_to(base) for base in bases):
+                continue
+            local = local_root / source.relative_to(deploy_path)
+            # File mounts are supplied by the project, like initialize_directories leaves them.
+            if local.is_file() or (local.suffix and not local.is_dir()):
+                continue
+            found.add(str(source))
+    return sorted(found)
+
+
+def prepare_runtime_directories(project, model, deploy_path):
+    """Create those directories as the deploying account before the containers start. Docker creates a missing
+    bind source as root, and the containers run as APP_UID: on a first deploy php-fpm could not write its code
+    directory nor MySQL its data, and both restarted until compose gave up on them."""
+    paths = runtime_directories(project, model, deploy_path)
+    ssh = project.settings.get('DEPLOY_SSH') or ''
+    if paths and ssh:
+        subprocess.run(['ssh', ssh, 'mkdir', '-p', '--', *paths], check=True)
+    elif paths:
+        for path in paths:
+            Path(path).mkdir(parents=True, exist_ok=True)
+        locked = [path for path in paths if not os.access(path, os.W_OK)]
+        if locked:
+            raise ValueError('These directories are not writable by this account (Docker created them as root on an '
+                             'earlier deploy?): ' + ' '.join(locked) + f'. Give them to it once: sudo chown -R '
+                             f'{os.getuid()}:{os.getgid()} ' + ' '.join(locked))
+    return paths
+
+
 def image_names(model):
     return sorted({service['image'] for service in model['services'].values() if service.get('image')})
 
@@ -276,6 +316,7 @@ def deploy_images(project, transfer=True):
     model = release_model(project, deploy_path)
     # The containers mount the environment files from DEPLOY_PATH: they are there before anything starts.
     sync_environment(project, deploy_path, model)
+    prepare_runtime_directories(project, model, deploy_path)
     subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', '-',
                     'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'],
                    input=json.dumps(model), text=True, check=True)
