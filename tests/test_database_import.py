@@ -203,14 +203,24 @@ class ImportSequenceTest(ImportFixture):
                                          b"INSERT IGNORE INTO `ps_orders` VALUES (1);\n"
                                          b"/*!40000 ALTER TABLE `ps_log` ENABLE KEYS */;\n")
 
-    def test_skip_rule_follows_the_registry_live_rule_and_full_imports_all(self):
+    def test_skip_rule_follows_the_registry_live_rule(self):
         self.assertIsNone(skip_rule(self.project))
         self.project.settings.update(SCHEMA_DIRECTORY="database/schema", PROFILE="prestashop")
         (self.root / "database/table-registry.txt").write_text("ps_feed_cache cache empty skip\nps_old drop drop -\n")
         rule = skip_rule(self.project)
         self.assertEqual([rule(t) for t in ("ps_feed_cache", "ps_old", "ps_orders", "ps_connections", "unknown")],
                          [True, True, False, True, False])
-        self.assertIsNone(skip_rule(self.project, full=True))
+
+    def test_an_import_loads_every_table_unless_skip_is_asked_for(self):
+        self.project.settings.update(SCHEMA_DIRECTORY="database/schema", PROFILE="")
+        (self.root / "database/table-registry.txt").write_text("ps_feed_cache cache empty skip\n")
+        plan = plan_import(self.project, str(self.dump))
+        for skip, expected in ((False, None), (True, True)):
+            with self.subTest(skip=skip), patch("database_import.execute_sql", return_value=set()) as execute, \
+                    patch("database_import.after_load"), contextlib.redirect_stdout(io.StringIO()):
+                import_database(self.project, plan, skip=skip)
+            rule = execute.call_args.kwargs["skip"]
+            self.assertEqual(rule if rule is None else rule("ps_feed_cache"), expected)
 
     def test_a_dump_table_the_registry_does_not_know_stops_the_import(self):
         self.project.settings.update(SCHEMA_DIRECTORY="database/schema", PROFILE="prestashop")

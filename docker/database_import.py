@@ -83,9 +83,9 @@ def render_hook(project, path):
     return contents
 
 
-def skip_rule(project, full=False):
-    """Tables whose LIVE data the registry says not to import, or None to import everything."""
-    if full or not project.settings.get("SCHEMA_DIRECTORY"):
+def skip_rule(project):
+    """Tables whose data the registry leaves out of a backup (live rule skip), or None for every table."""
+    if not project.settings.get("SCHEMA_DIRECTORY"):
         return None
     from database_registry import classify, load
     entries = load(project)
@@ -288,11 +288,14 @@ def plan_import(project, dump):
     return plan
 
 
-def import_database(project, plan, backup=False, full=False):
-    """Dump (without skipped table data) -> after-import SQL -> migrations -> shop policy -> schema report."""
-    skipped = execute_sql(project, plan, first_is_dump=True, backup=backup, skip=skip_rule(project, full))
+def import_database(project, plan, backup=False, skip=False):
+    """Dump -> after-import SQL -> migrations -> shop policy -> schema report.
+
+    The whole dump is loaded: the registry's skip rule applies when a backup is made. skip=True also
+    leaves out the data of the skip tables while importing (their structure is kept)."""
+    skipped = execute_sql(project, plan, first_is_dump=True, backup=backup, skip=skip_rule(project) if skip else None)
     if skipped:
-        print(f"Data not imported for {len(skipped)} tables (registry live rule skip; full=1 imports all): "
+        print(f"Data not imported for {len(skipped)} tables (registry live rule skip; skip=1 was given): "
               + ", ".join(sorted(skipped)[:10]) + (" ..." if len(skipped) > 10 else ""))
     after_load(project)
     print("Dump and after-import SQL completed.")

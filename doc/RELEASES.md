@@ -6,6 +6,16 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### The registry skip rule applies to exports, not imports
+
+- **`make db-import` loads everything the dump holds.** The registry's live rule `skip` no longer leaves data
+  out of an import; `skip=1` still does (structure kept). `full=1` on `db-import` is gone.
+- **`make db-backup` follows the registry in every environment** (before: stage/prod only): the structure of
+  every table, the data of `import` tables. `full=1` dumps every table's data. The backup `db-import` /
+  `db-load backup=1` takes before changing the database stays complete.
+- **Migrating:** a project that relied on imports skipping cache tables passes `skip=1`; scripts that passed
+  `full=1` to `db-import` drop it.
+
 ### Several hostnames in DOMAIN
 
 - **`DOMAIN` may list hostnames and `DOMAIN_<NAME>` variables** separated by spaces, e.g.

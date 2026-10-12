@@ -160,7 +160,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   `setup_migrations` (outside the snapshot).
 - Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
   project scripts, integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
-  policy → schema report (warning only). `db-import` skips the data of `skip` tables unless `full=1`.
+  policy → schema report (warning only). `db-import` loads the whole dump (`skip=1` leaves out the data of `skip` tables); the live rule applies
+  to exports: `db-backup` in every environment (`full=1` dumps everything) and the deploy backup. The backup
+  `db-import`/`db-load backup=1` takes before changing the database is always complete.
 - `DATABASE_EXTRA_SCHEMAS`: further project schemas. The first start creates them and grants the
   application user the main database's rights on them. Every database grant, the main one included,
   escapes `_`, which would otherwise match any character (`shop_main` would cover `shopXmain`). Backups dump all schemas in one `mysqldump --databases` run (one transaction,

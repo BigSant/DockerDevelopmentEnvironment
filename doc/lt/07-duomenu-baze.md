@@ -117,7 +117,7 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 | lentelė | Vardas. `{p}` – PrestaShop prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`; generic projekte atmetamas), `*` – bet kokia seka. [Papildomos schemos](#papildomos-schemos) lentelė – `schema.lentelė` (pvz. `asana_git.*`): eilutė su tašku galioja tik papildomoms schemoms, be taško – tik pagrindinei DB. |
 | grupė | Laisvas vardas, pvz. `config`, `catalog`, `customers`, `orders`, `cache`. Pagal jį grupuojami rinkinio failai. |
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
-| LIVE importas | `import` – importuoti duomenis; `skip` – importuoti tik struktūrą. |
+| LIVE importas | Kas patenka į eksportą (`make db-backup`, serverio kopijos): `import` – struktūra ir duomenys; `skip` – tik struktūra. Užkeliant dump'ą (`make db-import`) įkeliama viskas, kas faile. |
 
 Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Projekto eilutė laimi. Generic projektas profilio registro neturi: prieš `make db-dataset` jo lenteles klasifikuok `make schema-resolve` (kitaip komanda sustoja ir tai pasako).
 
@@ -139,7 +139,7 @@ Tvarka:
 
 ```text
 0. Patikra: kiekviena dump'o lentelė turi būti registre. Kitaip importas sustoja dar nieko nekeitęs.
-1. Dump'as (.sql arba .sql.gz). Registre „skip“ pažymėtų lentelių duomenys praleidžiami.
+1. Dump'as (.sql arba .sql.gz): viskas, kas faile (su skip=1 – be registre „skip“ pažymėtų lentelių duomenų).
 2. Saugūs numatytieji (tik PrestaShop ir tik ne prod).
 3. database/after-import/common/*.sql, tada database/after-import/<ENV>/*.sql
 4. Integracijų išjungimas database/after-import/integrations/*.sql (tik ne prod).
@@ -149,10 +149,10 @@ Tvarka:
 8. Schemos ataskaita: kuo DB skiriasi nuo šakos snapshot'o (tik įspėjimas).
 ```
 
-**Praleidžiamos lentelės.** Cache, indeksų ir log'ų lentelių duomenys pagal registrą neimportuojami, todėl importas kelis kartus greitesnis. Struktūra sukuriama visada. Viską importuoti:
+**Importuojama viskas, kas faile.** Registro `skip` taikomas eksportuojant ([atsarginės kopijos](#g-atsarginės-kopijos)), todėl serverio kopijoje cache, log'ų ir eilių lentelių duomenų jau nėra. Didelį pilną dump'ą (pvz. tiesiai iš LIVE) galima užkelti be `skip` lentelių duomenų, struktūra sukuriama visada:
 
 ```bash
-make db-import file=/kelias/forsena.sql.gz full=1
+make db-import file=/kelias/forsena.sql.gz skip=1
 ```
 
 **Saugūs numatytieji** ne prod aplinkoje ([šaltiniai](../../docker/database-profile/prestashop/after-import)):
@@ -243,9 +243,10 @@ Netuščiai DB reikia `replace=1` – visos lentelės pirma ištrinamos. `backup
 ```bash
 make db-backup
 make db-backup file=/privatus/kelias/pries-atnaujinima.sql.gz
+make db-backup full=1        # visų lentelių duomenys, registras netaikomas
 ```
 
-Kopija rašoma į `.generated/backups/<projektas>-<ENV>-<laikas>.sql.gz` (teisės `0600`). Esamas failas neperrašomas, nepavykusi kopija galutiniu vardu neišsaugoma. Stage/prod kopija daroma pagal registrą: visų lentelių struktūra ir tik `import` lentelių duomenys, todėl ji maža ir naudinga.
+Kopija rašoma į `.generated/backups/<projektas>-<ENV>-<laikas>.sql.gz` (teisės `0600`). Esamas failas neperrašomas, nepavykusi kopija galutiniu vardu neišsaugoma. Kopija (eksportas) visose aplinkose daroma pagal registrą: visų lentelių struktūra ir tik `import` lentelių duomenys, todėl ji maža ir naudinga; `full=1` įrašo viską. Kopija, kurią `db-import backup=1` ar `db-load backup=1` pasidaro prieš keisdami DB, visada pilna – ji skirta atkūrimui.
 
 Po kiekvienos kopijos (ir prieš deploy'ų) setup patikrina, ar visos DB lentelės yra registre. Neregistruotos lentelės išvardijamos įspėjime (jų duomenys kopijoje yra) ir įrašomos į `data/<ENV>/table-registry/status.json`, iš kurio jas rodo [metrikos](05-servisai.md#lentelių-registras). Nepavykusi patikra kopijos nesustabdo.
 
@@ -281,7 +282,7 @@ Kaskart (prisijungus prie VPN):
 ```bash
 make db-pull                 # naujausia prod kopija -> .generated/backups (0600), parašo importo komandą
 make db-pull from=stage      # stage
-make db-pull import=1        # atsisiunčia ir iškart užkelia (kaip make db-import: registras, after-import, migracijos)
+make db-pull import=1        # atsisiunčia ir iškart užkelia (kaip make db-import: after-import, migracijos)
 make db-pull import=1 backup=1   # prieš užkeliant pasidaro vietinės DB kopiją
 ```
 

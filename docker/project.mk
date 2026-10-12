@@ -20,7 +20,7 @@ help:
 	@echo 'setup: prepare this project from a clean clone (init, bootstrap + schema hook, build, app-prepare, up); the DB is left alone'
 	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
-	@echo 'db-backup [file=backup.sql.gz]; setup-info: shared version'
+	@echo 'db-backup [file=backup.sql.gz] [full=1]: export without the data of registry skip tables (full=1: all); setup-info: shared version'
 	@echo 'db-pull [from=prod|stage] [import=1] [backup=1]: newest server backup over SSH (BACKUP_SSH)'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
@@ -41,7 +41,7 @@ help:
 	@echo 'db-prepare ENV=test: start only the isolated database before importing test data'
 	@echo 'db-restrict-grants: one-time: own database (+ DATABASE_EXTRA_SCHEMAS) privileges only, separate root password (pre-v2 databases)'
 	@echo 'db-import file=dump.sql.gz backup=1: save a backup before importing a compressed dump'
-	@echo 'db-import file=dump.sql full=1: also import the data of tables the registry marks skip'
+	@echo 'db-import file=dump.sql skip=1: leave out the data of tables the registry marks skip (default: everything)'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: pre-commit hook that exports the schema and stops a commit that changes it'
 	@echo 'schema-resolve: classify database tables the table registry does not know (include / drop)'
@@ -85,7 +85,7 @@ doctrine-diff:
 
 db-import db-import-plan:
 	$(if $(filter undefined,$(origin fixtures)),,$(error Use db-fixtures=SET instead of fixtures=SET))
-	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(full)),--full,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
+	@$(RUN_PROJECT) $@ --dump $(call quote,$(file)) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(skip)),--skip,) $(if $(filter undefined,$(origin db-fixtures)),,--db-fixtures $(call quote,$(db-fixtures)))
 
 db-fixtures-plan db-fixtures-load:
 	@$(RUN_PROJECT) $@ --db-fixtures $(call quote,$(set))
@@ -118,7 +118,7 @@ db-dataset db-load:
 	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter 1,$(replace)),--replace,) $(if $(filter 1,$(backup)),--backup,)
 
 db-backup:
-	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),)
+	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),) $(if $(filter 1,$(full)),--full,)
 
 db-pull:
 	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(import)),--import,) $(if $(filter 1,$(backup)),--backup,)

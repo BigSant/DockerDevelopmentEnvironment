@@ -374,7 +374,8 @@ def main():
     parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     parser.add_argument('--backup', action='store_true', help='Create a private backup first (db-import, db-load, db-pull import, deploy)')
-    parser.add_argument('--full', action='store_true', help='db-import: import the data of every table, ignoring registry skip rules')
+    parser.add_argument('--full', action='store_true', help='db-backup: dump the data of every table, ignoring registry skip rules')
+    parser.add_argument('--skip', action='store_true', help='db-import: leave out the data of the tables the registry marks skip')
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
                         'deploy-variables: also replace the Bitbucket / GitHub variables that exist')
@@ -459,7 +460,8 @@ def main():
             restrict_grants(project)
         elif args.action == 'db-backup':
             # Server backups follow the table registry: structure of every table, data of imported ones.
-            backup_database(project, args.output, registry=project.environment in ('stage', 'prod'))
+            # An export follows the table registry (skip tables: structure only); full=1 dumps everything.
+            backup_database(project, args.output, registry=not args.full)
         elif args.action == "ide-init":
             initialize_ide(project, args.docker_server, args.ide_config_directory)
         elif args.action == "ide-refresh":
@@ -552,7 +554,7 @@ def main():
                 for step in plan:
                     print(step)
             else:
-                import_database(project, plan, backup=args.backup, full=args.full)
+                import_database(project, plan, backup=args.backup, skip=args.skip)
         elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
             plan = plan_fixtures(project, args.db_fixtures)
             print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")

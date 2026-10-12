@@ -47,7 +47,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | --- | --- |
 | `make db-prepare` | Paleidžia tik DB ir palaukia jos sveikatos. |
 | `make db-import-plan file=…` | Parodo importo planą, SQL nevykdo. |
-| `make db-import file=… [full=1] [backup=1] [db-fixtures=RINKINYS]` | Užkelia dump'ą ir visą po-užkėlimo seką. |
+| `make db-import file=… [skip=1] [backup=1] [db-fixtures=RINKINYS]` | Užkelia visą dump'ą ir visą po-užkėlimo seką (`skip=1` – be registro `skip` lentelių duomenų). |
 | `make db-load [set=dev] [replace=1] [backup=1]` | Užkelia schemą, bazinį rinkinį, fixtures ir po-užkėlimo seką. |
 | `make db-dataset [set=dev]` | Sukuria anonimizuotą bazinį rinkinį iš vietinės LIVE kopijos (tik local). |
 | `make db-migrate` | Pritaiko laukiančias apsaugotas migracijas. |
@@ -55,7 +55,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make schema-check` | Palygina DB su Git indeksu. |
 | `make schema-hook-install` | Įdiegia commit hook'ą, kuris eksportuoja schemą ir stabdo commit'ą pasikeitus. |
 | `make schema-resolve` | Klasifikuoja registre nežinomas lenteles (įtraukti / pašalinti). |
-| `make db-backup [file=…]` | Sukuria DB kopiją (`.generated/backups/`). |
+| `make db-backup [file=…] [full=1]` | Sukuria DB kopiją (`.generated/backups/`) pagal registrą; `full=1` – visų lentelių duomenys. |
 | `make db-backup-prune [apply=1]` | Peržiūrėti / ištrinti senas kopijas. |
 | `make db-pull [from=prod\|stage] [import=1] [backup=1]` | Parsisiunčia naujausią setup-server kopiją per SSH (`BACKUP_SSH`), su `import=1` ir užkelia. Žr. [db-pull](07-duomenu-baze.md#naujausia-serverio-kopija-db-pull). |
 | `make db-fixtures-plan set=…` / `make db-fixtures-load set=…` | Peržiūrėti / įkelti fixtures rinkinį. |
@@ -99,7 +99,8 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `follow`, `tail` | `logs` | `follow=1 tail=200`. |
 | `cmd`, `dir` | `composer`, `npm`, `phpstan`, `phpcs`, `e2e`, `doctrine` | `cmd="run build"`. Skaidoma į argumentus, ne shell: `&&` neveikia. |
 | `file` | `db-import`, `db-import-plan`, `db-backup` | `file=/kelias/dump.sql.gz`. |
-| `full`, `backup`, `db-fixtures` | `db-import` | `full=1 backup=1`. |
+| `skip`, `backup`, `db-fixtures` | `db-import` | `skip=1 backup=1`. |
+| `full` | `db-backup` | `full=1`. |
 | `set`, `replace`, `backup` | `db-load`, `db-dataset`, `test-prepare`, `db-fixtures-*` | `set=dev replace=1`. |
 | `module`, `filter`, `sync` | `phpunit` | `module=prgenericsync`. |
 | `ref`, `backup`, `rollback` | `deploy` (`ref` dar `doctrine-diff`) | `ref=v1.4.0`. |
