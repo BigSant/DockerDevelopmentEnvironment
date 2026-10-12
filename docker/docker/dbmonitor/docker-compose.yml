@@ -1,7 +1,7 @@
 services:
   # DB performance data as JSON for an external system, which never connects to the database.
-  # Reached as dbmonitor.<domain> through nginx-proxy (DBMONITOR_ALLOWED_IPS / ALLOWED_IPS) with a
-  # bearer token; reads with the monitor account only (make db-monitor-user).
+  # Reached as dbmonitor.<domain> through nginx-proxy (DBMONITOR_ALLOWED_IPS / ALLOWED_IPS), with an
+  # optional bearer token; reads with the monitor account only (make db-monitor-user).
   dbmonitor:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-dbmonitor

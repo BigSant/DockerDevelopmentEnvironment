@@ -143,10 +143,11 @@ def expand_json(environ):
 def deployment_variables(directory, environment):
     """{name: {'required', 'secured', 'source'}}: the Deployment variables one environment needs.
 
-    setup's own: DATABASE_PASSWORD, DATABASE_ROOT_PASSWORD, METRICS_TOKEN (SERVICES has metrics) and
-    the PrestaShop keys of PS_VERSION (required); DATABASE_MONITOR_PASSWORD (metrics or dbmonitor)
-    and DBMONITOR_TOKEN (dbmonitor) (optional). The project's: DEPLOY_REQUIRED_VARIABLES,
-    DEPLOY_OPTIONAL_VARIABLES and every APP_ENVIRONMENT name the env files leave to the process.
+    setup's own: DATABASE_PASSWORD, DATABASE_ROOT_PASSWORD and the PrestaShop keys of PS_VERSION
+    (required); DATABASE_MONITOR_PASSWORD (metrics or dbmonitor), METRICS_TOKEN (metrics) and
+    DBMONITOR_TOKEN (dbmonitor) (optional: the IP allowlist guards both endpoints). The project's:
+    DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES and every APP_ENVIRONMENT name the env files
+    leave to the process.
     A name the env files set is not a Deployment variable (the file wins); one they leave blank hides
     the Deployment variable, which only setup's own secrets survive (project.PROCESS_SECRETS).
     """
@@ -154,12 +155,12 @@ def deployment_variables(directory, environment):
     from project_prestashop import required_keys
     values, mentioned = file_settings(directory, environment)
     services = str(values.get('SERVICES') or '').split()
-    setup_required = ['DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD'] + (['METRICS_TOKEN'] if 'metrics' in services else [])
+    setup_required = ['DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD']
     version = str(values.get('PS_VERSION') or '')
     if values.get('PROFILE') in ('ps', 'prestashop') and re.match(r'\d+\.\d', version):
         setup_required += required_keys(version)
     setup_optional = (['DATABASE_MONITOR_PASSWORD'] if {'metrics', 'dbmonitor'} & set(services) else []) + \
-        (['DBMONITOR_TOKEN'] if 'dbmonitor' in services else [])
+        (['METRICS_TOKEN'] if 'metrics' in services else []) + (['DBMONITOR_TOKEN'] if 'dbmonitor' in services else [])
     groups = [('setup', setup_required, True),
               ('DEPLOY_REQUIRED_VARIABLES', names_setting(values, 'DEPLOY_REQUIRED_VARIABLES'), True),
               ('setup', setup_optional, False),

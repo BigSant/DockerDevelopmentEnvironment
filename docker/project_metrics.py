@@ -48,7 +48,9 @@ def resolve_metrics(settings):
     return values
 
 
-def require_token(settings, environment):
-    """Stage/prod start the endpoint only with a usable token; it answers 503 without one anyway."""
-    if environment in ('stage', 'prod') and len(str(settings.get('METRICS_TOKEN') or '')) < TOKEN_MINIMUM:
-        raise ValueError(f'metrics on {environment} requires METRICS_TOKEN ({TOKEN_MINIMUM}+ characters)')
+def check_token(settings, environment):
+    """The token is optional (the IP allowlist guards the endpoint); one that is set must be usable,
+    since the endpoint answers 503 with a short one."""
+    token = str(settings.get('METRICS_TOKEN') or '')
+    if environment in ('stage', 'prod') and token and len(token) < TOKEN_MINIMUM:
+        raise ValueError(f'METRICS_TOKEN on {environment} must have {TOKEN_MINIMUM}+ characters (or stay empty)')

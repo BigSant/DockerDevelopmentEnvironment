@@ -11,12 +11,15 @@ function respond($status, $body)
     exit;
 }
 
+// IP allowlist in nginx-proxy (DBMONITOR_ALLOWED_IPS); the bearer token is optional.
 $token = (string) getenv('DBMONITOR_TOKEN');
-if (strlen($token) < 24) respond(503, array('error' => 'DBMONITOR_TOKEN (24+ characters) is not configured'));
-$authorization = isset($_SERVER['HTTP_AUTHORIZATION']) ? (string) $_SERVER['HTTP_AUTHORIZATION'] : '';
-if (!hash_equals('Bearer ' . $token, $authorization)) {
-    header('WWW-Authenticate: Bearer');
-    respond(401, array('error' => 'unauthorized'));
+if ($token !== '') {
+    if (strlen($token) < 24) respond(503, array('error' => 'DBMONITOR_TOKEN must have 24+ characters'));
+    $authorization = isset($_SERVER['HTTP_AUTHORIZATION']) ? (string) $_SERVER['HTTP_AUTHORIZATION'] : '';
+    if (!hash_equals('Bearer ' . $token, $authorization)) {
+        header('WWW-Authenticate: Bearer');
+        respond(401, array('error' => 'unauthorized'));
+    }
 }
 if (parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) !== '/') respond(404, array('error' => 'not found'));
 

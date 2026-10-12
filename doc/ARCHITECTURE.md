@@ -73,7 +73,7 @@ no env/<env>.env needed): they read the committed env files with `project_env_fi
    (`docker/<name>/docker-compose.yml`), env overrides, then a generated overlay that drops optional
    config mounts whose source is absent (Compose would create them root-owned).
 5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor, metrics)
-   require an allowlist, and metrics a 24+ character `METRICS_TOKEN`; test must be isolated (own code copy, data and DB).
+   require an allowlist (their tokens are optional; a metrics token that is set needs 24+ characters); test must be isolated (own code copy, data and DB).
 6. Per-image fingerprints (`setup_release.image_suffixes`): each built image's tag ends in a hash of
    only its own inputs (Dockerfile, COPY sources, build args, profile, parent fingerprint).
 7. Stage/prod: `APP_UID/APP_GID` become the container user; with `DEPLOY_CONTEXT`, exec/ps/logs go
@@ -106,7 +106,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 - **PrestaShop config** (`parameters.php` / `settings.inc.php`) is generated from env keys at PHP start;
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
 - **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): Prometheus `/metrics` on the main domain
-  (`location = /metrics` rendered into both site servers), token in the service, allowlist in nginx-proxy.
+  (`location = /metrics` rendered into both site servers), allowlist in nginx-proxy, optional token in the service.
   The service is `php -S` with `PHP_CLI_SERVER_WORKERS=4` (PHP >= 7.4), so a slow probe does not block scrapes.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
@@ -219,7 +219,7 @@ when `DEPLOY_CONTEXT=default` without `DEPLOY_SSH`) → the same checks with the
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
 The Deployment variables list (`project_pipeline.deployment_variables`) is setup's secrets for the env
-(DB passwords, `METRICS_TOKEN` with metrics, PS keys of `PS_VERSION`; monitor password/token optional) +
+(DB passwords, PS keys of `PS_VERSION`; monitor password and metrics/monitor tokens optional) +
 `DEPLOY_REQUIRED_VARIABLES` + `DEPLOY_OPTIONAL_VARIABLES` + `APP_ENVIRONMENT` names the env files do not
 mention; a name an env file sets is not a Deployment variable, a blank one (other than `PROCESS_SECRETS`)
 is refused because it would hide the process value. `make deploy-variables` (`project_ci` picks the

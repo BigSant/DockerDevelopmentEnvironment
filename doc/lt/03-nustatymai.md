@@ -89,7 +89,7 @@ IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-aprib
 | `DATABASE_PERFORMANCE_SCHEMA` | `off` | `on` įjungia MySQL `performance_schema` (DB monitoriui). Kainuoja kelis šimtus MB atminties. |
 | `DATABASE_MONITOR_USER` | `<DATABASE_NAME>_monitor` | DB monitoriaus vartotojas, žr. [DB monitorius](05-servisai.md#db-monitorius). |
 | `DATABASE_MONITOR_PASSWORD` | Tuščias | Jo slaptažodis, bent 16 simbolių. |
-| `DBMONITOR_TOKEN` | Tuščias | Bearer token'as DB monitoriaus endpoint'ui, bent 24 simboliai. |
+| `DBMONITOR_TOKEN` | Tuščias | Neprivalomas Bearer token'as DB monitoriaus endpoint'ui, bent 24 simboliai. Tuščias – prieigą saugo tik `DBMONITOR_ALLOWED_IPS`. |
 
 ## Metrikos (Prometheus)
 
@@ -97,7 +97,7 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `METRICS_TOKEN` | Tuščias | Bearer token'as `/metrics`, bent 24 simboliai. Stage/prod be jo servisas nepasileidžia. |
+| `METRICS_TOKEN` | Tuščias | Neprivalomas Bearer token'as `/metrics`, bent 24 simboliai. Tuščias – prieigą saugo tik `METRICS_ALLOWED_IPS`. |
 | `METRICS_ALLOWED_IPS` | Tuščias | Prometheus serverio adresas (IP/CIDR). Be jo ar `ALLOWED_IPS` stage/prod servisas nepasileidžia. |
 | `METRICS_URLS` | `https://<DOMAIN>/` | Tikrinami URL per tarpus (seno scripto `--urls`): atsakymo laikas ir būsena. |
 | `METRICS_PROBE_ADDRESS` | Tuščias | IP, į kurį jungiasi URL patikra vietoj DNS (kaip `curl --connect-to`), pvz. VPN adresas. |
@@ -172,7 +172,7 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 | `DEPLOY_PATH` | Tuščias | Absoliutus projekto šaknies kelias taikinyje (katalogas su `app/` ir `data/`). |
 | `DEPLOY_PROTECTED_PATHS` | Tuščias | Papildomi kodo medžio keliai (nuo kodo šaknies, per tarpą), kurių deploy'us niekada neperrašo ir netrina, pvz. `"var/data/ var/log/ config/local.php"`. Katalogas baigiasi `/`, leidžiamas `*`. Papildo profilio sąrašą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
 | `DEPLOY_PHP_RELOAD` | `on` | `off` – deploy'aus pabaigoje neperkrauti php-fpm (`USR2`). Be perkrovimo prod OPcache gali rodyti seną kodą ([kodo deploy'us](09-aplinkos.md#kodo-deployus)). |
-| `DEPLOY_REQUIRED_VARIABLES` | Tuščias | Aplikacijos Deployment variables (Bitbucket) ar environment secrets (GitHub) **vardai** (per tarpus), be kurių deploy'us nepradedamas, pvz. `"SEARCH_MASTER_KEY HTPASSWD_WEB"`. Papildo setup'o privalomus (DB slaptažodžiai, `METRICS_TOKEN`, PS raktai). Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |
+| `DEPLOY_REQUIRED_VARIABLES` | Tuščias | Aplikacijos Deployment variables (Bitbucket) ar environment secrets (GitHub) **vardai** (per tarpus), be kurių deploy'us nepradedamas, pvz. `"SEARCH_MASTER_KEY HTPASSWD_WEB"`. Papildo setup'o privalomus (DB slaptažodžiai, PS raktai). Žr. [Deployment variables](09-aplinkos.md#deployment-variables). |
 | `DEPLOY_OPTIONAL_VARIABLES` | Tuščias | Neprivalomi Deployment variables vardai, kurių nėra `APP_ENVIRONMENT` (pvz. tik Compose naudojamas raktas). Tušti – tik įspėjimas. `APP_ENVIRONMENT` vardų čia kartoti nereikia. |
 | `DEPLOY_PLAIN_VARIABLES` | Tuščias | Sąrašų vardai, kuriuos `make deploy-variables` saugo ne Secured (Bitbucket) arba kaip aplinkos variables, ne secrets (GitHub), pvz. URL, ID. Vardas, kurio nėra jokiame sąraše, – klaida. |
 | `CI_PROVIDER` | Pagal repozitoriją | `bitbucket` arba `github`: kurio tiekėjo kintamuosius tikrina `make deploy-variables`. Įrašo `create-project`. Be jo – vienintelis `DEPLOY_*_REPOSITORY`, tada `origin` remote'as (`github.com` – GitHub), kitaip `bitbucket`. `make pipeline-deploy` tiekėją atpažįsta pats. Žr. [GitHub Actions](09-aplinkos.md#github-actions). |

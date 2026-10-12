@@ -220,7 +220,7 @@ class GitHubDeployVariablesTest(unittest.TestCase):
         self.assertEqual(len(self.names), 18)
         self.assertEqual([name for name, kind, *_ in self.names if kind == "variable"], ["ERP_EMPLOYEE_ID", "GRAFANA_BASE_URL"])
         self.assertEqual([name for name, _, need, _ in self.names if need == "required"],
-                         ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "METRICS_TOKEN", "SEARCH_KEY", "HTPASSWD_WEB"])
+                         ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "SEARCH_KEY", "HTPASSWD_WEB"])
         self.assertEqual(self.server.requests, [])
 
     def test_check_reads_every_page_of_both_lists(self):

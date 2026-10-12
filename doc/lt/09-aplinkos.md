@@ -19,7 +19,7 @@ Tas pats CORE veikia visose aplinkose, bet stage/prod turi griežtesnes taisykle
 
 - nenurodyti keturių pagrindinių servisų limitai `PHP_MEMORY`, `PHP_CPUS`, `DATABASE_MEMORY`, `DATABASE_CPUS`, `WEBSERVER_MEMORY`, `WEBSERVER_CPUS`, `PROXY_MEMORY`, `PROXY_CPUS`. Klaidos pranešimas pasiūlo reikšmes pagal Docker host'o dydį ([resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui));
 - įjungtas `pma`, `mailpit`, `cron`, `dbmonitor` ar `metrics`, bet nėra jo IP sąrašo ([IP apribojimai](05-servisai.md#ip-apribojimai));
-- įjungtas `metrics`, bet `METRICS_TOKEN` trumpesnis nei 24 simboliai;
+- įjungtas `metrics`, o nurodytas `METRICS_TOKEN` trumpesnis nei 24 simboliai (tuščias tinka: tada saugo tik IP sąrašas);
 - nurodytas `XDEBUG_MODE` (stage/prod image'uose Xdebug nėra);
 - release'ui nenurodyti `APP_UID`, `APP_GID`, `DEPLOY_PATH` (ir `DEPLOY_CONTEXT` siuntimui į serverį);
 - nurodytas `DEPLOY_CONTEXT`, bet nėra `APP_UID`/`APP_GID` (bet kuri komanda).
@@ -200,10 +200,10 @@ Slaptažodžiai ir raktai – **Deployment variables (Secured)** Staging / Produ
 | Vardai | Kada | Privalomas |
 | --- | --- | --- |
 | `DATABASE_PASSWORD`, `DATABASE_ROOT_PASSWORD` | visada | taip |
-| `METRICS_TOKEN` | `SERVICES` turi `metrics` | taip |
 | PS raktai pagal `PS_VERSION` (`PS_COOKIE_KEY`, `PS_COOKIE_IV`, `PS_NEW_COOKIE_KEY`, `PS_SECRET`, nuo PS 9 – `PS_API_PRIVATE_KEY`, `PS_API_PUBLIC_KEY`; PS 1.6 – `PS_RIJNDAEL_*`) | `PROFILE=prestashop` | taip |
 | `DEPLOY_REQUIRED_VARIABLES` | projekto sąrašas | taip |
 | `DATABASE_MONITOR_PASSWORD` | `SERVICES` turi `metrics` arba `dbmonitor` | ne |
+| `METRICS_TOKEN` | `SERVICES` turi `metrics` | ne |
 | `DBMONITOR_TOKEN` | `SERVICES` turi `dbmonitor` | ne |
 | `DEPLOY_OPTIONAL_VARIABLES` | projekto sąrašas | ne |
 | `APP_ENVIRONMENT` vardai | kurių nemini nei `env/common.env`, nei `env/<env>.env.example` | ne |

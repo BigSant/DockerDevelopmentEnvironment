@@ -186,7 +186,7 @@ class DeployVariablesTest(unittest.TestCase):
     def test_the_list_comes_from_setup_and_the_project_settings(self):
         self.assertEqual(len(self.names), 27)
         required = [name for name, _, need, _ in self.names if need == "required"]
-        self.assertEqual(required, ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "METRICS_TOKEN",
+        self.assertEqual(required, ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD",
                                     "MEILISEARCH_MASTER_KEY", "HTPASSWD_WEB", "HTPASSWD_API"])
         self.assertEqual([name for name, kind, *_ in self.names if kind == "plain"],
                          ["GRAFANA_BASE_URL", "CLOUDFLARE_ACCOUNT_ID", "ERP_EMPLOYEE_ID"])

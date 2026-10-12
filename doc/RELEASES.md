@@ -6,6 +6,17 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Metrics and DB monitor tokens are optional
+
+- **The IP allowlist alone guards `/metrics` and the DB monitor:** with `METRICS_TOKEN` or
+  `DBMONITOR_TOKEN` empty the endpoint answers every address on `METRICS_ALLOWED_IPS` /
+  `DBMONITOR_ALLOWED_IPS` (or `ALLOWED_IPS`) without a bearer token. Stage/prod still refuse to start
+  either service without an allowlist.
+- **A token that is set works as before** (`401` without it); one shorter than 24 characters answers `503`,
+  and stage/prod refuse a short `METRICS_TOKEN`.
+- **Deployment variables:** `METRICS_TOKEN` is listed as optional, so `make pipeline-deploy` no longer
+  stops without it.
+
 ### Database as code is on by default
 
 - **No setting needed:** the schema lives in `app/database/schema` (the registry, migrations and data

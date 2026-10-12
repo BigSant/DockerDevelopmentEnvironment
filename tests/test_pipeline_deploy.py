@@ -237,8 +237,8 @@ class OneRepositoryTest(Fixture):
         self.assert_out("make deploy-variables ENV=prod")
         self.assertEqual(self.make_log(), "")
         self.assert_root("A")
-        self.run_step(64, ROLLBACK="yes", METRICS_TOKEN="")
-        self.assert_out("production): METRICS_TOKEN")
+        self.run_step(64, ROLLBACK="yes", MEILISEARCH_MASTER_KEY="")
+        self.assert_out("production): MEILISEARCH_MASTER_KEY")
         self.assertEqual(self.make_log(), "")
 
     def test_optional_variables_empty_warn_and_the_deploy_runs(self):
@@ -480,8 +480,9 @@ class DeploymentVariablesListTest(unittest.TestCase):
         self.assertEqual([name for name, v in listed.items() if not v["required"]],
                          ["DATABASE_MONITOR_PASSWORD", "DBMONITOR_TOKEN"])
         generic = deployment_variables(self.project("PROFILE=\nPS_VERSION=9.0.0\n", "SERVICES=metrics\n"), "prod")
-        self.assertEqual(list(generic), ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "METRICS_TOKEN",
-                                         "DATABASE_MONITOR_PASSWORD"])
+        self.assertEqual(list(generic), ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "DATABASE_MONITOR_PASSWORD",
+                                         "METRICS_TOKEN"])
+        self.assertFalse(generic["METRICS_TOKEN"]["required"])  # the IP allowlist guards /metrics
 
     def test_env_files_decide_what_comes_from_bitbucket(self):
         directory = self.project('APP_ENVIRONMENT="A_KEY B_URL C_FLAG"\nB_URL=https://b.example\nDEPLOY_PLAIN_VARIABLES=A_KEY\n',

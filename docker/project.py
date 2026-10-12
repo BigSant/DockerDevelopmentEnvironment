@@ -17,7 +17,7 @@ from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
 from project_ide import initialize_ide, refresh_ide
 from project_health import start_project
-from project_metrics import require_token, resolve_metrics
+from project_metrics import check_token, resolve_metrics
 from database_backup import backup_database
 from database_client import extra_schemas
 from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS
@@ -277,7 +277,7 @@ class Project:
                 if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
                     raise ValueError(f'{tool} on {environment} requires {tool.upper()}_ALLOWED_IPS or ALLOWED_IPS')
             if 'metrics' in active:
-                require_token(settings, environment)
+                check_token(settings, environment)
         self.process_env.update(SETUP_ENABLE_PMA='1' if 'pma' in active else '0',
                                 SETUP_ENABLE_MAILPIT='1' if 'mailpit' in active else '0',
                                 SETUP_ENABLE_CRON='1' if 'cron' in active else '0',

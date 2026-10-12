@@ -240,10 +240,15 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(results, [200, 200, 200])
         self.assertLess(time.monotonic() - started, 2.5, "three 1-second scrapes ran side by side")
 
-    def test_without_a_configured_token_it_refuses_to_serve(self):
-        for token in ("", "short"):
-            base = self.start(METRICS_TOKEN=token)
-            self.assertEqual(fetch(base, token=token or None)[0], 503)
+    def test_a_short_token_refuses_to_serve(self):
+        base = self.start(METRICS_TOKEN="short")
+        self.assertEqual(fetch(base, token="short")[0], 503)
+
+    def test_without_a_token_the_ip_allowlist_alone_guards_it(self):
+        base = self.start(METRICS_TOKEN="")
+        self.assertEqual(fetch(base, "/")[0], 404)
+        status, _, body = fetch(base)
+        self.assertEqual(status, 200, body)
 
     def test_the_bearer_token_is_required_and_only_metrics_is_served(self):
         base = self.start()
@@ -582,17 +587,16 @@ class SettingsTest(unittest.TestCase):
         (app / "env/stage.env").write_text(REMOTE + stage_env)
         return app
 
-    def test_stage_requires_an_allowlist_and_a_token(self):
+    def test_stage_requires_an_allowlist_and_a_token_is_optional(self):
         app = self.project("")
         with self.assertRaisesRegex(ValueError, "metrics on stage requires METRICS_ALLOWED_IPS or ALLOWED_IPS"):
             Project(app, "stage")
         with (app / "env/stage.env").open("a") as env:
             env.write("METRICS_ALLOWED_IPS=10.8.0.20\n")
-        with self.assertRaisesRegex(ValueError, "METRICS_TOKEN"):
-            Project(app, "stage")
+        Project(app, "stage")
         with (app / "env/stage.env").open("a") as env:
             env.write("METRICS_TOKEN=" + "s" * 20 + "\n")
-        with self.assertRaisesRegex(ValueError, "METRICS_TOKEN"):
+        with self.assertRaisesRegex(ValueError, "METRICS_TOKEN on stage must have 24\\+ characters"):
             Project(app, "stage")
 
     def test_compose_model_reads_the_host_read_only_and_stays_off_the_project_network(self):

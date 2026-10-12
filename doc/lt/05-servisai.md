@@ -15,9 +15,9 @@ SERVICES="pma mailpit cron"
 | `pma` | phpMyAdmin | `https://pma.demo.local/`, prisijungia aplikacijos DB vartotoju. |
 | `mailpit` | Laiškų gaudyklė | UI `https://mailpit.demo.local/`, SMTP `mailpit:1025` projekto tinkle. |
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
-| `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` su token'u. Žr. [DB monitorius](#db-monitorius). |
+| `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` iš IP sąrašo (token'as – neprivalomas). Žr. [DB monitorius](#db-monitorius). |
 | `backup` | Lentelių registras: kiekviena DB lentelė ir jos taisyklė kopijoms, importui ir dev rinkiniui | UI `https://backup.demo.local/`. Žr. [lentelių registras](#lentelių-registras-backup). |
-| `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` su token'u. Žr. [Metrikos](#metrikos-prometheus). |
+| `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` iš IP sąrašo (token'as – neprivalomas). Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
 | `playwright` | Naršyklės testų įrankis | `make e2e`. |
@@ -383,8 +383,8 @@ Išorinė analizės sistema gauna DB našumo duomenis per JSON endpoint'ą, nepr
 SERVICES="dbmonitor"
 DATABASE_PERFORMANCE_SCHEMA=on
 DATABASE_MONITOR_PASSWORD='bent-16-simboliu-slaptazodis'
-DBMONITOR_TOKEN='bent-24-simboliu-atsitiktinis-tokenas'
 DBMONITOR_ALLOWED_IPS="203.0.113.20"
+DBMONITOR_TOKEN='bent-24-simboliu-atsitiktinis-tokenas'   # neprivalomas
 ```
 
 2. Pritaikyk ir sukurk monitoriaus DB vartotoją:
@@ -400,10 +400,11 @@ make db-monitor-user
 3. Užklausa:
 
 ```bash
-curl -H "Authorization: Bearer $DBMONITOR_TOKEN" https://dbmonitor.demo.local/
+curl https://dbmonitor.demo.local/                                            # be token'o
+curl -H "Authorization: Bearer $DBMONITOR_TOKEN" https://dbmonitor.demo.local/   # su token'u
 ```
 
-Be teisingo token'o atsakymas `401`. DB portas nepublikuojamas. Stage/prod be `DBMONITOR_ALLOWED_IPS` ar `ALLOWED_IPS` monitorius nepasileidžia. `performance_schema` kainuoja kelis šimtus MB DB atminties, todėl numatyta `off`.
+Prieigą saugo IP sąrašas: ne iš jo – `403`. Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, trumpesnis nei 24 simboliai – `503`. DB portas nepublikuojamas. Stage/prod be `DBMONITOR_ALLOWED_IPS` ar `ALLOWED_IPS` monitorius nepasileidžia. `performance_schema` kainuoja kelis šimtus MB DB atminties, todėl numatyta `off`.
 
 ## Metrikos (Prometheus)
 
@@ -425,8 +426,8 @@ Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER
 
 ```dotenv
 SERVICES="metrics"
-METRICS_TOKEN='bent-24-simboliu-atsitiktinis-tokenas'
 METRICS_ALLOWED_IPS="10.8.0.20"            # Prometheus serverio adresas
+METRICS_TOKEN='bent-24-simboliu-atsitiktinis-tokenas'   # neprivalomas
 METRICS_URLS="https://demo.lt/ https://demo.lt/kontaktai"
 METRICS_SUPPORT_LEVEL=2
 ```
@@ -441,10 +442,11 @@ make up
 3. Patikra:
 
 ```bash
-curl -H "Authorization: Bearer $METRICS_TOKEN" https://demo.lt/metrics
+curl https://demo.lt/metrics                                            # be token'o
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://demo.lt/metrics   # su token'u
 ```
 
-Be token'o ar su neteisingu – `401`, ne iš sąrašo – `403`, servisas be token'o – `503`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`) ir be 24+ simbolių `METRICS_TOKEN` servisas nepasileidžia.
+Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is).
 
 **Kaip Prometheus skaito.** Kelias yra pagrindiniame domene, ne atskirame subdomene, todėl tinka abu taikiniai:
 
@@ -458,7 +460,7 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 5m
     scrape_timeout: 1m
-    authorization:
+    authorization:                    # tik su METRICS_TOKEN
       credentials_file: /etc/prometheus/tokens/demo
     static_configs:
       - targets: ['demo.lt']
@@ -522,7 +524,7 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 
 DB grupė skaito tik statistiką per [DB monitoriaus](#db-monitorius) paskyrą (`PROCESS`, `performance_schema`, `sys`): skaitiklius ir užklausų šablonus, kuriuose reikšmės jau pakeistos `?`. Projekto lentelių eilučių ji skaityti negali (tai tikrina B testas), o vykdomų sakinių tekstas (`SQL_TEXT`, su reikšmėmis) nenaudojamas. Grupė generic – PrestaShop lentelių neliečia.
 
-1. `env/<ENV>.env` (šalia `SERVICES="metrics"` ir token'o):
+1. `env/<ENV>.env` (šalia `SERVICES="metrics"` ir IP sąrašo):
 
 ```dotenv
 DATABASE_PERFORMANCE_SCHEMA=on

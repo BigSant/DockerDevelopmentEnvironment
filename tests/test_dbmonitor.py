@@ -59,9 +59,14 @@ class EndpointTest(unittest.TestCase):
                 time.sleep(0.1)
         self.fail("endpoint did not start")
 
-    def test_without_a_configured_token_it_refuses_to_serve(self):
+    def test_a_short_token_refuses_to_serve(self):
         base = self.start({"DBMONITOR_TOKEN": "short"})
         self.assertEqual(request(base, "short")[0], 503)
+
+    def test_without_a_token_the_ip_allowlist_alone_guards_it(self):
+        base = self.start({"DBMONITOR_TOKEN": "", "DATABASE_MONITOR_HOST": "monitor.invalid"})
+        status, body = request(base)
+        self.assertEqual((status, body["error"]), (503, "database unavailable for the monitor account"))
 
     def test_the_bearer_token_is_required_before_any_database_work(self):
         base = self.start({"DBMONITOR_TOKEN": TOKEN, "DATABASE_MONITOR_HOST": "monitor.invalid"})
