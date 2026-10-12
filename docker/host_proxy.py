@@ -12,9 +12,17 @@ import os
 MARKER = '# Managed by shared setup host_proxy\n'
 
 
-def configuration(domain, port, ssl):
-    if not re.fullmatch(r'[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+', domain):
+HOSTNAME = r'[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+'
+
+
+def configuration(domain, port, ssl, hosts=()):
+    """hosts: the project's other hostnames (DOMAIN's list), routed like the primary one."""
+    if not re.fullmatch(HOSTNAME, domain):
         raise ValueError('Invalid local hostname')
+    for host in hosts:
+        if not re.fullmatch(HOSTNAME, host):
+            raise ValueError('Invalid local hostname')
+    names = ' '.join(dict.fromkeys([domain, *hosts]))
     if not str(port).isdigit() or not 1024 <= int(port) <= 65535:
         raise ValueError('Expected a project HTTP port between 1024 and 65535')
     ssl = Path(ssl).resolve()
@@ -34,7 +42,7 @@ def configuration(domain, port, ssl):
                   f'    ssl_certificate_key "{ssl}/domain.key";') if tls else 'listen 80;\n    listen [::]:80;'
         result += f'''server {{
     {listen}
-    server_name {domain} pma.{domain} mailpit.{domain} cron.{domain} dbmonitor.{domain} backup.{domain};
+    server_name {names} pma.{domain} mailpit.{domain} cron.{domain} dbmonitor.{domain} backup.{domain};
     location / {{
         proxy_pass http://127.0.0.1:{port};
         proxy_set_header Host $http_host;
@@ -64,8 +72,8 @@ def write(path, contents):
         temporary.unlink(missing_ok=True)
 
 
-def install(domain, port, ssl, nginx=Path('/etc/nginx'), run=subprocess.run):
-    contents = configuration(domain, port, ssl)
+def install(domain, port, ssl, nginx=Path('/etc/nginx'), run=subprocess.run, hosts=()):
+    contents = configuration(domain, port, ssl, hosts)
     available, enabled = nginx / 'sites-available', nginx / 'sites-enabled'
     if not available.is_dir() or not enabled.is_dir():
         raise ValueError('Install host Nginx with sites-available/sites-enabled first')
@@ -99,11 +107,12 @@ def main():
     parser.add_argument('domain')
     parser.add_argument('port')
     parser.add_argument('ssl', type=Path)
+    parser.add_argument('hosts', nargs='*', help="the project's other hostnames")
     args = parser.parse_args()
     try:
         with open('/run/lock/shared-setup-nginx.lock', 'a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            install(args.domain, args.port, args.ssl)
+            install(args.domain, args.port, args.ssl, hosts=args.hosts)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(str(error) + '; for Nginx diagnostics run sudo nginx -t', file=sys.stderr)
         return 1

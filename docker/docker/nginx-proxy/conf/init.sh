@@ -32,6 +32,24 @@ if [[ -z "$domain" || -z "$timeout" ]]; then
   exit 1
 fi
 
+# DOMAIN may list several hostnames (setup passes them all in SETUP_DOMAIN_HOSTS): the site answers to each.
+names=""
+alternatives="DNS:$domain,DNS:*.$domain"
+for host in ${SETUP_DOMAIN_HOSTS:-}; do
+  [[ "$host" == "$domain" ]] && continue
+  if [[ ! "$host" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+    echo "[init] ERROR: SETUP_DOMAIN_HOSTS holds an invalid hostname" >&2
+    exit 1
+  fi
+  names+=" $host www.$host"
+  alternatives+=",DNS:$host"
+done
+if [[ -n "$names" ]]; then
+  sed -i "s/^\([[:space:]]*\)# {DOMAIN_HOSTS}:.*/\1server_name$names;/" /etc/nginx/conf.d/sites.conf
+else
+  sed -i "/# {DOMAIN_HOSTS}:/d" /etc/nginx/conf.d/sites.conf
+fi
+
 sed -i "s/{DOMAIN}/$domain/g" /etc/nginx/conf.d/sites.conf
 sed -i "s/{DOMAIN}/$domain/g" /etc/nginx/conf.d/sites_env.conf
 
@@ -53,7 +71,7 @@ else
   if [[ ! -s $generated/domain.crt || ! -s $generated/domain.key ]]; then
     (umask 077 && mkdir -p "$generated" &&
       openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$domain" \
-        -addext "subjectAltName=DNS:$domain,DNS:*.$domain" \
+        -addext "subjectAltName=$alternatives" \
         -keyout "$generated/domain.key" -out "$generated/domain.crt" 2>/dev/null)
     chmod 600 "$generated/domain.key"
     echo "[init] TLS: no certificate in data/<env>/ssl; generated a self-signed pair for $domain"

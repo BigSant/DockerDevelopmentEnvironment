@@ -28,6 +28,8 @@ services:
       SETUP_ENV: ${ENV}
       PROJECT_NAME: ${PROJECT_NAME}
       DOMAIN: ${DOMAIN}
+      # Every hostname DOMAIN lists (the first is DOMAIN); the site's server_name holds them all.
+      SETUP_DOMAIN_HOSTS: ${SETUP_DOMAIN_HOSTS:-}
       SETUP_ENVIRONMENT: ${ENV}
       CACHE_MODE: ${CACHE_MODE:-off}
       SETUP_ENABLE_PMA: ${SETUP_ENABLE_PMA:-0}

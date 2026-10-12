@@ -6,6 +6,18 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Several hostnames in DOMAIN
+
+- **`DOMAIN` may list hostnames and `DOMAIN_<NAME>` variables** separated by spaces, e.g.
+  `DOMAIN_LT=demo.lt`, `DOMAIN_LV=demo.lv`, `DOMAIN="DOMAIN_LT DOMAIN_LV"` (names, not `${…}`). The first
+  hostname stays `DOMAIN` for everything that used it (service host names, Apache, templates, after-import
+  `${DOMAIN}`, the default shop's safe default); all of them reach nginx-proxy's site `server_name` (with
+  `www.`), the project network aliases, the default `METRICS_URLS` and, locally, `/etc/hosts`, the host Nginx
+  route and the mkcert certificate. Setup writes none of them into the database; after-import SQL may use
+  `${DOMAIN_<NAME>}`. A single hostname works as before.
+- **Migrating:** nothing for one hostname. With a list: rerun `setup/install-host` once per machine
+  (`host_proxy.py` changed), then `make bootstrap`; rebuild nginx-proxy (`make build`, `make release`).
+
 ### A failed backup says why
 
 - **The backup error names the dump client's last error line** (`Database backup failed: mysqldump: …`), not only

@@ -62,12 +62,38 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `DOMAIN` | Tuščias | Hostname be `http://`, porto ir kelio: `demo.local`. Lokaliai jį parenka `make bootstrap`, testui – `<vardas>.test.local`. |
+| `DOMAIN` | Tuščias | Hostname be `http://`, porto ir kelio: `demo.local`. Lokaliai jį parenka `make bootstrap`, testui – `<vardas>.test.local`. Gali būti ir keli hostname'ai, žr. [Keli domenai](#keli-domenai). |
 | `LOCALHOST_PORT`, `LOCALHOST_PORT_SSL` | `0` | Projekto HTTP ir HTTPS portai kompiuteryje. `0` – `make bootstrap` parenka laisvą porą. Naršyklėje porto rašyti nereikia. |
 | `PUBLISH_ADDRESS` | `127.0.0.1` | Adresas, ant kurio nginx-proxy publikuoja abu portus. `127.0.0.1` (ar `::1`) – projektas pasiekiamas tik per kompiuterio Nginx arba DirectAdmin. Kitas šio serverio adresas (pvz. VPN sąsajos `10.8.0.14`) – klientai tame tinkle jungiasi tiesiai, be DirectAdmin; tada nginx-proxy jų `X-Forwarded-*` antraščių nepriima. Tik vienas IPv4/IPv6 adresas: be porto, CIDR ir zonos; `0.0.0.0` ir `::` atmetami (portai būtų visose sąsajose). Žr. [Tikras kliento IP](05-servisai.md#ip-apribojimai). |
 | `DOCUMENT_ROOT` | `/` | Poaplankis aplikacijos viduje, kurį aptarnauja Apache, pvz. `public`. |
 | `WEBSERVICE_TIMEOUT` | `90` | Nginx proxy užklausos laikas sekundėmis. |
 | `HTTP_FORCE_HTTPS` | `auto` | `auto` = `off` local/test, `on` stage/prod. `on` peradresuoja HTTP į HTTPS, jei užklausa neatėjo per HTTPS. |
+
+### Keli domenai
+
+Kai svetainė atsako keliais hostname'ais (pvz. kiekviena kalba ar multistore parduotuvė savo domene), `DOMAIN` išvardija juos per tarpus. Įrašas yra hostname (mažosiomis raidėmis) arba `DOMAIN_<VARDAS>` kintamojo vardas, kurį apibrėži bet kuriame env faile:
+
+```dotenv
+# env/local.env
+DOMAIN_LT=demo.local
+DOMAIN_LV=lv.demo.local
+DOMAIN_EE=ee.demo.local
+DOMAIN="DOMAIN_LT DOMAIN_LV DOMAIN_EE"
+
+# env/prod.env
+DOMAIN_LT=demo.lt
+DOMAIN_LV=demo.lv
+DOMAIN_EE=demo.ee
+DOMAIN="DOMAIN_LT DOMAIN_LV DOMAIN_EE"
+```
+
+- **Vardai, ne `${…}`.** Setup env failų neinterpoliuoja, Compose interpoliuoja: `${DOMAIN_LV}` jiems reikštų skirtingus dalykus. Didžiosios raidės – kintamojo vardas, mažosios – hostname, todėl galima ir maišyti: `DOMAIN="demo.local DOMAIN_LV"`.
+- **Pirmas hostname – pagrindinis.** Visur, kur setup naudoja `DOMAIN`, lieka jis vienas: `pma.`, `mailpit.`, `cron.` ir kiti servisų subdomenai, Apache `ServerName`, `.template` failai, after-import `${DOMAIN}`, numatytosios parduotuvės saugus numatytasis po importo.
+- **Visi hostname'ai** gauna užklausas: nginx-proxy svetainės `server_name` (su `www.`), Docker tinklo alias'ai, numatytieji `METRICS_URLS`, o local/test – `/etc/hosts`, kompiuterio Nginx maršrutas ir mkcert sertifikatas.
+- **DB setup nekeičia.** Kurį hostname gauna kuri parduotuvė, nusprendi pats: after-import SQL gali naudoti `${DOMAIN_LV}` ir kitus `DOMAIN` išvardytus kintamuosius ([after-import](07-duomenu-baze.md)).
+- Vienas domenas su keliais (`demo.local/latvija/`) papildomų nustatymų nereikalauja: kelias nustatomas tik `ps_shop_url`.
+- Nežinomas ar tuščias `DOMAIN_<VARDAS>`, URL ar hostname su portu sąraše – klaida. Vienas hostname, kaip iki šiol, nesikeičia.
+- Pakeitus sąrašą: `make bootstrap` (local/test), tada `make up`. Kompiuterio Nginx maršrutą rašo `host_proxy.py`, todėl po setup atnaujinimo kartą paleisk `setup/install-host`.
 | `ALLOWED_IPS` | Tuščias | Bendras leidžiamų IP/CIDR sąrašas **visiems** web įėjimams, įskaitant svetainę. |
 | `SITE_ALLOWED_IPS`, `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `BACKUP_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tuščias | Vieno įėjimo sąrašas. Jei nurodytas, pakeičia `ALLOWED_IPS` tam įėjimui. |
 | `TRUSTED_PROXIES` | Tuščias | Iš kurių adresų nginx-proxy priima `X-Forwarded-For` ir `X-Forwarded-Proto`. Tuščias: su `PUBLISH_ADDRESS` ant loopback – tik `127.0.0.1`, `::1` ir projekto Docker tinklo gateway (taip ateina kompiuterio Nginx / DirectAdmin); su kitu adresu – niekas. Nurodytas sąrašas su loopback galioja iškart, su kitu adresu – tik kartu su `TRUSTED_PROXIES_DIRECT=on`, kitaip klaida. |

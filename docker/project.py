@@ -160,6 +160,9 @@ class Project:
         if profile == 'ps': profile = 'prestashop'
         settings['PROFILE'] = profile
         self.process_env['PROFILE'] = profile
+        # DOMAIN may list several hostnames; from here on it is the primary one (project_domains).
+        from project_domains import apply_domains
+        apply_domains(self, settings)
         if environment in ('stage', 'prod') and settings.get('APP_UID'):
             # Server containers run as the hosting account (e.g. the DirectAdmin user), not the builder.
             if not (str(settings['APP_UID']).isdigit() and str(settings.get('APP_GID', '')).isdigit()):
@@ -277,6 +280,8 @@ class Project:
         self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment in ('local', 'test') else 'ro'
         # The backup UI edits the table registry the same way: locally, servers through git.
         self.process_env['SETUP_BACKUP_ACCESS'] = self.process_env['SETUP_CRON_CONFIG_ACCESS']
+        from project_domains import attach_domain_aliases
+        attach_domain_aliases(self)
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
         active = json.loads(self.capture(['config', '--format', 'json']))['services']

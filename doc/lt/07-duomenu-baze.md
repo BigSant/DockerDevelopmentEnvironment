@@ -172,10 +172,11 @@ INTEGRATIONS_ENABLED="tecdoc"
 
 Tada užkelk DB iš naujo. Nežinomas vardas yra klaida. Forsenoje integracijos yra `couriers`, `gtm`, `omnisend`, `suppliers`, `tecdoc`.
 
-**After-import SQL.** Savo SQL dėk į `database/after-import/common/` arba `database/after-import/<ENV>/`, failus numeruok vienodo ilgio numeriais (`010-…`, `020-…`). Juose galima naudoti `${DOMAIN}`, o `PROFILE=prestashop` projekte – ir `${DB_PREFIX}` bei `${PS_SSL}` (generic projekte jie atmetami, nes PS prefikso ir SSL vėliavos ten nėra):
+**After-import SQL.** Savo SQL dėk į `database/after-import/common/` arba `database/after-import/<ENV>/`, failus numeruok vienodo ilgio numeriais (`010-…`, `020-…`). Juose galima naudoti `${DOMAIN}` (pagrindinį hostname) ir `DOMAIN` išvardytus `${DOMAIN_<VARDAS>}` ([keli domenai](03-nustatymai.md#keli-domenai)), o `PROFILE=prestashop` projekte – ir `${DB_PREFIX}` bei `${PS_SSL}` (generic projekte jie atmetami, nes PS prefikso ir SSL vėliavos ten nėra):
 
 ```sql
 UPDATE `${DB_PREFIX}configuration` SET `value` = '0' WHERE `name` = 'MYMODULE_LIVE_MODE';
+UPDATE `${DB_PREFIX}shop_url` SET `domain` = '${DOMAIN_LV}', `domain_ssl` = '${DOMAIN_LV}' WHERE `id_shop` = 2;
 ```
 
 Kiti kintamieji šiuose failuose nepakeičiami.

@@ -57,6 +57,9 @@ def hook_values(project):
     from project_prestashop import is_prestashop
     domain = project.settings.get("SQL_DOMAIN") or project.settings.get("DOMAIN", "")
     values = {"DOMAIN": (domain, r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", "a valid DOMAIN hostname")}
+    # The DOMAIN_<NAME> variables DOMAIN lists (project_domains); setup itself never writes them anywhere.
+    for name, host in (project.settings.get("DOMAIN_REFERENCES") or {}).items():
+        values[name] = (host, r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", f"{name} to be a hostname")
     if is_prestashop(project):
         prefix = project.settings.get("PS_DATABASE_PREFIX") or "ps_"
         values["DB_PREFIX"] = (prefix, r"[A-Za-z0-9_]+", "PS_DATABASE_PREFIX of letters, digits and _")

@@ -15,7 +15,9 @@ def resolve_metrics(settings):
     values = {key: str(settings.get(key) or default) for key, default in DEFAULTS.items()}
     urls = str(settings.get('METRICS_URLS') or '').split()
     if not urls and settings.get('DOMAIN'):
-        urls = [f"https://{settings['DOMAIN']}/"]
+        # Every hostname DOMAIN lists (project_domains), the primary one first.
+        hosts = str(settings.get('SETUP_DOMAIN_HOSTS') or '').split() or [settings['DOMAIN']]
+        urls = [f"https://{host}/" for host in hosts]
     for url in urls:
         parts = urlsplit(url)
         if parts.scheme not in ('http', 'https') or not parts.hostname or '"' in url or '\\' in url:

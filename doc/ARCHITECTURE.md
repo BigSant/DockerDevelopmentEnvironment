@@ -60,6 +60,13 @@ no env/<env>.env needed): they read the committed env files with `project_env_fi
    variables and GitHub environment secrets (expanded by `pipeline-deploy`) arrive. Setup's own `.env` sets no secret defaults. `APP_ENVIRONMENT` names have no
    blank exception: a server env file must not mention them at all for the process value to arrive.
 2. Settings: only the keys in `project-settings.yaml` are read. A new setting must be added there.
+   `DOMAIN` may list hostnames and `DOMAIN_<NAME>` variable names (`project_domains`; names, not `${…}`,
+   because setup's dotenv parser does not interpolate and Compose does). Right after the settings are read
+   `DOMAIN` becomes the first hostname, in the settings and in the process environment (which Compose
+   prefers to `--env-file`), so every existing use keeps one hostname; `SETUP_DOMAIN_HOSTS` carries them
+   all to nginx-proxy's site `server_name`, a generated network-alias overlay, the default `METRICS_URLS`
+   and, locally, `/etc/hosts`, the host Nginx route and the mkcert certificate. Setup writes none of them
+   into the database: after-import SQL may use `${DOMAIN_<NAME>}` for the names `DOMAIN` lists.
 3. Policy (`project_policy.resolve_policy`): defaults, validation and derived values: cache modes,
    MAIL_MODE (mailpit when the service runs), TZ, resources (`<SERVICE>_MEMORY/_CPUS` → buffer pool,
    FPM pool, memcached/redis memory), PS_SSL, DATABASE_PERFORMANCE_SCHEMA. Results go into the process
@@ -70,8 +77,9 @@ no env/<env>.env needed): they read the committed env files with `project_env_fi
    cron; references only, content-addressed under `.generated/`, refused for invalid names and names
    setup owns — every setting plus `DATABASE_`, `PS_`, `PHP_`, `CRON_`, … — and loaded before the
    project files so an explicit project definition wins), the project's optional compose sources, every `SERVICES=` catalogue entry
-   (`docker/<name>/docker-compose.yml`), env overrides, then a generated overlay that drops optional
-   config mounts whose source is absent (Compose would create them root-owned).
+   (`docker/<name>/docker-compose.yml`), env overrides, the generated network aliases of a `DOMAIN` list,
+   then a generated overlay that drops optional config mounts whose source is absent (Compose would
+   create them root-owned).
 5. Guards: stage/prod require explicit core limits; stage/prod tools (pma, mailpit, cron, dbmonitor, metrics)
    require an allowlist (their tokens are optional; a metrics token that is set needs 24+ characters); test must be isolated (own code copy, data and DB).
 6. Per-image fingerprints (`setup_release.image_suffixes`): each built image's tag ends in a hash of

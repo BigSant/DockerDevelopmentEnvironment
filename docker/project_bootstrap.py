@@ -112,15 +112,17 @@ def resolves_locally(host):
 SERVICE_HOSTS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'backup')
 
 
-def route_exists(domain, port, nginx=Path('/etc/nginx')):
-    """None, 'partial' (the site but not every service host name) or 'complete' for the host Nginx route."""
+def route_exists(domain, port, nginx=Path('/etc/nginx'), hosts=()):
+    """None, 'partial' (the site but not every service host name) or 'complete' for the host Nginx route.
+
+    hosts: the project's other hostnames; a route without one of them does not serve that site."""
     site = nginx / 'sites-enabled' / f'{domain}.conf'
     try:
         text = site.read_text()
     except OSError:
         return None
     names = set(' '.join(re.findall(r'server_name([^;]*);', text)).split())
-    if domain not in names or f'proxy_pass http://127.0.0.1:{port};' not in text:
+    if not {domain, *hosts} <= names or f'proxy_pass http://127.0.0.1:{port};' not in text:
         return None
     return 'complete' if {f'{host}.{domain}' for host in SERVICE_HOSTS} <= names else 'partial'
 
@@ -129,23 +131,26 @@ def prepare_host(project):
     domain = project.settings.get('DOMAIN', '')
     if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain):
         raise ValueError('Set DOMAIN to a hostname without a port')
-    try:
-        addresses = {r[4][0] for r in socket.getaddrinfo(domain, None)}
-    except socket.gaierror:
-        addresses = set()
-    if not addresses:
-        helper = host_helper('host_entry.py')
-        result = subprocess.run(['sudo', '-n', HOST_PYTHON, str(helper), domain], capture_output=True, text=True)
-        if result.returncode:
-            raise ValueError(f'Local DNS entry is missing. Run setup/install-host once, or: sudo {HOST_PYTHON} {helper} {domain}')
-    elif not addresses.issubset({'127.0.0.1', '::1'}):
-        raise ValueError('DOMAIN resolves outside localhost; use a local development hostname')
+    from project_domains import extra_hosts
+    hosts = extra_hosts(project.settings)
+    for name in (domain, *hosts):
+        try:
+            addresses = {r[4][0] for r in socket.getaddrinfo(name, None)}
+        except socket.gaierror:
+            addresses = set()
+        if not addresses:
+            helper = host_helper('host_entry.py')
+            result = subprocess.run(['sudo', '-n', HOST_PYTHON, str(helper), name], capture_output=True, text=True)
+            if result.returncode:
+                raise ValueError(f'Local DNS entry is missing. Run setup/install-host once, or: sudo {HOST_PYTHON} {helper} {name}')
+        elif not addresses.issubset({'127.0.0.1', '::1'}):
+            raise ValueError(f'{name} (DOMAIN) resolves outside localhost; use a local development hostname')
     ssl = project.data_directory / 'ssl'
     ssl.mkdir(mode=0o700, parents=True, exist_ok=True)
     certificate, key = ssl/'domain.crt', ssl/'domain.key'
     valid = False
     if certificate.is_file() and key.is_file():
-        valid = certificate_is_valid(certificate, domain)
+        valid = all(certificate_is_valid(certificate, name) for name in (domain, *hosts))
     if not valid:
         if not shutil.which('mkcert'):
             raise ValueError('Install mkcert, then rerun make bootstrap to create local TLS certificates')
@@ -154,11 +159,11 @@ def prepare_host(project):
             raise ValueError('Run mkcert -install once to install the local CA, then rerun make bootstrap')
         with tempfile.TemporaryDirectory(dir=ssl) as temporary:
             crt, private = Path(temporary)/'domain.crt', Path(temporary)/'domain.key'
-            result = subprocess.run(['mkcert', '-cert-file', str(crt), '-key-file', str(private), domain, '*.'+domain], capture_output=True)
+            result = subprocess.run(['mkcert', '-cert-file', str(crt), '-key-file', str(private), domain, '*.'+domain, *hosts], capture_output=True)
             if result.returncode: raise ValueError('mkcert failed to generate the local certificate')
             replace_file(certificate, crt.read_bytes())
             replace_file(key, private.read_bytes(), private=True)
-    print(f'Local hostname and TLS prepared: {domain}')
+    print(f"Local hostname and TLS prepared: {' '.join((domain, *hosts))}")
     entry_helper = host_helper('host_entry.py')
     for host in (f'{name}.{domain}' for name in SERVICE_HOSTS):
         if resolves_locally(host):
@@ -169,12 +174,12 @@ def prepare_host(project):
             import shlex
             raise ValueError('Local service hostname could not be prepared. Run setup/install-host once, or: ' +
                              shlex.join(['sudo', HOST_PYTHON, str(entry_helper), host]))
-    route = route_exists(domain, project.settings['LOCALHOST_PORT'])
+    route = route_exists(domain, project.settings['LOCALHOST_PORT'], hosts=hosts)
     if route == 'complete':
         print(f'Local Nginx route already in place: http://{domain}/')
         return
     helper = host_helper('host_proxy.py')
-    args = [HOST_PYTHON, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl)]
+    args = [HOST_PYTHON, str(helper), domain, project.settings['LOCALHOST_PORT'], str(ssl), *hosts]
     result = subprocess.run(['sudo', '-n', *args], capture_output=True, text=True)
     if result.returncode:
         import shlex
