@@ -262,7 +262,12 @@ class OneRepositoryTest(Fixture):
         self.assert_root("A")
         self.run_step(64, REF=self.commits["D"])
         self.assert_out("This project needs setup 99.0.0 or newer")
+        self.assert_out("Update setup to v99.0.0 or newer first")  # not a setup-server worker: no self-update
         self.assertEqual(self.make_log(), "")
+        self.assert_root("A")
+        # On a worker a new MAJOR stays a person's decision; a restarted step does not loop.
+        self.run_step(64, REF=self.commits["D"], SETUP_SERVER_ROOT=str(self.work), SETUP_SELF_UPDATED="v2.7.0")
+        self.assert_out("setup was updated to v2.7.0 for this deploy already and is still too old")
         self.assert_root("A")
         self.run_step(1, REF=self.commits["F"])
         self.assert_out("env/prod.env.example:2: BROKEN has no closing single quote")

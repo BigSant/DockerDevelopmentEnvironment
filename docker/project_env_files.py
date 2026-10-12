@@ -150,18 +150,28 @@ def version_tuple(text):
     return tuple(int(part) for part in text.split('.')) + (0,) * (2 - text.count('.'))
 
 
-def require_setup_version(directory):
-    """SETUP_MIN_VERSION in env/common.env: the oldest setup the project runs with; nothing when unset."""
+def needed_setup_version(directory):
+    """SETUP_MIN_VERSION of env/common.env when this setup is older than it, else None."""
     common = Path(directory) / 'env/common.env'
     if not common.is_file():
-        return
+        return None
     wanted = str(read_dotenv(common).get('SETUP_MIN_VERSION') or '').strip().removeprefix('v')
     if not wanted:
-        return
+        return None
     if version_tuple(wanted) is None:
         raise ValueError(f'SETUP_MIN_VERSION in {common} must be a version such as 2.3.0, not {wanted!r}')
     version = (DOCKER_ROOT.parent / 'VERSION').read_text().strip()
     if version_tuple(version) is None or version_tuple(version) < version_tuple(wanted):
+        return wanted
+    return None
+
+
+def require_setup_version(directory):
+    """SETUP_MIN_VERSION in env/common.env: the oldest setup the project runs with; nothing when unset."""
+    wanted = needed_setup_version(directory)
+    if wanted:
+        version = (DOCKER_ROOT.parent / 'VERSION').read_text().strip()
         raise ValueError(f'This project needs setup {wanted} or newer (SETUP_MIN_VERSION in env/common.env); '
-                         f'the setup at {DOCKER_ROOT.parent} is {version}. Update it first '
-                         f'(git -C {DOCKER_ROOT.parent} pull, or check out v{wanted} or a newer tag on a server)')
+                         f'the setup at {DOCKER_ROOT.parent} is {version}. Update it first (git -C '
+                         f'{DOCKER_ROOT.parent} pull; on a setup-server: the web UI or bin/update --setup-ref '
+                         f'v{wanted} - a deploy does it itself within the same MAJOR version)')

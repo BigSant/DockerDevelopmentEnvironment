@@ -38,7 +38,7 @@ import re
 import subprocess
 import sys
 
-from project_env_files import (TARGET_KEYS, file_settings, names_setting, read_dotenv, require_setup_version,
+from project_env_files import (TARGET_KEYS, file_settings, names_setting, needed_setup_version, read_dotenv,
                                target_file, target_settings)
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
@@ -68,6 +68,15 @@ class Refusal(Exception):
     def __init__(self, message, status=USAGE):
         super().__init__(message)
         self.status = status
+
+
+class SetupTooOld(Refusal):
+    """The deployed commit needs a newer setup (SETUP_MIN_VERSION)."""
+
+    def __init__(self, wanted, current):
+        super().__init__(f'This project needs setup {wanted} or newer (SETUP_MIN_VERSION in env/common.env); '
+                         f'the setup at {SETUP_ROOT} is {current}')
+        self.wanted = wanted
 
 
 class MissingVariables(Refusal):
@@ -383,9 +392,11 @@ def run_step(step, environ, provider, deployment, ref, switches):
         # The deployed commit's own lists: a name it adds is checked before anything runs.
         try:
             variables = deployment_variables(step.directory, step.environment)
-            require_setup_version(step.directory)
+            wanted = needed_setup_version(step.directory)
         except ValueError as error:
             raise Refusal(str(error)) from None
+        if wanted:
+            raise SetupTooOld(wanted, (SETUP_ROOT / 'VERSION').read_text().strip())
         step.require(variables, environ, provider, deployment)
         empty = [name for name, variable in variables.items() if not variable['required'] and not environ.get(name)]
         if empty:
@@ -423,7 +434,29 @@ def run_step(step, environ, provider, deployment, ref, switches):
             restore(step, live, target, state, provider)
         elif status == USAGE:
             step.say('Nothing was changed.')
+        if isinstance(error, SetupTooOld):
+            return update_setup_and_restart(step, error.wanted, environ, status)
         return status
+
+
+def update_setup_and_restart(step, wanted, environ, status):
+    """On a setup-server worker (SETUP_SERVER_ROOT, the runner's own checkout): the newer setup, then the step again."""
+    if not environ.get('SETUP_SERVER_ROOT'):
+        step.say(f'Update setup to v{wanted} or newer first (git -C {SETUP_ROOT} pull or check out a release tag).')
+        return status
+    if environ.get('SETUP_SELF_UPDATED'):
+        step.say(f'setup was updated to {environ["SETUP_SELF_UPDATED"]} for this deploy already and is still too old.')
+        return status
+    from setup_self_update import update_setup
+    try:
+        previous, tag = update_setup(wanted)
+    except (ValueError, subprocess.CalledProcessError, OSError) as error:
+        detail = (getattr(error, 'stderr', '') or str(error)).strip()
+        step.say(f'setup could not be updated to v{wanted} or newer: {detail}')
+        return status
+    step.say(f'==> setup {previous} -> {tag} ({SETUP_ROOT}): the project needs {wanted}; the step starts again on it.')
+    sys.stdout.flush(), sys.stderr.flush()
+    os.execve(sys.executable, [sys.executable, *sys.argv], {**os.environ, 'SETUP_SELF_UPDATED': tag})
 
 
 def restore(step, live, target, state, provider=BITBUCKET):

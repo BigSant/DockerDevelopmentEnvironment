@@ -216,7 +216,8 @@ separate code repository keeps the environment checkout on the pipeline commit a
 variables included) → fetch → checkout → `env/<env>.env` from the example + the build root's `target.env`
 (the deploy target setup-server registers: `DEPLOY_CONTEXT/SSH/PATH`, `APP_UID/GID`; an example naming
 them is refused; without `target.env` the example's own target, + the runner's ids on the same host)
-→ the same checks with the deployed commit's files →
+→ the same checks with the deployed commit's files (a too old setup on a setup-server worker: `setup_self_update`
+checks out the newest release tag of the same MAJOR that is new enough and the step restarts on it) →
 `make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy`. `project_release.sync_environment` copies the environment
 checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH` in deploy-images and deploy
 whenever `DEPLOY_PATH` is not the project root. A failure restores

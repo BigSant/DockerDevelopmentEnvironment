@@ -6,6 +6,14 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### A deploy brings setup up to the version its project needs
+
+- **On a setup-server worker** (`SETUP_SERVER_ROOT` from the runner, the shared checkout of its own account),
+  `make pipeline-deploy` no longer stops when the deployed commit needs a newer setup (`SETUP_MIN_VERSION`):
+  it returns the build root, checks out the newest release tag of the same MAJOR version that is new enough,
+  and starts the step again on it. A new MAJOR version, local changes in the checkout or no fitting tag stop
+  the deploy with the reason; a developer's machine is never updated this way.
+
 ### The environment files reach DEPLOY_PATH
 
 - **`make deploy-images` and `make deploy` copy the environment repository's mounted files** (`config/`, the
