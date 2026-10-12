@@ -78,7 +78,7 @@ PROXY_CPUS=0.5
 PMA_ALLOWED_IPS="203.0.113.10"
 ```
 
-   **Kur deploy'inama, nusprendžia serveris, ne projektas.** Su setup-server taikinį (`DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`) užregistruoja `bin/add-project` build kataloge (`target.env`), o `make pipeline-deploy` jį prideda prie `env/<env>.env`. Pavyzdys tų vardų rašyti negali: jei `target.env` yra, deploy'us tokį pavyzdį atmeta. Be setup-server (bandant iš savo kompiuterio) taikinį rašyk privačiame `env/prod.env`:
+   **Kur deploy'inama, nusprendžia serveris, ne projektas.** Su setup-server taikinį (`DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`) užregistruoja `bin/add-project` build kataloge (`target.env`; `target.<env>.env` – kai stage ir prod skirtinguose serveriuose), o `make pipeline-deploy` jį prideda prie `env/<env>.env`. Pavyzdys tų vardų rašyti negali: jei `target.env` yra, deploy'us tokį pavyzdį atmeta. Be setup-server (bandant iš savo kompiuterio) taikinį rašyk privačiame `env/prod.env`:
 
 ```dotenv
 APP_UID=1001

@@ -285,6 +285,15 @@ class OneRepositoryTest(Fixture):
         target.write_text("DEPLOY_PATH=/srv/x\nDATABASE_PASSWORD=no\n")
         self.run_step(64, REF=self.commits["G"])  # checked before anything changes
         self.assert_out("holds only DEPLOY_CONTEXT DEPLOY_SSH DEPLOY_PATH APP_UID APP_GID")
+        # target.prod.env sends prod elsewhere than the build root's shared target.env.
+        target.write_text("DEPLOY_CONTEXT=default\nDEPLOY_SSH=\nDEPLOY_PATH=/srv/registered\nAPP_UID=4242\nAPP_GID=4243\n")
+        (self.work / "root/target.prod.env").write_text("DEPLOY_CONTEXT=shop-live\nDEPLOY_SSH=user@shop\n"
+                                                        "DEPLOY_PATH=/home/user/shop\nAPP_UID=1012\nAPP_GID=1013\n")
+        self.run_step(0, REF=self.commits["G"], IMAGES="yes")
+        env = parse_dotenv((self.app / "env/prod.env").read_text())
+        self.assertEqual((env["DEPLOY_CONTEXT"], env["DEPLOY_PATH"], env["APP_UID"]), ("shop-live", "/home/user/shop", "1012"))
+        self.assert_log("make deploy-images ENV=prod |")
+        (self.work / "root/target.prod.env").unlink()
         target.unlink()
         self.run_step(64, REF=self.commits["G"])
         self.assert_out("No deploy target:")

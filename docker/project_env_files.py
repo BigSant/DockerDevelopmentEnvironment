@@ -89,15 +89,20 @@ def environment_file(directory, environment):
     return None
 
 
-def target_file(directory):
-    """The build root's target.env: beside app/ (or beside app/ of the older app/docker layout)."""
+def target_file(directory, environment=None):
+    """The build root's target.<env>.env, else its target.env: beside app/ (or app/ of the app/docker layout).
+
+    One build root deploys both stage and prod; target.<env>.env sends one of them elsewhere.
+    """
     directory = Path(directory)
-    return (directory.parent.parent if directory.parent.name == 'app' else directory.parent) / TARGET_FILE
+    root = directory.parent.parent if directory.parent.name == 'app' else directory.parent
+    specific = root / f'target.{environment}.env' if environment else None
+    return specific if specific and specific.is_file() else root / TARGET_FILE
 
 
-def target_settings(directory):
-    """The deploy target setup-server registered for this build root; {} when there is none."""
-    path = target_file(directory)
+def target_settings(directory, environment=None):
+    """The deploy target setup-server registered for this build root and ENV; {} when there is none."""
+    path = target_file(directory, environment)
     if not path.is_file():
         return {}
     values = read_dotenv(path)
@@ -126,7 +131,7 @@ def file_settings(directory, environment):
             values.update(entries)
             mentioned.update(entries)
     if environment in ('stage', 'prod'):
-        values.update(target_settings(directory))
+        values.update(target_settings(directory, environment))
     return values, mentioned
 
 

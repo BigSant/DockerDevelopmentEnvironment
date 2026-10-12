@@ -11,7 +11,8 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 - **`target.env` in the build root** (beside `app/`), written by setup-server's `bin/add-project`, names
   where the server deploys: `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`.
   `make pipeline-deploy` appends it to `env/<env>.env`; stage/prod commands (the secret store lookup too)
-  read it.
+  read it. `target.<env>.env` beside it sends one environment elsewhere (stage and prod on different
+  servers from one build root).
 - **The project's `env/<env>.env.example` must not name them** when `target.env` exists: the deploy is
   refused before anything changes. Without `target.env` and without `DEPLOY_PATH` in the example the step
   stops with `No deploy target`.

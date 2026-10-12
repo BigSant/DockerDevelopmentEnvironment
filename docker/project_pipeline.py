@@ -239,18 +239,18 @@ class Step:
         text = example.read_text()
         if text and not text.endswith('\n'):
             text += '\n'
-        target = target_settings(self.directory)
+        target = target_settings(self.directory, self.environment)
         values, _ = file_settings(self.directory, self.environment)
         self.same_host = values.get('DEPLOY_CONTEXT') == 'default' and not values.get('DEPLOY_SSH')
         if target:
             named = [key for key in TARGET_KEYS if key in read_dotenv(example)]
             if named:
                 raise Refusal(f"env/{self.environment}.env.example sets {' '.join(named)}, but the deploy target is "
-                              f"the server's ({target_file(self.directory)}): remove them from the example")
+                              f"the server's ({target_file(self.directory, self.environment)}): remove them from the example")
             text += "# Added by make pipeline-deploy from setup-server's target.env: where this server deploys.\n"
             text += ''.join(f'{key}={target[key]}\n' for key in TARGET_KEYS if key in target)
         elif not values.get('DEPLOY_PATH'):
-            raise Refusal(f'No deploy target: {target_file(self.directory)} is missing (setup-server registers it: '
+            raise Refusal(f'No deploy target: {target_file(self.directory, self.environment)} is missing (setup-server registers it: '
                           f'sudo bin/add-project) and env/{self.environment}.env.example sets no DEPLOY_PATH')
         elif self.same_host and not values.get('APP_UID'):
             text += f'# Added by make pipeline-deploy: the runner account owns the build root and the target.\n' \
