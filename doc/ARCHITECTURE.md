@@ -222,7 +222,11 @@ The Deployment variables list (`project_pipeline.deployment_variables`) is setup
 (DB passwords, PS keys of `PS_VERSION`; monitor password and metrics/monitor tokens optional) +
 `DEPLOY_REQUIRED_VARIABLES` + `DEPLOY_OPTIONAL_VARIABLES` + `APP_ENVIRONMENT` names the env files do not
 mention; a name an env file sets is not a Deployment variable, a blank one (other than `PROCESS_SECRETS`)
-is refused because it would hide the process value. `make deploy-variables` (`project_ci` picks the
+is refused because it would hide the process value. The same list feeds the stage/prod secret store
+(`project_secret_store`): a generated `secrets` service holds the names as `${NAME-}` references in a
+sleeping, network-less container, and a stage/prod command outside a pipeline (`CI` not `true`) takes a
+name its environment lacks from that container (`docker inspect`, through `DEPLOY_CONTEXT`), so
+server-side backups and manual commands need no copy of the secrets. `make deploy-variables` (`project_ci` picks the
 provider: `CI_PROVIDER`, else a single `DEPLOY_*_REPOSITORY`, else the origin host, else Bitbucket).
 `project_bitbucket` compares the same list with the Bitbucket environment (names and secured flag) and
 creates/replaces from a private dotenv file; urllib only (no subprocess, so no value or token on a

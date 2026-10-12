@@ -6,6 +6,16 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Stage/prod keep their Deployment variables (secrets service)
+
+- **A `secrets` service in every stage/prod model** (`<PROJECT_NAME>-<ENV>-secrets`) lists the
+  environment's Deployment variables as references, so each deploy gives it the pipeline's values. It
+  only sleeps: no network, no mounts, read-only, 16 MB.
+- **Outside a pipeline** (`CI` not `true`) a stage/prod command takes a name its environment lacks from
+  that container (through `DEPLOY_CONTEXT` when set): the setup-server nightly backup, "backup now" and
+  manual `make` commands on the server need no copy of the secrets. In a pipeline the store is not read.
+- **Migrating:** nothing to set; the store appears with the next deploy.
+
 ### Metrics and DB monitor tokens are optional
 
 - **The IP allowlist alone guards `/metrics` and the DB monitor:** with `METRICS_TOKEN` or

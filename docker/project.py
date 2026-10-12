@@ -120,6 +120,9 @@ class Project:
         # Do not let a previous project's shell exports silently select this stack: env files win,
         # except a secret they leave blank, which a pipeline supplies as process environment.
         self.process_env = os.environ.copy()
+        # Outside a pipeline a stage/prod command takes the Deployment variables from the stack's store.
+        from project_secret_store import fill_from_store
+        fill_from_store(self.directory, environment, self.process_env)
         for key, blank in env_file_keys(self.env_files).items():
             if not (blank and key in PROCESS_SECRETS and self.process_env.get(key)):
                 self.process_env.pop(key, None)
@@ -254,6 +257,9 @@ class Project:
         # ... and what the last backup found about the table registry, with database as code.
         if 'metrics' in services and settings['SCHEMA_DIRECTORY']:
             self.command += ["-f", str(DOCKER_ROOT / "docker/metrics/registry.yml")]
+        # Stage/prod keep their Deployment variables for the commands run outside a pipeline.
+        from project_secret_store import secret_store, store_names
+        self.command += secret_store(self, store_names(self.directory, environment))
         extras = []
         for entry in shlex.split(settings["EXTRA_COMPOSE_FILES"]):
             extra = (self.directory / entry).resolve()

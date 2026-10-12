@@ -230,6 +230,16 @@ make deploy-variables ENV=prod token=… from=~/prod-secrets.env replace=1  # pe
 - Lyginami tik vardai ir Secured žyma: Secured reikšmių Bitbucket neparodo. Reikšmės niekur nespausdinamos ir neperduodamos komandinėje eilutėje.
 - Išėjimo kodai: 0 – visi vardai yra, 1 – kai kurių trūksta, 2 – Bitbucket klaida (atsakymas paaiškina, kurios teisės trūksta), 64 – argumentų, failų teisių ar sąrašo klaida.
 
+### Komandos serveryje be pipeline'o (`secrets`)
+
+Deployment variables egzistuoja tik pipeline žingsnyje. Serverio komandoms be pipeline'o (setup-server naktinė DB kopija, „backup now“, rankinis `make db-import ENV=prod`) reikia tų pačių reikšmių, bet jų kopija faile būtų antras šaltinis. Todėl stage/prod stack'as jas laiko pats:
+
+- **Servisas `secrets`** (`<PROJECT_NAME>-<ENV>-secrets`) yra kiekviename stage/prod modelyje. Jo aplinkoje – visi šios aplinkos Deployment variables (tas pats sąrašas, kaip `make deploy-variables names=1`), kaip nuorodos `VARDAS: ${VARDAS-}`, todėl kiekvienas deploy'us įrašo pipeline'o reikšmes. Konteineris tik miega: be tinklo, be prijungimų, tik skaitymui, 16 MB.
+- **Komanda be pipeline'o** (`CI` nėra `true`) vardą, kurio jos aplinkoje nėra, paima iš to konteinerio (`docker inspect`, su `DEPLOY_CONTEXT` – per jį). Proceso aplinkos reikšmė laimi.
+- **Pipeline'e** (`CI=true`, taip nustato Bitbucket ir GitHub) store neskaitomas: Bitbucket'e ištrintas kintamasis negrįžta iš veikiančio stack'o.
+- Reikšmės laikomos Docker konteinerio konfigūracijoje, kaip ir kitų konteinerių aplinka (DB slaptažodžiai DB konteineryje ten jau yra). Jas mato, kas turi Docker prieigą prie serverio.
+- Kol stack'as dar nė karto nedeploy'intas, store'o nėra: pirmas deploy'us eina per pipeline'ą arba rankomis su reikšmėmis aplinkoje.
+
 Deploy teisių ribojimas (tik tam tikri žmonės ar šakos konkrečiai aplinkai) Bitbucket'e yra Premium plano funkcija. Be jos produkcijos deploy'ų gali paleisti kiekvienas, turintis rašymo teisę į repozitoriją.
 
 ## GitHub Actions
