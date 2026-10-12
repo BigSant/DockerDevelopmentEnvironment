@@ -25,6 +25,15 @@ def git(directory, *args):
     subprocess.run(["git", "-C", str(directory), *args], check=True, capture_output=True)
 
 
+def compose_model(root):
+    """The containers' bind mounts: code, data, the environment repository's config and its .generated."""
+    bind = lambda source, target: {"type": "bind", "source": str(source), "target": target}
+    return {"services": {"php-fpm": {"volumes": [bind(root / "app/public", "/var/www/html"),
+                                                   bind(root / "app/config/php", "/usr/local/etc/php/project"),
+                                                   bind(root / "data/logs", "/var/log/php"),
+                                                   bind(root / "app/.generated/backups", "/backups")]}}}
+
+
 class DeployTest(unittest.TestCase):
     def setUp(self):
         scratch = ROOT / ".test-work"
@@ -40,6 +49,11 @@ class DeployTest(unittest.TestCase):
         git(self.shop, "config", "commit.gpgsign", "false")
         self.commit("v1", {"index.php": "<?php // v1\n", "old.php": "<?php\n",
                            "modules/shop/shop.php": "<?php class Shop { function __construct() { $this->version = '1.0.0'; } }\n"})
+        # The environment repository's mounted config (copied to DEPLOY_PATH) and what never is.
+        (self.root / "app/config/php").mkdir(parents=True)
+        (self.root / "app/config/php/zz-project.ini").write_text("memory_limit = 256M\n")
+        (self.root / "app/.generated/backups").mkdir(parents=True)
+        (self.root / "app/.generated/backups/shop.sql.gz").write_text("private")
         self.target = self.root / "target"
         (self.target / "app/public/var/cache").mkdir(parents=True)
         (self.target / "app/public/var/cache/keep.txt").write_text("cache")
@@ -59,7 +73,8 @@ class DeployTest(unittest.TestCase):
             environment="stage", root=self.root, directory=self.root / "app", web_directory=self.shop,
             settings={"DEPLOY_PATH": str(self.target), "DEPLOY_CONTEXT": "shop-stage", "DEPLOY_SSH": "", "APP_UID": "1012",
                       "APP_GID": "1013", "PS_VERSION": "9.0.2", "PROFILE": "prestashop"},
-            process_env={"HOST_UID": "1012", "HOST_GID": "1013"}, run=lambda args, profiles=None: self.calls.append(args))
+            process_env={"HOST_UID": "1012", "HOST_GID": "1013"}, run=lambda args, profiles=None: self.calls.append(args),
+            data_directory=self.root / "data", capture=lambda args, profiles=None: json.dumps(compose_model(self.root)))
         output = contextlib.redirect_stdout(io.StringIO())
         self.output = output.__enter__()
         self.addCleanup(output.__exit__, None, None, None)
@@ -179,6 +194,24 @@ class GenericDeployTest(unittest.TestCase):
     """An empty PROFILE deploys any PHP application: no PrestaShop step, every tracked file is code."""
 
     setUp = DeployTest.setUp
+
+    def test_the_mounted_environment_files_follow_the_deploy_to_deploy_path(self):
+        self.project.settings["PROFILE"] = ""
+        self.deploy(ref="v1")
+        self.assertEqual((self.target / "app/config/php/zz-project.ini").read_text(), "memory_limit = 256M\n")
+        self.assertFalse((self.target / "app/.generated").exists(), ".generated never leaves this machine")
+        (self.root / "app/config/php/zz-project.ini").unlink()
+        (self.root / "app/config/php/yy.ini").write_text("x = 1\n")
+        self.deploy(ref="v1")
+        self.assertEqual(sorted(path.name for path in (self.target / "app/config/php").iterdir()), ["yy.ini"],
+                         "the copy follows the repository, removals included")
+        # A release model's sources are DEPLOY_PATH's already (deploy-images copies from it).
+        from project_release import environment_mounts
+        mapped = json.loads(json.dumps(compose_model(self.root)).replace(str(self.root), "/srv/site"))
+        self.assertEqual(environment_mounts(self.project, mapped, "/srv/site"), ["app/config/php"])
+        # The build root itself is the target: nothing to copy.
+        from project_release import sync_environment
+        self.assertEqual(sync_environment(self.project, str(self.root)), [])
     commit = DeployTest.commit
 
     def generic(self, **settings):

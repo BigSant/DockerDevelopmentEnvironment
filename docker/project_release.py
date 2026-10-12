@@ -88,6 +88,64 @@ def release_model(project, deploy_path):
     return model
 
 
+def environment_mounts(project, model, root=None):
+    """The environment repository's files the containers mount (config/, the schema directory, ...), relative
+    to the project root: what a target needs besides the code (rsynced by make deploy) and its own data.
+    root: where the model's sources live (the project root, or DEPLOY_PATH in a release model).
+    .generated/ (backups, build state) never leaves this machine."""
+    local_root = project.root.resolve()
+    root = Path(root) if root else local_root
+    inside = lambda path: root / Path(path).resolve().relative_to(local_root)
+    environment = inside(project.directory)
+    skipped = [inside(project.web_directory), inside(project.data_directory), environment / '.generated']
+    found = set()
+    for service in model['services'].values():
+        for volume in service.get('volumes', []):
+            if volume.get('type') != 'bind':
+                continue
+            source = Path(volume['source'])
+            if source != environment and source.is_relative_to(environment) \
+                    and not any(source.is_relative_to(path) for path in skipped):
+                found.add(source)
+    kept = [path for path in sorted(found) if not any(path != other and path.is_relative_to(other) for other in found)]
+    return [path.relative_to(root).as_posix() for path in kept]
+
+
+def sync_environment(project, deploy_path, model=None):
+    """Copy the mounted environment files to DEPLOY_PATH when the target is not this checkout itself.
+
+    On the build server's own build root (DEPLOY_PATH = the project root, no DEPLOY_SSH) the containers
+    mount the checkout directly. Anywhere else, a local directory or a server, they mount DEPLOY_PATH's copy,
+    which follows the checked-out commit on every deploy-images and deploy (--delete: a file removed from
+    the repository goes on the target too)."""
+    ssh = project.settings.get('DEPLOY_SSH') or ''
+    if ssh and not re.fullmatch(r'[A-Za-z0-9._-]+@[A-Za-z0-9.-]+', ssh):
+        raise ValueError('DEPLOY_SSH must look like user@host')
+    if not ssh and Path(deploy_path).resolve() == project.root.resolve():
+        return []
+    if model is None:
+        paths = environment_mounts(project, json.loads(project.capture(['config', '--format', 'json'])))
+    else:  # a release model: its sources are already DEPLOY_PATH's
+        paths = environment_mounts(project, model, deploy_path)
+    if not paths:
+        return []
+    parents = sorted({str(Path(deploy_path, path).parent) for path in paths})
+    if ssh:
+        subprocess.run(['ssh', ssh, 'mkdir', '-p', '--', *parents], check=True)
+    else:
+        for parent in parents:
+            Path(parent).mkdir(parents=True, exist_ok=True)
+    for path in paths:
+        source = project.root / path
+        directory = source.is_dir()
+        destination = f'{deploy_path}/{path}' + ('/' if directory else '')
+        subprocess.run(['rsync', '-a', '--checksum', *(['--delete'] if directory else []),
+                        f'{source}/' if directory else str(source), f'{ssh}:{destination}' if ssh else destination],
+                       check=True)
+    print(f'==> environment files to {ssh + ":" if ssh else ""}{deploy_path}: {" ".join(paths)}', flush=True)
+    return paths
+
+
 def image_names(model):
     return sorted({service['image'] for service in model['services'].values() if service.get('image')})
 
@@ -216,6 +274,8 @@ def deploy_images(project, transfer=True):
     print(f'==> starting {lock["project"]} on {context}', flush=True)
     # Rendered now from env (secrets may come from the pipeline's environment) and piped, never stored.
     model = release_model(project, deploy_path)
+    # The containers mount the environment files from DEPLOY_PATH: they are there before anything starts.
+    sync_environment(project, deploy_path, model)
     subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', '-',
                     'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'],
                    input=json.dumps(model), text=True, check=True)

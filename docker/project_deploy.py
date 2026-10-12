@@ -352,6 +352,9 @@ def deploy_code(project, ref=None, backup=True, rollback=False):
     for name in protected:
         print(f'Warning: module {name} exists only on the target and was left as is; '
               f'make module-pull ENV={project.environment} name={name} brings it into the code.')
+    # The environment files the containers mount follow the deployed commit too (DEPLOY_PATH elsewhere).
+    from project_release import sync_environment
+    sync_environment(project, deploy_path)
     entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
              'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
     try:
