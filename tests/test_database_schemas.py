@@ -271,6 +271,20 @@ class BackupPlanTest(unittest.TestCase):
         self.assertTrue(self.written)
         return [command[command.index("database-backup") + 1:] for command in commands]
 
+    def test_a_failed_dump_names_the_clients_last_error_and_publishes_nothing(self):
+        def failing(command, **kwargs):
+            kwargs['stderr'].write(b"mysqldump: [Warning] Using a password on the command line\n"
+                                   b"mysqldump: Couldn't execute 'SHOW CREATE PROCEDURE `asana`.`p`': denied (1227)\n\n")
+            process = SimpleNamespace(stdout=io.BytesIO(b"-- partial"))
+            process.wait = lambda: 2
+            process.poll = lambda: 2
+            return process
+        with patch("database_backup.subprocess.Popen", side_effect=failing), \
+                self.assertRaisesRegex(ValueError, r"Database backup failed: mysqldump: Couldn't execute 'SHOW CREATE "
+                                                   r"PROCEDURE `asana`.`p`': denied \(1227\); no backup published"):
+            backup_database(self.project, self.root / "failed.sql.gz")
+        self.assertEqual(list(self.root.glob("*.gz")), [])
+
     def test_without_extra_schemas_the_backup_runs_as_before(self):
         self.assertEqual(self.dump_commands(), [["asana"]])
         self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log"}),

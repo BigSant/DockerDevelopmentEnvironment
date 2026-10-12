@@ -6,6 +6,11 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### A failed backup says why
+
+- **The backup error names the dump client's last error line** (`Database backup failed: mysqldump: …`), not only
+  "check service/permissions": the statement or table that failed, never row data.
+
 ### A failed start no longer leaves a container off its networks
 
 - **`make deploy-images` checks the published ports first** (on its own Docker or over `DEPLOY_SSH`): a port held

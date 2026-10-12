@@ -44,6 +44,15 @@ def registry_passes(project, database):
     return passes
 
 
+def dump_error(errors):
+    """': <the dump client's last error line>' (bounded), or a hint when it wrote none. Error lines name the
+    statement or table that failed, never the rows; the password travels in MYSQL_PWD."""
+    errors.seek(0)
+    lines = [line.strip() for line in errors.read().decode('utf-8', 'replace').splitlines()
+             if line.strip() and '[Warning]' not in line]
+    return f': {lines[-1][:300]}' if lines else ' (no error from the dump client; check the database service)'
+
+
 def backup_database(project, destination=None, registry=False):
     database = project.settings['DATABASE_NAME']
     if not database:
@@ -74,8 +83,8 @@ def backup_database(project, destination=None, registry=False):
     try:
         with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as raw:
             temporary = Path(raw.name)
-            # Drain output while the client runs. Errors stay private and bounded
-            # in a temporary descriptor; failed/truncated output is never published.
+            # Drain output while the client runs. Errors go to a temporary descriptor, and only the client's
+            # last error line reaches the message; failed/truncated output is never published.
             writer = gzip.GzipFile(fileobj=raw, mode='wb', mtime=0) if target.name.endswith('.gz') else raw
             try:
                 for schema, command in commands:
@@ -99,7 +108,7 @@ def backup_database(project, destination=None, registry=False):
                                 writer.write(block)
                                 count += len(block)
                             if process.wait() or count == 0:
-                                raise ValueError('Database backup failed; check service/permissions. No backup published.')
+                                raise ValueError(f'Database backup failed{dump_error(errors)}; no backup published.')
                         finally:
                             process.stdout.close()
                             if process.poll() is None:
