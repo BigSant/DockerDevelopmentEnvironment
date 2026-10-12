@@ -239,6 +239,25 @@ ALLOWED_IPS="203.0.113.10 198.51.100.0/24"
 
 Pakeitus sąrašą: `make restart service=nginx-proxy` (stage/prod su `DEPLOY_CONTEXT` – per [deploy-images](09-aplinkos.md#imageai-serveryje)).
 
+### Slaptažodžiai įrankiams (htpasswd)
+
+IP sąrašas įleidžia visus to tinklo (pvz. VPN) klientus. Kad įrankį pasiektų tik dalis jų, `PMA_HTPASSWD`, `MAILPIT_HTPASSWD`, `CRON_HTPASSWD` ir `BACKUP_HTPASSWD` prideda Basic-auth **prie** IP sąrašo: reikia ir leistino adreso, ir slaptažodžio (ne iš sąrašo – `403`, be slaptažodžio ar su neteisingu – `401`). Kiekvienas įrankis turi savo sąrašą, bendro nėra. Tuščias – tikrinamas tik IP sąrašas, kaip anksčiau.
+
+- Reikšmė – htpasswd eilutės `vartotojas:hash`, atskirtos tarpais: `htpasswd -nbB VARTOTOJAS SLAPTAŽODIS` (bcrypt) arba `htpasswd -nbm …` (apr1). Neteisinga eilutė sustabdo Nginx; klaidoje nurodomas tik kintamasis ir eilutės numeris, ne jos tekstas.
+- Stage/prod tai slapti kintamieji: Bitbucket / GitHub Deployment variables (`make deploy-variables` juos išvardija, kai įrankis įjungtas, kaip neprivalomus). Lokaliai – `env/local.env` (vienguba kabute, nes hash'e yra `$`).
+- `metrics` ir `dbmonitor` slaptažodžio negauna: jų neprivalomas bearer token'as naudoja tą pačią `Authorization` antraštę. Svetainės taip pat neliečia – ją saugo pati aplikacija.
+
+**Projekto įrankiai.** Projekto savo nginx-proxy svetainė (`config/nginx-proxy/<env>/*.conf`, pvz. Meilisearch skydelis) gauna tas pačias taisykles: `PROXY_TOOLS` (`env/common.env` ar `env/<env>.env`) išvardija jos vardus, o svetainė įtraukia `include /etc/nginx/setup-access/<vardas>.conf;`. Vardui galioja `<VARDAS>_ALLOWED_IPS` (arba `ALLOWED_IPS`) ir `<VARDAS>_HTPASSWD`; stage/prod be sąrašo įrankis uždarytas. Šias reikšmes nginx-proxy gauna per projekto compose failą, o slaptažodį projektas išvardija `DEPLOY_OPTIONAL_VARIABLES`:
+
+```yaml
+# compose/base.yaml
+services:
+  nginx-proxy:
+    environment:
+      MEILISEARCH_ALLOWED_IPS: ${MEILISEARCH_ALLOWED_IPS-}
+      MEILISEARCH_HTPASSWD: ${MEILISEARCH_HTPASSWD-}
+```
+
 **Tikras kliento IP.** Kam nginx-proxy leidžia pasakyti kliento adresą (`X-Forwarded-For`) ir schemą (`X-Forwarded-Proto`), priklauso nuo [`PUBLISH_ADDRESS`](03-nustatymai.md#adresai-ir-prieiga):
 
 - **`127.0.0.1` (numatyta, DirectAdmin ir kompiuteris).** Į projektą patenkama tik per kompiuterio Nginx arba DirectAdmin. Jie jungiasi per Docker portą ir konteineriui atrodo kaip projekto tinklo gateway, todėl nginx-proxy pasitiki tik juo ir `127.0.0.1`/`::1`. Kiti konteineriai ir tinklai kliento adreso perduoti negali.

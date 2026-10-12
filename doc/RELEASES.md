@@ -6,6 +6,16 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Passwords for the tools on top of their IP allowlist
+
+- **`PMA_HTPASSWD`, `MAILPIT_HTPASSWD`, `CRON_HTPASSWD`, `BACKUP_HTPASSWD`** (htpasswd lines `user:hash`, separated by
+  whitespace) add Basic-auth to that tool besides its IP allowlist: a client needs an allowed address and a
+  password. Empty keeps the allowlist alone. They are setup's optional Deployment variables when the tool is
+  in `SERVICES`. `metrics` and `dbmonitor` keep their bearer token instead, the site its own guard.
+- **`PROXY_TOOLS`** names a project's own nginx-proxy sites (`config/nginx-proxy/`); each gets
+  `/etc/nginx/setup-access/<name>.conf` from `<NAME>_ALLOWED_IPS` and `<NAME>_HTPASSWD`, closed on stage/prod
+  without a list, like setup's tools.
+
 ### No pre-deploy backup unless asked for
 
 - **`make deploy` backs up the target database only with `backup=1`**; `BACKUP` in `make pipeline-deploy` and

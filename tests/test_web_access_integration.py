@@ -38,22 +38,24 @@ class WebAccessIntegrationTest(unittest.TestCase):
                     '-v', f'{self.root}/backend.conf:/test.conf:ro', '--entrypoint', 'nginx',
                     IMAGE, '-c', '/test.conf', '-g', 'daemon off;')
 
-    def start(self, environment, allowed='', trusted=''):
+    def start(self, environment, allowed='', trusted='', *extra):
         name = self.network + '-' + uuid.uuid4().hex[:6]
         self.addCleanup(self.docker, 'rm', '-f', name)
         self.docker('run', '-d', '--name', name, '--network', self.network, '--memory', '128m',
                     '-v', f'{self.root}:/etc/ssl/certs:ro',
                     '-e', 'SETUP_ENABLE_PMA=1', '-e', f'SETUP_ENVIRONMENT={environment}',
-                    '-e', f'PMA_ALLOWED_IPS={allowed}', '-e', f'TRUSTED_PROXIES={trusted}',
+                    '-e', f'PMA_ALLOWED_IPS={allowed}', '-e', f'TRUSTED_PROXIES={trusted}', *extra,
                     IMAGE, '/usr/local/bin/init.sh', 'demo.local', '60')
         return name
 
-    def status(self, name, scheme='http', host='pma.demo.local', forwarded=None, address='127.0.0.1'):
+    def status(self, name, scheme='http', host='pma.demo.local', forwarded=None, address='127.0.0.1', user=None):
         port = '443' if scheme == 'https' else '80'
         args = ['exec', name, 'curl', '--noproxy', '*', '-ksS', '--max-time', '2',
                 '--resolve', f'{host}:{port}:{address}', '-o', '/dev/null', '-w', '%{http_code}']
         if forwarded:
             args += ['-H', f'X-Forwarded-For: {forwarded}']
+        if user:
+            args += ['-u', user]
         for _ in range(30):
             try:
                 code = self.docker(*args, f'{scheme}://{host}/')
@@ -135,6 +137,19 @@ class WebAccessIntegrationTest(unittest.TestCase):
         name = self.start_tls(half)
         self.assertNotEqual(self.docker('wait', name), '0')
         self.assertIn('domain.key', subprocess.run(['docker', 'logs', name], capture_output=True, text=True).stderr)
+
+    def test_a_tool_password_is_required_besides_the_allowlist(self):
+        # apr1 and bcrypt, the two formats htpasswd writes (-m / -B), both checked by this image's nginx.
+        htpasswd = lambda *args: self.docker('run', '--rm', '--entrypoint', 'htpasswd', 'httpd:2.4.59', '-nb', *args)
+        entries = [htpasswd('-m', 'ops', 'secret-ops'), htpasswd('-B', 'dev', 'secret-dev')]
+        name = self.start('prod', '127.0.0.1', '', '-e', 'PMA_HTPASSWD=' + ' '.join(entries))
+        self.assertEqual(self.status(name), '401')
+        self.assertEqual(self.status(name, user='ops:wrong'), '401')
+        self.assertEqual(self.status(name, user='ops:secret-ops'), '200')
+        self.assertEqual(self.status(name, user='dev:secret-dev'), '200')
+        # A right password from outside the allowlist is still refused.
+        other = self.start('prod', '203.0.113.10', '', '-e', 'PMA_HTPASSWD=' + entries[0])
+        self.assertEqual(self.status(other, user='ops:secret-ops'), '403')
 
     def test_invalid_ip_or_cidr_stops_nginx(self):
         for allowed in ('999.1.2.3', '127.0.0.1/99', '203.0.113.1; allow all;'):

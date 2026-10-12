@@ -42,8 +42,10 @@ ENV_ENTRY = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[=:][ \t]*
 # Secrets a pipeline passes as process environment (Bitbucket Deployment variables, GitHub environment
 # secrets). An env file that leaves one blank does not hide the process value; any other key named in an
 # env file does.
+# Basic-auth users of the browser tools (nginx-proxy access.sh), optional on top of their IP allowlist.
+TOOL_PASSWORDS = {tool: f'{tool.upper()}_HTPASSWD' for tool in ('pma', 'mailpit', 'cron', 'backup')}
 PROCESS_SECRETS = ('DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD', 'DATABASE_MONITOR_PASSWORD',
-                   'DBMONITOR_TOKEN', 'METRICS_TOKEN', *PRESTASHOP_KEYS)
+                   'DBMONITOR_TOKEN', 'METRICS_TOKEN', *TOOL_PASSWORDS.values(), *PRESTASHOP_KEYS)
 
 
 def blank_env_value(raw):

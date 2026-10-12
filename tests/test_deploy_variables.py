@@ -25,7 +25,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from project_bitbucket import deploy_variables, repository
 
 BASE = "/2.0/repositories/rsmaizys/asana_tracker"
-# asana.local's list: setup's own (metrics on prod), its required and optional names, its APP_ENVIRONMENT.
+# asana.local's list: setup's own (metrics on prod, the cron UI password), its required and optional names, its APP_ENVIRONMENT.
 COMMON = """\
 PROJECT_NAME=asana
 SERVICES=cron
@@ -184,7 +184,7 @@ class DeployVariablesTest(unittest.TestCase):
         return path
 
     def test_the_list_comes_from_setup_and_the_project_settings(self):
-        self.assertEqual(len(self.names), 27)
+        self.assertEqual(len(self.names), 28)
         required = [name for name, _, need, _ in self.names if need == "required"]
         self.assertEqual(required, ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD",
                                     "MEILISEARCH_MASTER_KEY", "HTPASSWD_WEB", "HTPASSWD_API"])
@@ -197,8 +197,8 @@ class DeployVariablesTest(unittest.TestCase):
 
     def test_check_reads_every_page(self):
         self.run_tool(0)
-        self.assertIn("Bitbucket rsmaizys/asana_tracker, environment production: 27 listed variables", self.output)
-        self.assertIn("27 present, 0 missing, 0 secured/plain mismatches", self.output)
+        self.assertIn("Bitbucket rsmaizys/asana_tracker, environment production: 28 listed variables", self.output)
+        self.assertIn("28 present, 0 missing, 0 secured/plain mismatches", self.output)
         self.assertIn("  present   ERP_EMPLOYEE_ID", self.output)
         gets = [f'{r["path"]}?{r["query"]}' for r in self.requests("GET")]
         self.assertEqual(len(gets), 5, gets)
@@ -211,19 +211,19 @@ class DeployVariablesTest(unittest.TestCase):
         self.assertIn("  MISSING   ERP_API_KEY (secured)\n", self.output)
         self.assertIn("  MISSING   HTPASSWD_WEB (secured, required)", self.output)
         self.assertIn("  extra     OLD_TOKEN (not in the list)", self.output)
-        self.assertIn("25 present, 2 missing", self.output)
+        self.assertIn("26 present, 2 missing", self.output)
         self.state(plain=("GRAFANA_TOKEN",), secured=("CLOUDFLARE_ACCOUNT_ID",))
         self.run_tool(0)
         self.assertIn("  present   GRAFANA_TOKEN: plain in Bitbucket, the list says secured", self.output)
         self.assertIn("  present   CLOUDFLARE_ACCOUNT_ID: secured in Bitbucket, the list says plain", self.output)
-        self.assertIn("27 present, 0 missing, 2 secured/plain mismatches", self.output)
+        self.assertIn("28 present, 0 missing, 2 secured/plain mismatches", self.output)
         self.assertNotIn("stored-", self.output)
 
     def test_stage_reads_staging_with_its_own_list(self):
         (self.work / "env/stage.env.example").write_text("")
         self.run_tool(1, environment="stage")
-        self.assertIn("environment staging: 26 listed variables", self.output)  # no metrics, ASANA_WRITE_ENABLED unset
-        self.assertIn("0 present, 26 missing", self.output)
+        self.assertIn("environment staging: 27 listed variables", self.output)  # no metrics, ASANA_WRITE_ENABLED unset
+        self.assertIn("0 present, 27 missing", self.output)
         self.assertTrue(any("{env-staging}/variables" in r["path"] for r in self.requests("GET")))
         self.run_tool(64, environment="test")
         self.assertIn("Deployment variables belong to ENV=stage or ENV=prod", self.output)
@@ -247,7 +247,7 @@ class DeployVariablesTest(unittest.TestCase):
         self.assertEqual(self.stored("ASANA_TOKEN"), "secured stored-ASANA_TOKEN")
         for line in ("  created   DATABASE_PASSWORD (secured)", "  created   GRAFANA_BASE_URL (plain)",
                      "  MISSING   ERP_EMPLOYEE_ID (empty in", "  MISSING   VOYAGE_API_KEY (not in",
-                     "  skipped   NOT_LISTED (in", "Now: 25 present, 2 missing"):
+                     "  skipped   NOT_LISTED (in", "Now: 26 present, 2 missing"):
             self.assertIn(line, self.output)
         # Again: nothing left to create from the file.
         self.run_tool(1, source=values)
@@ -261,7 +261,7 @@ class DeployVariablesTest(unittest.TestCase):
         self.assertEqual(put["body"], {"key": "ASANA_TOKEN", "value": "asana-VALUE-5", "secured": True})
         self.assertEqual(self.stored("ERP_EMPLOYEE_ID"), "plain 42-VALUE-7")
         self.assertIn("  replaced  ASANA_TOKEN (secured)", self.output)
-        self.assertIn("Now: 27 present, 0 missing", self.output)
+        self.assertIn("Now: 28 present, 0 missing", self.output)
 
     def test_apply_refuses_unsafe_files_before_any_request(self):
         values = self.private_file("values.env", "ERP_API_KEY=erp-VALUE\n", mode=0o644)
@@ -319,7 +319,7 @@ class DeployVariablesTest(unittest.TestCase):
         result = subprocess.run(["make", "-s", "-C", str(self.work), "deploy-variables", "names=1"],
                                 capture_output=True, text=True, env={**os.environ, "BITBUCKET_ACCESS_TOKEN": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(result.stdout.splitlines()), 27)
+        self.assertEqual(len(result.stdout.splitlines()), 28)
         result = subprocess.run(["make", "-s", "-C", str(self.work), "deploy-variables", "ENV=stage", "replace=1"],
                                 capture_output=True, text=True)
         self.assertIn("replace=1 belongs to from=FILE", result.stderr)

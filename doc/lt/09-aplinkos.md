@@ -211,6 +211,7 @@ Slaptažodžiai ir raktai – **Deployment variables (Secured)** Staging / Produ
 | `DATABASE_MONITOR_PASSWORD` | `SERVICES` turi `metrics` arba `dbmonitor` | ne |
 | `METRICS_TOKEN` | `SERVICES` turi `metrics` | ne |
 | `DBMONITOR_TOKEN` | `SERVICES` turi `dbmonitor` | ne |
+| `PMA_HTPASSWD`, `MAILPIT_HTPASSWD`, `CRON_HTPASSWD`, `BACKUP_HTPASSWD` | `SERVICES` turi tą įrankį ([slaptažodžiai įrankiams](05-servisai.md#slaptažodžiai-įrankiams-htpasswd)) | ne |
 | `DEPLOY_OPTIONAL_VARIABLES` | projekto sąrašas | ne |
 | `APP_ENVIRONMENT` vardai | kurių nemini nei `env/common.env`, nei `env/<env>.env.example` | ne |
 

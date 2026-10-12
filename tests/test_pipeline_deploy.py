@@ -520,6 +520,11 @@ class DeploymentVariablesListTest(unittest.TestCase):
         self.assertEqual(list(generic), ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "DATABASE_MONITOR_PASSWORD",
                                          "METRICS_TOKEN"])
         self.assertFalse(generic["METRICS_TOKEN"]["required"])  # the IP allowlist guards /metrics
+        tools = deployment_variables(self.project("PROFILE=\nSERVICES='pma mailpit cron backup dbmonitor metrics'\n"), "prod")
+        passwords = [name for name in tools if name.endswith("_HTPASSWD")]
+        self.assertEqual(passwords, ["PMA_HTPASSWD", "MAILPIT_HTPASSWD", "CRON_HTPASSWD", "BACKUP_HTPASSWD"])
+        self.assertTrue(all(tools[name]["secured"] and not tools[name]["required"] for name in passwords),
+                        "optional: an empty one leaves the tool to its IP allowlist")
 
     def test_env_files_decide_what_comes_from_bitbucket(self):
         directory = self.project('APP_ENVIRONMENT="A_KEY B_URL C_FLAG"\nB_URL=https://b.example\nDEPLOY_PLAIN_VARIABLES=A_KEY\n',

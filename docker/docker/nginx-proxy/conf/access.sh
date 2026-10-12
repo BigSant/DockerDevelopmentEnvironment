@@ -1,10 +1,15 @@
 #!/bin/bash
-# Render the client IP rules for every web entry point and the trusted proxy list.
+# Render the client IP rules for every web entry point, the tools' passwords and the trusted proxy list.
 #
 # ALLOWED_IPS applies to all entry points; <NAME>_ALLOWED_IPS replaces it for one
-# (SITE, PMA, MAILPIT, CRON, DBMONITOR, BACKUP, METRICS). A non-empty list allows only those IPs/CIDRs.
-# An empty list leaves local/test and the site open; on stage/prod the tools are
-# denied (the runner already refuses to start them without a list).
+# (SITE, PMA, MAILPIT, CRON, DBMONITOR, BACKUP, METRICS, and every PROXY_TOOLS name). A non-empty list
+# allows only those IPs/CIDRs. An empty list leaves local/test and the site open; on stage/prod the tools
+# are denied (the runner already refuses to start setup's tools without a list).
+# <NAME>_HTPASSWD (htpasswd lines user:hash, separated by whitespace) adds Basic-auth on top of the IP rule
+# for PMA, MAILPIT, CRON, BACKUP and the PROXY_TOOLS names; empty keeps the IP rule alone. Not for the site
+# (the application guards itself) nor DBMONITOR and METRICS, whose bearer token uses the same header.
+# PROXY_TOOLS: a project's own nginx-proxy sites (config/nginx-proxy/), which include
+# /etc/nginx/setup-access/<name>.conf like setup's tools do.
 set -euo pipefail
 
 output="${SETUP_ACCESS_DIR:-/etc/nginx/setup-access}"
@@ -26,16 +31,56 @@ addresses() {
     done
 }
 
-for name in site pma mailpit cron dbmonitor backup metrics; do
+# Writes $output/<name>.htpasswd from <NAME>_HTPASSWD and prints its path; prints nothing when it is empty.
+# The entries are secrets: an error names the setting and the entry's position, never its text.
+users() {
+    local name="$1" setting entries entry position=0 file
+    setting="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')_HTPASSWD"
+    set -f
+    # shellcheck disable=SC2206 # split on any whitespace, newlines included, without globbing
+    entries=(${!setting:-})
+    set +f
+    [[ ${#entries[@]} -gt 0 ]] || return 0
+    for entry in "${entries[@]}"; do
+        position=$((position + 1))
+        if [[ ! "$entry" =~ ^[^:]+:.+$ ]]; then
+            echo "Invalid entry $position in $setting: expected user:hash (htpasswd -nbB USER PASSWORD)" >&2
+            exit 1
+        fi
+    done
+    file="$output/$name.htpasswd"
+    printf '%s\n' "${entries[@]}" > "$file.tmp"
+    chmod 0644 "$file.tmp"
+    mv -f "$file.tmp" "$file"
+    printf '%s' "$file"
+}
+
+setup_names="site pma mailpit cron dbmonitor backup metrics"
+project_names="${PROXY_TOOLS:-}"
+project_names="${project_names//,/ }"
+for name in $project_names; do
+    if [[ ! "$name" =~ ^[a-z][a-z0-9_]*$ || " $setup_names " == *" $name "* ]]; then
+        echo "Invalid PROXY_TOOLS name: $name (lowercase letters, digits and _, not one of setup's: $setup_names)" >&2
+        exit 1
+    fi
+done
+password_names=" pma mailpit cron backup $project_names "
+
+for name in $setup_names $project_names; do
     setting="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')_ALLOWED_IPS"
     [[ -n "${!setting:-}" ]] || setting=ALLOWED_IPS
     list="$(addresses "$setting")"
+    file=""
+    [[ "$password_names" != *" $name "* ]] || file="$(users "$name")"
     {
         if [[ -n "$list" ]]; then
             printf 'allow %s;\n' $list
             printf 'deny all;\n'
         elif [[ "$name" != site && "${SETUP_ENVIRONMENT:-local}" != local && "${SETUP_ENVIRONMENT:-local}" != test ]]; then
             printf 'deny all;\n'
+        fi
+        if [[ -n "$file" ]]; then
+            printf 'auth_basic "%s";\nauth_basic_user_file %s;\n' "$name" "$file"
         fi
     } > "$output/$name.conf"
 done

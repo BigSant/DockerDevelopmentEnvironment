@@ -45,6 +45,14 @@ services:
       DBMONITOR_ALLOWED_IPS: ${DBMONITOR_ALLOWED_IPS:-}
       BACKUP_ALLOWED_IPS: ${BACKUP_ALLOWED_IPS:-}
       METRICS_ALLOWED_IPS: ${METRICS_ALLOWED_IPS:-}
+      # Basic-auth on top of the allowlist (htpasswd lines; empty = the allowlist alone). Secrets: Deployment
+      # variables on stage/prod. A project's own tool sites (PROXY_TOOLS) pass their <NAME>_ALLOWED_IPS and
+      # <NAME>_HTPASSWD to this service in the project's compose file.
+      PMA_HTPASSWD: ${PMA_HTPASSWD:-}
+      MAILPIT_HTPASSWD: ${MAILPIT_HTPASSWD:-}
+      CRON_HTPASSWD: ${CRON_HTPASSWD:-}
+      BACKUP_HTPASSWD: ${BACKUP_HTPASSWD:-}
+      PROXY_TOOLS: ${PROXY_TOOLS:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # 1 = ports on a non-loopback PUBLISH_ADDRESS: clients connect directly, their X-Forwarded-* are not trusted.
       SETUP_DIRECT_CLIENTS: ${SETUP_DIRECT_CLIENTS:-0}

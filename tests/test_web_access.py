@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
@@ -63,6 +64,50 @@ class AccessRulesTest(unittest.TestCase):
         self.assertEqual(read('site'), 'allow 203.0.113.10;\nallow 198.51.100.0/24;\ndeny all;\n')
         self.assertEqual(read('mailpit'), read('site'))
         self.assertEqual(read('pma'), 'allow 2001:db8::10;\ndeny all;\n')
+
+    def test_a_tool_password_comes_on_top_of_its_ip_rule(self):
+        users = 'alice:$apr1$Ab1/x$Zq0.hash bob:$2y$05$bcrypt/hash.value'
+        result, read = self.rules('prod', PMA_ALLOWED_IPS='10.8.0.0/24', PMA_HTPASSWD=users,
+                                  DBMONITOR_ALLOWED_IPS='10.8.0.0/24', DBMONITOR_HTPASSWD=users,
+                                  METRICS_HTPASSWD=users, SITE_HTPASSWD=users)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        users_file = self.output / 'access' / 'pma.htpasswd'
+        self.assertEqual(read('pma'), f'allow 10.8.0.0/24;\ndeny all;\nauth_basic "pma";\nauth_basic_user_file {users_file};\n')
+        self.assertEqual(users_file.read_text(), 'alice:$apr1$Ab1/x$Zq0.hash\nbob:$2y$05$bcrypt/hash.value\n')
+        # Bearer-token endpoints and the site keep their own guards: Basic-auth would take their Authorization header.
+        self.assertEqual(read('dbmonitor'), 'allow 10.8.0.0/24;\ndeny all;\n')
+        self.assertEqual(read('metrics'), 'deny all;\n')
+        self.assertEqual(read('site'), '')
+        self.assertEqual(sorted(path.name for path in (self.output / 'access').glob('*.htpasswd')), ['pma.htpasswd'])
+
+    def test_a_password_without_an_ip_rule_guards_a_local_tool_alone(self):
+        result, read = self.rules('local', CRON_HTPASSWD='dev:{SHA}W6ph5Mm5Pz8GgiULbPgzG37mj9g=')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read('cron'), f'auth_basic "cron";\nauth_basic_user_file {self.output}/access/cron.htpasswd;\n')
+        self.assertEqual(read('backup'), '')
+
+    def test_malformed_password_entries_stop_nginx_without_showing_them(self):
+        for value in ('alice', 'alice:', ':hash', 'al ice', 'a:b\nc'):
+            with self.subTest(value=value):
+                result, _ = self.rules('prod', BACKUP_ALLOWED_IPS='10.8.0.0/24', BACKUP_HTPASSWD=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('BACKUP_HTPASSWD', result.stderr)
+                self.assertNotIn('alice', result.stderr)
+
+    def test_project_tools_get_the_same_ip_and_password_rules(self):
+        result, read = self.rules('prod', PROXY_TOOLS='meilisearch search_ui', MEILISEARCH_ALLOWED_IPS='10.8.0.0/24',
+                                  MEILISEARCH_HTPASSWD='ops:$apr1$x$y')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read('meilisearch'), f'allow 10.8.0.0/24;\ndeny all;\nauth_basic "meilisearch";\n'
+                                              f'auth_basic_user_file {self.output}/access/meilisearch.htpasswd;\n')
+        self.assertEqual(read('search_ui'), 'deny all;\n', 'a project tool without a list is closed on stage/prod')
+        result, read = self.rules('local', PROXY_TOOLS='meilisearch')
+        self.assertEqual(read('meilisearch'), '')
+        for name in ('site', 'pma', 'Meili', 'meili;x', '../x'):
+            with self.subTest(name=name):
+                result, _ = self.rules('prod', PROXY_TOOLS=name)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('PROXY_TOOLS', result.stderr)
 
     def real_ip(self):
         return (self.output / 'real-ip.conf').read_text()
@@ -143,6 +188,17 @@ class RunnerAccessTest(unittest.TestCase):
         proxy = services['nginx-proxy']['environment']
         self.assertEqual(proxy['ALLOWED_IPS'], '203.0.113.10')
         self.assertEqual(proxy['SITE_ALLOWED_IPS'], '198.51.100.0/24')
+
+    def test_tool_passwords_reach_the_proxy_from_the_pipeline_and_a_blank_line_does_not_hide_them(self):
+        with (self.app / 'env/stage.env').open('a') as env:
+            env.write('ALLOWED_IPS=203.0.113.10\nPMA_HTPASSWD=\nPROXY_TOOLS=search\n')
+        with unittest.mock.patch.dict(os.environ, {'PMA_HTPASSWD': 'ops:$apr1$x$y', 'MAILPIT_HTPASSWD': 'm:$apr1$a$b'}):
+            project = Project(self.app, 'stage')
+        proxy = json.loads(project.capture(['config', '--format', 'json']))['services']['nginx-proxy']['environment']
+        # compose config escapes $ as $$ (the release model is compose input again; up turns it back).
+        self.assertEqual((proxy['PMA_HTPASSWD'], proxy['MAILPIT_HTPASSWD'], proxy['CRON_HTPASSWD']),
+                         ('ops:$$apr1$$x$$y', 'm:$$apr1$$a$$b', ''))
+        self.assertEqual(proxy['PROXY_TOOLS'], 'search')
 
     def test_cron_ui_is_guarded_and_edits_its_crontab_only_locally(self):
         with (self.app / 'env/common.env').open('a') as env:
