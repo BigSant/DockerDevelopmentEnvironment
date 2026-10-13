@@ -51,7 +51,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make db-load [set=dev] [replace=1] [backup=1]` | Užkelia schemą, bazinį rinkinį, fixtures ir po-užkėlimo seką. |
 | `make db-dataset [set=dev]` | Sukuria anonimizuotą bazinį rinkinį iš vietinės LIVE kopijos (tik local). |
 | `make db-migrate` | Pritaiko laukiančias apsaugotas migracijas. |
-| `make schema-export` | Eksportuoja lentelių apibrėžtis į `database/schema/`. |
+| `make schema-export` | Eksportuoja lentelių apibrėžtis į `database/schema/` (su papildomomis schemomis – kiekvieną schemą į savo katalogą). |
 | `make schema-check` | Palygina DB su Git indeksu. |
 | `make schema-hook-install` | Įdiegia commit hook'ą, kuris eksportuoja schemą ir stabdo commit'ą pasikeitus. |
 | `make schema-resolve` | Klasifikuoja registre nežinomas lenteles (įtraukti / pašalinti). |

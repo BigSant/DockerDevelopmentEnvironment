@@ -113,6 +113,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 - **MySQL `init.d`** (`*.sql`, `*.sql.template`, `*.sh`) runs once, when the data directory is created.
 - **PrestaShop config** (`parameters.php` / `settings.inc.php`) is generated from env keys at PHP start;
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
+  An empty or missing web directory (no checkout yet) skips every PrestaShop step and writes nothing there.
 - **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): Prometheus `/metrics` on the main domain
   (`location = /metrics` rendered into both site servers), allowlist in nginx-proxy, optional token in the service.
   The service is `php -S` with `PHP_CLI_SERVER_WORKERS=4` (PHP >= 7.4), so a slow probe does not block scrapes.
@@ -150,16 +151,22 @@ fingerprint is outdated; it removes only with `apply=1`.
 
 - `database/schema/`: one normalised `CREATE TABLE` per table plus a manifest; the pre-commit hook
   (`make schema-hook-install`) exports it, stops the commit on change and drafts a guarded migration.
-  It only warns when the DB is unreachable.
+  It only warns when the DB is unreachable. With one database the files are flat; with
+  `DATABASE_EXTRA_SCHEMAS` every schema has its own directory (`<DATABASE_NAME>/`, `<schema>/`; the
+  manifest names an extra schema's table `schema.table`). Only the export picks the layout (a change is a
+  move, no migration); every reader follows the manifest by table name.
 - `table-registry.txt` (project first, then `database-profile/<profile>/`): every table has
   `group base-rule(full|slice|faker|empty|drop) live-rule(import|skip)`. Unknown tables stop commits,
-  imports and data-set builds; `make schema-resolve` classifies them.
+  imports and data-set builds; `make schema-resolve` classifies them. The backup UI lists every table,
+  the profile's too, and saving a profile table with other values writes the project's own line.
 - Migrations (`database/migrations/*.sql`) are idempotent: `CREATE TABLE IF NOT EXISTS`, columns and
   keys only after an information_schema check, DROP/RENAME as `-- TODO:` for a person. A commit that
-  changes the snapshot needs a staged migration without TODO. Applied ones are recorded in
-  `setup_migrations` (outside the snapshot).
+  changes the snapshot needs a staged migration without TODO; a schema's first snapshot is its baseline.
+  An extra schema's statements are qualified (`schema`.`table`, `TABLE_SCHEMA = 'schema'`). Applied ones
+  are recorded in `setup_migrations` of the main database (outside the snapshot).
 - Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
-  project scripts, integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
+  project scripts — `<group>/*.sql` in the main database, then `<group>/<schema>/*.sql` in that extra
+  schema — integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop
   policy → schema report (warning only). `db-import` loads the whole dump (`skip=1` leaves out the data of `skip` tables); the live rule applies
   to exports: `db-backup` in every environment (`full=1` dumps everything) and the deploy backup. The backup
   `db-import`/`db-load backup=1` takes before changing the database is always complete.
@@ -168,7 +175,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   escapes `_`, which would otherwise match any character (`shop_main` would cover `shopXmain`). Backups dump all schemas in one `mysqldump --databases` run (one transaction,
   `CREATE DATABASE IF NOT EXISTS` + `USE` per schema), so a restore recreates each under its own name;
   an import refuses a dump that `USE`s any other schema; `db-restrict-grants` grants (and creates) them.
-  Snapshot, registry, migrations and data sets stay on `DATABASE_NAME`. Without the setting nothing changes.
+  The registry, snapshot, migrations and after-import cover them; the data set, `db-load` and the Doctrine
+  diff stay on `DATABASE_NAME`. Without the setting nothing changes.
 - Base data set (`make db-dataset`, local only): registry rules + recipe (product sample, slice
   conditions), personal columns faked, credentials blanked, rows sorted by key, one row per line.
   The output is deterministic. `make db-load set=dev` loads snapshot + set + fixtures.
