@@ -410,7 +410,7 @@ class BackupPlanTest(unittest.TestCase):
         self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph"
         structure = ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events"]
         self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log", "asana_graph.edges"}),
-                         [["asana", *structure, "asana_log"], ["asana_graph", *structure, "edges"],
+                         [["asana", *structure, "asana_log"], ["asana", "--schema", "asana_graph", *structure, "edges"],
                           ["asana", "--ignore-table=asana.asana_log", "--ignore-table=asana_graph.edges", "--databases", "asana_graph"]])
         # The main structure restores into the target database; the extra schema's names its schema first.
         first, second = self.written.split(b"USE `asana_graph`;", 1)
@@ -419,6 +419,21 @@ class BackupPlanTest(unittest.TestCase):
 
     def test_the_dump_client_still_checks_the_main_database_name(self):
         self.assertIn('if [ "$MYSQL_DATABASE" != "$1" ]', DUMP)
+
+    def test_the_dump_client_dumps_an_extra_schema_named_after_the_main_database(self):
+        # The extra schema's structure pass used to pass the schema as $1, which the check above refused
+        # ("Configured database differs from the running container"): every registry backup with an extra
+        # schema's skip table failed.
+        script = DUMP.replace('exec "$dump_client"', 'echo "$database" "$@"; exit 0; exec "$dump_client"')
+        environment = {**os.environ, "MYSQL_DATABASE": "asana", "MYSQL_PASSWORD": "x", "MYSQL_USER": "u"}
+        run = lambda *arguments: subprocess.run(["sh", "-c", script, "database-backup", *arguments], env=environment,
+                                                capture_output=True, text=True)
+        self.assertEqual(run("asana", "--schema", "asana_graph", "--no-data", "edges").stdout.split()[-3:],
+                         ["asana_graph", "--no-data", "edges"])
+        self.assertEqual(run("asana", "--no-data", "asana_log").stdout.split()[-3:], ["asana", "--no-data", "asana_log"])
+        refused = run("asana_graph", "--no-data", "edges")
+        self.assertEqual(refused.returncode, 64)
+        self.assertIn("differs from the running container", refused.stderr)
 
 
 class MultiSchemaImportTest(unittest.TestCase):

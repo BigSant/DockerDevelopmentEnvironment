@@ -6,6 +6,14 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### A registry backup with an extra schema's skip table works again
+
+- **`make db-backup` (and setup-server's nightly backup) failed** with "Configured database differs from the
+  running container" whenever the table registry skipped a table of a `DATABASE_EXTRA_SCHEMAS` schema (asana.local:
+  `asana_git.git_files` and the other synced tables): the structure pass of that schema gave the dump client the
+  extra schema's name where it checks the main database. The dump client now takes `--schema NAME` after the
+  checked main database name.
+
 ### Git hooks run the project's bin/pre-commit and bin/pre-push
 
 - **`make setup` (local) and the new `make git-hooks` write `.git/hooks/pre-commit` and `pre-push`** that run the

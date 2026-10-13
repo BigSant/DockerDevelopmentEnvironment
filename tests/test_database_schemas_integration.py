@@ -231,6 +231,22 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         # Main data and every extra schema come back; the skipped table keeps what the server has.
         self.assertEqual(self.counts(), ["2", "4", "2", "2", "1"])
 
+    def test_an_extra_schemas_skip_table_is_backed_up_as_structure_and_keeps_local_rows(self):
+        # The structure pass of an extra schema's skip table was refused by the dump client's database check
+        # ("Configured database differs from the running container"), so such a registry backup always failed.
+        self.start()
+        self.populate()
+        project = self.project()
+        with patch("database_import.skip_rule", return_value=lambda table: table == "shop_git.commits"), \
+                patch("database_schema.database_tables", return_value=["connections", "orders"]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            backup = backup_database(project, registry=True)
+        self.root("INSERT INTO shop_git.commits VALUES ('ef01'); DELETE FROM shop.orders;")
+        with contextlib.redirect_stdout(io.StringIO()):
+            import_database(project, plan_import(project, str(backup)))
+        # The data comes back; the skipped extra-schema table keeps the rows it has here (no DROP in the backup).
+        self.assertEqual(self.counts(), ["2", "3", "2", "2", "2"])
+
     def test_a_single_schema_backup_restores_into_the_main_database_as_before(self):
         self.start(extras="")
         self.root("CREATE TABLE shop.orders (id INT); INSERT INTO shop.orders VALUES (1);")

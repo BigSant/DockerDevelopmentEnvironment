@@ -77,7 +77,9 @@ def backup_database(project, destination=None, registry=False):
         # database's skipped tables goes first. The registry covers the main database only.
         (_, data), *structure = passes
         passes = [*structure, (database, [*data, '--databases', *extras])]
-    commands = [(schema, project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', schema, *options])
+    # The dump client checks the main database name ($1 = MYSQL_DATABASE); an extra schema follows as --schema.
+    commands = [(schema, project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', database,
+                                            *(['--schema', schema] if schema != database else []), *options])
                 for schema, options in passes]
     temporary = None
     try:

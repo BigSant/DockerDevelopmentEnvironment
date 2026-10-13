@@ -100,6 +100,11 @@ else
 fi
 database="$1"
 shift
+# An extra schema (DATABASE_EXTRA_SCHEMAS) is dumped by name after the checked main database: --schema NAME.
+if [ "${1:-}" = --schema ]; then
+    database="$2"
+    shift 2
+fi
 # Extra mysqldump options follow the database name: --ignore-table=..., --no-data, table names.
 exec "$dump_client" $dump_options --protocol=TCP --host=127.0.0.1 --single-transaction --quick --hex-blob \\
     --routines --events --triggers --no-tablespaces --user="$MYSQL_USER" "$database" "$@"
