@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import re
 
-from database_schema import git, mysql_query, schema_directory, schema_repository, staged_schema
+from database_schema import git, mysql_query, quoted, schema_directory, schema_repository, split_name, staged_schema
 
 TABLE = 'setup_migrations'
 MARKER = '-- Schema change: '
@@ -59,14 +59,26 @@ def guarded(check, statement, run_when_found=False):
             'PREPARE setup_statement FROM @setup_sql;\nEXECUTE setup_statement;\nDEALLOCATE PREPARE setup_statement;\n')
 
 
+def where_table(table):
+    """information_schema condition for a snapshot name: the main database's table, or schema.table's."""
+    schema, name = split_name(table)
+    return f'TABLE_SCHEMA = {literal(schema) if schema else "DATABASE()"} AND TABLE_NAME = {literal(name)}'
+
+
 def column_check(table, column):
-    return ('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() '
-            f'AND TABLE_NAME = {literal(table)} AND COLUMN_NAME = {literal(column)}')
+    return f'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE {where_table(table)} AND COLUMN_NAME = {literal(column)}'
 
 
 def key_check(table, key):
-    return ('SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() '
-            f'AND TABLE_NAME = {literal(table)} AND INDEX_NAME = {literal(key)}')
+    return f'SELECT COUNT(*) FROM information_schema.STATISTICS WHERE {where_table(table)} AND INDEX_NAME = {literal(key)}'
+
+
+def create_table(table, ddl):
+    """The snapshot's CREATE TABLE as CREATE TABLE IF NOT EXISTS, in the table's own schema."""
+    head = 'CREATE TABLE ' + identifier(split_name(table)[1]) + ' '
+    if not ddl.startswith(head):
+        raise ValueError(f'Unexpected CREATE TABLE statement for {table}')
+    return 'CREATE TABLE IF NOT EXISTS ' + quoted(table) + ' ' + ddl[len(head):]
 
 
 def todo(text, statements=()):
@@ -76,7 +88,7 @@ def todo(text, statements=()):
 
 def table_changes(table, before, after):
     old, new = parse_table(before), parse_table(after)
-    t = identifier(table)
+    t = quoted(table)
     blocks = []
     names = list(new['columns'])
     for position, column in enumerate(names):
@@ -114,7 +126,7 @@ def table_changes(table, before, after):
 def draft_text(before, after, source):
     blocks = []
     for table in sorted(after.keys() - before.keys()):
-        blocks.append((f'new table {table}', after[table].replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ', 1)))
+        blocks.append((f'new table {table}', create_table(table, after[table])))
     for table in sorted(after.keys() & before.keys()):
         if before[table] != after[table]:
             blocks += table_changes(table, before[table], after[table])
@@ -122,7 +134,7 @@ def draft_text(before, after, source):
         blocks.append((f'table {table} is gone',
                        todo(f'drop or rename table {table} by hand; back up its data first. A RENAME shows up '
                             'as one table gone and one new: replace both with a guarded RENAME TABLE.',
-                            [f'DROP TABLE IF EXISTS {identifier(table)};'])))
+                            [f'DROP TABLE IF EXISTS {quoted(table)};'])))
     fingerprint = hashlib.sha256(json.dumps([before, after], sort_keys=True).encode()).hexdigest()
     body = ''.join(f'\n-- {title}\n{sql}' for title, sql in blocks)
     header = (f'-- Guarded migration drafted by setup from {source} on {datetime.now(timezone.utc):%Y-%m-%d}.\n'
@@ -148,6 +160,13 @@ def committed_definitions(project, reference='HEAD'):
         return None  # No commit or no committed snapshot yet: this commit is the baseline.
 
 
+def baselined(before, after):
+    """after without the schemas the committed snapshot does not have yet: a schema's first snapshot is its
+    baseline, as the main database's first snapshot is, so adding a schema to the snapshot needs no migration."""
+    known = {split_name(table)[0] for table in before} | {None}
+    return {table: sql for table, sql in after.items() if split_name(table)[0] in known}
+
+
 def new_migrations(project, reference='HEAD'):
     """Migration files in the working tree that the reference commit does not have."""
     directory = migrations_directory(project)
@@ -167,8 +186,9 @@ def write_draft(project, actual):
     from database_migrations import definitions
     before = committed_definitions(project)
     after = definitions(actual)
-    if before is None or before == after:
+    if before is None or before == baselined(before, after):
         return None
+    after = baselined(before, after)
     text = draft_text(before, after, 'the last commit')
     marker = re.search(f'^{MARKER}.*$', text, re.M)[0]
     pending = new_migrations(project)
@@ -219,7 +239,8 @@ def commit_problems(project, staged):
             problems.append(f'migration file name must look like 20260101120000-short-name.sql: {name}')
         if OPEN.search(text):
             problems.append(f'TODO left in migration {name}')
-    if before is not None and staged and {t: normalize_ddl(sql) for t, sql in definitions(staged).items()} != before and not migrations:
+    if before is not None and staged and baselined(before, {t: normalize_ddl(sql) for t, sql in definitions(staged).items()}) != before \
+            and not migrations:
         problems.append('the schema changed but no new migration is staged')
     registry = registry_file(project)
     root, _ = schema_repository(registry.parent)

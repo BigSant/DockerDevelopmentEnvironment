@@ -6,6 +6,27 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Extra schemas in the snapshot, migrations and after-import
+
+- **The schema snapshot covers `DATABASE_EXTRA_SCHEMAS`, every schema in its own directory**:
+  `database/schema/<DATABASE_NAME>/table-*.sql` and `database/schema/<schema>/table-*.sql` (an extra schema's table
+  is `schema.table` in the manifest, like in the registry); a project with one database stays flat. Only
+  `make schema-export` chooses the layout and moves the files when it changes (the hook shows `moved:`, no
+  migration); the hook, migrations, `db-load` and the report after a load or deploy read the files through the
+  manifest, so a server's `DATABASE_NAME` may differ. Run `make schema-export` once and
+  commit the new subdirectories: a schema's first snapshot is its baseline (like the main database's first), so
+  the commit needs no migration; its later changes do.
+- **Guarded migration drafts name the schema**: `CREATE TABLE IF NOT EXISTS \`schema\`.\`table\``, `ALTER TABLE
+  \`schema\`.\`table\``, and the `information_schema` checks ask for `TABLE_SCHEMA = 'schema'`; the main database's
+  drafts are unchanged.
+- **After-import scripts of an extra schema** live in `database/after-import/<group>/<schema>/*.sql` and run in
+  that schema (setup prepends `USE`), after the group's main-database scripts. A subdirectory with SQL that is not
+  an extra schema stops the import.
+- The data set, `make db-load` and the Doctrine diff stay on the main database: they leave the extra schemas'
+  snapshot files out.
+- **Fixed: a committed snapshot was normalised twice** (`;;` at the end), so a commit stopped for another reason
+  drafted an empty migration for every table.
+
 ### Search and price-filter indexes stay out of LIVE copies
 
 - **`{p}search_index`, `{p}search_word`, `{p}layered_price_index` are `skip` in the PrestaShop profile** (were

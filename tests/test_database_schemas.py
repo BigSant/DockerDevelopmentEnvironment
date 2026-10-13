@@ -386,5 +386,166 @@ class MultiSchemaImportTest(unittest.TestCase):
         self.assertEqual(plan_import(self.project, str(foreign)), [foreign.resolve()])
 
 
+class MultiSchemaSnapshotTest(unittest.TestCase):
+    """The snapshot, guarded migrations, after-import and db-load with extra schemas."""
+    MAIN = "CREATE TABLE `users` (\n  `id` int NOT NULL\n) ENGINE=InnoDB;\n"
+    REFS = "CREATE TABLE `refs` (\n  `id` int NOT NULL\n) ENGINE=InnoDB;\n"
+
+    def setUp(self):
+        from database_schema import git
+        self.root = scratch_directory(self)
+        git(self.root, "init", "-q")
+        (self.root / "docker").mkdir()
+        self.project = SimpleNamespace(root=self.root, directory=self.root / "docker", environment="local",
+                                       settings={"SCHEMA_DIRECTORY": "database/schema", "DATABASE_NAME": "asana",
+                                                 "DATABASE_EXTRA_SCHEMAS": "asana_git"},
+                                       command=["docker", "compose"], child_env=lambda: {})
+        self.output = contextlib.redirect_stdout(io.StringIO())
+        self.output.__enter__()
+        self.addCleanup(self.output.__exit__, None, None, None)
+
+    def read(self, extra_rows):
+        """read_schema against fake DB answers: main tables, extra tables, SHOW CREATE rows, then both lists again."""
+        from database_schema import read_schema
+        main = "users".encode().hex() + "\n"
+        extra = "".join(f"{'asana_git'.encode().hex()}\t{name.encode().hex()}\n" for name in extra_rows)
+        ddl = "users\t" + self.MAIN.rstrip(";\n").replace("\n", "\\n") + "\n"
+        ddl += "".join(f"{name}\t" + self.REFS.replace("refs", name).rstrip(";\n").replace("\n", "\\n") + "\n" for name in extra_rows)
+        with patch("database_schema.mysql_query", side_effect=[main, extra, ddl, main, extra]) as query:
+            files = read_schema(self.project)
+        return files, query
+
+    def test_with_extra_schemas_every_schema_has_its_own_directory(self):
+        import json
+        from database_schema import export_schema
+        files, query = self.read(["refs"])
+        self.assertIn("SHOW CREATE TABLE `asana_git`.`refs`;", query.call_args_list[2].args[1])
+        self.assertEqual(sorted(files), ["asana/table-users.sql", "asana_git/table-refs.sql", "schema.manifest.json"])
+        self.assertEqual([(t["name"], t["file"]) for t in json.loads(files["schema.manifest.json"])["tables"]],
+                         [("asana_git.refs", "asana_git/table-refs.sql"), ("users", "asana/table-users.sql")])
+        export_schema(self.project, files)
+        directory = self.root / "database/schema"
+        self.assertTrue((directory / "asana_git/table-refs.sql").read_text().startswith("CREATE TABLE `refs`"))
+        files, _ = self.read([])
+        export_schema(self.project, files)
+        self.assertFalse((directory / "asana_git").exists(), "a schema without tables leaves no directory behind")
+
+    def test_the_layout_follows_the_extra_schemas_and_the_export_moves_the_files(self):
+        from database_schema import export_schema
+        directory = self.root / "database/schema"
+        single = dict(self.project.settings, DATABASE_EXTRA_SCHEMAS="")
+        flat = SimpleNamespace(**{**vars(self.project), "settings": single})
+        with patch("database_schema.mysql_query", side_effect=["users".encode().hex() + "\n",
+                   "users\t" + self.MAIN.rstrip(";\n").replace("\n", "\\n") + "\n", "users".encode().hex() + "\n"]):
+            from database_schema import read_schema
+            export_schema(flat, read_schema(flat))
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["schema.manifest.json", "table-users.sql"])
+        files, _ = self.read(["refs"])
+        export_schema(self.project, files)
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["asana", "asana_git", "schema.manifest.json"])
+        self.assertTrue((directory / "asana/table-users.sql").is_file())
+        with patch("database_schema.mysql_query", side_effect=["users".encode().hex() + "\n",
+                   "users\t" + self.MAIN.rstrip(";\n").replace("\n", "\\n") + "\n", "users".encode().hex() + "\n"]):
+            export_schema(flat, read_schema(flat))
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["schema.manifest.json", "table-users.sql"],
+                         "back to one database: back to flat")
+
+    def test_moving_to_directories_is_a_move_for_the_hook_and_needs_no_migration(self):
+        from database_migrations import definitions
+        from database_migrations_guarded import baselined
+        from database_schema import schema_differences
+        flat = {"schema.manifest.json": b"{}", "table-users.sql": self.MAIN.encode()}
+        files, _ = self.read(["refs"])
+        lines = schema_differences(flat, files)
+        self.assertIn("moved: table-users.sql -> asana/table-users.sql", lines)
+        self.assertIn("not staged: asana_git/table-refs.sql", lines)
+        self.assertFalse([line for line in lines if line.startswith("no longer in DB")])
+        before = {"users": self.MAIN}
+        self.assertEqual(baselined(before, definitions(files)), before, "same tables, other directory: no migration")
+
+    def test_reading_follows_the_manifest_whatever_the_servers_database_name(self):
+        from database_schema import export_schema, schema_report
+        files, _ = self.read(["refs"])
+        export_schema(self.project, files)
+        server = SimpleNamespace(**{**vars(self.project), "settings": dict(self.project.settings, DATABASE_NAME="live_asana")})
+        relayout = {name.replace("asana/", "live_asana/"): body.replace(b'"asana/', b'"live_asana/') for name, body in files.items()}
+        with patch("database_schema.read_schema", return_value=relayout):
+            self.assertEqual(schema_report(server), [])
+
+    def test_a_manifest_may_not_give_two_tables_one_file(self):
+        import json
+        from database_migrations import definitions
+        manifest = {"format": 1, "dialect": "mysql", "tables": [{"name": "refs", "file": "asana_git/table-refs.sql"},
+                                                                {"name": "asana_git.refs", "file": "asana_git/table-refs.sql"}]}
+        with self.assertRaisesRegex(ValueError, "Invalid schema manifest table"):
+            definitions({"schema.manifest.json": json.dumps(manifest).encode(), "asana_git/table-refs.sql": self.REFS.encode()})
+
+    def test_the_hook_compares_and_the_committed_snapshot_reads_the_subdirectories(self):
+        from database_migrations import committed_schema
+        from database_schema import check_schema, export_schema, git
+        files, _ = self.read(["refs"])
+        export_schema(self.project, files)
+        git(self.root, "add", "-A", "database")
+        with patch("database_schema.read_schema", return_value=files):
+            check_schema(self.project)
+        git(self.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "schema")
+        tables = committed_schema(self.root / "database/schema", "HEAD")[2]
+        self.assertEqual(sorted(tables), ["asana_git.refs", "users"])
+        changed = dict(files)
+        changed["asana_git/table-refs.sql"] = b"CREATE TABLE `refs` (\n  `id` bigint NOT NULL\n) ENGINE=InnoDB;\n"
+        with patch("database_schema.read_schema", return_value=changed), \
+                self.assertRaisesRegex(ValueError, "different: asana_git/table-refs.sql"):
+            check_schema(self.project)
+
+    def test_a_schemas_first_snapshot_is_its_baseline_and_later_changes_need_a_migration(self):
+        from database_migrations_guarded import baselined
+        main = {"users": self.MAIN}
+        added = {"users": self.MAIN, "asana_git.refs": self.REFS}
+        self.assertEqual(baselined(main, added), main, "the schema joins the snapshot: no migration")
+        changed = {"users": self.MAIN, "asana_git.refs": self.REFS, "asana_git.tags": self.REFS.replace("refs", "tags")}
+        self.assertEqual(baselined(added, changed), changed, "once committed, its changes are drafted")
+        self.assertEqual(baselined(main, {"users": self.MAIN, "logs": self.MAIN}), {"users": self.MAIN, "logs": self.MAIN})
+
+    def test_a_guarded_migration_names_the_extra_schema(self):
+        from database_migrations_guarded import draft_text
+        before = {"users": self.MAIN, "asana_git.refs": self.REFS}
+        after = {"users": self.MAIN, "asana_git.refs": self.REFS.replace("NOT NULL\n", "NOT NULL,\n  `sha` char(40)\n"),
+                 "asana_git.tags": self.REFS.replace("refs", "tags")}
+        text = draft_text(before, after, "test")
+        self.assertIn("CREATE TABLE IF NOT EXISTS `asana_git`.`tags` (", text)
+        self.assertIn("TABLE_SCHEMA = 'asana_git' AND TABLE_NAME = 'refs'", text)
+        self.assertIn("ALTER TABLE `asana_git`.`refs` ADD COLUMN `sha` char(40)", text)
+        self.assertNotIn("CREATE TABLE IF NOT EXISTS `tags`", text, "never created in the main database")
+        main = draft_text({"users": self.MAIN}, {"users": self.MAIN, "logs": self.MAIN.replace("users", "logs")}, "test")
+        self.assertIn("CREATE TABLE IF NOT EXISTS `logs` (", main)
+        self.assertIn("TABLE_SCHEMA = DATABASE()", draft_text({"users": self.MAIN},
+                      {"users": self.MAIN.replace("NOT NULL\n", "NOT NULL,\n  `x` int\n")}, "test"))
+
+    def test_after_import_runs_an_extra_schemas_scripts_in_that_schema(self):
+        from database_import import after_import_hooks, render_hook
+        hooks = self.root / "docker/database/after-import"
+        for path in ("common/010-main.sql", "local/020-main.sql", "local/asana_git/010-git.sql", "common/asana_git/005-git.sql"):
+            (hooks / path).parent.mkdir(parents=True, exist_ok=True)
+            (hooks / path).write_text("UPDATE x SET y = 1;\n")
+        planned = after_import_hooks(self.project)
+        self.assertEqual([path.relative_to(hooks).as_posix() for path in planned],
+                         ["common/010-main.sql", "common/asana_git/005-git.sql", "local/020-main.sql", "local/asana_git/010-git.sql"])
+        self.assertEqual(render_hook(self.project, planned[1]), b"USE `asana_git`;\nUPDATE x SET y = 1;\n")
+        self.assertEqual(render_hook(self.project, planned[0]), b"UPDATE x SET y = 1;\n")
+        (hooks / "local/asana_typo").mkdir()
+        (hooks / "local/asana_typo/010.sql").write_text("SELECT 1;\n")
+        with self.assertRaisesRegex(ValueError, "asana_typo is not a schema of DATABASE_EXTRA_SCHEMAS"):
+            after_import_hooks(self.project)
+
+    def test_db_load_creates_only_the_main_databases_tables(self):
+        from database_dataset import schema_sql
+        from database_schema import export_schema
+        files, _ = self.read(["refs"])
+        export_schema(self.project, files)
+        sql = schema_sql(self.project)
+        self.assertIn(b"CREATE TABLE `users`", sql)
+        self.assertNotIn(b"CREATE TABLE `refs`", sql)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,27 @@ def hook_values(project):
     return values
 
 
+def after_import_directory(project):
+    configured = project.settings.get("POST_IMPORT_SQL_DIRECTORY", "")
+    # Unset means the shared convention beside the project's Makefile; it may be absent.
+    directory = (project.root / configured).resolve() if configured else (project.directory / "database/after-import").resolve()
+    if not directory.is_relative_to(project.root):
+        raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
+    if configured and not directory.is_dir():
+        raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
+    return directory
+
+
+def hook_schema(project, path):
+    """The extra schema an after-import script runs in: <group>/<schema>/*.sql; None for the main database."""
+    if path.parent.name not in extra_schemas(project.settings):
+        return None
+    group = path.parent.parent
+    if group.parent == after_import_directory(project) and group.name in ("common", project.environment):
+        return path.parent.name
+    return None
+
+
 def render_hook(project, path):
     contents = path.read_bytes()
     values = hook_values(project)
@@ -80,7 +101,8 @@ def render_hook(project, path):
             if not re.fullmatch(pattern, value):
                 raise ValueError(f"SQL hooks using ${{{name}}} require {description}")
             contents = contents.replace(token, value.encode("ascii"))
-    return contents
+    schema = hook_schema(project, path)
+    return (f"USE `{schema}`;\n".encode() if schema else b"") + contents
 
 
 def skip_rule(project):
@@ -216,26 +238,30 @@ def stream_filtered(project, command, handle, skip, meter=None):
 
 
 def after_import_hooks(project):
-    """SQL run after any DB load: profile safe defaults, project common and environment scripts, integration switches."""
-    configured = project.settings.get("POST_IMPORT_SQL_DIRECTORY", "")
-    # Unset means the shared convention beside the project's Makefile; it may be absent.
-    directory = (project.root / configured).resolve() if configured else (project.directory / "database/after-import").resolve()
-    if not directory.is_relative_to(project.root):
-        raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
-    if configured and not directory.is_dir():
-        raise ValueError("POST_IMPORT_SQL_DIRECTORY must be a directory inside the project")
+    """SQL run after any DB load: profile safe defaults, project common and environment scripts (an extra schema's
+    from <group>/<schema>/), integration switches."""
+    directory = after_import_directory(project)
     hooks = []
     safe = project.environment != "prod"
     profile = DOCKER_ROOT / "database-profile/prestashop/after-import"
     if safe and project.settings.get("PROFILE") in ("ps", "prestashop"):
         # Safe defaults first (shop URL, payment sandboxes), so project scripts can refine them.
         hooks += sorted(profile.glob("*.sql"))
+    extras = extra_schemas(project.settings)
     for group in ("common", project.environment) if directory.is_dir() else ():
-        for path in sorted((directory / group).glob("*.sql")):
-            resolved = path.resolve()
-            if not resolved.is_relative_to(directory) or not resolved.is_file():
-                raise ValueError(f"SQL hook must be a file inside {directory}: {path.name}")
-            hooks.append(resolved)
+        # The main database's scripts, then each extra schema's from its subdirectory (run in that schema).
+        folders = [directory / group]
+        if (directory / group).is_dir():
+            for folder in sorted(path for path in (directory / group).iterdir() if path.is_dir()):
+                if folder.name not in extras and any(folder.glob("*.sql")):
+                    raise ValueError(f"after-import/{group}/{folder.name} is not a schema of DATABASE_EXTRA_SCHEMAS")
+            folders += [directory / group / schema for schema in extras if (directory / group / schema).is_dir()]
+        for folder in folders:
+            for path in sorted(folder.glob("*.sql")):
+                resolved = path.resolve()
+                if not resolved.is_relative_to(directory) or not resolved.is_file():
+                    raise ValueError(f"SQL hook must be a file inside {directory}: {path.name}")
+                hooks.append(resolved)
     integrations = {path.stem: path for path in sorted((directory / "integrations").glob("*.sql"))} if directory.is_dir() else {}
     enabled = str(project.settings.get("INTEGRATIONS_ENABLED") or "").split()
     unknown = sorted(set(enabled) - integrations.keys())

@@ -13,7 +13,7 @@ import uuid
 from types import SimpleNamespace
 
 from database_schema import (MANIFEST, git, managed_file, mysql_query, read_schema,
-                             schema_directory, schema_repository, table_file)
+                             schema_directory, schema_repository, split_name, valid_table_file)
 from project_ide import checked_path
 
 
@@ -27,7 +27,7 @@ def committed_schema(directory, reference):
         metadata, pathname = record.split(b'\t', 1)
         mode, kind, oid = metadata.decode().split()
         name = os.fsdecode(pathname)[len(prefix):]
-        if '/' in name or not managed_file(name):
+        if not managed_file(name):
             continue
         if mode != '100644' or kind != 'blob':
             raise ValueError('Committed schema files must be regular files')
@@ -46,7 +46,8 @@ def definitions(files):
     expected = {MANIFEST}
     for table in manifest['tables']:
         if (not isinstance(table, dict) or not isinstance(table.get('name'), str)
-                or table.get('file') != table_file(table['name']) or table['name'] in tables):
+                or not valid_table_file(table['name'], table.get('file')) or table['name'] in tables
+                or table['file'] in expected):
             raise ValueError('Invalid schema manifest table')
         name = table['file']
         if name not in files:
@@ -136,9 +137,15 @@ def generate_migration(project, reference='HEAD'):
         return _generate_migration(project, reference)
 
 
+def main_tables(tables):
+    """Doctrine diffs the main database: the extra schemas' tables (schema.table) stay out."""
+    return {name: sql for name, sql in tables.items() if split_name(name)[0] is None}
+
+
 def _generate_migration(project, reference):
     directory = schema_directory(project)
     repository, commit, before = committed_schema(directory, reference)
+    before = main_tables(before)
     model = project.model()
     config, image = doctrine_config(project, model)
     config_repository, _ = schema_repository(config)
@@ -150,7 +157,7 @@ def _generate_migration(project, reference):
     if not container or len(container.splitlines()) != 1:
         raise ValueError('Start the local database before generating a migration')
     database_image = docker(['inspect', '--format', '{{.Image}}', container]).strip()
-    after = definitions(read_schema(project))
+    after = main_tables(definitions(read_schema(project)))
     character = mysql_query(project, 'SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=DATABASE();\n').strip().split('\t')
     if len(character) != 2 or any(not re.fullmatch(r'[a-zA-Z0-9_]+', value) for value in character):
         raise ValueError('Cannot determine database character settings')
@@ -180,7 +187,7 @@ def _generate_migration(project, reference):
         print('No supported table schema changes; no migration file created.')
         return None
     # Do not accept a result gathered while the developer was changing the DB or baseline.
-    if definitions(read_schema(project)) != after:
+    if main_tables(definitions(read_schema(project))) != after:
         raise ValueError('Local schema changed during generation; retry')
     if committed_schema(directory, reference)[1] != commit:
         raise ValueError('Git baseline changed during generation; retry')

@@ -1,4 +1,9 @@
-"""Read MySQL table DDL and compare it with the exact Git index being committed."""
+"""Read MySQL table DDL and compare it with the exact Git index being committed.
+
+The snapshot covers the main database and every DATABASE_EXTRA_SCHEMAS schema. With one database its tables
+are table-<name>.sql; with extra schemas every schema has its own directory: <DATABASE_NAME>/table-<name>.sql
+and <schema>/table-<name>.sql. Only the export chooses that layout; everything that reads a snapshot follows
+the manifest, which names an extra schema's table schema.table like the registry."""
 
 import copy
 import functools
@@ -17,7 +22,7 @@ from urllib.parse import quote
 MANIFEST = "schema.manifest.json"
 HOOK_MARKER = "# Shared setup schema pre-commit hook v2"
 PREVIOUS_HOOK_MARKERS = ("# Shared setup schema pre-commit hook v1",)
-from database_client import READ as MYSQL_READ, READ_RAW as MYSQL_READ_RAW
+from database_client import READ as MYSQL_READ, READ_RAW as MYSQL_READ_RAW, SCHEMA_NAME
 # setup_migrations records applied migrations; it belongs to setup, not to the project schema.
 TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
               "AND TABLE_NAME <> 'setup_migrations' ORDER BY BINARY TABLE_NAME;\n")
@@ -47,7 +52,45 @@ def unescape_batch(value):
     return re.sub(r"\\([0tnrb\\])", lambda match: escapes[match[1]], value)
 
 
-def table_file(name):
+def split_name(name):
+    """(extra schema or None, table) of a snapshot or registry name: schema.table names an extra schema's table."""
+    schema, dot, table = name.partition(".")
+    return (schema, table) if dot and SCHEMA_NAME.fullmatch(schema) else (None, name)
+
+
+def quoted(name):
+    """The SQL identifier of a snapshot name: `table`, or `schema`.`table` for an extra schema's table."""
+    schema, table = split_name(name)
+    return ("`" + schema + "`." if schema else "") + "`" + table.replace("`", "``") + "`"
+
+
+def main_directory(project):
+    """The main database's snapshot directory: None (flat) with one database, DATABASE_NAME beside extra schemas."""
+    from database_client import extra_schemas
+    if not extra_schemas(project.settings):
+        return None
+    name = project.settings["DATABASE_NAME"]
+    if not SCHEMA_NAME.fullmatch(name or ""):
+        raise ValueError("With DATABASE_EXTRA_SCHEMAS, DATABASE_NAME names the snapshot directory: use 1-64 letters, digits or _")
+    return name
+
+
+def table_file(name, main=None):
+    """Snapshot file of a table: an extra schema's in its directory, the main database's in main (or flat)."""
+    schema, table = split_name(name)
+    folder = schema or main
+    return (folder + "/" if folder else "") + _table_file(table)
+
+
+def valid_table_file(name, file):
+    """A manifest's file for a table, in either layout: the main database's flat or in one directory."""
+    if split_name(name)[0]:
+        return file == table_file(name)
+    folder, _, base = file.rpartition("/")
+    return base == _table_file(name) and (not folder or bool(SCHEMA_NAME.fullmatch(folder)))
+
+
+def _table_file(name):
     encoded = quote(name, safe="")
     if len(encoded) > 200:
         encoded = encoded[:150] + "-" + hashlib.sha256(name.encode()).hexdigest()[:24]
@@ -72,8 +115,9 @@ def canonical_collation(match):
 def normalize_ddl(ddl):
     # Only the table option after ENGINE; retain column AUTO_INCREMENT and comments/defaults.
     ddl = re.sub(r"(?m)^(\) ENGINE=\S+) AUTO_INCREMENT=\d+\b", r"\1", ddl)
-    ddl = re.sub(r"CHARACTER SET (\w+) COLLATE (\w+)", canonical_collation, ddl)
-    return ddl.rstrip() + ";\n"
+    ddl = re.sub(r"CHARACTER SET (\w+) COLLATE (\w+)", canonical_collation, ddl).rstrip()
+    # Idempotent: a snapshot file already ends in ";" (committed snapshots are normalised again).
+    return (ddl[:-1] if ddl.endswith(";") else ddl) + ";\n"
 
 
 def database_tables(project):
@@ -99,8 +143,9 @@ def registry_tables(project):
 
 
 def read_schema(project, require_classified=False):
-    """Snapshot files of every base table except those the registry marks for a guarded DROP."""
-    tables = database_tables(project)
+    """Snapshot files of every base table, the extra schemas' included, except those the registry marks for a
+    guarded DROP."""
+    tables = registry_tables(project)
     exclude = registry_exclusions(project, tables, require_classified)
     names = [name for name in tables if name not in exclude]
     if len(names) != len(set(names)):
@@ -108,26 +153,29 @@ def read_schema(project, require_classified=False):
     definitions = {}
     if names:
         statements = "SET SESSION sql_quote_show_create=1; SET SESSION sql_mode='';\n"
-        statements += "\n".join("SHOW CREATE TABLE `" + name.replace("`", "``") + "`;" for name in names)
-        for line in mysql_query(project, statements).split("\n"):
-            if not line:
-                continue
+        statements += "\n".join("SHOW CREATE TABLE " + quoted(name) + ";" for name in names)
+        # One row per statement, in order: an extra schema's row names the table without its schema.
+        rows = [line for line in mysql_query(project, statements).split("\n") if line]
+        if len(rows) != len(names):
+            raise ValueError("Schema changed during collection; retry without concurrent DDL")
+        for name, line in zip(names, rows):
             fields = line.split("\t")
             if len(fields) != 2:
                 raise ValueError("Unexpected SHOW CREATE TABLE response")
-            name, ddl = map(unescape_batch, fields)
-            if name not in names or name in definitions or not ddl.startswith("CREATE TABLE "):
+            table, ddl = map(unescape_batch, fields)
+            if table != split_name(name)[1] or name in definitions or not ddl.startswith("CREATE TABLE "):
                 raise ValueError("Incomplete or unexpected table definition")
             definitions[name] = normalize_ddl(ddl)
     if set(definitions) != set(names):
         raise ValueError("Schema changed during collection; retry without concurrent DDL")
     # Catch table additions/removals during collection; this does not lock out concurrent ALTER.
-    after = [name for name in database_tables(project) if name not in exclude]
+    after = [name for name in registry_tables(project) if name not in exclude]
     if after != names:
         raise ValueError("Table list changed during collection; retry without concurrent DDL")
-    files = {table_file(name): definitions[name].encode() for name in sorted(names)}
+    main = main_directory(project)
+    files = {table_file(name, main): definitions[name].encode() for name in sorted(names)}
     manifest = {"format": 1, "dialect": "mysql", "tables": [
-        {"name": name, "file": table_file(name)} for name in sorted(names)]}
+        {"name": name, "file": table_file(name, main)} for name in sorted(names)]}
     files[MANIFEST] = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
     return files
 
@@ -147,7 +195,22 @@ def schema_directory(project):
 
 
 def managed_file(name):
-    return name == MANIFEST or (name.startswith("table-") and name.endswith(".sql"))
+    """The manifest, a main table's file, or an extra schema's (<schema>/table-*.sql)."""
+    schema, _, base = name.rpartition("/")
+    if schema and not SCHEMA_NAME.fullmatch(schema):
+        return False
+    return (base == MANIFEST and not schema) or (base.startswith("table-") and base.endswith(".sql"))
+
+
+def snapshot_files(directory):
+    """{relative name: path} of the managed files in a schema directory and its schema subdirectories."""
+    files = {}
+    for path in directory.iterdir() if directory.is_dir() else ():
+        if path.is_dir() and not path.is_symlink() and SCHEMA_NAME.fullmatch(path.name):
+            files.update({f"{path.name}/{child.name}": child for child in path.iterdir() if managed_file(f"{path.name}/{child.name}")})
+        elif managed_file(path.name):
+            files[path.name] = path
+    return files
 
 
 def registry_exclusions(project, tables, require_classified=False):
@@ -181,21 +244,24 @@ def export_schema(project, files=None):
             raise ValueError("Unsupported schema manifest; existing files were preserved")
         for table in manifest["tables"]:
             if (not isinstance(table, dict) or not isinstance(table.get("name"), str)
-                    or table.get("file") != table_file(table["name"])):
+                    or not valid_table_file(table["name"], table.get("file"))):
                 raise ValueError("Invalid table filename in schema manifest")
             previous.add(table["file"])
-    for path in directory.iterdir():
-        if managed_file(path.name):
-            if path.is_symlink() or not path.is_file():
-                raise ValueError(f"Refusing to replace non-regular schema file: {path.name}")
-            if path.name != MANIFEST and path.name not in previous:
-                raise ValueError(f"Unmanaged schema file: {path.name}; review it before export")
+    for schema in {name.split("/")[0] for name in files.keys() | previous if "/" in name}:
+        if (directory / schema).is_symlink() or ((directory / schema).exists() and not (directory / schema).is_dir()):
+            raise ValueError(f"Schema directory of {schema} must be a plain directory")
+    for name, path in snapshot_files(directory).items():
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"Refusing to replace non-regular schema file: {name}")
+        if name != MANIFEST and name not in previous:
+            raise ValueError(f"Unmanaged schema file: {name}; review it before export")
     # Replace each file atomically; unchanged exports preserve mtimes.
     for name, contents in files.items():
         target = directory / name
         if target.exists() and target.read_bytes() == contents:
             continue
-        with tempfile.NamedTemporaryFile(dir=directory, delete=False) as handle:
+        target.parent.mkdir(exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
             temporary = Path(handle.name)
             handle.write(contents)
         try:
@@ -205,6 +271,8 @@ def export_schema(project, files=None):
             temporary.unlink(missing_ok=True)
     for name in previous - files.keys():
         (directory / name).unlink(missing_ok=True)
+        if "/" in name and not any((directory / name).parent.iterdir()):
+            (directory / name).parent.rmdir()  # The schema has no tables left in the snapshot.
     print(f"Exported {len(files) - 1} tables to {directory}. Review, then git add -A that directory.")
 
 
@@ -303,9 +371,22 @@ def staged_schema(directory):
 
 
 def schema_differences(staged, actual):
+    """File differences between two snapshots; a file that only changed directory (the layout) is a move."""
     differences = []
+    added = sorted(actual.keys() - staged.keys())
+    removed = sorted(staged.keys() - actual.keys())
+    moved = {}
+    for name in added:
+        for old in removed:
+            if old.rpartition("/")[2] == name.rpartition("/")[2] and staged[old] == actual[name] and old not in moved.values():
+                moved[name] = old
+                break
     for name in sorted(actual.keys() | staged.keys()):
-        if name not in staged:
+        if name in moved:
+            differences.append(f"moved: {moved[name]} -> {name}")
+        elif name in moved.values():
+            continue
+        elif name not in staged:
             differences.append(f"not staged: {name}")
         elif name not in actual:
             differences.append(f"no longer in DB: {name}")
@@ -327,12 +408,7 @@ def commit_schema(project):
     except ValueError:
         print("Warning: the database is not reachable; the schema was not checked for this commit.")
         return
-    actual = read_schema(project, require_classified=True)
-    from database_registry import load, unknown_tables
-    unknown = unknown_tables(load(project), extra_tables(project))
-    if unknown:
-        raise ValueError(f"{len(unknown)} tables of the extra schemas are not in the table registry: {', '.join(unknown[:8])}"
-                         f"{' …' if len(unknown) > 8 else ''}\nClassify them in the backup UI or with make schema-resolve.")
+    actual = read_schema(project, require_classified=True)  # The extra schemas' tables included.
     export_schema(project, actual)
     staged = staged_schema(directory)
     problems = [f"schema {line}" for line in schema_differences(staged, actual)]
@@ -355,15 +431,20 @@ def schema_report(project):
     except ValueError as error:
         print(f"Warning: schema report skipped: {error}")
         return []
-    snapshot = {path.name: path.read_bytes() for path in directory.iterdir() if managed_file(path.name)}
-    differences = [line for line in schema_differences(snapshot, actual) if not line.endswith(MANIFEST)]
+    # By table name through the manifest: a server's DATABASE_NAME may differ from the one the layout was exported with.
+    from database_migrations import definitions
+    snapshot = definitions({name: path.read_bytes() for name, path in snapshot_files(directory).items()})
+    current = definitions(actual)
+    differences = [f"only in the DB: {table}" if table not in snapshot else f"missing in the DB: {table}" if table not in current
+                   else f"different: {table}" for table in sorted(snapshot.keys() | current.keys())
+                   if snapshot.get(table) != current.get(table)]
     if not differences:
-        print(f"Schema matches the branch snapshot ({len(actual) - 1} tables).")
+        print(f"Schema matches the branch snapshot ({len(current)} tables).")
         return []
     print(f"Warning: the DB differs from the branch snapshot in {len(differences)} places "
           "(tables only in the DB came with the dump: LIVE-only, or not yet in this branch):")
     for line in differences:
-        print("  " + line.replace("not staged", "only in the DB").replace("no longer in DB", "missing in the DB"))
+        print("  " + line)
     return differences
 
 

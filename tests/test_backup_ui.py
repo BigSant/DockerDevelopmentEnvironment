@@ -111,9 +111,8 @@ class BackupRegistryCheckTest(unittest.TestCase):
         (self.root / "app/database/table-registry.txt").write_text("{p}feed  feeds full import\n")
         with patch("database_schema.in_committing_checkout", side_effect=lambda project: project), \
                 patch("database_schema.database_tables", return_value=["ps_feed"]), \
-                patch("database_schema.read_schema", return_value={}), \
                 patch("database_schema.extra_tables", return_value=["asana_git.refs"]), \
-                self.assertRaisesRegex(ValueError, "1 tables of the extra schemas are not in the table registry: asana_git.refs"):
+                self.assertRaisesRegex(ValueError, "1 tables are not in the table registry: asana_git.refs"):
             commit_schema(self.project)
 
     def test_a_classified_database_records_an_empty_list_quietly(self):

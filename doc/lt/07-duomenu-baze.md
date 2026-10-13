@@ -64,7 +64,7 @@ git commit -m "Record the database schema"
 make schema-hook-install
 ```
 
-1. `schema-export` įrašo kiekvienos lentelės `CREATE TABLE` į `database/schema/table-<lentelė>.sql` ir manifestą. Duomenys neeksportuojami, `AUTO_INCREMENT` skaitiklis pašalinamas.
+1. `schema-export` įrašo kiekvienos lentelės `CREATE TABLE` į `database/schema/table-<lentelė>.sql` ir manifestą. Duomenys neeksportuojami, `AUTO_INCREMENT` skaitiklis pašalinamas. Projekte su [papildomomis schemomis](#papildomos-schemos) kiekviena schema turi savo katalogą: `database/schema/<DATABASE_NAME>/` ir `database/schema/<schema>/`. Išdėstymą parenka tik eksportas: įjungus pirmą papildomą schemą (ar išjungus paskutinę) `schema-export` perkelia failus, o hook'as tai rodo kaip `moved:` – migracijos nereikia, tik `git add -A`. Visi kiti žingsniai (hook'as, migracijos, `db-load`, ataskaita po importo ar deploy'aus) failus randa per manifestą, todėl serverio `DATABASE_NAME` gali skirtis nuo vietinio.
 2. `schema-resolve` paklausia apie kiekvieną registre nežinomą lentelę (žr. [C dalį](#c-lentelių-registras)).
 3. `schema-hook-install` įdiegia `pre-commit` hook'ą aplinkos repozitorijoje. `make setup` tai padaro pats; jei repozitorija jau turi hook'ų tvarkyklę (`core.hooksPath`), tik praneša.
 
@@ -141,7 +141,7 @@ Tvarka:
 0. Patikra: kiekviena dump'o lentelė turi būti registre. Kitaip importas sustoja dar nieko nekeitęs.
 1. Dump'as (.sql arba .sql.gz): viskas, kas faile (su skip=1 – be registre „skip“ pažymėtų lentelių duomenų).
 2. Saugūs numatytieji (tik PrestaShop ir tik ne prod).
-3. database/after-import/common/*.sql, tada database/after-import/<ENV>/*.sql
+3. database/after-import/common/*.sql, tada database/after-import/<ENV>/*.sql (kiekvienoje – pirma pagrindinės DB, tada papildomų schemų <schema>/*.sql)
 4. Integracijų išjungimas database/after-import/integrations/*.sql (tik ne prod).
 5. Jei paprašyta: fixtures (db-fixtures=RINKINYS).
 6. Laukiančios migracijos.
@@ -180,6 +180,8 @@ UPDATE `${DB_PREFIX}shop_url` SET `domain` = '${DOMAIN_LV}', `domain_ssl` = '${D
 ```
 
 Kiti kintamieji šiuose failuose nepakeičiami.
+
+Papildomos schemos ([papildomos schemos](#papildomos-schemos)) SQL dėk į tos schemos pakatalogį, pvz. `database/after-import/local/asana_memory/010-reset.sql`: setup jį vykdo toje schemoje (prideda `USE`), po tos grupės pagrindinės DB failų. Pakatalogis su `.sql` failais, kurio vardo nėra `DATABASE_EXTRA_SCHEMAS`, yra klaida.
 
 **Kita:**
 
@@ -329,7 +331,10 @@ Vardai – raidės, skaitmenys ir `_` (iki 64 simbolių), be pasikartojimų, ne 
 | `make db-backup`, kopija prieš deploy'ų | Apima visas schemas (formatas žemiau). |
 | `make db-import` | Užkelia ir kelių schemų dump'ą. |
 | Lentelių registras | Visos schemos: papildomos schemos lentelė rašoma `schema.lentelė` (žr. [C dalį](#c-lentelių-registras)). Neklasifikuota bet kurios schemos lentelė stabdo commit'ą ir `db-import`; backup'o patikra ir metrikos apima visas schemas. |
-| Snapshot'as, migracijos, bazinis rinkinys, `db-load` | Tik `DATABASE_NAME`. |
+| Snapshot'as | Visos schemos, kiekviena savo kataloge: `database/schema/<DATABASE_NAME>/table-*.sql` ir `database/schema/<schema>/table-*.sql`; manifeste papildomos schemos lentelė – `schema.lentelė`. Commit hook'as lygina ir jas. Schemos pirmas snapshot'as yra jos bazė: tam commit'ui migracijos nereikia, vėlesniems pakeitimams – reikia. |
+| Apsaugotos migracijos | Visos schemos: juodraštis papildomos schemos lentelę vadina `` `schema`.`lentelė` ``, patikros – `TABLE_SCHEMA = 'schema'`. |
+| After-import SQL | Pagrindinė DB – `database/after-import/<grupė>/*.sql`, papildoma schema – `database/after-import/<grupė>/<schema>/*.sql` (setup prideda `USE`). |
+| Bazinis rinkinys, `db-load`, Doctrine diff | Tik `DATABASE_NAME`. |
 
 **Kopijos formatas.** Su papildomomis schemomis kopija daroma vienu `mysqldump --databases` paleidimu: visos schemos nuskaitomos vienoje transakcijoje (suderinta kopija), o kiekviena schema kopijoje turi `CREATE DATABASE IF NOT EXISTS` ir `USE`. Todėl kopija atkuria visas schemas tais pačiais vardais: `make db-import file=…` (arba `mysql < kopija.sql`). Stage/prod kopijoje registras taikomas visoms schemoms: `skip` lentelių duomenys nekopijuojami, o papildomos schemos `skip` lentelių struktūra rašoma po savo `USE`. Be papildomų schemų kopija tokia pati kaip anksčiau: be `USE`, todėl ją galima užkelti ir į kitą `DATABASE_NAME`.
 

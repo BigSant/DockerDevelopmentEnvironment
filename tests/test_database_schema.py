@@ -64,6 +64,7 @@ class DatabaseSchemaTest(unittest.TestCase):
         self.assertIn("`id` int AUTO_INCREMENT", normalized)
         self.assertIn("DEFAULT 'AUTO_INCREMENT=123'", normalized)
         self.assertIn("COMMENT='AUTO_INCREMENT=456'", normalized)
+        self.assertEqual(normalize_ddl(normalized), normalized, "a snapshot file normalises to itself")
         self.assertEqual(unescape_batch(r"a\tb\nback\\n"), "a\tb\nback\\n")
         self.assertLess(len(table_file("ą" * 64).encode()), 255)
 

@@ -208,5 +208,43 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.assertEqual(self.root("SELECT COUNT(*) FROM shop.orders"), ["1"])
 
 
+    def test_snapshot_migration_and_after_import_reach_the_extra_schemas(self):
+        from database_import import after_import_hooks, execute_sql
+        from database_migrations_guarded import draft_text, migrate
+        from database_migrations import definitions
+        from database_schema import read_schema
+        self.start()
+        self.root("CREATE TABLE shop.orders (id INT PRIMARY KEY);"
+                  "CREATE TABLE shop_git.commits (sha CHAR(4) PRIMARY KEY);")
+        project = self.project()
+        project.settings["SCHEMA_DIRECTORY"] = "database/schema"
+        before = definitions(read_schema(project))
+        self.assertEqual(sorted(before), ["orders", "shop_git.commits"])
+        self.assertTrue(before["shop_git.commits"].startswith("CREATE TABLE `commits`"))
+        # The same change made by hand, drafted, undone, then applied (twice: every statement is guarded).
+        self.root("ALTER TABLE shop_git.commits ADD COLUMN author VARCHAR(40);"
+                  "CREATE TABLE shop_graph.edges (id INT PRIMARY KEY);")
+        after = definitions(read_schema(project))
+        draft = draft_text(before, after, "the test")
+        self.root("ALTER TABLE shop_git.commits DROP COLUMN author; DROP TABLE shop_graph.edges;")
+        migrations = self.directory / "database/migrations"
+        migrations.mkdir(parents=True)
+        (migrations / "20261013120000-schema.sql").write_text(draft)
+        with contextlib.redirect_stdout(io.StringIO()):
+            migrate(project)
+        self.assertEqual(definitions(read_schema(project)), after)
+        self.assertEqual(self.root("SHOW TABLES FROM shop"), ["orders", "setup_migrations"], "nothing landed in the main database")
+        (migrations / "20261013120001-again.sql").write_text(draft.replace("-- Draft checksum", "-- again"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            migrate(project)
+        self.assertEqual(definitions(read_schema(project)), after)
+        # An extra schema's after-import script runs in that schema.
+        hook = self.directory / "docker/database/after-import/local/shop_git/010-mark.sql"
+        hook.parent.mkdir(parents=True)
+        hook.write_text("INSERT INTO commits (sha, author) VALUES ('ab12', 'setup');\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            execute_sql(project, after_import_hooks(project))
+        self.assertEqual(self.root("SELECT author FROM shop_git.commits WHERE sha = 'ab12'"), ["setup"])
+
 if __name__ == "__main__":
     unittest.main()

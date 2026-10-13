@@ -13,7 +13,7 @@ import re
 import secrets
 import tempfile
 
-from database_schema import MANIFEST, database_tables, managed_file, mysql_query, schema_directory
+from database_schema import MANIFEST, database_tables, managed_file, mysql_query, schema_directory, split_name
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 SET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]*')
@@ -281,8 +281,11 @@ def schema_sql(project):
     directory = schema_directory(project)
     manifest = json.loads((directory / MANIFEST).read_text())
     # PrestaShop tables carry zero-date defaults that strict modes refuse.
+    # The data set is the main database's: an extra schema's table (schema.table in the manifest) stays out,
+    # whichever directory the main database's files are in.
     return HEADER.encode() + b''.join(
-        (directory / table['file']).read_bytes() for table in manifest['tables'] if managed_file(table['file']))
+        (directory / table['file']).read_bytes() for table in manifest['tables']
+        if managed_file(table['file']) and split_name(table['name'])[0] is None)
 
 
 def plan_load(project, name):
