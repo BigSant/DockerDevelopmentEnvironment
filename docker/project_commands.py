@@ -16,6 +16,8 @@ def restart(project, service=None, timeout=90):
     preflight_php(project)
     project.run(['up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', str(timeout),
                  '--force-recreate'] + (['--no-deps'] if selected else []) + selected)
+    from project_prestashop import ensure_htaccess
+    ensure_htaccess(project)
 
 
 def logs(project, service=None, follow=False, tail=100):

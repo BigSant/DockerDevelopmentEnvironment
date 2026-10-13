@@ -68,6 +68,15 @@ Kaip tai veikia:
 - **stage/prod:** raktai niekada negeneruojami. Jie ateina iš serverio env arba Bitbucket Deployment variables. Prod naudoja esamus LIVE raktus: be jų, pvz., Forsenoje neišsišifruotų mokėjimo modulio duomenys.
 - **PS 1.6:** visi slaptažodžiai priklauso nuo `PS_COOKIE_KEY`. Užkeliant LIVE dump'ą lokaliai reikia LIVE `PS_COOKIE_KEY` privačiame `local.env`.
 
+## PrestaShop .htaccess
+
+Parduotuvių repozitorijos `.htaccess` dažniausiai nelaiko, o be jo draugiški URL grąžina 404. Setup jį sugeneruoja PrestaShop `Tools::generateHtaccess()` (tas pats, ką daro BO *Shop Parameters → Traffic & SEO → Save*) veikiančiame `php-fpm`:
+
+- `make up`, `make setup`, `make restart` – jei `.htaccess` nėra;
+- `make db-import`, `make db-load` ne prod – visada iš naujo: after-import parduotuvėms davė vietinius domenus, o senas `.htaccess` perrašinėja senus.
+
+Kas parašyta už PrestaShop `~~start~~`/`~~end~~` žymių, lieka. Nepavykus (pvz. DB nepasiekiama) setup tik įspėja.
+
 ## PrestaShop ir PHP suderinamumas
 
 Setup turi suderinamumo lentelę [compatibility.json](../../docker/compatibility.json): PS šaka → tinkamos PHP, MySQL ir MariaDB versijos. Ją naudoja `./create-project` (siūlo tik tinkamas versijas) ir `make check`.

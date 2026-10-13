@@ -47,6 +47,32 @@ def shop_code_missing(web_directory):
     return not path.is_dir() or next(path.iterdir(), None) is None
 
 
+# PrestaShop writes .htaccess itself (friendly URLs, every shop domain) and keeps what is outside its
+# "~~start~~"/"~~end~~" markers. Shop repositories usually leave it out of Git.
+HTACCESS_PHP = 'require "config/config.inc.php"; exit(Tools::generateHtaccess() ? 0 : 1);'
+
+
+def ensure_htaccess(project, regenerate=False):
+    """Generate the shop's .htaccess when it is missing (regenerate=True: always, after a load changed the domains).
+    Needs the running php-fpm and the database; a failure only warns."""
+    import subprocess
+    if not isinstance(getattr(project, 'settings', None), dict) or not is_prestashop(project) \
+            or shop_code_missing(project.web_directory):
+        return False
+    if not regenerate and (Path(project.web_directory) / '.htaccess').is_file():
+        return False
+    if 'php-fpm' not in project.capture(['ps', '--status', 'running', '--services']).split():
+        return False
+    try:
+        project.capture(['exec', '-T', '-w', '/var/www/html', 'php-fpm', 'php', '-r', HTACCESS_PHP])
+    except (subprocess.CalledProcessError, ValueError):
+        print('Warning: PrestaShop could not write .htaccess; friendly URLs answer 404 until it does '
+              '(back office: Shop Parameters > Traffic & SEO > Save).')
+        return False
+    print('PrestaShop .htaccess ' + ('regenerated for the loaded shop domains.' if regenerate else 'generated (it was missing).'))
+    return True
+
+
 SHOP_CODE_MISSING = 'No shop code in {} yet: PrestaShop preparation skipped; clone the shop repository there and run make up again.'
 
 

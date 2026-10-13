@@ -340,6 +340,9 @@ def after_load(project):
             project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'policy'])
             project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
             project.run(['restart', 'php-fpm'])
+            # Outside prod the load gave the shops their local domains: the old .htaccess rewrites the old ones.
+            from project_prestashop import ensure_htaccess
+            ensure_htaccess(project, regenerate=project.environment != 'prod')
     if project.settings.get("SCHEMA_DIRECTORY"):
         from database_schema import schema_report
         schema_report(project)

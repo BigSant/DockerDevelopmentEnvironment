@@ -298,10 +298,15 @@ class ImportSequenceTest(ImportFixture):
         (self.root / "database/migrations").mkdir(parents=True)
         self.project.capture = lambda args: calls.append(args[-1]) or "php-fpm\n"
         self.project.run = lambda args: calls.append(args[0])
+        self.project.web_directory = self.root / "web"
+        (self.project.web_directory / "config").mkdir(parents=True)
+        (self.project.web_directory / ".htaccess").write_text("# old domains\n")
+        from project_prestashop import HTACCESS_PHP
         with patch("database_migrations_guarded.migrate", lambda project: calls.append("migrate")), \
                 patch("database_schema.schema_report", lambda project: calls.append("report")):
             database_import.after_load(self.project)
-        self.assertEqual(calls, ["migrate", "--services", "policy", "cache-clear", "restart", "report"])
+        # The loaded shop has its local domains: .htaccess is written again, even though one exists.
+        self.assertEqual(calls, ["migrate", "--services", "policy", "cache-clear", "restart", "--services", HTACCESS_PHP, "report"])
 
 
 if __name__ == "__main__":

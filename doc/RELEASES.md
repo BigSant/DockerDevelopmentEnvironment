@@ -6,6 +6,13 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### PrestaShop .htaccess
+
+- **Setup writes the shop's `.htaccess`** with PrestaShop's `Tools::generateHtaccess()` in the running php-fpm:
+  at `make up`/`setup`/`restart` when it is missing (shop repositories usually leave it out, and friendly URLs
+  answer 404 without it), and again after `make db-import`/`db-load` outside prod, whose after-import gave the
+  shops their local domains. What is outside PrestaShop's markers stays; a failure only warns.
+
 ### Migration rollback, per-database migration directories, DATABASE_MIGRATIONS=off
 
 - **A dropped table, column or key is drafted as a guarded statement** like any other change (it was a
