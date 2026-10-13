@@ -204,6 +204,17 @@ make restart service=nginx-proxy
 
 `config/nginx-proxy/*.conf` tinka `map`, `upstream` ar atskiram `server` blokui, `server.d/*.conf` – direktyvoms svetainės serveriui (pvz. peradresavimams), `location.d/*.conf` – pagrindinio `location` direktyvoms. Ta pati vienetinė direktyva tame pačiame kontekste du kartus yra klaida. Direktyvos: [Nginx](https://nginx.org/en/docs/dirindex.html).
 
+Kitą projekto konteinerį pasiek per kintamąjį su `resolver`, ne tiesiai `proxy_pass http://vardas:portas;`. Tiesioginį vardą Nginx išsprendžia tik startuodamas, todėl perkūrus tą konteinerį (deploy'us, `make up`) jis gauna naują adresą, o nginx-proxy siunčia į seną ir atsako 502, kol pats neperkraunamas. Setup'o svetainė, PMA, Mailpit ir cron UI daro taip pat:
+
+```nginx
+location / {
+    include /etc/nginx/proxy_params;
+    resolver 127.0.0.11 valid=10s;
+    set $meilisearch http://meilisearch:7700;
+    proxy_pass $meilisearch;
+}
+```
+
 ## IP apribojimai
 
 Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius, `/metrics`) ribojamas nginx-proxy lygyje.

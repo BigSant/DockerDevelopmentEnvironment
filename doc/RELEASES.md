@@ -6,6 +6,15 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### nginx-proxy finds recreated containers (nginx 1.30.5)
+
+- **A recreated webserver, pma or mailpit no longer answers 502 until nginx-proxy restarts.** nginx resolved
+  those names once, at start, so after a deploy or `make up` recreated the container with a new address every
+  request went to the old one. The site's upstream now re-resolves through Docker's DNS (`server webserver
+  resolve`, every 10 s; it needs nginx 1.27.3+, hence `NGINX_VERSION=1.30.5`), and pma and mailpit are resolved
+  per request like the cron UI. The container name carries the version: `<project>-<env>-nginx-proxy-1.30.5`.
+  A project's own `config/nginx-proxy` site that proxies to another container does the same (doc/lt/05).
+
 ### DATABASE_TEST_SCHEMAS
 
 - **Schemas an application's own tests create and drop** get the application user's privileges without becoming

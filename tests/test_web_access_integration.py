@@ -29,14 +29,18 @@ class WebAccessIntegrationTest(unittest.TestCase):
         self.network = 'setup-pma-test-' + uuid.uuid4().hex[:12]
         self.docker('network', 'create', '--internal', self.network)
         self.addCleanup(self.docker, 'network', 'rm', self.network)
-        backend = self.network + '-backend'
         (self.root / 'backend.conf').write_text(
             'events {}\nhttp { server { listen 80; location / { return 200 "backend"; } } }\n')
+        self.backend = self.start_backend()
+
+    def start_backend(self):
+        backend = self.network + '-backend-' + uuid.uuid4().hex[:6]
         self.addCleanup(self.docker, 'rm', '-f', backend)
         self.docker('run', '-d', '--name', backend, '--network', self.network,
                     '--network-alias', 'pma', '--network-alias', 'webserver', '--memory', '128m',
                     '-v', f'{self.root}/backend.conf:/test.conf:ro', '--entrypoint', 'nginx',
                     IMAGE, '-c', '/test.conf', '-g', 'daemon off;')
+        return backend
 
     def start(self, environment, allowed='', trusted='', *extra):
         name = self.network + '-' + uuid.uuid4().hex[:6]
@@ -150,6 +154,33 @@ class WebAccessIntegrationTest(unittest.TestCase):
         # A right password from outside the allowlist is still refused.
         other = self.start('prod', '203.0.113.10', '', '-e', 'PMA_HTPASSWD=' + entries[0])
         self.assertEqual(self.status(other, user='ops:secret-ops'), '403')
+
+    def test_a_recreated_backend_is_found_without_restarting_the_proxy(self):
+        # A deploy recreates webserver (and a tool) with a new address while nginx-proxy keeps running.
+        # A name resolved only when nginx started kept sending requests to the old address: 502.
+        name = self.start('local')
+        address = lambda container: self.docker(
+            'inspect', container, '--format', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+        for host in ('demo.local', 'pma.demo.local'):
+            self.assertEqual(self.status(name, host=host), '200')
+        old = address(self.backend)
+        # The replacement starts before the old one goes, so it cannot be handed the same address.
+        replacement = self.start_backend()
+        self.docker('rm', '-f', self.backend)
+        self.assertNotEqual(address(replacement), old)
+        for host in ('demo.local', 'pma.demo.local'):
+            # The resolver keeps an answer for 10 s; until then a request to the old address times out.
+            deadline, code = time.monotonic() + 30, None
+            while code != '200' and time.monotonic() < deadline:
+                try:
+                    code = self.docker('exec', name, 'curl', '--noproxy', '*', '-sS', '--max-time', '2',
+                                       '--resolve', f'{host}:80:127.0.0.1', '-o', '/dev/null',
+                                       '-w', '%{http_code}', f'http://{host}/')
+                except subprocess.CalledProcessError:
+                    code = None
+                if code != '200':
+                    time.sleep(.5)
+            self.assertEqual(code, '200', host)
 
     def test_invalid_ip_or_cidr_stops_nginx(self):
         for allowed in ('999.1.2.3', '127.0.0.1/99', '203.0.113.1; allow all;'):

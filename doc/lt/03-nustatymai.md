@@ -256,7 +256,7 @@ Paprastai laikomos bendrame setup `.env`. Projektas gali perrašyti bet kurią `
 | `PHP_PHPSTAN_VERSION` | `2.2.2-php8.1` | `php-phpstan` serviso image'o tag'as. |
 | `PHP_CS_VERSION` | `3.95.10-php8.1` | `php-cs` serviso image'o tag'as. |
 | `DOCTRINE_MIGRATIONS_VERSION` | `3.8` | Doctrine migracijų įrankis. |
-| `NGINX_VERSION` | `1.26.0` | nginx-proxy. |
+| `NGINX_VERSION` | `1.30.5` | nginx-proxy. |
 | `APACHE_VERSION` | `2.4.59` | Apache. |
 | `DATABASE_ENGINE` | `mysql` | DB variklis: `mysql` arba `mariadb`. |
 | `MYSQL_VERSION` | `8.4.0` | MySQL versija, kai `DATABASE_ENGINE=mysql`. |
