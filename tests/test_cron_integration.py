@@ -95,6 +95,43 @@ class CronIntegrationTest(unittest.TestCase):
         self.assertEqual((run["trigger"], run["exit"]), ("manual", 0))
         self.assertEqual((self.root / f"history/runs/{job}/{run['log']}").read_text(), "weekly\n")
 
+    def test_a_run_cut_by_a_container_restart_is_recorded_as_interrupted(self):
+        (self.root / "cron.d/crontab").write_text("0 3 * * * echo before; sleep 60\n")
+        name = self.container("/opt/setup/runtime/cron/cron-start.sh", environment=["CRON_SCHEDULE=off"])
+        for _ in range(50):
+            if "sleep 60" in self.request(name, "/"):
+                break
+            time.sleep(0.2)
+        job = json.loads(subprocess.run(["docker", "exec", name, "php", "-r",
+                                         "require '/opt/setup/runtime/cron/compose.php';"
+                                         "echo json_encode(cronJobs('0 3 * * * echo before; sleep 60', 'crontab')[0]['id']);"],
+                                        capture_output=True, text=True).stdout)
+        self.request(name, "/run", {"job": job})
+        running = self.root / "history/running"
+        for _ in range(50):
+            if running.exists() and list(running.glob("*.json")):
+                break
+            time.sleep(0.2)
+        self.assertTrue(list(running.glob("*.json")), "the run is marked while it runs")
+        self.assertIn('class="lamp run"', self.request(name, "/"))
+        subprocess.run(["docker", "restart", "-t", "1", name], check=True, capture_output=True)
+        history = self.root / "history/history.jsonl"
+        for _ in range(50):
+            if history.exists():
+                break
+            time.sleep(0.2)
+        run = json.loads(history.read_text().splitlines()[-1])
+        self.assertEqual((run["job"], run["exit"], run.get("interrupted")), (job, None, True))
+        self.assertEqual(list(running.glob("*.json")), [])
+        self.assertEqual((self.root / f"history/runs/{job}/{run['log']}").read_text(), "before\n", "its output stays")
+        for _ in range(50):
+            board = self.request(name, "/")
+            if "interrupted" in board:
+                break
+            time.sleep(0.2)
+        self.assertIn("interrupted", board)
+        self.assertNotIn('class="lamp run"', board)
+
     def test_schedule_off_starts_no_supercronic_but_the_ui_runs_jobs_and_stops_cleanly(self):
         (self.root / "cron.d/crontab").write_text("* * * * * echo every-minute\n")
         name = self.container("/opt/setup/runtime/cron/cron-start.sh", environment=["CRON_SCHEDULE=off"])

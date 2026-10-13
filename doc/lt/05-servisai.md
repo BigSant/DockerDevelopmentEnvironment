@@ -359,6 +359,8 @@ Kas vyksta:
 
 - rodo užduotis ir kitą jų paleidimo laiką (su `CRON_SCHEDULE=off` – „off“, žr. žemiau);
 - leidžia paleisti užduotį dabar ir matyti kiekvieno paleidimo output'ą, exit code ir trukmę;
+- rodo ir **vykdomą** paleidimą: lentoje – pulsuojanti lemputė ir „running · trukmė · watch“, istorijoje – eilutė sąrašo viršuje. „watch“ (ir „Run now“, kai paleidimas prasideda) atidaro output'ą, kuris pildosi gyvai (kas 2 s naujos eilutės, slenka kartu, jei esi apačioje); pasibaigus puslapis parodo exit code ir trukmę. Vykdomą paleidimą `cron-run.sh` pažymi faile `data/cron/running/<užduotis>-<pid>.json` ir jį ištrina, kai paleidimas įrašytas į istoriją;
+- paleidimą, kurį nutraukė konteinerio sustabdymas ar perkrovimas (deploy'us, `make restart`), kitas cron paleidimas įrašo į istoriją kaip **interrupted** (exit code nėra, trukmė – iki paskutinio output'o įrašo); jo output'as lieka;
 - local/test leidžia redaguoti crontab'ą: pakeitimas patikrinamas `supercronic -test`, išsaugomas `config/cron/` ir iš karto pritaikomas. Pakeitimą commit'ink;
 - stage/prod crontab'ą tik rodo: serveryje jis keičiamas tik per Git.
 
@@ -629,7 +631,7 @@ Jei nuotraukos nėra ar ji senesnė nei trys intervalai (+30 s), konteinerių me
 | Metrikos | Pastabos |
 | --- | --- |
 | `setup_cron_job_info{job,source,line,schedule}` | `job` – užduoties id, kaip cron UI (pagal komandą); `source:line` – crontab failas ir eilutė. **Komanda etiketėse nerodoma**: joje būna token'ų (pvz. cron URL su `?token=`) |
-| `setup_cron_job_last_run_timestamp_seconds{job}`, `setup_cron_job_last_exit_code{job}`, `setup_cron_job_last_duration_seconds{job}` | paskutinis užbaigtas paleidimas (planinis ar rankinis): pradžia, exit kodas (`0` – sėkmė), trukmė s |
+| `setup_cron_job_last_run_timestamp_seconds{job}`, `setup_cron_job_last_exit_code{job}`, `setup_cron_job_last_duration_seconds{job}` | paskutinis užbaigtas paleidimas (planinis ar rankinis): pradžia, exit kodas (`0` – sėkmė, `-1` – nutrauktas konteinerio sustabdymo, cron UI „interrupted“), trukmė s |
 | `setup_cron_job_last_success_timestamp_seconds{job}` | paskutinio sėkmingo paleidimo pradžia |
 | `setup_cron_job_expected_run_timestamp_seconds{job}` | pirmas planinis laikas po paskutinio paleidimo (be paleidimų – po dabar); jei jis praeityje, paleidimo trūksta (neįvyko, praleistas, nes ankstesnis dar vyko, ar dar vyksta). Su `CRON_SCHEDULE=off` neatiduodama |
 | `setup_cron_schedule_enabled` | `1` – užduotys vykdomos pagal grafiką, `0` – [grafikas išjungtas](#cron) (`CRON_SCHEDULE=off`) |

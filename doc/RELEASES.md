@@ -6,6 +6,18 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Cron UI: a running job and its output, live
+
+- **The board and the history show a run while it runs**: a pulsing lamp and "running · elapsed · watch" on the
+  board, a row on top of the history. `cron-run.sh` marks the run in `data/cron/running/<job>-<pid>.json` and
+  removes the mark once the run is recorded.
+- **"watch" follows the output as the job writes it** (`/tail` gives the whole lines added since the last look,
+  every 2 s; the view keeps to the bottom while you are there) and shows the exit code when the run ends.
+  "Run now" opens it as soon as the run has started instead of waiting for the end.
+- **A run cut by a container stop or restart** (a deploy, `make restart`) used to leave its output and no
+  record; the next cron start records it as **interrupted** (no exit code, duration up to the last output).
+  Metrics count it as failed: `setup_cron_job_last_exit_code` `-1`.
+
 ### make db-pull: full, fresh, progress bars and a server asked for once
 
 - **`full=1`** downloads the newest full backup (every table's data; setup-server's weekly series), **`fresh=1`**

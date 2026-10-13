@@ -12,11 +12,20 @@ directory="$base/runs/$job"
 mkdir -p "$directory"
 started=$(date +%s%3N)
 log="$directory/$(date -u +%Y%m%dT%H%M%S)-$$.log"
+# While the job runs, this marker lets the UI show it and follow its output (the log grows as it runs).
+# It goes after the run is recorded; one left by a container that stopped mid-run is recorded as
+# interrupted at the next start (compose.php, cronCloseInterrupted).
+: > "$log"
+mkdir -p "$base/running"
+marker="$base/running/$job-$$.json"
+printf '{"job":"%s","trigger":"%s","started":%s,"log":"%s","pid":%s}\n' \
+    "$job" "$trigger" "$started" "$(basename "$log")" "$$" > "$marker.tmp" && mv -f "$marker.tmp" "$marker"
 sh -c "$command" > "$log" 2>&1
 code=$?
 finished=$(date +%s%3N)
 printf '{"job":"%s","trigger":"%s","started":%s,"duration_ms":%s,"exit":%s,"log":"%s"}\n' \
     "$job" "$trigger" "$started" "$((finished - started))" "$code" "$(basename "$log")" >> "$base/history.jsonl"
+rm -f "$marker"
 # The container log keeps the output too.
 cat "$log"
 # Keep the newest runs per job.

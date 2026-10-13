@@ -95,6 +95,27 @@ class RunWrapperTest(unittest.TestCase):
         self.assertGreaterEqual(runs[1]["duration_ms"], 150)
         self.assertEqual((self.history / "runs/abc123def456" / runs[0]["log"]).read_text(), "hello\noops\n")
 
+    def test_a_running_job_leaves_a_marker_until_it_is_recorded(self):
+        env = {**os.environ, "CRON_HISTORY_DIR": str(self.history)}
+        job = subprocess.Popen(["sh", str(CRON / "cron-run.sh"), "abc123def456", "manual", "echo first; sleep 1.5"],
+                               env=env, stdout=subprocess.DEVNULL)
+        self.addCleanup(job.wait)
+        marker = None
+        for _ in range(50):
+            markers = list((self.history / "running").glob("*.json")) if (self.history / "running").exists() else []
+            if markers:
+                marker = json.loads(markers[0].read_text())
+                break
+            time.sleep(0.05)
+        self.assertIsNotNone(marker, "the marker appears when the job starts")
+        self.assertEqual((marker["job"], marker["trigger"], marker["pid"]), ("abc123def456", "manual", job.pid))
+        self.assertTrue((self.history / "runs/abc123def456" / marker["log"]).exists(), "the log exists with the marker")
+        self.assertFalse((self.history / "history.jsonl").exists(), "nothing is recorded while it runs")
+        self.assertEqual(job.wait(timeout=10), 0)
+        self.assertEqual(list((self.history / "running").iterdir()), [], "the marker goes when the run is recorded")
+        run = json.loads((self.history / "history.jsonl").read_text())
+        self.assertEqual((run["log"], run["exit"]), (marker["log"], 0))
+
     def test_old_logs_are_pruned_and_bad_arguments_refused(self):
         for _ in range(3):
             self.run_job("true", keep="2")
@@ -105,6 +126,43 @@ class RunWrapperTest(unittest.TestCase):
         self.assertEqual(len((self.history / "history.jsonl").read_text().splitlines()), 200, "the run index stays bounded")
         bad = subprocess.run(["sh", str(CRON / "cron-run.sh"), "../x", "scheduled", "true"], capture_output=True, text=True)
         self.assertEqual(bad.returncode, 64)
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class InterruptedRunTest(unittest.TestCase):
+    def test_markers_left_by_a_stopped_container_become_interrupted_runs(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="cron-", dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        history = Path(temporary.name)
+        (history / "running").mkdir()
+        (history / "runs/abc123def456").mkdir(parents=True)
+        gone = subprocess.Popen(["true"])
+        gone.wait()  # a PID that no longer runs cron-run.sh
+        log = history / "runs/abc123def456/20261013T100000-1.log"
+        log.write_text("half way\n")
+        os.utime(log, (1791900030, 1791900030))
+        (history / "running/abc123def456-1.json").write_text(json.dumps(
+            {"job": "abc123def456", "trigger": "scheduled", "started": 1791900000000, "log": log.name, "pid": gone.pid}))
+        # Recorded already, only its marker survived: removed, not recorded twice.
+        (history / "history.jsonl").write_text(json.dumps(
+            {"job": "abc123def456", "trigger": "manual", "started": 1, "duration_ms": 1, "exit": 0, "log": "20261013T090000-2.log"}) + "\n")
+        (history / "running/abc123def456-2.json").write_text(json.dumps(
+            {"job": "abc123def456", "trigger": "manual", "started": 1, "log": "20261013T090000-2.log", "pid": gone.pid}))
+        closed = php(f"echo json_encode(cronCloseInterrupted({json.dumps(str(history))}));")
+        self.assertEqual(closed, 1)
+        self.assertEqual(list((history / "running").iterdir()), [])
+        runs = [json.loads(line) for line in (history / "history.jsonl").read_text().splitlines()]
+        self.assertEqual(len(runs), 2)
+        self.assertEqual((runs[1]["exit"], runs[1]["interrupted"], runs[1]["log"], runs[1]["duration_ms"]),
+                         (None, True, log.name, 30000), "the duration runs up to the log's last write")
+        metrics = subprocess.run(["php", "-r", f"require '{ROOT}/docker/runtime/metrics/cron.php';"
+                                  f"echo json_encode(metrics_cron_history({json.dumps(str(history / 'history.jsonl'))}));"],
+                                 capture_output=True, text=True, check=True)
+        last = json.loads(metrics.stdout)["abc123def456"]
+        self.assertEqual((last["last"]["exit"], last["success"]["log"]), (-1, "20261013T090000-2.log"),
+                         "metrics count an interrupted run as failed (-1), not as no run")
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
@@ -153,6 +211,7 @@ class CronUiTest(unittest.TestCase):
         data = urllib.parse.urlencode({"token": (self.root / "token").read_text().strip(), **fields}).encode()
         try:
             with urllib.request.urlopen(urllib.request.Request(self.base + path, data=data), timeout=5) as response:
+                self.last_url = response.geturl()
                 return response.status, response.read().decode()
         except urllib.error.HTTPError as error:
             return error.code, error.read().decode()
@@ -182,6 +241,45 @@ class CronUiTest(unittest.TestCase):
         self.assertIn("view", self.get(f"/history?job={job}"))
         self.assertIn("nightly", self.get(f"/log?job={job}&file={run['log']}"))
         self.assertEqual(self.post("/run", {"job": job, "token": "wrong"})[0], 403)
+
+    def test_a_running_job_shows_on_the_board_and_its_output_follows_live(self):
+        (self.root / "cron.d/crontab").write_text("0 2 * * * echo first; sleep 2; echo second\n")
+        self.start("prod")
+        job = php("echo json_encode(cronJobs('0 2 * * * echo first; sleep 2; echo second', 'crontab')[0]['id']);")
+        status, body = self.post("/run", {"job": job})
+        self.assertEqual(status, 200)
+        # Run now goes to the history page, which opens the live output as soon as the run has started.
+        live, page = (self.last_url[len(self.base):], body) if "/log?" in self.last_url else (None, "")
+        started = urllib.parse.parse_qs(urllib.parse.urlparse(self.last_url).query).get("started", ["0"])[0]
+        for _ in range(0 if live else 50):
+            with urllib.request.urlopen(f"{self.base}/history?job={job}&started={started}", timeout=5) as response:
+                if "/log?" in response.geturl():
+                    live, page = response.geturl()[len(self.base):], response.read().decode()
+                    break
+            time.sleep(0.1)
+        self.assertIsNotNone(live, "run now opens the live output once the run starts")
+        self.assertIn('<span class="chip run">running</span>', page)
+        self.assertIn("data-tail=", page)
+        board = self.get("/")
+        self.assertIn('class="running"', board)
+        self.assertIn('class="lamp run"', board)
+        self.assertIn("watch", self.get(f"/history?job={job}"))
+        file = urllib.parse.parse_qs(urllib.parse.urlparse(live).query)["file"][0]
+        tail = json.loads(self.get(f"/tail?job={job}&file={file}&from=0"))
+        self.assertTrue(tail["running"])
+        for _ in range(60):
+            tail = json.loads(self.get(f"/tail?job={job}&file={file}&from=0"))
+            if not tail["running"]:
+                break
+            time.sleep(0.1)
+        self.assertFalse(tail["running"], "the run ends")
+        self.assertEqual(tail["text"], "first\nsecond\n")
+        self.assertEqual(tail["from"], len("first\nsecond\n"))
+        self.assertEqual(json.loads(self.get(f"/tail?job={job}&file={file}&from={tail['from']}"))["text"], "")
+        done = self.get(live)
+        self.assertNotIn("data-tail=", done)
+        self.assertIn('<span class="chip ok">exit 0</span>', done)
+        self.assertNotIn('class="running"', self.get("/"))
 
     def test_schedule_off_lists_the_jobs_marks_them_off_and_still_runs_them_by_hand(self):
         # A process standing in for supercronic: an edit must not signal it (SIGUSR2 would end sleep).

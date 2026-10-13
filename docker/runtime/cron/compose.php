@@ -143,7 +143,64 @@ function cronNextRun($schedule, $from)
     return null;
 }
 
+/** Whether the cron-run.sh of a running marker is still alive: its PID runs cron-run.sh for that job. */
+function cronRunAlive($run)
+{
+    $pid = isset($run['pid']) ? (int) $run['pid'] : 0;
+    if ($pid <= 1) return false;
+    $command = @file_get_contents("/proc/$pid/cmdline");
+    return is_string($command) && strpos($command, 'cron-run.sh') !== false && strpos($command, (string) $run['job']) !== false;
+}
+
+/** Markers cron-run.sh writes while a job runs ($history/running/<job>-<pid>.json), newest first; alive ones only. */
+function cronRunning($history, $alive = true)
+{
+    $runs = array();
+    foreach (glob("$history/running/*.json") ?: array() as $file) {
+        $run = json_decode((string) @file_get_contents($file), true);
+        if (!is_array($run) || !isset($run['job'], $run['started'], $run['log'])) continue;
+        if (cronRunAlive($run) !== $alive) continue;
+        $run['marker'] = $file;
+        $runs[] = $run;
+    }
+    usort($runs, function ($a, $b) { return $a['started'] === $b['started'] ? 0 : ($a['started'] < $b['started'] ? 1 : -1); });
+    return $runs;
+}
+
+/**
+ * Markers whose cron-run.sh is gone (the container stopped mid-run, the wrapper was killed) become history
+ * entries with exit null and interrupted: the run ended without an exit code. Their output stays; the
+ * duration is up to the log's last write. Returns how many were closed.
+ */
+function cronCloseInterrupted($history)
+{
+    $recorded = array();
+    $file = "$history/history.jsonl";
+    if (is_file($file)) {
+        foreach (file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $run = json_decode($line, true);
+            if (is_array($run) && isset($run['job'], $run['log'])) $recorded[$run['job'] . '/' . $run['log']] = true;
+        }
+    }
+    $closed = 0;
+    foreach (cronRunning($history, false) as $run) {
+        // cron-run.sh records the run before it removes the marker: a recorded one only lost its marker.
+        if (!isset($recorded[$run['job'] . '/' . $run['log']])) {
+            $log = "$history/runs/{$run['job']}/{$run['log']}";
+            $ended = is_file($log) ? filemtime($log) * 1000 : (int) $run['started'];
+            file_put_contents($file, json_encode(array('job' => $run['job'], 'trigger' => $run['trigger'],
+                'started' => (int) $run['started'], 'duration_ms' => max(0, $ended - (int) $run['started']), 'exit' => null,
+                'log' => $run['log'], 'interrupted' => true)) . "\n", FILE_APPEND | LOCK_EX);
+            $closed++;
+        }
+        @unlink($run['marker']);
+    }
+    return $closed;
+}
+
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
+    $closed = cronCloseInterrupted(getenv('CRON_HISTORY_DIR') ?: '/var/lib/setup-cron');
+    if ($closed) echo "Cron: $closed run(s) interrupted by the last stop recorded without an exit code\n";
     $jobs = cronCompose(cronFiles());
     foreach (cronFiles() as $name => $path) {
         foreach (cronProblems(file_get_contents($path), $name) as $problem) fwrite(STDERR, "Warning: $problem\n");

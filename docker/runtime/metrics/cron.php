@@ -18,7 +18,10 @@ function metrics_cron_history($file)
     if (!$handle) return $runs;  // No run recorded yet.
     while (($line = fgets($handle, 65536)) !== false) {
         $run = json_decode($line, true);
-        if (!is_array($run) || !isset($run['job'], $run['started'], $run['exit'])) continue;
+        if (!is_array($run) || !isset($run['job'], $run['started'])) continue;
+        // A run the container stop cut short has no exit code (cron UI: interrupted); it counts as failed, -1.
+        if (!empty($run['interrupted'])) $run['exit'] = -1;
+        if (!isset($run['exit'])) continue;
         $job = (string) $run['job'];
         if (!isset($runs[$job])) $runs[$job] = array('last' => null, 'success' => null);
         $runs[$job]['last'] = $run;
@@ -61,7 +64,7 @@ function metrics_cron_jobs(Metrics $metrics)
         if ($last !== null) {
             $metrics->add('setup_cron_job_last_run_timestamp_seconds', 'When the last recorded run started (scheduled or manual)',
                 round((float) $last['started'] / 1000, 3), $labels);
-            $metrics->add('setup_cron_job_last_exit_code', 'Exit code of the last recorded run (0 = success)', (int) $last['exit'], $labels);
+            $metrics->add('setup_cron_job_last_exit_code', 'Exit code of the last recorded run (0 = success, -1 = interrupted)', (int) $last['exit'], $labels);
             $metrics->add('setup_cron_job_last_duration_seconds', 'Duration of the last recorded run',
                 round((float) (isset($last['duration_ms']) ? $last['duration_ms'] : 0) / 1000, 3), $labels);
         }

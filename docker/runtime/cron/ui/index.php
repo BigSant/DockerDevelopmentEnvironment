@@ -97,12 +97,16 @@ time.next{color:var(--dim);font-size:11px}
 .lamp.ok{background:var(--go);box-shadow:0 0 8px rgba(79,224,140,.55)}
 .lamp.fail{background:var(--stop);box-shadow:0 0 8px rgba(255,91,79,.6)}
 .lamp.manual{outline:1px dashed rgba(236,230,211,.5);outline-offset:2px}
+.lamp.run{background:var(--amber);box-shadow:0 0 10px var(--amber-glow);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+.running-now{color:var(--amber);font-weight:700}
 .last{color:var(--dim);font-size:11px}
 .ok{color:var(--go)}.fail{color:var(--stop)}
 .chip{display:inline-block;padding:1px 7px;border-radius:2px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
 border:1px solid var(--rule);color:var(--dim)}
 .chip.ok{color:var(--go);border-color:rgba(79,224,140,.4)}.chip.fail{color:var(--stop);border-color:rgba(255,91,79,.45)}
 .chip.manual{color:var(--amber);border-color:var(--amber-dim,#6b4e12)}
+.chip.run{color:#1a1205;background:var(--amber);border-color:var(--amber)}
 .actions{display:inline-flex;gap:8px;align-items:center}
 .actions form{margin:0}
 .empty{padding:40px;text-align:center;color:var(--dim);border:1px dashed var(--rule);border-radius:4px}
@@ -118,6 +122,8 @@ border-left:3px solid var(--amber);border-radius:4px;padding:16px 18px;margin:0 
 .bar{height:6px;background:#1c2217;border-radius:3px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--amber),#ffd27a);border-radius:3px}
 .bar.fail i{background:linear-gradient(90deg,var(--stop),#ff9a8f)}
+.bar.run i{width:100%;background:repeating-linear-gradient(-45deg,var(--amber) 0 8px,#8a5c10 8px 16px);background-size:22px 22px;animation:march 1s linear infinite}
+@keyframes march{to{background-position:22px 0}}
 .term{background:#070806;border:1px solid var(--rule);border-radius:4px;overflow:auto;max-height:75vh;box-shadow:inset 0 0 40px rgba(0,0,0,.6)}
 .term ol{margin:0;padding:12px 0;counter-reset:l;list-style:none}
 .term li{counter-increment:l;display:grid;grid-template-columns:56px 1fr;white-space:pre-wrap;word-break:break-all;color:#d8e8c8}
@@ -137,18 +143,29 @@ textarea:focus{outline:none;border-color:var(--amber)}
 .board tr{margin-bottom:10px;border-radius:4px;overflow:hidden}.board td{border-radius:0!important;border-left:3px solid var(--amber);border-top:none;border-bottom:none;padding:8px 14px}
 .board tr.failing td{border-left-color:var(--stop)}.board tr.idle td{border-left-color:var(--faint)}.board td:last-child{text-align:left}
 .runs li{grid-template-columns:18px 1fr 80px}.runs li .bar,.runs li .trig{display:none}.editor{grid-template-columns:1fr}.top{padding:12px 16px}main{padding:18px 16px}}
-@media (prefers-reduced-motion:reduce){.board tbody tr{animation:none}}
+@media (prefers-reduced-motion:reduce){.board tbody tr,.lamp.run,.bar.run i{animation:none}}
 CSS;
 
-// Live clock in the board's time zone and relative times that keep counting; nothing else needs script.
+// Live clock in the board's time zone, relative and elapsed times that keep counting, and the output of a
+// running job: the page asks /tail for the lines added since its last look and reloads once the run ends.
 const CRON_UI_SCRIPT = <<<'JS'
 (function(){var zone=document.body.getAttribute('data-zone');
 function clock(){var e=document.getElementById('clock');if(!e)return;try{e.textContent=new Date().toLocaleTimeString('en-GB',{timeZone:zone,hour12:false});}catch(x){e.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false});}}
 function rel(){var now=Date.now();document.querySelectorAll('[data-at]').forEach(function(e){var d=Math.round((+e.getAttribute('data-at')-now)/1000),a=Math.abs(d),t;
 if(a<45)t='now';else if(a<3600)t=Math.round(a/60)+' min';else if(a<172800)t=Math.round(a/3600)+' h';else t=Math.round(a/86400)+' d';
 e.textContent=t==='now'?'now':(d>0?'in '+t:t+' ago');});}
+function since(){var now=Date.now();document.querySelectorAll('[data-since]').forEach(function(e){var s=Math.max(0,Math.floor((now-+e.getAttribute('data-since'))/1000));
+e.textContent=s<60?s+' s':Math.floor(s/60)+' m '+('0'+s%60).slice(-2)+' s';});}
+var term=document.querySelector('[data-tail]');
+if(term){var list=term.querySelector('ol'),from=+term.getAttribute('data-from');term.scrollTop=term.scrollHeight;
+var poll=function(){fetch(term.getAttribute('data-tail')+'&from='+from,{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+var follow=term.scrollTop+term.clientHeight>=term.scrollHeight-40;
+if(d.text){d.text.replace(/\n$/,'').split('\n').forEach(function(l){var li=document.createElement('li');li.textContent=l;list.appendChild(li);});}
+from=d.from;if(follow)term.scrollTop=term.scrollHeight;
+if(!d.running){location.reload();return;}setTimeout(poll,2000);}).catch(function(){setTimeout(poll,5000);});};
+setTimeout(poll,2000);}
 document.querySelectorAll('form[data-confirm]').forEach(function(f){f.addEventListener('submit',function(ev){if(!window.confirm(f.getAttribute('data-confirm')))ev.preventDefault();});});
-clock();rel();setInterval(clock,1000);setInterval(rel,30000);})();
+clock();rel();since();setInterval(clock,1000);setInterval(rel,30000);setInterval(since,1000);})();
 JS;
 
 function page($title, $body, $refresh = 0)
@@ -212,6 +229,26 @@ function seconds($ms)
     return floor($s / 60) . ' m ' . str_pad((string) round(fmod($s, 60)), 2, '0', STR_PAD_LEFT) . ' s';
 }
 
+/** The run's outcome: exit N, or interrupted for a run whose container stopped before it ended. */
+function exitText($run) { return !empty($run['interrupted']) ? 'interrupted' : 'exit ' . (int) $run['exit']; }
+
+function exitChip($run) { return '<span class="chip ' . ($run['exit'] === 0 ? 'ok' : 'fail') . '">' . h(exitText($run)) . '</span>'; }
+
+/** Time since a running job started; the page script keeps it counting. */
+function elapsed($run)
+{
+    return '<span data-since="' . (int) $run['started'] . '">' . h(seconds(max(0, microtime(true) * 1000 - $run['started']))) . '</span>';
+}
+
+function logUrl($run) { return '/log?job=' . rawurlencode($run['job']) . '&file=' . rawurlencode($run['log']); }
+
+/** The alive run of one job (newest), or null. */
+function runningJob($history, $job)
+{
+    foreach (cronRunning($history) as $run) if ($run['job'] === $job) return $run;
+    return null;
+}
+
 function relative($timestamp)
 {
     $d = $timestamp - time();
@@ -233,16 +270,18 @@ function flaps($timestamp)
     return '<div class="flaps" aria-hidden="true">' . $out . '</div>';
 }
 
-function lamps($runs)
+function lamps($runs, $running = null)
 {
     $out = '';
-    $recent = array_reverse(array_slice($runs, 0, 12)); // oldest left, newest right
-    for ($i = count($recent); $i < 12; $i++) $out .= '<span class="lamp"></span>';
+    $slots = $running ? 11 : 12; // a running job takes the newest lamp
+    $recent = array_reverse(array_slice($runs, 0, $slots)); // oldest left, newest right
+    for ($i = count($recent); $i < $slots; $i++) $out .= '<span class="lamp"></span>';
     foreach ($recent as $run) {
         $out .= '<span class="lamp ' . ($run['exit'] === 0 ? 'ok' : 'fail') . ($run['trigger'] === 'manual' ? ' manual' : '')
-            . '" title="' . h(stamp($run['started']) . ' · exit ' . (int) $run['exit'] . ' · ' . seconds($run['duration_ms']) . ' · ' . $run['trigger']) . '"></span>';
+            . '" title="' . h(stamp($run['started']) . ' · ' . exitText($run) . ' · ' . seconds($run['duration_ms']) . ' · ' . $run['trigger']) . '"></span>';
     }
-    return '<div class="lamps" role="img" aria-label="Last ' . count($recent) . ' runs">' . $out . '</div>';
+    if ($running) $out .= '<span class="lamp run" title="' . h('running since ' . stamp($running['started']) . ' · ' . $running['trigger']) . '"></span>';
+    return '<div class="lamps" role="img" aria-label="Last ' . count($recent) . ' runs' . ($running ? ', one running' : '') . '">' . $out . '</div>';
 }
 
 function runForm($job, $token)
@@ -266,31 +305,67 @@ if ($path === '/run' && $method === 'POST') {
     if (!$job) { http_response_code(404); page('Cron', '<div class="callout error">Unknown job.</div>'); }
     exec('nohup ' . escapeshellarg(CRON_RUN) . ' ' . escapeshellarg($job['id']) . ' manual '
         . escapeshellarg($job['command']) . ' > /dev/null 2>&1 &');
-    // The history page refreshes itself until a run newer than this moment is recorded.
+    // The history page waits for the run to start, then opens its live output.
     header('Location: /history?job=' . rawurlencode($job['id']) . '&started=' . (int) floor(microtime(true) * 1000), true, 303);
     exit;
 }
 
-if ($path === '/log') {
+if ($path === '/log' || $path === '/tail') {
     $job = isset($_GET['job']) ? (string) $_GET['job'] : '';
     $file = isset($_GET['file']) ? (string) $_GET['file'] : '';
     if (!preg_match('/^[0-9a-f]{12}$/', $job) || !preg_match('/^\d{8}T\d{6}-\d+\.log$/', $file) || !is_file("$history/runs/$job/$file")) {
         http_response_code(404);
         page('Cron', '<div class="callout error">Log not found (older runs are pruned).</div>');
     }
+    $live = runningJob($history, $job);
+    if ($live && $live['log'] !== $file) $live = null;
+    $log = "$history/runs/$job/$file";
+    if ($path === '/tail') {
+        // The lines a running job wrote since byte `from`; whole lines only, so none is shown half written.
+        // running=false tells the page to reload: the run is recorded (or was interrupted).
+        $from = isset($_GET['from']) ? max(0, (int) $_GET['from']) : 0;
+        clearstatcache(true, $log);
+        $size = (int) filesize($log);
+        $text = '';
+        if ($from < $size) {
+            $handle = fopen($log, 'rb');
+            fseek($handle, $from);
+            $text = (string) fread($handle, min(524288, $size - $from));
+            fclose($handle);
+            $cut = strrpos($text, "\n");
+            $text = $cut === false ? '' : substr($text, 0, $cut + 1);
+        }
+        $flags = defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0;
+        header('Content-Type: application/json');
+        header('Cache-Control: no-store');
+        echo json_encode(array('text' => $text, 'from' => $from + strlen($text), 'running' => $live !== null), $flags);
+        exit;
+    }
     $meta = '';
-    foreach (runs($history, $job, 1000) as $run) {
-        if (isset($run['log']) && $run['log'] === $file) {
-            $meta = ' · <span class="chip ' . ($run['exit'] === 0 ? 'ok' : 'fail') . '">exit ' . (int) $run['exit'] . '</span> '
-                . h(stamp($run['started'])) . ' · ' . h(seconds($run['duration_ms'])) . ' · ' . h($run['trigger']);
-            break;
+    if ($live) {
+        $meta = ' · <span class="chip run">running</span> ' . h(stamp($live['started'])) . ' · ' . elapsed($live) . ' · ' . h($live['trigger']);
+    } else {
+        foreach (runs($history, $job, 1000) as $run) {
+            if (isset($run['log']) && $run['log'] === $file) {
+                $meta = ' · ' . exitChip($run) . ' ' . h(stamp($run['started'])) . ' · ' . h(seconds($run['duration_ms'])) . ' · ' . h($run['trigger']);
+                break;
+            }
         }
     }
     $definition = jobById($job);
-    $lines = explode("\n", rtrim(file_get_contents("$history/runs/$job/$file"), "\n"));
+    $content = file_get_contents($log);
+    if ($live) {
+        // Whole lines only; the page fetches the rest from this byte on.
+        $cut = strrpos($content, "\n");
+        $content = $cut === false ? '' : substr($content, 0, $cut + 1);
+    }
+    $lines = $content === '' ? array() : explode("\n", rtrim($content, "\n"));
+    $items = $lines ? '<li>' . implode('</li><li>', array_map('h', $lines)) . '</li>' : '';
     $body = '<p class="crumbs"><a href="/">Board</a> / <a href="/history?job=' . h($job) . '">History</a> / ' . h($file) . $meta . '</p>'
         . ($definition ? '<p class="note"><code class="cmd">' . h($definition['command']) . '</code></p>' : '')
-        . '<div class="term"><ol><li>' . implode('</li><li>', array_map('h', $lines)) . '</li></ol></div>';
+        . ($live ? '<div class="callout wait">Running: new output appears as the job writes it; the page shows the result when it ends.</div>' : '')
+        . '<div class="term"' . ($live ? ' data-tail="' . h('/tail?job=' . rawurlencode($job) . '&file=' . rawurlencode($file)) . '" data-from="' . strlen($content) . '"' : '')
+        . '><ol>' . $items . '</ol></div>';
     page('Output', $body);
 }
 
@@ -298,16 +373,25 @@ if ($path === '/history') {
     $id = isset($_GET['job']) ? (string) $_GET['job'] : '';
     $job = jobById($id);
     $list = runs($history, $id);
+    $live = array();
+    foreach (cronRunning($history) as $run) if ($run['job'] === $id) $live[] = $run;
     $body = '<p class="crumbs"><a href="/">Board</a> / History</p>';
-    $refresh = 0;
+    // While a run is going, the page refreshes so it moves into the list when it ends.
+    $refresh = $live ? 10 : 0;
     if (isset($_GET['started']) && preg_match('/^\d{10,16}$/', (string) $_GET['started'])) {
         $since = (int) $_GET['started'];
+        foreach ($live as $run) {
+            if ($run['started'] >= $since - 1000) {
+                header('Location: ' . logUrl($run), true, 303);
+                exit;
+            }
+        }
         if ($list && $list[0]['started'] >= $since - 1000) {
-            $body .= '<div class="callout">Finished: ' . ($list[0]['exit'] === 0 ? '<span class="ok">exit 0</span>' : '<span class="fail">exit ' . (int) $list[0]['exit'] . '</span>')
-                . ' after ' . h(seconds($list[0]['duration_ms'])) . '. <a href="/log?job=' . h($id) . '&file=' . h($list[0]['log']) . '">Open the output</a></div>';
+            $body .= '<div class="callout">Finished: <span class="' . ($list[0]['exit'] === 0 ? 'ok' : 'fail') . '">' . h(exitText($list[0])) . '</span>'
+                . ' after ' . h(seconds($list[0]['duration_ms'])) . '. <a href="' . h(logUrl($list[0])) . '">Open the output</a></div>';
         } elseif (microtime(true) * 1000 - $since < 900000) {
-            $body .= '<div class="callout wait">Started. This page refreshes every 3 seconds until the run is recorded.</div>';
-            $refresh = 3;
+            $body .= '<div class="callout wait">Starting. The output opens as soon as the run begins.</div>';
+            $refresh = 1;
         }
     }
     if ($job) {
@@ -324,20 +408,26 @@ if ($path === '/history') {
         $total += $run['duration_ms'];
         $longest = max($longest, $run['duration_ms']);
     }
-    if ($done) {
-        $body .= '<div class="stats"><div class="stat"><b>' . $done . '</b><span>runs shown</span></div>'
+    if ($done || $live) {
+        if ($done) $body .= '<div class="stats"><div class="stat"><b>' . $done . '</b><span>runs shown</span></div>'
             . '<div class="stat"><b class="' . ($passed === $done ? 'ok' : 'fail') . '">' . round(100 * $passed / $done) . '%</b><span>exit 0</span></div>'
             . '<div class="stat"><b>' . h(seconds($total / $done)) . '</b><span>average</span></div>'
             . '<div class="stat"><b>' . h(seconds($longest)) . '</b><span>longest</span></div></div>';
         $body .= '<ol class="runs">';
+        foreach ($live as $run) {
+            $body .= '<li><span class="lamp run"></span><span>' . h(stamp($run['started'])) . '</span>'
+                . '<span class="trig"><span class="chip ' . ($run['trigger'] === 'manual' ? 'manual' : '') . '">' . h($run['trigger']) . '</span></span>'
+                . '<span><span class="chip run">running</span></span><span class="bar run"><i></i></span>'
+                . '<span style="text-align:right">' . elapsed($run) . ' · <a href="' . h(logUrl($run)) . '">watch</a></span></li>';
+        }
         foreach ($list as $run) {
             $ok = $run['exit'] === 0;
             $body .= '<li><span class="lamp ' . ($ok ? 'ok' : 'fail') . '"></span><span>' . h(stamp($run['started'])) . '</span>'
                 . '<span class="trig"><span class="chip ' . ($run['trigger'] === 'manual' ? 'manual' : '') . '">' . h($run['trigger']) . '</span></span>'
-                . '<span><span class="chip ' . ($ok ? 'ok' : 'fail') . '">exit ' . (int) $run['exit'] . '</span></span>'
+                . '<span>' . exitChip($run) . '</span>'
                 . '<span class="bar' . ($ok ? '' : ' fail') . '" title="' . h(seconds($run['duration_ms'])) . '"><i style="width:'
                 . max(2, round(100 * $run['duration_ms'] / $longest)) . '%"></i></span>'
-                . '<span style="text-align:right">' . h(seconds($run['duration_ms'])) . ' · <a href="/log?job=' . h($run['job']) . '&file=' . h($run['log']) . '">view</a></span></li>';
+                . '<span style="text-align:right">' . h(seconds($run['duration_ms'])) . ' · <a href="' . h(logUrl($run)) . '">view</a></span></li>';
         }
         $body .= '</ol>';
     } else {
@@ -416,6 +506,8 @@ usort($jobs, function ($a, $b) {
     $y = $b['next'] === null ? PHP_INT_MAX : $b['next'];
     return $x === $y ? $a['order'] - $b['order'] : ($x < $y ? -1 : 1);
 });
+$running = array();
+foreach (cronRunning($history) as $run) if (!isset($running[$run['job']])) $running[$run['job']] = $run;
 $byJob = array();
 foreach (allRuns($history) as $run) {
     if (!isset($byJob[$run['job']])) $byJob[$run['job']] = array();
@@ -434,7 +526,8 @@ foreach ($jobs as $i => $job) {
     $next = $job['next'];
     $recent = isset($byJob[$job['id']]) ? $byJob[$job['id']] : array();
     $last = $recent ? $recent[0] : null;
-    $state = $last === null ? 'idle' : ($last['exit'] === 0 ? '' : 'failing');
+    $now = isset($running[$job['id']]) ? $running[$job['id']] : null;
+    $state = $now ? 'running' : ($last === null ? 'idle' : ($last['exit'] === 0 ? '' : 'failing'));
     if ($next === null) {
         $when = '<span class="fail">invalid schedule</span>';
     } elseif ($scheduled) {
@@ -442,13 +535,19 @@ foreach ($jobs as $i => $job) {
     } else {
         $when = '<div class="halted">' . flaps($next) . '</div><span class="off">off</span><br><small>would be ' . h(date('Y-m-d H:i', $next)) . '</small>';
     }
-    $summary = $last === null ? 'never run'
-        : '<span class="' . ($last['exit'] === 0 ? 'ok' : 'fail') . '">exit ' . (int) $last['exit'] . '</span> · '
-            . relative((int) ($last['started'] / 1000)) . ' · ' . h(seconds($last['duration_ms'])) . ' · ' . h($last['trigger']);
+    if ($now) {
+        $summary = '<span class="running-now">running</span> · ' . elapsed($now) . ' · ' . h($now['trigger'])
+            . ' · <a href="' . h(logUrl($now)) . '">watch</a>';
+    } else {
+        $summary = $last === null ? 'never run'
+            : '<span class="' . ($last['exit'] === 0 ? 'ok' : 'fail') . '">' . h(exitText($last)) . '</span> · '
+                . relative((int) ($last['started'] / 1000)) . ' · ' . h(seconds($last['duration_ms'])) . ' · ' . h($last['trigger']);
+    }
     $body .= '<tr class="' . $state . '" style="--i:' . (int) $i . '"><td>' . $when . '</td>'
         . '<td><code class="cmd">' . h($job['command']) . '</code><span class="where">' . h($job['source']) . ':' . (int) $job['line'] . '</span></td>'
         . '<td><span class="expr">' . h($job['schedule']) . '</span></td>'
-        . '<td>' . lamps($recent) . '<span class="last">' . $summary . '</span></td>'
+        . '<td>' . lamps($recent, $now) . '<span class="last">' . $summary . '</span></td>'
         . '<td><span class="actions">' . runForm($job, $token) . '<a class="btn" href="/history?job=' . h($job['id']) . '">History</a></span></td></tr>';
 }
-page('Departures', $body . '</tbody></table>');
+// While a job runs, the board refreshes so its row shows the result when it ends.
+page('Departures', $body . '</tbody></table>', $running ? 15 : 0);
