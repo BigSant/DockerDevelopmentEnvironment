@@ -160,10 +160,14 @@ fingerprint is outdated; it removes only with `apply=1`.
   imports and data-set builds; `make schema-resolve` classifies them. The backup UI lists every table,
   the profile's too, and saving a profile table with other values writes the project's own line.
 - Migrations (`database/migrations/*.sql`) are idempotent: `CREATE TABLE IF NOT EXISTS`, columns and
-  keys only after an information_schema check, DROP/RENAME as `-- TODO:` for a person. A commit that
-  changes the snapshot needs a staged migration without TODO; a schema's first snapshot is its baseline.
-  An extra schema's statements are qualified (`schema`.`table`, `TABLE_SCHEMA = 'schema'`). Applied ones
-  are recorded in `setup_migrations` of the main database (outside the snapshot).
+  keys only after an information_schema check, drops guarded the same way; changed keys and table
+  options as `-- TODO:` for a person. A commit that
+  changes the snapshot needs a staged migration without TODO for every changed database; a schema's first
+  snapshot is its baseline. Below `-- Rollback:` a draft holds the way back (structure, not data) for
+  `make db-rollback`. With extra schemas each database's migrations are in its own directory and run in that
+  schema. Applied ones are recorded in `setup_migrations` of the main database (outside the snapshot; an extra
+  schema's as `<schema>/<file>`). The hook stops while committed migrations are not applied locally.
+  `DATABASE_MIGRATIONS=off` leaves migrations to the project (Doctrine); the snapshot and hook stay.
 - Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
   project scripts — `<group>/*.sql` in the main database, then `<group>/<schema>/*.sql` in that extra
   schema — integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop

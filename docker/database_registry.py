@@ -93,6 +93,29 @@ def append_entries(project, rows):
     path.write_text(text)
 
 
+def remove_entries(project, tables):
+    """Remove the project lines that name exactly one of these (dropped) tables; wildcard lines and the profile
+    stay. Returns the tables whose line went."""
+    path = registry_file(project)
+    if not tables or not path.is_file() or path.is_symlink():
+        return []
+    table_prefix = prefix(project)
+    removed, kept = [], []
+    for raw in path.read_text().splitlines(keepends=True):
+        fields = raw.split('#', 1)[0].split()
+        name = fields[0] if len(fields) == 4 else None
+        if name and '*' not in name and '{p}' in name and table_prefix is None:
+            name = None  # A generic project has no prefix; parse() reports such a line.
+        name = name.replace('{p}', table_prefix) if name and table_prefix is not None else name
+        if name in tables:
+            removed.append(name)
+        else:
+            kept.append(raw)
+    if removed:
+        path.write_text(''.join(kept))
+    return removed
+
+
 def guess(table, columns):
     """A starting classification offered by schema-resolve; the person decides."""
     if re.search(r'(^tmp_|^zz_|_bak_|_backup|_old$|_copy$)', table):

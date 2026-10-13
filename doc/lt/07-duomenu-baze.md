@@ -119,6 +119,8 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
 | LIVE importas | Kas patenka į eksportą (`make db-backup`, serverio kopijos): `import` – struktūra ir duomenys; `skip` – tik struktūra. Užkeliant dump'ą (`make db-import`) įkeliama viskas, kas faile. |
 
+Lentelę pašalinus iš DB, `make schema-export`, `make migration-draft` ir commit hook'as kartu pašalina ir jos projekto eilutę (tik tą, kuri lentelę vadina tiksliai; `*` šablonai ir profilio taisyklės lieka). Kol LIVE dar turi tą lentelę (migracija dar nesudeploy'inta), senesnio LIVE dump'o `make db-import` paklaus, kaip ją klasifikuoti.
+
 Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Paieškos ir kainų filtro indeksai (`{p}search_index`, `{p}search_word`, `{p}layered_price_index`) ten pažymėti `skip`: įkėlus tokią kopiją, paieškos indeksą perstatyk BO (Parduotuvės nustatymai → Paieška), o kainų indeksą – ps_facetedsearch modulyje. Projekto eilutė laimi. Generic projektas profilio registro neturi: prieš `make db-dataset` jo lenteles klasifikuok `make schema-resolve` (kitaip komanda sustoja ir tai pasako).
 
 ```bash
@@ -194,21 +196,59 @@ Papildomos schemos ([papildomos schemos](#papildomos-schemos)) SQL dėk į tos s
 
 ## E. Migracijos
 
-Visi DB struktūros pakeitimai eina per migracijas `database/migrations/<YYYYMMDDHHMMSS>-<vardas>.sql`. Juodraštį sugeneruoja commit hook'as, tu jį peržiūri.
+Visi DB struktūros pakeitimai eina per migracijas `database/migrations/<YYYYMMDDHHMMSS>-<vardas>.sql`. Juodraštį sugeneruoja commit hook'as arba komanda, tu jį peržiūri:
+
+```bash
+make migration-draft name=drop-oneoff-tables
+```
+
+Eksportuoja schemą ir sugeneruoja juodraštį (po vieną kiekvienai pasikeitusiai DB) nuo paskutinio commit'o iki tavo DB – be commit'o ir nepriklausomai nuo to, kas jau stage'inta (net jei `make schema-export` jau padarytas). Neredaguotas juodraštis perrašomas tame pačiame faile. `make schema-export` vienas migracijos nesukuria: LIVE pakeitimą gauna tik per migraciją, todėl snapshot'o pakeitimą commit'ink kartu su ja (ne `--no-verify`).
 
 Migracijos yra **apsaugotos (idempotentiškos)**: antras paleidimas nieko nekeičia, o migracija nesusipjauna su modulio `install`/`upgrade` scriptais, kurie gal jau pakeitė tą pačią lentelę.
 
 - nauja lentelė – `CREATE TABLE IF NOT EXISTS`;
 - naujas stulpelis ar indeksas – tik jei `information_schema` sako, kad jo dar nėra;
-- `DROP`, `RENAME`, pakeisti raktai – juodraštyje paliekami kaip `-- TODO:` blokas su siūlomu SQL. Juos parašyk rankomis su patikra. Kol liko `TODO`, commit'as stabdomas, o `make db-migrate` migracijos netaiko.
+- pašalinta lentelė, stulpelis ar indeksas – `DROP` taip pat apsaugotas ir įrašomas kaip bet kuris kitas pakeitimas (deploy'us jį įvykdys ir LIVE – duomenys dings, todėl prieš deploy'ų pasidaryk kopiją). Pervadinimas yra šalinimas ir nauja lentelė ar stulpelis; jei duomenis reikia perkelti, tai daro tolesnė migracija;
+- pakeisti raktai (gali atmesti esamas eilutes) ir lentelės parametrai – juodraštyje paliekami kaip `-- TODO:` blokas su siūlomu SQL. Kol liko `TODO`, commit'as stabdomas, o `make db-migrate` migracijos netaiko.
 
 ```bash
-make db-migrate
+make db-migrate          # pritaiko laukiančias migracijas
+make db-migrate dry=1    # tik parodo, kurios ir kokį SQL vykdytų
 ```
 
-Pritaiko laukiančias migracijas vieną kartą kiekvienai DB ir įrašo jas į lentelę `setup_migrations` (jos snapshot'e nėra). Nepavykusi migracija neįrašoma: pataisyk ir paleisk dar kartą. Jau pritaikyta, bet vėliau pakeista migracija nekartojama, tik įspėjama.
+Pritaiko laukiančias migracijas vieną kartą kiekvienai DB ir įrašo jas į lentelę `setup_migrations` pagrindinėje DB (jos snapshot'e nėra): vardą, kontrolinę sumą ir laiką. Nepavykusi migracija neįrašoma: pataisyk ir paleisk dar kartą (jau įvykdyti apsaugoti sakiniai praleidžiami). Jau pritaikyta, bet vėliau pakeista migracija nekartojama, tik įspėjama; rollback dalies pakeitimas po pritaikymo įspėjimo nesukelia.
 
 Migracijos automatiškai paleidžiamos po `db-import`, `db-load`, `test-prepare` ir `deploy`. Deploy'aus tvarka: kodas → modulių upgrade'ai → migracijos → schemos ataskaita.
+
+### Po `git pull`
+
+Kolegos migracijos ateina su kodu, bet tavo DB savaime nesikeičia: paleisk `make db-migrate` (pirma gali `dry=1`). Kol commit'intų migracijų nepritaikei, commit hook'as sustoja dar prieš eksportą („N committed migrations are not applied to this database yet … run make db-migrate first“), kad senesnė tavo DB neperrašytų naujesnio snapshot'o ir nesugeneruotų atgalinio juodraščio. Tavo paties migracijos (tos, kurias hook'as sugeneravo iš tavo DB) commit'o metu įrašomos kaip pritaikytos, nes tavo DB tą pakeitimą jau turi.
+
+### Rollback
+
+Juodraštis turi dvi dalis: viršuje – kas vykdoma pirmyn, po eilute `-- Rollback:` – kelias atgal. Hook'as rollback dalį sugeneruoja pats: pridėtą lentelę ar stulpelį pašalina, pakeistą stulpelį grąžina į ankstesnį apibrėžimą, pašalintą lentelę ar stulpelį sukuria iš naujo (tik struktūrą – duomenys negrįžta). Pakeisti raktai ir lentelės parametrai lieka `-- TODO:` abiejose dalyse.
+
+```bash
+make db-rollback                  # atšaukia paskutinę pritaikytą migraciją
+make db-rollback steps=3          # paskutines tris, nuo naujausios
+make db-rollback to=20261013120000-schema.sql   # viską, kas pritaikyta po jos (ji lieka)
+make db-rollback dry=1            # tik parodo SQL
+```
+
+Vykdoma rollback dalis, o migracija išbraukiama iš `setup_migrations`, todėl kitas `make db-migrate` ją pritaikys vėl. Prieš keičiant ką nors patikrinamos visos atšaukiamos migracijos: jei kuri neturi `-- Rollback:` dalies, joje liko `TODO` arba jos failo nebėra, niekas nevykdoma. Senos migracijos be rollback dalies atšaukiamos tik ją papildžius (tai pritaikytos migracijos nekeičia) arba iš kopijos. Duomenis grąžina tik kopija: `make db-backup` prieš rizikingą pakeitimą.
+
+### Kelios DB
+
+Kaip ir snapshot'as: su viena DB migracijos guli `database/migrations/`, su [papildomomis schemomis](#papildomos-schemos) – kiekvienos DB savo kataloge: `database/migrations/<DATABASE_NAME>/` ir `database/migrations/<schema>/`. Hook'as sugeneruoja po juodraštį kiekvienai pasikeitusiai DB, ir kiekvienai pasikeitusiai DB commit'e reikia naujos migracijos jos kataloge. Papildomos schemos migracija vykdoma toje schemoje (setup prideda `USE`), todėl SQL rašomas be schemos vardo; `setup_migrations` ją įrašo kaip `<schema>/<failas>`. Pagrindinės DB migracija įrašoma vien failo vardu, todėl senos plokščios migracijos lieka galioti ir perkėlus jas į `<DATABASE_NAME>/`. Vykdymo tvarka – pagal laiką faile, tą pačią sekundę pirma pagrindinė DB, tada schemos `DATABASE_EXTRA_SCHEMAS` tvarka.
+
+### Kai projektas migruoja pats (Doctrine)
+
+```dotenv
+# env/common.env
+DATABASE_MIGRATIONS=off
+```
+
+Setup migracijų negeneruoja, nereikalauja ir nevykdo (`db-migrate`, `db-rollback` atsisako; po importo ir deploy'aus jų nėra). Snapshot'as, registras ir commit hook'as lieka: hook'as vis tiek sustabdo commit'ą, jei DB struktūra skiriasi nuo stage'into snapshot'o. Projekto migracijas paleisk pats, pvz. deploy'aus hook'e `config/deploy/after-rsync.sh` (`php bin/console migrations:migrate --no-interaction`).
 
 ## F. Bazinis rinkinys
 
@@ -387,5 +427,7 @@ make doctrine cmd=status
 make doctrine cmd='migrate --dry-run'
 make doctrine-diff
 ```
+
+Jei DB struktūrą keičia tik Doctrine migracijos, `env/common.env` įrašyk ir `DATABASE_MIGRATIONS=off` ([kai projektas migruoja pats](#kai-projektas-migruoja-pats-doctrine)), kad setup nereikalautų savo migracijų.
 
 `doctrine-build` sukuria įrankio image'ą (PHP `DOCTRINE_PHP_VERSION`, numatyta 8.3, nepriklausomai nuo aplikacijos PHP). `doctrine-diff` sugeneruoja Doctrine migraciją iš Git snapshot'o (`ref=HEAD` pagal nutylėjimą) ir vietinės DB skirtumo. PrestaShop projektams įprastas kelias yra apsaugotos SQL migracijos iš [E dalies](#e-migracijos).

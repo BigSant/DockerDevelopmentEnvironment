@@ -56,6 +56,7 @@ services:
       APP_SOURCE_DIRECTORY: ${APP_SOURCE_DIRECTORY-}
       # Database as code (schema snapshot, registry, migrations, data sets, commit hook): on unless off.
       DATABASE_AS_CODE: ${DATABASE_AS_CODE-}
+      DATABASE_MIGRATIONS: ${DATABASE_MIGRATIONS-}
       SCHEMA_DIRECTORY: ${SCHEMA_DIRECTORY-}
       # make db-pull: the setup-server account (user@host on the VPN), the project's directory there, a key.
       BACKUP_SSH: ${BACKUP_SSH-}

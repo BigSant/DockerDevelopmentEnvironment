@@ -75,9 +75,9 @@ class SkippedTableImportIntegrationTest(unittest.TestCase):
         dump = b""
         with patch("database_import.skip_rule", return_value=lambda table: table == "ps_connections"), \
                 patch("database_schema.database_tables", return_value=["ps_connections", "ps_orders"]):
-            passes = registry_passes(SimpleNamespace(), "shop")
-        for options in passes:
-            result = subprocess.run(["docker", "exec", self.name, "sh", "-c", DUMP, "database-backup", "shop", *options],
+            passes = registry_passes(SimpleNamespace(settings={}), "shop")
+        for schema, options in passes:  # (schema, mysqldump options) since extra schemas joined the backup
+            result = subprocess.run(["docker", "exec", self.name, "sh", "-c", DUMP, "database-backup", schema, *options],
                                     capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             dump += keep_existing(result.stdout) if "--no-data" in options else result.stdout

@@ -329,10 +329,9 @@ def import_database(project, plan, backup=False, skip=False):
 
 def after_load(project):
     """Everything that follows loading data: pending migrations, shop policy and a schema report."""
-    if project.settings.get("SCHEMA_DIRECTORY"):
-        from database_migrations_guarded import migrate, migrations_directory
-        if migrations_directory(project).is_dir():
-            migrate(project)
+    from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
+    if migrations_enabled(project) and migrations_directory(project).is_dir():
+        migrate(project)
     if project.settings.get('PROFILE') in ('ps', 'prestashop'):
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if 'php-fpm' in running:

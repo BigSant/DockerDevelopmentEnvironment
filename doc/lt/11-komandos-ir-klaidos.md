@@ -50,7 +50,9 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make db-import file=… [skip=1] [backup=1] [db-fixtures=RINKINYS]` | Užkelia visą dump'ą ir visą po-užkėlimo seką (`skip=1` – be registro `skip` lentelių duomenų). |
 | `make db-load [set=dev] [replace=1] [backup=1]` | Užkelia schemą, bazinį rinkinį, fixtures ir po-užkėlimo seką. |
 | `make db-dataset [set=dev]` | Sukuria anonimizuotą bazinį rinkinį iš vietinės LIVE kopijos (tik local). |
-| `make db-migrate` | Pritaiko laukiančias apsaugotas migracijas. |
+| `make migration-draft [name=trumpas-vardas]` | Eksportuoja schemą ir sugeneruoja migracijos juodraštį nuo paskutinio commit'o, be commit'o. |
+| `make db-migrate [dry=1]` | Pritaiko laukiančias apsaugotas migracijas (`dry=1` – tik parodo SQL). |
+| `make db-rollback [steps=N\|to=MIGRACIJA] [dry=1]` | Paleidžia paskutinių pritaikytų migracijų `-- Rollback:` dalį, nuo naujausios. Žr. [rollback](07-duomenu-baze.md#rollback). |
 | `make schema-export` | Eksportuoja lentelių apibrėžtis į `database/schema/` (su papildomomis schemomis – kiekvieną schemą į savo katalogą). |
 | `make schema-check` | Palygina DB su Git indeksu. |
 | `make schema-hook-install` | Įdiegia commit hook'ą, kuris eksportuoja schemą ir stabdo commit'ą pasikeitus. |

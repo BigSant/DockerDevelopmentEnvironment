@@ -15,6 +15,8 @@ DEFAULTS = {
     'PS_SSL': 'on', 'INTEGRATIONS_ENABLED': '',
     # Schema snapshot, table registry, migrations, data sets and the schema commit hook.
     'DATABASE_AS_CODE': 'on',
+    # off: the project migrates its own database (e.g. Doctrine); the snapshot and its hook stay.
+    'DATABASE_MIGRATIONS': 'on',
     'PS_DEBUG_MODE': '', 'PS_DEBUG_IPS': '',
     # off keeps the cron service and its UI (run now, history) but runs nothing on schedule.
     'CRON_SCHEDULE': 'on',
@@ -174,6 +176,7 @@ def resolve_policy(settings, environment):
         raise ValueError('MAIL_MODE=mailpit requires mailpit in SERVICES')
     choice(values, 'PS_SSL', ('on', 'off'))
     choice(values, 'DATABASE_AS_CODE', ('on', 'off'))
+    choice(values, 'DATABASE_MIGRATIONS', ('on', 'off'))
     choice(values, 'DATABASE_PERFORMANCE_SCHEMA', ('on', 'off'))
     choice(values, 'CRON_SCHEDULE', ('on', 'off'))
     if not re.fullmatch(r'[a-z0-9_-]*(?: [a-z0-9_-]+)*', ' '.join(values['INTEGRATIONS_ENABLED'].split())):

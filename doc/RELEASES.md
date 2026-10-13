@@ -6,6 +6,33 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Migration rollback, per-database migration directories, DATABASE_MIGRATIONS=off
+
+- **A dropped table, column or key is drafted as a guarded statement** like any other change (it was a
+  `-- TODO:`); a rename is a drop and a new one, and a later migration moves data when it must. Changed
+  keys and table options stay `-- TODO:`.
+- **Rollback**: a draft now has a `-- Rollback:` part below the way forward, written by setup (drop what was
+  added, restore a changed column, recreate a removed table or column as structure only; changed keys and
+  table options stay `-- TODO:`). `make db-rollback [steps=N|to=NAME] [dry=1]` runs it for the latest applied
+  migrations, newest first, and removes them from `setup_migrations`; it checks every one before changing
+  anything. `make db-migrate dry=1` prints the SQL without running it. The applied checksum covers the way
+  forward only, so completing a rollback later is no change. `make deploy rollback=1` names the migrations
+  the rolled-back release applied and the `make db-rollback` command for them.
+- **`make migration-draft [name=…]`** exports the schema and drafts the migrations from the last commit to the
+  local DB (one per changed database) without a commit, whatever is staged; `make schema-export` alone drafts
+  nothing.
+- **A dropped table takes its registry line with it**: `make schema-export`, `make migration-draft` and the commit
+  hook remove the project line that names exactly a table gone from the snapshot (wildcards and the profile stay).
+- **Per-database migration directories**, like the snapshot: flat with one database, `migrations/<DATABASE_NAME>/`
+  and `migrations/<schema>/` with extra schemas. The hook drafts one migration per changed database, a commit
+  needs one for each, and an extra schema's runs in that schema (setup adds `USE`); it is recorded as
+  `<schema>/<file>`, a main database's by its file name, so old flat migrations stay valid.
+- **After a pull**: the commit hook stops before exporting while committed migrations are not applied to the
+  local database (run `make db-migrate`), so an older DB no longer overwrites a newer snapshot or drafts a
+  migration back; a passing commit records its new migrations as applied here (the DB already has them).
+- **`DATABASE_MIGRATIONS=off`** leaves migrations to the project (e.g. Doctrine): no drafts, no migration
+  required by the hook, nothing applied after a load or deploy; the snapshot, registry and hook stay.
+
 ### Extra schemas in the snapshot, migrations and after-import
 
 - **The schema snapshot covers `DATABASE_EXTRA_SCHEMAS`, every schema in its own directory**:

@@ -10,7 +10,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
-from database_migrations_guarded import OPEN, draft_text
+from database_migrations_guarded import OPEN, draft_text, split_rollback
 from database_schema import normalize_ddl, unescape_batch
 
 IMAGES = [image for image in (os.environ.get("SETUP_MYSQL_IMAGE"), os.environ.get("SETUP_MARIADB_IMAGE")) if image]
@@ -70,13 +70,18 @@ class GuardedMigrationIntegrationTest(unittest.TestCase):
                     self.run_sql(name, "", f"CREATE DATABASE {database};")
                     self.run_sql(name, database, script)
                 before, after = self.schema(name, "ref_before"), self.schema(name, "ref_after")
-                draft = draft_text(before, after, "test")
-                self.assertIsNone(OPEN.search(draft))
+                forward, back = split_rollback(draft_text(before, after))
+                self.assertIsNone(OPEN.search(forward))
                 for database in ("target", "installed"):
-                    self.run_sql(name, database, draft)
+                    self.run_sql(name, database, forward)
                     self.assertEqual(self.schema(name, database), after, database)
-                    self.run_sql(name, database, draft)
+                    self.run_sql(name, database, forward)
                     self.assertEqual(self.schema(name, database), after, f"{database}: second run changes nothing")
+                # The way back restores the structure, and running it twice changes nothing either.
+                self.run_sql(name, "target", back)
+                self.assertEqual(self.schema(name, "target"), before, "rollback")
+                self.run_sql(name, "target", back)
+                self.assertEqual(self.schema(name, "target"), before, "rollback twice")
 
 
 if __name__ == "__main__":

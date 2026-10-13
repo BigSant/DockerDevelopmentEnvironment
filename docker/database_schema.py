@@ -233,7 +233,7 @@ def export_schema(project, files=None):
     if files is None:
         files = read_schema(project)  # Finish all DB reads before changing any files.
     directory.mkdir(parents=True, exist_ok=True)
-    previous = set()
+    previous, previous_tables = set(), set()
     manifest_path = directory / MANIFEST
     if manifest_path.is_symlink():
         raise ValueError("Schema manifest must not be a symlink")
@@ -247,6 +247,7 @@ def export_schema(project, files=None):
                     or not valid_table_file(table["name"], table.get("file"))):
                 raise ValueError("Invalid table filename in schema manifest")
             previous.add(table["file"])
+            previous_tables.add(table["name"])
     for schema in {name.split("/")[0] for name in files.keys() | previous if "/" in name}:
         if (directory / schema).is_symlink() or ((directory / schema).exists() and not (directory / schema).is_dir()):
             raise ValueError(f"Schema directory of {schema} must be a plain directory")
@@ -273,6 +274,14 @@ def export_schema(project, files=None):
         (directory / name).unlink(missing_ok=True)
         if "/" in name and not any((directory / name).parent.iterdir()):
             (directory / name).parent.rmdir()  # The schema has no tables left in the snapshot.
+    # A table gone from the snapshot takes its own registry line with it (wildcards and the profile stay).
+    gone = previous_tables - {table["name"] for table in json.loads(files[MANIFEST])["tables"]}
+    if gone and getattr(project, "settings", None) is not None:
+        from database_registry import remove_entries
+        removed = remove_entries(project, gone)
+        if removed:
+            print(f"Removed the table registry lines of {len(removed)} dropped tables: {', '.join(sorted(removed)[:5])}"
+                  f"{' …' if len(removed) > 5 else ''}")
     print(f"Exported {len(files) - 1} tables to {directory}. Review, then git add -A that directory.")
 
 
@@ -397,7 +406,8 @@ def schema_differences(staged, actual):
 
 def commit_schema(project):
     """Pre-commit: export the schema, require classification and a finished migration, stop if anything is open."""
-    from database_migrations_guarded import commit_problems, write_draft
+    from database_migrations_guarded import (commit_problems, migrations_enabled, record_applied, require_applied,
+                                             staged_migrations, write_drafts)
     if not project.settings.get("SCHEMA_DIRECTORY"):
         print("Database as code is off (DATABASE_AS_CODE=off); the schema hook checks nothing.")
         return
@@ -408,16 +418,26 @@ def commit_schema(project):
     except ValueError:
         print("Warning: the database is not reachable; the schema was not checked for this commit.")
         return
+    migrations = migrations_enabled(project)
+    if migrations:
+        require_applied(project)  # Pulled migrations not applied here: an export would undo them.
     actual = read_schema(project, require_classified=True)  # The extra schemas' tables included.
     export_schema(project, actual)
     staged = staged_schema(directory)
     problems = [f"schema {line}" for line in schema_differences(staged, actual)]
     problems += commit_problems(project, staged if not problems else actual)
     if problems:
-        draft = write_draft(project, actual)
+        drafts = write_drafts(project, actual) if migrations else []
         raise ValueError("The commit was stopped for review:\n  " + "\n  ".join(problems)
-                         + (f"\nGuarded migration draft: {draft}" if draft else "")
+                         + "".join(f"\nGuarded migration draft: {draft}" for draft in drafts)
                          + f"\nReview, then git add -A {directory.parent} and commit again.")
+    if migrations:
+        # The new migrations describe the change this database already has: record them as applied here.
+        try:
+            record_applied(project, staged_migrations(project))
+        except ValueError:
+            print("Warning: the new migrations were not recorded as applied here; make db-migrate records them "
+                  "(their guarded statements change nothing).")
     print(f"Schema matches the commit ({len(actual) - 1} tables).")
 
 

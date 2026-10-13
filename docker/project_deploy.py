@@ -324,6 +324,11 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
             raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')
         ref, commit = previous['ref'], previous['commit']
         print(f'==> rolling back to {ref} ({commit[:12]}); restore the database from the pre-deploy backup if needed')
+        applied = entries[-1].get('migrations') or []
+        if applied:
+            print(f'    The release rolled back applied {len(applied)} migrations ({", ".join(applied)}); the database keeps them.\n'
+                  f'    Undo them with: make db-rollback ENV={project.environment} steps={len(applied)} '
+                  '(dry=1 shows the SQL first)')
     else:
         if not ref:
             raise ValueError('Name the shop release to deploy: make deploy ENV=... ref=TAG')
@@ -366,9 +371,10 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
         raise
     if prestashop:
         upgrade_modules(project, release)
-    from database_migrations_guarded import migrate, migrations_directory
-    if project.settings.get('SCHEMA_DIRECTORY') and migrations_directory(project).is_dir():
-        migrate(project)
+    from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
+    if migrations_enabled(project) and migrations_directory(project).is_dir():
+        # Recorded with the deploy: rollback=1 names them for make db-rollback.
+        entry['migrations'] = migrate(project)
     if project.settings.get('SCHEMA_DIRECTORY'):
         from database_schema import schema_report
         schema_report(project)

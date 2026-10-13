@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy pipeline-deploy deploy-variables module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy pipeline-deploy deploy-variables module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -45,7 +45,9 @@ help:
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: pre-commit hook that exports the schema and stops a commit that changes it'
 	@echo 'schema-resolve: classify database tables the table registry does not know (include / drop)'
-	@echo 'db-migrate: apply pending guarded migrations from the database/migrations directory'
+	@echo 'db-migrate [dry=1]: apply pending guarded migrations (database/migrations; dry=1 prints the SQL)'
+	@echo 'migration-draft [name=short-name]: export the schema and draft the migrations from the last commit (no commit needed)'
+	@echo 'db-rollback [steps=N|to=NAME] [dry=1]: run the rollback part of the latest applied migrations, newest first'
 	@echo 'db-monitor-user: create/update the DB monitor account (performance_schema, sys, PROCESS only)'
 	@echo 'db-dataset [set=dev]: rebuild the anonymised base data set from the local LIVE copy'
 	@echo 'db-load [set=dev] [replace=1] [backup=1]: load schema + data set + fixtures, then the after-import sequence'
@@ -59,7 +61,7 @@ help:
 	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
 	@echo 'deploy-variables [ENV=stage|prod] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
 
-setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve db-migrate test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
+setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:
@@ -70,6 +72,15 @@ logs:
 
 composer npm:
 	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(dir),--workdir $(call quote,$(dir)),)
+
+db-migrate:
+	@$(RUN_PROJECT) $@ $(if $(filter 1,$(dry)),--dry,)
+
+migration-draft:
+	@$(RUN_PROJECT) $@ $(if $(name),--name $(call quote,$(name)),)
+
+db-rollback:
+	@$(RUN_PROJECT) $@ $(if $(steps),--steps $(call quote,$(steps)),) $(if $(to),--to $(call quote,$(to)),) $(if $(filter 1,$(dry)),--dry,)
 
 db-backup-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,)

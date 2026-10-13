@@ -225,7 +225,7 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.root("ALTER TABLE shop_git.commits ADD COLUMN author VARCHAR(40);"
                   "CREATE TABLE shop_graph.edges (id INT PRIMARY KEY);")
         after = definitions(read_schema(project))
-        draft = draft_text(before, after, "the test")
+        draft = draft_text(before, after)
         self.root("ALTER TABLE shop_git.commits DROP COLUMN author; DROP TABLE shop_graph.edges;")
         migrations = self.directory / "database/migrations"
         migrations.mkdir(parents=True)
@@ -245,6 +245,38 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             execute_sql(project, after_import_hooks(project))
         self.assertEqual(self.root("SELECT author FROM shop_git.commits WHERE sha = 'ab12'"), ["setup"])
+
+    def test_per_schema_migrations_apply_and_roll_back_on_a_real_database(self):
+        from database_migrations_guarded import draft_text, migrate, rollback, schema_tables
+        from database_migrations import definitions
+        from database_schema import read_schema
+        self.start()
+        self.root("CREATE TABLE shop.orders (id INT PRIMARY KEY);"
+                  "CREATE TABLE shop_git.commits (sha CHAR(4) PRIMARY KEY);")
+        project = self.project()
+        project.settings["SCHEMA_DIRECTORY"] = "database/schema"
+        before = definitions(read_schema(project))
+        self.root("ALTER TABLE shop.orders ADD COLUMN total INT; ALTER TABLE shop_git.commits ADD COLUMN author VARCHAR(40);"
+                  "CREATE TABLE shop_git.tags (name VARCHAR(20) PRIMARY KEY);")
+        after = definitions(read_schema(project))
+        migrations = self.directory / "database/migrations"
+        for schema, folder in ((None, "shop"), ("shop_git", "shop_git")):
+            (migrations / folder).mkdir(parents=True)
+            (migrations / folder / "20261013120000-schema.sql").write_text(
+                draft_text(schema_tables(before, schema, False), schema_tables(after, schema, False)))
+        self.root("ALTER TABLE shop.orders DROP COLUMN total; ALTER TABLE shop_git.commits DROP COLUMN author;"
+                  "DROP TABLE shop_git.tags;")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(migrate(project), ["20261013120000-schema.sql", "shop_git/20261013120000-schema.sql"])
+        self.assertEqual(definitions(read_schema(project)), after)
+        self.assertEqual(self.root("SHOW TABLES FROM shop"), ["orders", "setup_migrations"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            rollback(project, steps=2)
+        self.assertEqual(definitions(read_schema(project)), before, "both schemas are back where they were")
+        self.assertEqual(self.root("SELECT COUNT(*) FROM shop.setup_migrations"), ["0"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            migrate(project)
+        self.assertEqual(definitions(read_schema(project)), after, "and forward again")
 
 if __name__ == "__main__":
     unittest.main()

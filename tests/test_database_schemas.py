@@ -511,15 +511,15 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         before = {"users": self.MAIN, "asana_git.refs": self.REFS}
         after = {"users": self.MAIN, "asana_git.refs": self.REFS.replace("NOT NULL\n", "NOT NULL,\n  `sha` char(40)\n"),
                  "asana_git.tags": self.REFS.replace("refs", "tags")}
-        text = draft_text(before, after, "test")
+        text = draft_text(before, after)
         self.assertIn("CREATE TABLE IF NOT EXISTS `asana_git`.`tags` (", text)
         self.assertIn("TABLE_SCHEMA = 'asana_git' AND TABLE_NAME = 'refs'", text)
         self.assertIn("ALTER TABLE `asana_git`.`refs` ADD COLUMN `sha` char(40)", text)
         self.assertNotIn("CREATE TABLE IF NOT EXISTS `tags`", text, "never created in the main database")
-        main = draft_text({"users": self.MAIN}, {"users": self.MAIN, "logs": self.MAIN.replace("users", "logs")}, "test")
+        main = draft_text({"users": self.MAIN}, {"users": self.MAIN, "logs": self.MAIN.replace("users", "logs")})
         self.assertIn("CREATE TABLE IF NOT EXISTS `logs` (", main)
         self.assertIn("TABLE_SCHEMA = DATABASE()", draft_text({"users": self.MAIN},
-                      {"users": self.MAIN.replace("NOT NULL\n", "NOT NULL,\n  `x` int\n")}, "test"))
+                      {"users": self.MAIN.replace("NOT NULL\n", "NOT NULL,\n  `x` int\n")}))
 
     def test_after_import_runs_an_extra_schemas_scripts_in_that_schema(self):
         from database_import import after_import_hooks, render_hook
