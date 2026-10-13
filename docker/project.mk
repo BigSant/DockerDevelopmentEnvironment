@@ -21,7 +21,8 @@ help:
 	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
 	@echo 'db-backup [file=backup.sql.gz] [full=1]: export without the data of registry skip tables (full=1: all); setup-info: shared version'
-	@echo 'db-pull [from=prod|stage] [import=1] [backup=1]: newest server backup over SSH (BACKUP_SSH)'
+	@echo 'db-pull [from=prod|stage] [full=1] [fresh=1] [import=1] [backup=1] [configure=1]: server backup over SSH'
+	@echo '        (newest registry backup; full=1 every table; fresh=1 a new one made now; asks for the server once)'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
 	@echo 'check / config: validate / render shared sources without starting containers'
@@ -133,7 +134,7 @@ db-backup:
 	@$(RUN_PROJECT) $@ $(if $(file),--output $(call quote,$(file)),) $(if $(filter 1,$(full)),--full,)
 
 db-pull:
-	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(import)),--import,) $(if $(filter 1,$(backup)),--backup,)
+	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(import)),--import,) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(configure)),--configure,) $(if $(filter 1,$(full)),--full,) $(if $(filter 1,$(fresh)),--fresh,)
 
 test-init:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(refresh)),--refresh-test,)

@@ -380,7 +380,9 @@ def main():
     parser.add_argument('--dry', action='store_true', help='db-migrate/db-rollback: print the SQL without running it')
     parser.add_argument('--steps', type=int, default=1, help='db-rollback: how many applied migrations to roll back (default 1)')
     parser.add_argument('--to', help='db-rollback: roll back every migration applied after this one')
-    parser.add_argument('--full', action='store_true', help='db-backup: dump the data of every table, ignoring registry skip rules')
+    parser.add_argument('--full', action='store_true', help='db-backup: dump the data of every table, ignoring registry skip rules; '
+                        'db-pull: the newest full backup (every table\'s data) instead of the registry one')
+    parser.add_argument('--fresh', action='store_true', help='db-pull: have the server make a new backup now and download it')
     parser.add_argument('--skip', action='store_true', help='db-import: leave out the data of the tables the registry marks skip')
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
@@ -388,6 +390,7 @@ def main():
     parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600); '
                         'db-pull: stage or prod (default prod)')
     parser.add_argument('--import', dest='import_now', action='store_true', help='db-pull: load the downloaded backup (as db-import)')
+    parser.add_argument('--configure', action='store_true', help='db-pull: ask again for this machine\'s backup server (setup docker/.env.backup)')
     parser.add_argument('--token-file', help='deploy-variables: access token file (0600); default BITBUCKET_ACCESS_TOKEN, '
                         'on GitHub GH_TOKEN or GITHUB_TOKEN')
     parser.add_argument('--names', action='store_true', help='deploy-variables: print the list only (no network)')
@@ -551,8 +554,13 @@ def main():
              "schema-hook-install": install_schema_hook}[args.action](project)
         elif args.action == "db-pull":
             from database_pull import pull
-            target = pull(project, args.source or 'prod')
+            from progress import step
+            count = 1 + int(args.fresh) + int(args.import_now)
+            target = pull(project, args.source or 'prod', reconfigure=args.configure, full=args.full, fresh=args.fresh,
+                          steps=(1, count))
             if args.import_now:
+                step(count, count, f'Import into the local database ({project.settings["DATABASE_NAME"]}): '
+                     'dump, after-import, migrations')
                 plan = plan_import(project, str(target))
                 check_dump_tables(project, plan[0])
                 import_database(project, plan, backup=args.backup)

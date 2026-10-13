@@ -4,6 +4,25 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### make db-pull: full, fresh, progress bars and a server asked for once
+
+- **`full=1`** downloads the newest full backup (every table's data; setup-server's weekly series), **`fresh=1`**
+  has the server make a new one now (with `full=1` a new full one; keys added with `add-backup-key --allow-fresh`),
+  both with `import=1` and `backup=1` as before. setup-server answers `info` (name and size) and `fresh`; an older
+  one still hands out the newest registry backup and says it is too old for the rest.
+- **Each step shows a progress bar on a terminal**: the backup on the server (fresh), the download, and with
+  `import=1` the unpacking and the import; a log gets one line per step. `pv` is no longer used by `db-import`.
+- **A dump is read once**: the download checks the gzip stream and reads the dump on the way (size, schemas,
+  tables), and `db-import` shares one reading between its checks instead of reading a `.sql.gz` three times
+  before unpacking it.
+- **The backup server is asked for once per machine**: the first `make db-pull` in a terminal asks for
+  `user@host` and the key and keeps them in setup's `docker/.env.backup` (0600, ignored by Git) for every project;
+  `configure=1` asks again, a project's `BACKUP_SSH` / `BACKUP_SSH_KEY` still win. The project's directory on the
+  server is `BACKUP_SERVER_PROJECT`, else the environment repository's git name, else `PROJECT_NAME`; when the
+  server knows neither, the command asks and keeps the answer in `env/local.env`.
+
 ## 2.8.1
 
 ### A registry backup with an extra schema's skip table works again

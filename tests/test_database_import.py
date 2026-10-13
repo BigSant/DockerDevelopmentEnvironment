@@ -1,6 +1,7 @@
 """Import ordering and failure handling without connecting to a database."""
 
 import contextlib
+import gzip
 import fcntl
 import io
 import os
@@ -16,8 +17,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 import database_import
-from database_import import (MYSQL_IMPORT, check_dump_tables, dump_tables, filter_dump, import_database, plan_import,
-                             render_hook, skip_rule, stream_filtered)
+from database_import import (MYSQL_IMPORT, DumpScanner, check_dump_tables, dump_tables, filter_dump, import_database,
+                             plan_import, remember_scan, render_hook, scan_dump, skip_rule, stream_filtered)
 
 
 class ImportFixture(unittest.TestCase):
@@ -46,37 +47,95 @@ class ImportFixture(unittest.TestCase):
         meter.start()
         self.addCleanup(meter.stop)
 
-    def fake_pv(self, status=0):
-        script = self.root / "pv"
-        script.write_text(f"#!/bin/sh\necho \"$@\" > '{self.root}/pv.args'\ncat\nexit {status}\n")
-        script.chmod(0o755)
-        return str(script)
+    def recording_meter(self):
+        """A progress meter that records each bar: (label, total, last value, how it finished)."""
+        bars = []
 
+        class Recorder:
+            def __init__(self, label, total):
+                self.label, self.total, self.done, self.note = label, total, 0, None
+                bars.append(self)
+
+            def update(self, done, total=None):
+                self.done = done
+
+            def advance(self, count):
+                self.done += count
+
+            def finish(self, note=""):
+                self.note = note
+
+        return Recorder, bars
 
 
 class DatabaseImportTest(ImportFixture):
-    def test_dump_streams_through_pv_with_its_size_and_hooks_do_not(self):
+    def test_the_dump_streams_with_a_progress_bar_over_its_size_and_hooks_do_not(self):
         plan = plan_import(self.project, str(self.dump))
-        seen = []
+        target = self.root / "imported.sql"
+        meter, bars = self.recording_meter()
+        hooks = []
 
         def execute(command, *, env, stdin, check):
-            seen.append((stdin.read(), stat.S_ISFIFO(os.fstat(stdin.fileno()).st_mode)))
+            hooks.append(stdin.read())
 
-        with patch("database_import.progress_meter", return_value=self.fake_pv()), \
-                patch("database_import.subprocess.run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+        with patch("database_import.progress_meter", return_value=meter), \
+                patch("database_import.subprocess.run", side_effect=execute), \
+                patch.object(self.project, "command", ["sh", "-c", f"cat >> '{target}'", "--"]), \
+                contextlib.redirect_stdout(io.StringIO()):
             import_database(self.project, plan)
-        self.assertEqual([content for content, _ in seen], [p.read_bytes() for p in plan])
-        self.assertEqual((self.root / "pv.args").read_text().split(), ["-s", str(self.dump.stat().st_size)])
-        # Only the dump goes through pv; hooks are read straight from their files.
-        self.assertEqual([piped for _, piped in seen], [True] + [False] * (len(plan) - 1))
+        # The dump goes through the bar (the client's stdin is a pipe it fills); hooks are read straight.
+        self.assertEqual(target.read_bytes(), self.dump.read_bytes())
+        self.assertEqual(hooks, [p.read_bytes() for p in plan[1:]])
+        imported = [bar for bar in bars if bar.label == "Import"]
+        self.assertEqual([(bar.total, bar.done, bar.note) for bar in imported],
+                         [(self.dump.stat().st_size, self.dump.stat().st_size, "")])
 
-    def test_failing_pv_stops_before_hooks(self):
+    def test_a_failing_client_stops_before_hooks_and_marks_the_bar(self):
         plan = plan_import(self.project, str(self.dump))
-        with patch("database_import.progress_meter", return_value=self.fake_pv(status=3)), \
-                patch("database_import.subprocess.run", side_effect=lambda command, **kwargs: kwargs["stdin"].read()) as execute, \
+        meter, bars = self.recording_meter()
+        with patch("database_import.progress_meter", return_value=meter), \
+                patch("database_import.subprocess.run") as execute, \
+                patch.object(self.project, "command", ["sh", "-c", "cat > /dev/null; exit 3", "--"]), \
                 contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
             import_database(self.project, plan)
-        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_count, 0, "no hook runs after a failed dump")
+        self.assertEqual([bar.note for bar in bars if bar.label == "Import"], ["failed"])
+
+    def test_a_dump_is_read_once_and_a_remembered_reading_is_not_repeated(self):
+        dump = self.root / "multi.sql.gz"
+        text = (b"CREATE TABLE `orders` (\n  `id` int\n);\nUSE `extra`;\nCREATE TABLE `nodes` (\n  `id` int,\n  `label` text\n);\n"
+                b"INSERT INTO `nodes` VALUES (1,'a');\n")
+        dump.write_bytes(gzip.compress(text))
+        reads = []
+        real = gzip.GzipFile
+
+        def counting(*args, **kwargs):
+            reads.append(1)
+            return real(*args, **kwargs)
+
+        with patch("database_import.gzip.GzipFile", side_effect=counting):
+            first = scan_dump(dump, "example")
+            self.assertIs(scan_dump(dump, "example"), first)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(first["size"], len(text))
+        self.assertEqual(first["schemas"], {"extra"})
+        self.assertEqual(first["tables"], {"orders": {"id"}, "extra.nodes": {"id", "label"}})
+        self.assertEqual(first["tables"], dump_tables(dump, "example", qualified=True), "the same reading as dump_tables")
+        # Fed in odd pieces (as db-pull does while downloading), the scanner finds the same.
+        scanner = DumpScanner("example")
+        for index in range(0, len(text), 7):
+            scanner.feed(text[index:index + 7])
+        self.assertEqual(scanner.result(), first)
+        # A reading db-pull remembered is used as it is: the file is not opened again.
+        other = self.root / "pulled.sql.gz"
+        other.write_bytes(gzip.compress(b"SELECT 1;\n"))
+        remember_scan(other, None, {"size": 10, "schemas": set(), "tables": {}})
+        with patch("database_import.gzip.GzipFile", side_effect=AssertionError("read again")):
+            self.assertEqual(scan_dump(other)["size"], 10)
+        broken = self.root / "broken.sql.gz"
+        broken.write_bytes(gzip.compress(text)[:20])
+        with self.assertRaisesRegex(ValueError, "invalid or truncated"):
+            scan_dump(broken)
 
     def test_plan_orders_common_then_only_selected_environment_without_outputs(self):
         plan = plan_import(self.project, str(self.dump))

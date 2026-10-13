@@ -13,10 +13,14 @@ import tempfile
 from database_client import IMPORT as MYSQL_IMPORT, extra_schemas
 from database_backup import backup_database
 import gzip
-import shutil
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
+CHUNK = 1024 * 1024
+# What one reading of a dump found (DumpScanner: size, schemas, tables), by (path, size, mtime_ns, main schema).
+# db-pull fills it while it downloads, so an import right after it does not read a large file again; without
+# it plan_import and the registry check share one reading instead of three.
+SCANS = {}
 # INSERT/REPLACE statements of mysqldump and phpMyAdmin dumps; the table name is the first quoted name.
 CREATE = re.compile(rb"^CREATE\s+(?:TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`((?:[^`]|``)+)`", re.I)
 COLUMN = re.compile(rb"^\s*[(,]?\s*`((?:[^`]|``)+)`\s+[a-zA-Z]")
@@ -116,32 +120,62 @@ def skip_rule(project):
     return lambda table: (classify(entries, table) or ("", "", "", "import"))[3] in ("skip", "-")
 
 
+class DumpScanner:
+    """Reads a dump once, as it streams by: its uncompressed size, the schemas it switches to (USE) and the
+    tables it creates with their columns (CREATE TABLE). With `main`, the main database's tables are plain
+    names and the other schemas' are schema.table (the table registry's names); `qualified=False` keeps the
+    main database's only. feed() takes bytes in any pieces; result() ends the reading."""
+
+    def __init__(self, main=None, qualified=True):
+        self.main, self.qualified = main, qualified
+        self.size, self.pending, self.schemas = 0, b"", set()
+        self.tables, self.current, self.schema = {}, None, main
+
+    def feed(self, data):
+        self.size += len(data)
+        lines = (self.pending + data).split(b"\n")
+        self.pending = lines.pop()
+        for line in lines:
+            self.line(line + b"\n")
+
+    def line(self, line):
+        if (used := used_schema(line)) is not None:
+            self.schemas.add(used)
+            if self.main is not None:
+                self.schema = used
+        if self.schema != self.main and not self.qualified:
+            return
+        if line[:1] in (b"C", b"c") and (match := CREATE.match(line)):
+            current = match[1].replace(b"``", b"`").decode("utf-8", "replace")
+            if self.schema != self.main:
+                current = f"{self.schema}.{current}"
+            self.tables[current] = set(COLUMN.findall(line[match.end():]))
+            self.current = None if line.rstrip().endswith(b";") else current
+        elif self.current is not None:
+            if column := COLUMN.match(line):
+                self.tables[self.current].add(column[1])
+            if line.rstrip().endswith(b";"):
+                self.current = None
+
+    def result(self):
+        if self.pending:
+            self.line(self.pending)
+            self.pending = b""
+        tables = {table: {column.decode("utf-8", "replace") for column in columns} for table, columns in self.tables.items()}
+        return {"size": self.size, "schemas": set(self.schemas), "tables": tables}
+
+
 def dump_tables(path, main=None, qualified=False):
     """Tables a dump creates, with their column names (read from the CREATE TABLE statements).
 
     With `main`, only tables of the main database count; with `qualified` too, the other schemas' tables
     count as schema.table (the table registry's names for them).
     """
-    tables, current, schema = {}, None, main
+    scanner = DumpScanner(main, qualified)
     with open_dump(path) as source:
-        for line in source:
-            if main is not None and (used := used_schema(line)) is not None:
-                schema = used
-            if schema != main and not qualified:
-                continue
-            if line[:1] in (b"C", b"c") and (match := CREATE.match(line)):
-                current = match[1].replace(b"``", b"`").decode("utf-8", "replace")
-                if schema != main:
-                    current = f"{schema}.{current}"
-                tables[current] = set(COLUMN.findall(line[match.end():]))
-                if line.rstrip().endswith(b";"):
-                    current = None
-            elif current is not None:
-                if column := COLUMN.match(line):
-                    tables[current].add(column[1])
-                if line.rstrip().endswith(b";"):
-                    current = None
-    return {table: {column.decode("utf-8", "replace") for column in columns} for table, columns in tables.items()}
+        while block := source.read(CHUNK):
+            scanner.feed(block)
+    return scanner.result()["tables"]
 
 
 def check_dump_tables(project, dump, ask=input, interactive=None):
@@ -152,7 +186,7 @@ def check_dump_tables(project, dump, ask=input, interactive=None):
     entries = load(project)
     if not entries:
         return
-    tables = dump_tables(Path(dump), main_schema(project), qualified=True)
+    tables = scan_dump(Path(dump), main_schema(project), progress_meter())["tables"]
     unknown = unknown_tables(entries, tables)
     if not unknown:
         return
@@ -190,8 +224,76 @@ def filter_dump(source, sink, skip, main=None):
 
 
 def progress_meter():
-    """pv for the dump when a person watches the terminal; plain streaming otherwise."""
-    return shutil.which("pv") if sys.stderr.isatty() else None
+    """A progress bar factory (progress.Bar) for the dump when a person watches the terminal; None otherwise."""
+    if not sys.stderr.isatty():
+        return None
+    from progress import Bar
+    return lambda label, total: Bar(label, total)
+
+
+def file_key(path, main=None):
+    info = Path(path).stat()
+    return (str(Path(path).resolve()), info.st_size, info.st_mtime_ns, main)
+
+
+def remember_scan(path, main, scan):
+    """Keep what a reading found (db-pull reads the dump while it downloads it)."""
+    SCANS[file_key(path, main)] = scan
+
+
+def scan_dump(path, main=None, meter=None):
+    """{size, schemas, tables} of a dump, read once (for a .sql.gz the read is the integrity check too);
+    raises ValueError for a broken archive."""
+    path = Path(path)
+    key = file_key(path, main)
+    if key in SCANS:
+        return SCANS[key]
+    bar = meter("Check dump", key[1]) if meter else None
+    scanner = DumpScanner(main, qualified=True)
+    try:
+        with open(path, "rb") as raw:
+            source = gzip.GzipFile(fileobj=raw, mode="rb") if path.name.lower().endswith(".gz") else raw
+            while block := source.read(CHUNK):
+                scanner.feed(block)
+                if bar:
+                    bar.update(raw.tell())
+    except (OSError, EOFError) as error:
+        if bar:
+            bar.finish("failed")
+        raise ValueError("The compressed SQL dump is invalid or truncated") from error
+    if bar:
+        bar.finish()
+    SCANS[key] = scanner.result()
+    return SCANS[key]
+
+
+def unpack(path, sink, meter=None):
+    """Decompress a .sql.gz into sink, with a bar over the compressed bytes read."""
+    total = Path(path).stat().st_size
+    bar = meter("Unpack dump", total) if meter else None
+    with open(path, "rb") as raw, gzip.GzipFile(fileobj=raw, mode="rb") as compressed:
+        while block := compressed.read(CHUNK):
+            sink.write(block)
+            if bar:
+                bar.update(raw.tell())
+    if bar:
+        bar.finish()
+
+
+class Counted:
+    """Lines of a file that move a progress bar as they are read (the filtered import)."""
+
+    def __init__(self, handle, bar):
+        self.handle, self.bar = handle, bar
+
+    def __iter__(self):
+        done = 0
+        for line in self.handle:
+            done += len(line)
+            if done - self.bar.done >= CHUNK:
+                self.bar.update(done)
+            yield line
+        self.bar.update(done)
 
 
 def stream_sql(project, command, handle, meter=None):
@@ -199,26 +301,12 @@ def stream_sql(project, command, handle, meter=None):
         subprocess.run(command, env=project.child_env(), stdin=handle, check=True)
         return
     size = os.fstat(handle.fileno()).st_size - handle.tell()
-    progress = subprocess.Popen([meter, "-s", str(size)], stdin=handle, stdout=subprocess.PIPE)
-    try:
-        subprocess.run(command, env=project.child_env(), stdin=progress.stdout, check=True)
-    finally:
-        # Closing our read end lets pv stop on EPIPE if the DB client exited early.
-        progress.stdout.close()
-        status = progress.wait()
-    if status:
-        raise subprocess.CalledProcessError(status, [meter])
-
-
-def stream_filtered(project, command, handle, skip, meter=None):
-    progress = None
-    if meter:
-        size = os.fstat(handle.fileno()).st_size - handle.tell()
-        progress = subprocess.Popen([meter, "-s", str(size)], stdin=handle, stdout=subprocess.PIPE)
+    bar = meter("Import", size)
     client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
-    skipped = set()
     try:
-        skipped = filter_dump(progress.stdout if progress else handle, client.stdin, skip, main_schema(project))
+        while block := handle.read(CHUNK):
+            client.stdin.write(block)
+            bar.advance(len(block))
     except BrokenPipeError:
         pass  # The client stopped early; its exit status reports why.
     finally:
@@ -227,13 +315,31 @@ def stream_filtered(project, command, handle, skip, meter=None):
         except BrokenPipeError:
             pass
         status = client.wait()
-        if progress:
-            progress.stdout.close()
-            meter_status = progress.wait()
+    bar.finish("failed" if status else "")
     if status:
         raise subprocess.CalledProcessError(status, command[:1])
-    if progress and meter_status:
-        raise subprocess.CalledProcessError(meter_status, [meter])
+
+
+def stream_filtered(project, command, handle, skip, meter=None):
+    bar = None
+    if meter:
+        bar = meter("Import", os.fstat(handle.fileno()).st_size - handle.tell())
+    client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
+    skipped = set()
+    try:
+        skipped = filter_dump(Counted(handle, bar) if bar else handle, client.stdin, skip, main_schema(project))
+    except BrokenPipeError:
+        pass  # The client stopped early; its exit status reports why.
+    finally:
+        try:
+            client.stdin.close()
+        except BrokenPipeError:
+            pass
+        status = client.wait()
+    if bar:
+        bar.finish("failed" if status else "")
+    if status:
+        raise subprocess.CalledProcessError(status, command[:1])
     return skipped
 
 
@@ -292,20 +398,13 @@ def plan_import(project, dump):
     for path in plan:
         with path.open("rb"):
             pass
-    if source.name.lower().endswith(".sql.gz"):
-        try:
-            size = 0
-            with gzip.open(source, "rb") as compressed:
-                while block := compressed.read(1024 * 1024):
-                    size += len(block)
-            if not size:
-                raise ValueError("The compressed SQL dump is empty")
-        except (OSError, EOFError) as error:
-            raise ValueError("The compressed SQL dump is invalid or truncated") from error
+    scan = scan_dump(source, main_schema(project), progress_meter())
+    if source.name.lower().endswith(".sql.gz") and not scan["size"]:
+        raise ValueError("The compressed SQL dump is empty")
     extras = extra_schemas(project.settings)
     if extras:
         # A multi-schema dump restores each schema under its own name; refuse one that would write elsewhere.
-        foreign = sorted(dump_schemas(source) - {project.settings["DATABASE_NAME"], *extras})
+        foreign = sorted(scan["schemas"] - {project.settings["DATABASE_NAME"], *extras})
         if foreign:
             raise ValueError(f"The dump switches to schemas outside DATABASE_NAME and DATABASE_EXTRA_SCHEMAS: "
                              f"{', '.join(foreign)}; nothing was imported")
@@ -356,9 +455,7 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
         from project_storage import require_space
         size = plan[0].stat().st_size
         if plan[0].name.lower().endswith('.gz'):
-            size = 0
-            with gzip.open(plan[0], 'rb') as stream:
-                while block := stream.read(1024 * 1024): size += len(block)
+            size = scan_dump(plan[0], main_schema(project), progress_meter())["size"]
             require_space(project, output, size)
         require_space(project, getattr(project, 'data_directory', output), 2 * size)
     lock_path = output / f"db-import.{project.environment}.lock"
@@ -373,8 +470,7 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
                 if index == 0 and first_is_dump:
                     if path.name.lower().endswith(".sql.gz"):
                         handle = stack.enter_context(tempfile.TemporaryFile(dir=output))
-                        with gzip.open(path, "rb") as compressed:
-                            shutil.copyfileobj(compressed, handle)
+                        unpack(path, handle, progress_meter())
                         handle.seek(0)
                     else:
                         handle = stack.enter_context(path.open("rb"))

@@ -303,37 +303,48 @@ Atkūrimas yra tas pats `make db-import`, todėl po jo vėl vykdomi after-import
 
 Jei projektas turi [papildomų schemų](#papildomos-schemos), kopija apima jas visas ir atkuria jas visas.
 
-### Naujausia serverio kopija (db-pull)
+### Serverio kopija (db-pull)
 
-Kai reikia veikiančios aplinkos su tikrais duomenimis, nebūtina prašyti dump'o: setup-server kas naktį (ir prieš kiekvieną deploy'ų) daro kopijas, o programuotojas naujausią parsisiunčia per SSH. LIVE serveris neliečiamas.
+Kai reikia veikiančios aplinkos su tikrais duomenimis, nebūtina prašyti dump'o: setup-server kas naktį (ir prieš kiekvieną deploy'ų) daro kopijas pagal registrą, kartą per savaitę – pilną, o programuotojas parsisiunčia ją per SSH. LIVE serveris neliečiamas.
 
 Vieną kartą:
 
-1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas>`. Raktas veiks tik iš VPN ir tik kopijoms gauti (be shell'o).
-2. `env/common.env` (bendra visiems):
-
-```dotenv
-BACKUP_SSH=setup@10.8.0.14           # setup-server paskyra VPN adresu
-BACKUP_SERVER_PROJECT=asana_tracker  # projekto katalogas serveryje (projects/<vardas>); numatyta PROJECT_NAME
-```
-
-Jei raktas ne numatytasis, `env/local.env`: `BACKUP_SSH_KEY=~/.ssh/kopijoms_ed25519`.
+1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas>` (su `--allow-fresh` gali prašyti ir šviežios kopijos). Raktas veiks tik iš VPN ir tik kopijoms (be shell'o).
+2. Pirmas `make db-pull` paklausia serverio (`setup@10.8.0.14`) ir SSH rakto (tuščia – numatytasis) ir išsaugo atsakymą setup'o `docker/.env.backup` (0600, ne Git). Juo naudojasi visi šio kompiuterio projektai; projekto `BACKUP_SSH` / `BACKUP_SSH_KEY`, jei nurodyti, laimi. `make db-pull configure=1` paklausia iš naujo.
+3. Projekto vardas serveryje randamas pats: aplinkos repo vardas (`origin`, mažosiomis raidėmis – taip serveris vadina build katalogą), tada `PROJECT_NAME`. Jei serveris nežino nė vieno, komanda paklausia ir įrašo `BACKUP_SERVER_PROJECT` į `env/local.env`.
 
 Kaskart (prisijungus prie VPN):
 
 ```bash
-make db-pull                 # naujausia prod kopija -> .generated/backups (0600), parašo importo komandą
-make db-pull from=stage      # stage
-make db-pull import=1        # atsisiunčia ir iškart užkelia (kaip make db-import: after-import, migracijos)
-make db-pull import=1 backup=1   # prieš užkeliant pasidaro vietinės DB kopiją
+make db-pull                       # naujausia kopija pagal registrą (naktinė, „fresh“ ar prieš deploy'ų)
+make db-pull full=1                # naujausia pilna (savaitinė): visų lentelių duomenys
+make db-pull fresh=1               # serveris padaro naują kopiją dabar ir ji parsiunčiama
+make db-pull fresh=1 full=1        # nauja pilna kopija dabar
+make db-pull import=1              # + užkelia (kaip make db-import: after-import, migracijos)
+make db-pull fresh=1 import=1 backup=1   # prieš užkeliant – vietinės DB kopija
+make db-pull from=stage            # stage
 ```
 
-- Imama naujausia tos aplinkos kopija (naktinė, „backup dabar“ ar prieš deploy'ų). Jau parsisiųsta antrą kartą nesiunčiama.
-- Kopija daroma pagal registrą (stage/prod): `skip` lentelės joje tik su struktūra.
-- Nutrūkęs atsisiuntimas neišsaugomas (`.sql.gz` patikrinamas iki galo).
+Kiekvienas žingsnis rodomas atskirai, terminale – su juosta (dalis, kiekis, likęs laikas):
+
+```text
+==> [1/3] A new prod backup of asana_tracker on the server
+Backup on the server     [##############..............]  51%  1.12 GB / 2.20 GB  3:10 left
+==> [2/3] Download fresh-prod-20261013T150000Z.sql.gz (2.20 GB)
+Download                 [############################] 100%  2.20 GB / 2.20 GB  1:42
+==> [3/3] Import into the local database (asana): dump, after-import, migrations
+Unpack dump              [############################] 100%  2.20 GB / 2.20 GB  0:58
+Import                   [##########..................]  37%  4.10 GB / 11.08 GB  6:20 left
+```
+
+- **Kopija serveryje** (`fresh=1`): procentai – apytiksliai, lyginant su ankstesnės tokio pat turinio kopijos dydžiu (pirmoji – tik kiekis ir laikas). Jei tokio pat turinio kopija jaunesnė nei 30 min. arba tuo metu daroma, serveris atiduoda ją, užuot daręs antrą.
+- **Atsisiuntimas**: dydį serveris pasako iš anksto. Siunčiamas failas tuo pačiu patikrinamas (gzip iki galo) ir perskaitomas (dydis, schemos, lentelės), todėl iškart po jo užkeliant didelis failas nebeskaitomas iš naujo. Nutrūkęs ar per trumpas atsisiuntimas neišsaugomas.
+- **Užkėlimas** (`import=1`): tas pats kaip `make db-import` – išskleidimas, dump'as, `database/after-import` scriptai, migracijos, schemos ataskaita. Be terminalo (CI, log'as) – po vieną eilutę kiekvieno žingsnio pabaigoje.
+- Jau parsisiųsta kopija antrą kartą nesiunčiama.
+- **Kopija pagal registrą** (be `full`): `skip` lentelės – tik struktūra, be `DROP`, todėl užkėlus jų vietiniai duomenys lieka. **Pilna** (`full=1`): visų lentelių duomenys, todėl užkėlus pakeičiamos ir sinchronizuojamos lentelės.
 - **Kopijoje yra tikri klientų duomenys.** Failas privatus (`0600`); ištrink, kai nebereikia. Kasdieniam darbui be asmens duomenų – [dev rinkinys](#f-bazinis-rinkinys).
 - Kopija su [papildomomis schemomis](#papildomos-schemos) turi serverio schemų vardus (`USE`): vietinis `DATABASE_NAME` ir schemos turi sutapti su serverio.
-- Klaida „Cannot reach the backup server“ – patikrink VPN, `BACKUP_SSH` ir ar raktas įrašytas serveryje.
+- Klaida „Cannot reach the backup server“ – patikrink VPN, serverio adresą (`make db-pull configure=1`) ir ar raktas įrašytas serveryje. „may not ask for a fresh backup“ – raktas įrašytas be `--allow-fresh`. „too old“ – serverio setup-server dar be savaitinių ir šviežių kopijų (`bin/update`).
 
 ## H. Fixtures
 
