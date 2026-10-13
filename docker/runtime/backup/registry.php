@@ -71,6 +71,21 @@ function tablesMatch($registry, $table)
     return null;
 }
 
+// What a Save writes: a table that follows setup's profile gets its own project line only when the rule
+// differs from that default, so the project file holds just what the project decided.
+function tablesSetChange($registry, $table, $rules)
+{
+    $current = tablesMatch($registry, $table);
+    if ($current && $current[0] === 'profile' && array($current[2], $current[3], $current[4]) === $rules) return array();
+    return array($table => $rules);
+}
+
+// The rule setup's profile gives a table, whatever the project says: [source, pattern, group, base, live] or null.
+function tablesDefault($registry, $table)
+{
+    return tablesMatch(array('project' => array(), 'profile' => $registry['profile']), $table);
+}
+
 // A starting classification for a table without a line (database_registry.guess); the person decides.
 function tablesGuess($table, $columns)
 {

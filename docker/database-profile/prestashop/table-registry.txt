@@ -1,7 +1,9 @@
 # Shared PrestaShop table classification (the project registry is read first and wins).
 # {p} is the table prefix (PS_DATABASE_PREFIX, default ps_). Columns:
 #   table  group  base-rule(full|slice|faker|empty|drop)  live-import(import|skip)
-# Groups: index tables are rebuildable but needed by a working shop, so a LIVE import keeps them.
+# Groups: index tables are rebuildable but needed by a working shop, so a LIVE copy keeps them; the search
+# and price-filter indexes (search_index, search_word, layered_price_index) are the big ones and are skipped:
+# rebuild them in the back office after a load.
 # Generated from the PrestaShop 9 db_structure.sql plus common native module tables;
 # module and project tables not listed here must be classified in the project registry.
 {p}accessory                                        catalog    slice  import
@@ -130,8 +132,8 @@
 {p}range_price                                      config     full   import
 {p}range_weight                                     config     full   import
 {p}search_engine                                    config     full   import
-{p}search_index                                     index      empty  import
-{p}search_word                                      index      empty  import
+{p}search_index                                     index      empty  skip
+{p}search_word                                      index      empty  skip
 {p}specific_price                                   catalog    slice  import
 {p}state                                            config     full   import
 {p}supplier                                         config     full   import
@@ -232,7 +234,7 @@
 {p}referrer                                         config     full   import
 {p}referrer_cache                                   cache      empty  skip
 {p}referrer_shop                                    config     full   import
-{p}layered_price_index                              index      empty  import
+{p}layered_price_index                              index      empty  skip
 {p}layered_product_attribute                        index      empty  import
 {p}layered_filter_block                             index      empty  import
 {p}layered_category                                 config     full   import

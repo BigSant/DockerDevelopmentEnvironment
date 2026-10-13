@@ -6,6 +6,22 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### Search and price-filter indexes stay out of LIVE copies
+
+- **`{p}search_index`, `{p}search_word`, `{p}layered_price_index` are `skip` in the PrestaShop profile** (were
+  `import`): rebuildable indexes and usually the biggest tables, so backups and server copies keep only their
+  structure. After loading such a copy, rebuild the search index (Shop Parameters → Search) and the faceted
+  search price index. A project that wants them keeps an `import` line in its own registry.
+
+### The backup UI lets a project override setup's PrestaShop defaults
+
+- **Standard PrestaShop tables are listed** in the backup UI with the source `setup` (filter „Setup defaults“);
+  before they were hidden and a save was refused. Saving one with other values writes the project's own line,
+  which wins over the profile default (e.g. `ps_search_index` Live copy `import`); the default's own values write
+  nothing, and Reset removes the project line. The profile stays the starting rule for every shop.
+- **The stats show the live copy size** beside the database size: data + index of the `import` tables (a table
+  without a rule counts by its suggestion); the tooltip gives their data alone, close to a dump's size.
+
 ### make up waits for the shop checkout
 
 - **An empty or missing `app/public` no longer stops `make up`** in a PrestaShop project: the preflight and the

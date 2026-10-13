@@ -119,7 +119,7 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
 | LIVE importas | Kas patenka į eksportą (`make db-backup`, serverio kopijos): `import` – struktūra ir duomenys; `skip` – tik struktūra. Užkeliant dump'ą (`make db-import`) įkeliama viskas, kas faile. |
 
-Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Projekto eilutė laimi. Generic projektas profilio registro neturi: prieš `make db-dataset` jo lenteles klasifikuok `make schema-resolve` (kitaip komanda sustoja ir tai pasako).
+Pirma skaitomas projekto registras, po jo – `prestashop` profilio numatytasis ([docker/database-profile/prestashop/table-registry.txt](../../docker/database-profile/prestashop/table-registry.txt)), kuris jau klasifikuoja standartines PS lenteles. Paieškos ir kainų filtro indeksai (`{p}search_index`, `{p}search_word`, `{p}layered_price_index`) ten pažymėti `skip`: įkėlus tokią kopiją, paieškos indeksą perstatyk BO (Parduotuvės nustatymai → Paieška), o kainų indeksą – ps_facetedsearch modulyje. Projekto eilutė laimi. Generic projektas profilio registro neturi: prieš `make db-dataset` jo lenteles klasifikuok `make schema-resolve` (kitaip komanda sustoja ir tai pasako).
 
 ```bash
 make schema-resolve

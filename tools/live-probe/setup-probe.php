@@ -657,9 +657,9 @@ product_comment product_comment_criterion'));
 function sp_ps_registry_skip()
 {
     return preg_split('/\s+/', trim('
-connections connections_page connections_source date_range guest page_viewed log smarty_cache
-smarty_lazy_cache smarty_last_flush employee_session customer_session mail statssearch pagenotfound sekeyword
-referrer_cache compare compare_product'));
+connections connections_page connections_source date_range guest page_viewed search_index
+search_word log smarty_cache smarty_lazy_cache smarty_last_flush employee_session customer_session
+mail statssearch pagenotfound sekeyword referrer_cache layered_price_index compare compare_product'));
 }
 
 // ------------------------------------------------------------------------------------------------

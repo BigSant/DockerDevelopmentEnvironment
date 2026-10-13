@@ -1,8 +1,8 @@
 <?php
 // Backup UI: every table of the project database and its extra schemas (DATABASE_EXTRA_SCHEMAS, one tab
-// each) that the project classifies: its registry line or none yet, with a suggestion. Standard PrestaShop tables
-// follow setup's profile for every project and are not listed (they change in setup); locally (ENV=local/test) it edits app/database/table-registry.txt, which the
-// developer then commits. Servers only show it: there the registry changes through git.
+// each): its registry line, setup's PrestaShop default or none yet (with a suggestion). A standard PrestaShop table
+// follows setup's profile until the project gives it its own line; locally (ENV=local/test) it edits
+// app/database/table-registry.txt, which the developer then commits. Servers only show it: there the registry changes through git.
 // Reached only through nginx-proxy with the BACKUP_ALLOWED_IPS / ALLOWED_IPS allowlist.
 // Self-contained on purpose: no web fonts, scripts or styles from elsewhere.
 require __DIR__ . '/../registry.php';
@@ -49,7 +49,7 @@ function registryName($schema, $table)
     return $schema === getenv('DATABASE_NAME') ? $table : $schema . '.' . $table;
 }
 
-// [schema => [registry name => [rows, bytes, columns, table]]], columns only for $selected (suggestions).
+// [schema => [registry name => [rows, bytes, columns, table, data bytes]]], columns only for $selected (suggestions).
 function databaseTables($schemas, $selected)
 {
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', getenv('DATABASE_HOST') ?: 'database',
@@ -57,10 +57,10 @@ function databaseTables($schemas, $selected)
     $pdo = new PDO($dsn, getenv('DATABASE_USER'), getenv('DATABASE_PASSWORD'), array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
     $all = array_fill_keys($schemas, array());
     $listed = implode(',', array_map(function ($name) { return "'" . $name . "'"; }, $schemas));
-    foreach ($pdo->query("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH FROM information_schema.TABLES "
+    foreach ($pdo->query("SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_ROWS, DATA_LENGTH + INDEX_LENGTH, DATA_LENGTH FROM information_schema.TABLES "
         . "WHERE TABLE_SCHEMA IN ($listed) AND TABLE_TYPE = 'BASE TABLE'") as $row) {
         if ($row[0] === $schemas[0] && in_array($row[1], TABLES_SETUP_TABLES, true)) continue;
-        $all[$row[0]][registryName($row[0], $row[1])] = array((int) $row[2], (int) $row[3], array(), $row[1]);
+        $all[$row[0]][registryName($row[0], $row[1])] = array((int) $row[2], (int) $row[3], array(), $row[1], (int) $row[4]);
     }
     $columns = $pdo->prepare('SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?');
     $columns->execute(array($selected));
@@ -77,7 +77,7 @@ $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET'
 $schemas = databaseSchemas();
 $asked = isset($_POST['schema']) ? (string) $_POST['schema'] : (isset($_GET['schema']) ? (string) $_GET['schema'] : '');
 $schema = in_array($asked, $schemas, true) ? $asked : $schemas[0];
-$view = isset($_GET['view']) && in_array($_GET['view'], array('unclassified', 'project', 'all'), true) ? (string) $_GET['view'] : 'unclassified';
+$view = isset($_GET['view']) && in_array($_GET['view'], array('unclassified', 'project', 'profile', 'all'), true) ? (string) $_GET['view'] : 'unclassified';
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 // A click on a column header sorts by it; a second click reverses the order.
 const SORTS = array('table', 'rows', 'size', 'source', 'group', 'base', 'live');
@@ -114,11 +114,6 @@ if ($method === 'POST') {
     } else {
         $name = isset($_POST['table']) ? (string) $_POST['table'] : '';
         if (!isset($tables[$name])) { http_response_code(404); exit("Unknown table.\n"); }
-        $current = tablesMatch($registry, $name);
-        if ($current && $current[0] === 'profile') {
-            http_response_code(403);
-            exit("A standard PrestaShop table follows setup's profile; change it in setup.\n");
-        }
         if ($path === '/remove') {
             $changes[$name] = null;
         } else {
@@ -126,7 +121,7 @@ if ($method === 'POST') {
             $rules = $base === 'drop' ? array('drop', 'drop', '-')
                 : array(trim(isset($_POST['group']) ? (string) $_POST['group'] : ''), $base, isset($_POST['live']) ? (string) $_POST['live'] : '');
             if (!tablesValidRule($rules[0], $rules[1], $rules[2])) { http_response_code(400); exit("Expected a group, a base rule and a LIVE rule.\n"); }
-            $changes[$name] = $rules;
+            $changes = tablesSetChange($registry, $name, $rules);
         }
     }
     try {
@@ -151,18 +146,24 @@ foreach ($all as $name => $list) {
 $rows = array();
 $counts = array('all' => 0, 'unclassified' => 0, 'project' => 0, 'profile' => 0, 'drop' => 0);
 $bytes = 0;
+// What a LIVE copy (backup) takes by each table's live rule, or the suggestion while it has none: data + index of
+// the import tables, and their data alone, near a dump's size.
+$live = array('import' => 0, 'data' => 0);
 foreach ($tables as $name => $table) {
     $match = tablesMatch($registry, $name);
     $source = $match ? $match[0] : 'unclassified';
-    // Standard PrestaShop tables follow setup's profile: counted, not listed.
-    if ($source === 'profile') { $counts['profile']++; continue; }
     $counts['all']++;
     $counts[$source]++;
     if ($match && $match[3] === 'drop') $counts['drop']++;
     $bytes += $table[1];
+    $rule = $match ? ($match[3] === 'drop' ? '-' : $match[4]) : tablesGuess($name, $table[2])[2];
+    if ($rule === 'import') {
+        $live['import'] += $table[1];
+        $live['data'] += $table[4];
+    }
     if ($view !== 'all' && $view !== $source) continue;
     if ($query !== '' && stripos($table[3], $query) === false) continue;
-    $rows[] = array($name, $table, $match, tablesGuess($name, $table[2]));
+    $rows[] = array($name, $table, $match, tablesGuess($name, $table[2]), tablesDefault($registry, $name));
 }
 
 // The rule a row shows: its registry line, or the suggestion while it has none.
@@ -229,7 +230,7 @@ table.registry{width:100%;border-collapse:collapse}
 .registry td.actions{width:1%}
 .registry .value{color:var(--amber)}
 .chip{display:inline-block;padding:0 6px;border-radius:2px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;border:1px solid var(--rule);color:var(--dim)}
-.chip.project{color:var(--go);border-color:rgba(79,224,140,.4)}.chip.unclassified{color:var(--stop);border-color:rgba(255,91,79,.45)}
+.chip.project{color:var(--go);border-color:rgba(79,224,140,.4)}.chip.profile{color:var(--steel);border-color:rgba(111,147,201,.45)}.chip.unclassified{color:var(--stop);border-color:rgba(255,91,79,.45)}
 .empty{padding:40px;text-align:center;color:var(--dim);border:1px dashed var(--rule);border-radius:4px}
 @media (max-width:1000px){.help .cols{grid-template-columns:1fr}}
 CSS;
@@ -242,7 +243,8 @@ echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="vie
     . '<span class="sign ' . h($sign) . '">' . h($environment) . '</span><span class="spacer"></span></div><main>';
 
 if ($error !== '') echo '<div class="callout error">' . h($error) . '</div>';
-if ($message !== '') echo '<div class="callout">Saved ' . h($message) . ' line(s) to app/database/table-registry.txt. Review and commit it.</div>';
+if ($message === '0') echo '<div class="callout">Nothing saved: the values are setup\'s default.</div>';
+elseif ($message !== '') echo '<div class="callout">Saved ' . h($message) . ' line(s) to app/database/table-registry.txt. Review and commit it.</div>';
 if (!$present) {
     echo '<div class="callout wait">No app/database directory yet: run <code>make schema-export</code> first; the registry lives beside the schema.</div>';
 } elseif (!$editable) {
@@ -267,9 +269,8 @@ echo '<div class="help"><p>The database gets copied in two ways: into a small <b
     . '<dt>skip</dt><dd>take only the empty table – for data that rebuilds itself or is not needed (cache, logs, search indexes)</dd></dl></div>'
     . '</div><p class="note">Every table needs a decision. A red one has none yet – its fields hold a suggestion – and until it gets one, '
     . 'changes cannot be committed and no database can be loaded. Add or Save stores the decision in <code>app/database/table-registry.txt</code> '
-    . '(commit it); Remove takes it back. '
-    . ($counts['profile'] ? 'The ' . $counts['profile'] . ' standard PrestaShop tables are not listed: setup decides them for every shop.' : '')
-    . '</p></div>';
+    . '(commit it); Remove takes it back. A <b>setup</b> table follows setup\'s default for every PrestaShop shop: Save it with other values '
+    . 'and this project gets its own line, Reset goes back to the default.</p></div>';
 
 $at = '&schema=' . rawurlencode($schema);
 $hidden = '<input type="hidden" name="schema" value="' . h($schema) . '">';
@@ -284,14 +285,17 @@ if (count($schemas) > 1) {
 }
 
 echo '<div class="stats">'
-    . '<div class="stat"><b>' . $counts['all'] . '</b><span>project tables</span></div>'
+    . '<div class="stat"><b>' . $counts['all'] . '</b><span>tables</span></div>'
     . '<div class="stat' . ($counts['unclassified'] ? ' bad' : '') . '"><b>' . $counts['unclassified'] . '</b><span>without a decision</span></div>'
     . '<div class="stat"><b>' . $counts['project'] . '</b><span>project lines</span></div>'
     . '<div class="stat"><b>' . $counts['drop'] . '</b><span>marked drop</span></div>'
-    . '<div class="stat"><b>' . h(size($bytes)) . '</b><span>data + index</span></div></div>';
+    . '<div class="stat"><b>' . h(size($bytes)) . '</b><span>data + index</span></div>'
+    . '<div class="stat" title="Data + index of the import tables. A dump holds only their data (about ' . h(size($live['data']))
+    . '); gzip makes it several times smaller."><b>' . h(size($live['import'])) . '</b><span>live copy</span></div>'
+    . '</div>';
 
 echo '<div class="bar">';
-foreach (array('unclassified' => 'Without a decision', 'project' => 'Project lines', 'all' => 'All') as $key => $label) {
+foreach (array('unclassified' => 'Without a decision', 'project' => 'Project lines', 'profile' => 'Setup defaults', 'all' => 'All') as $key => $label) {
     echo '<a class="btn' . ($view === $key ? ' on' : '') . '" href="/?view=' . $key . $at . ($query !== '' ? '&q=' . rawurlencode($query) : '')
         . '&sort=' . $sort . ($descending ? '&dir=desc' : '') . '">' . h($label) . ' (' . $counts[$key] . ')</a>';
 }
@@ -319,13 +323,14 @@ if (!$rows) {
         . $header('source', 'Source') . $header('group', 'Group') . $header('base', 'Dev copy') . $header('live', 'Live copy')
         . ($editable ? '<th></th>' : '') . '</tr></thead><tbody>';
     foreach ($rows as $index => $row) {
-        list($name, $table, $match, $guess) = $row;
+        list($name, $table, $match, $guess, $default) = $row;
         $source = $match ? $match[0] : 'unclassified';
         $rule = $ruleOf($row);
         $class = $match ? ($match[3] === 'drop' ? 'drop' : '') : 'unclassified';
         echo '<tr class="' . $class . '"><td class="name">' . h($table[3]) . '</td>'
             . '<td class="num">' . number_format($table[0], 0, '.', ' ') . '</td><td class="num">' . h(size($table[1])) . '</td>'
-            . '<td><span class="chip ' . h($source) . '">' . h($source === 'unclassified' ? 'none' : $source) . '</span></td>';
+            . '<td><span class="chip ' . h($source) . '"' . ($default && $source === 'project' ? ' title="setup default: ' . h(implode(' ', array_slice($default, 2))) . '"' : '')
+            . '>' . h($source === 'unclassified' ? 'none' : ($source === 'profile' ? 'setup' : $source)) . '</span></td>';
         if (!$editable) {
             echo '<td class="value">' . h($rule[0]) . '</td><td class="value">' . h($rule[1]) . '</td><td class="value">' . h($rule[1] === 'drop' ? '–' : $rule[2]) . '</td></tr>';
             continue;
@@ -343,7 +348,8 @@ if (!$rows) {
         if ($match && $match[0] === 'project' && $match[1] === $name) {
             echo ' <form method="post" action="/remove" class="inline"><input type="hidden" name="token" value="' . h($token) . '">' . $hidden
                 . '<input type="hidden" name="table" value="' . h($name) . '"><input type="hidden" name="back" value="' . h($back) . '">'
-                . '<button class="quiet">Remove</button></form>';
+                . '<button class="quiet"' . ($default ? ' title="back to setup\'s default: ' . h(implode(' ', array_slice($default, 2))) . '">Reset' : '>Remove')
+                . '</button></form>';
         }
         echo '</td></tr>';
     }

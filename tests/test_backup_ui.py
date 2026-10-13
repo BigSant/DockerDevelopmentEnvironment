@@ -25,6 +25,10 @@ PROD = ("PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERV
         "DATABASE_USER=demo\nDATABASE_NAME=demo\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n")
 
 
+def php_array(values):
+    return "array(" + ", ".join("'" + value + "'" for value in values) + ")"
+
+
 def scratch():
     directory = ROOT / ".test-work"
     directory.mkdir(exist_ok=True)
@@ -151,6 +155,27 @@ class BackupRegistryPhpTest(unittest.TestCase):
             matched = json.loads(php(f"require '{UI}/registry.php'; echo json_encode(tablesMatch(tablesLoad("
                                      f"{json.dumps(str(registry))}), 'ps_product'));", env))
             self.assertEqual(matched[0], "profile", "PrestaShop core tables come from the profile defaults")
+
+    def test_a_project_overrides_a_setup_default_only_when_it_differs(self):
+        with scratch() as temporary:
+            registry = Path(temporary) / "table-registry.txt"
+            registry.write_text("")
+            env = {"PROFILE": "prestashop", "PS_DATABASE_PREFIX": "ps_", "BACKUP_PROFILE_DIRECTORY": str(ROOT / "docker/database-profile")}
+            default = json.loads(php(f"require '{UI}/registry.php'; echo json_encode(tablesDefault(tablesLoad("
+                                     f"{json.dumps(str(registry))}), 'ps_search_index'));", env))
+            self.assertEqual(default[0], "profile")
+            same = json.loads(php(f"require '{UI}/registry.php'; echo json_encode(tablesSetChange(tablesLoad("
+                                  f"{json.dumps(str(registry))}), 'ps_search_index', {php_array(default[2:])}));", env))
+            self.assertEqual(same, [], "the default's own values write nothing")
+            php(f"require '{UI}/registry.php'; $f = {json.dumps(str(registry))}; "
+                "tablesWrite($f, tablesSetChange(tablesLoad($f), 'ps_search_index', array('index', 'empty', 'import')));", env)
+            self.assertTrue(registry.read_text().lstrip().startswith("{p}search_index "), registry.read_text())
+            matched = json.loads(php(f"require '{UI}/registry.php'; $r = tablesLoad({json.dumps(str(registry))}); "
+                                     "echo json_encode(array(tablesMatch($r, 'ps_search_index'), tablesDefault($r, 'ps_search_index')[0]));", env))
+            self.assertEqual((matched[0][0], matched[0][4], matched[1]), ("project", "import", "profile"))
+            project = SimpleNamespace(root=Path(temporary), directory=Path(temporary),
+                                      settings={"SCHEMA_DIRECTORY": "schema", "PROFILE": "prestashop", "PS_DATABASE_PREFIX": "ps_"})
+            self.assertEqual(classify(load(project), "ps_search_index")[3], "import", "setup reads the override the same way")
 
     def test_extra_schema_tables_are_schema_table_and_never_take_the_prefix(self):
         with scratch() as temporary:
