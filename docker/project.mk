@@ -10,7 +10,7 @@ image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
 .PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy pipeline-deploy deploy-variables module-pull
-.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install restart composer npm cache-clear db-backup-prune runtime-info
+.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
 quote = '$(subst ','"'"',$(1))'
@@ -44,6 +44,7 @@ help:
 	@echo 'db-import file=dump.sql skip=1: leave out the data of tables the registry marks skip (default: everything)'
 	@echo 'schema-export / schema-check: export DB table definitions / compare with staged Git files'
 	@echo 'schema-hook-install: pre-commit hook that exports the schema and stops a commit that changes it'
+	@echo 'git-hooks: pre-commit (schema check, then bin/pre-commit) and pre-push (bin/pre-push) in this clone'
 	@echo 'schema-resolve: classify database tables the table registry does not know (include / drop)'
 	@echo 'db-migrate [dry=1]: apply pending guarded migrations (database/migrations; dry=1 prints the SQL)'
 	@echo 'migration-draft [name=short-name]: export the schema and draft the migrations from the last commit (no commit needed)'
@@ -61,7 +62,7 @@ help:
 	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
 	@echo 'deploy-variables [ENV=stage|prod] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
 
-setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install schema-resolve test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
+setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install git-hooks schema-resolve test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
 	@$(RUN_PROJECT) $@
 
 restart:

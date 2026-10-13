@@ -12,16 +12,12 @@ import hashlib
 import os
 from pathlib import Path
 import re
-import shlex
 import subprocess
-import sys
 import tempfile
 from urllib.parse import quote
 
 
 MANIFEST = "schema.manifest.json"
-HOOK_MARKER = "# Shared setup schema pre-commit hook v2"
-PREVIOUS_HOOK_MARKERS = ("# Shared setup schema pre-commit hook v1",)
 from database_client import READ as MYSQL_READ, READ_RAW as MYSQL_READ_RAW, SCHEMA_NAME
 # setup_migrations records applied migrations; it belongs to setup, not to the project schema.
 TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
@@ -481,23 +477,7 @@ def check_schema(project):
 
 
 def install_schema_hook(project):
-    directory = schema_directory(project)
-    root, _ = schema_repository(directory)
-    custom = subprocess.run(["git", "-C", str(root), "config", "--get", "core.hooksPath"], capture_output=True, env=git_env())
-    # A hooksPath that names the repository's own hooks directory is the default, not a hook manager.
-    common = Path(os.fsdecode(git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")).strip())
-    default = custom.returncode == 0 and (root / os.fsdecode(custom.stdout).strip()).resolve() == (common / "hooks").resolve()
-    if custom.returncode != 1 and not default:
-        raise ValueError("core.hooksPath is configured or unreadable; add schema-check to the existing hook manager")
-    hook = Path(os.fsdecode(git(root, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit")).strip())
-    command = [sys.executable, str(Path(__file__).with_name("project.py")),
-               "--docker-directory", str(project.directory), "--project-directory", str(project.root),
-               "--env", project.environment, "schema-commit"]
-    contents = "#!/bin/sh\n" + HOOK_MARKER + "\nexec " + shlex.join(command) + "\n"
-    previous = hook.exists() and not hook.is_symlink() and any(m in hook.read_text() for m in PREVIOUS_HOOK_MARKERS)
-    if hook.is_symlink() or (hook.exists() and hook.read_text() != contents and not previous):
-        raise ValueError(f"Existing hook preserved: {hook}; add schema-commit to it manually")
-    hook.parent.mkdir(parents=True, exist_ok=True)
-    hook.write_text(contents)
-    hook.chmod(0o755)
-    print(f"Installed schema pre-commit hook in {root} for {project.environment}.")
+    """make schema-hook-install: the pre-commit hook (git_hooks.py), whose first part is schema-commit."""
+    schema_directory(project)  # refuses DATABASE_AS_CODE=off
+    from git_hooks import install_git_hooks
+    install_git_hooks(project, ("pre-commit",))

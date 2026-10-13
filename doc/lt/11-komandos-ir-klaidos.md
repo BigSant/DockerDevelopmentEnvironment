@@ -56,6 +56,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make schema-export` | Eksportuoja lentelių apibrėžtis į `database/schema/` (su papildomomis schemomis – kiekvieną schemą į savo katalogą). |
 | `make schema-check` | Palygina DB su Git indeksu. |
 | `make schema-hook-install` | Įdiegia commit hook'ą, kuris eksportuoja schemą ir stabdo commit'ą pasikeitus. |
+| `make git-hooks` | Įrašo setup'o `pre-commit` (schemos patikra, tada `bin/pre-commit`) ir `pre-push` (`bin/pre-push`) hook'us šiame klone. Žr. [git hook'ai](08-kodo-kokybe.md#f-patikros-prieš-commitą-ir-pushą-git-hookai). |
 | `make schema-resolve` | Klasifikuoja registre nežinomas lenteles (įtraukti / pašalinti). |
 | `make db-backup [file=…] [full=1]` | Sukuria DB kopiją (`.generated/backups/`) pagal registrą; `full=1` – visų lentelių duomenys. |
 | `make db-backup-prune [apply=1]` | Peržiūrėti / ištrinti senas kopijas. |

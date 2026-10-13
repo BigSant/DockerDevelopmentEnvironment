@@ -4,6 +4,17 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+### Git hooks run the project's bin/pre-commit and bin/pre-push
+
+- **`make setup` (local) and the new `make git-hooks` write `.git/hooks/pre-commit` and `pre-push`** that run the
+  project's own `bin/pre-commit` / `bin/pre-push` (arguments and stdin passed on, their status decides), after
+  setup's schema check in `pre-commit`. A clone carries no hooks, so a check a project keeps in git used to reach
+  only the clones where somebody linked it by hand. The hook finds the script when it runs (no reinstall when it
+  changes); a hook with nothing to run is not written; someone else's hook, a symlink or a `core.hooksPath`
+  manager is left alone and reported. The schema hook of earlier versions is replaced in place.
+
 ## 2.8.0
 
 ### nginx-proxy finds recreated containers (nginx 1.30.5)

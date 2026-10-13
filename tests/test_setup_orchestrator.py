@@ -82,7 +82,7 @@ class OrchestratorTest(unittest.TestCase):
                                  'run': lambda self, args, profiles=None: calls.append(('build', args[1:2]))})()
         patches = [patch('project_environment.initialize_directories', lambda p: calls.append('init')),
                    patch('project_bootstrap.bootstrap', lambda p: (calls.append('bootstrap'), p)[1]),
-                   patch.object(project_setup, 'schema_hook', lambda p: calls.append('schema-hook')),
+                   patch.object(project_setup, 'git_hooks', lambda p: calls.append('git-hooks')),
                    patch('project_application.prepare_application', lambda p: calls.append('app-prepare')),
                    patch('project_health.start_project', lambda p, t: calls.append('up')),
                    patch.object(project_setup, 'database_tables', lambda p: 0)]
@@ -91,7 +91,7 @@ class OrchestratorTest(unittest.TestCase):
                 stack.enter_context(item)
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 project_setup.run_setup(project)
-        self.assertEqual(calls, ['init', 'bootstrap', 'schema-hook', ('build', ['php-fpm-base']), ('build', ['php-fpm-core']),
+        self.assertEqual(calls, ['init', 'bootstrap', 'git-hooks', ('build', ['php-fpm-base']), ('build', ['php-fpm-core']),
                                  ('build', []), 'app-prepare', 'up'])
         self.assertIn('[5/5] up', output.getvalue())
         self.assertIn('make db-load set=dev', output.getvalue())
@@ -104,19 +104,17 @@ class OrchestratorTest(unittest.TestCase):
         self.assertEqual(calls, ['init'])
 
 
-    def test_setup_installs_the_schema_hook_but_leaves_a_hook_manager_alone(self):
+    def test_setup_installs_the_git_hooks_on_local_and_leaves_a_hook_manager_alone(self):
         from types import SimpleNamespace
         local = SimpleNamespace(environment='local', settings={'SCHEMA_DIRECTORY': 'app/database/schema'})
-        with patch('database_schema.install_schema_hook') as install:
-            project_setup.schema_hook(local)
-            project_setup.schema_hook(SimpleNamespace(environment='test', settings=local.settings))
-            project_setup.schema_hook(SimpleNamespace(environment='local', settings={}))
+        with patch('git_hooks.install_git_hooks') as install:
+            project_setup.git_hooks(local)
+            project_setup.git_hooks(SimpleNamespace(environment='test', settings=local.settings))
         install.assert_called_once_with(local)
-        with patch('database_schema.install_schema_hook', side_effect=ValueError('core.hooksPath is configured')), \
+        with patch('git_hooks.install_git_hooks', side_effect=ValueError('core.hooksPath is configured')), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
-            project_setup.schema_hook(local)
-        self.assertIn('Schema hook not installed: core.hooksPath', output.getvalue())
-
+            project_setup.git_hooks(local)
+        self.assertIn('Git hooks not installed: core.hooksPath', output.getvalue())
 
 if __name__ == '__main__':
     unittest.main()

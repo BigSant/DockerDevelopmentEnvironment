@@ -66,7 +66,7 @@ make schema-hook-install
 
 1. `schema-export` įrašo kiekvienos lentelės `CREATE TABLE` į `database/schema/table-<lentelė>.sql` ir manifestą. Duomenys neeksportuojami, `AUTO_INCREMENT` skaitiklis pašalinamas. Projekte su [papildomomis schemomis](#papildomos-schemos) kiekviena schema turi savo katalogą: `database/schema/<DATABASE_NAME>/` ir `database/schema/<schema>/`. Išdėstymą parenka tik eksportas: įjungus pirmą papildomą schemą (ar išjungus paskutinę) `schema-export` perkelia failus, o hook'as tai rodo kaip `moved:` – migracijos nereikia, tik `git add -A`. Visi kiti žingsniai (hook'as, migracijos, `db-load`, ataskaita po importo ar deploy'aus) failus randa per manifestą, todėl serverio `DATABASE_NAME` gali skirtis nuo vietinio.
 2. `schema-resolve` paklausia apie kiekvieną registre nežinomą lentelę (žr. [C dalį](#c-lentelių-registras)).
-3. `schema-hook-install` įdiegia `pre-commit` hook'ą aplinkos repozitorijoje. `make setup` tai padaro pats; jei repozitorija jau turi hook'ų tvarkyklę (`core.hooksPath`), tik praneša.
+3. `schema-hook-install` įdiegia `pre-commit` hook'ą aplinkos repozitorijoje. `make setup` ir `make git-hooks` tai padaro patys; jei repozitorija jau turi hook'ų tvarkyklę (`core.hooksPath`), tik praneša. Po schemos patikros tas pats hook'as paleidžia projekto `bin/pre-commit`, jei jis yra ([git hook'ai](08-kodo-kokybe.md#f-patikros-prieš-commitą-ir-pushą-git-hookai)).
 
 **Kaip veikia hook'as.** Kiekvieno commit'o metu jis:
 
@@ -85,7 +85,7 @@ git add -A database
 git commit -m "Add supplier code"
 ```
 
-Hook'as veikia toje repozitorijoje, kuriai priklauso schemos katalogas (Forsenoje – aplinkos `app/`, ne parduotuvės `app/public`). Jei repozitorija naudoja `core.hooksPath` arba jau turi savo `pre-commit`, installeris jo neperrašo ir praneša, ką įrašyti rankomis.
+Hook'as veikia toje repozitorijoje, kuriai priklauso schemos katalogas (Forsenoje – aplinkos `app/`, ne parduotuvės `app/public`). Jei repozitorija naudoja `core.hooksPath` arba jau turi kieno nors kito `pre-commit` (ne setup'o), installeris jo neperrašo ir praneša. Savo patikras projektas deda į `bin/pre-commit`, ne į hook'ą.
 
 **Commit'as `git worktree` kopijoje.** Hook'as bendras visoms tos repozitorijos darbo kopijoms (`git worktree add`). Kai commit'ini susietoje kopijoje, nustatymai ir DB lieka pagrindinės kopijos (ten yra `env/local.env` ir veikianti vietinė DB), bet schema eksportuojama į **commit'inamos kopijos** schemos katalogą (tas pats santykinis kelias) ir lyginama su **jos** indeksu; ten pat atsiranda migracijos juodraštis, o pranešimai rodo tos kopijos kelią. Pagrindinė kopija nekeičiama. Hook'as tai praneša eilute `Committing in the worktree …; DB and settings from …`. Jei kopijos šaka turi kitą (pvz. senesnį) snapshot'ą nei DB, commit'as sustabdomas kaip įprasta, o eksportas lieka toje kopijoje peržiūrai.
 

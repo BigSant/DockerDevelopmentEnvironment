@@ -13,15 +13,16 @@ def database_tables(project):
     return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else None
 
 
-def schema_hook(project):
-    """A clean clone gets the schema commit hook too; an existing hook manager is left alone."""
-    if project.environment != 'local' or not project.settings.get('SCHEMA_DIRECTORY'):
+def git_hooks(project):
+    """A clean clone gets the git hooks too (schema check, the project's bin/pre-commit and bin/pre-push);
+    an existing hook manager or a hook somebody else wrote is left alone."""
+    if project.environment != 'local':
         return
-    from database_schema import install_schema_hook
+    from git_hooks import install_git_hooks
     try:
-        install_schema_hook(project)
+        install_git_hooks(project)
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
-        print(f'Schema hook not installed: {error}')
+        print(f'Git hooks not installed: {error}')
 
 
 def run_setup(project, timeout=90):
@@ -31,7 +32,7 @@ def run_setup(project, timeout=90):
     from project_health import start_project
     steps = [
         ('init', lambda p: (initialize_directories(p), p)[1]),
-        ('bootstrap', lambda p: (bootstrap(p), schema_hook(p), p)[2]),
+        ('bootstrap', lambda p: (bootstrap(p), git_hooks(p), p)[2]),
         ('build', lambda p: (p.run(['build', 'php-fpm-base'], profiles='build_only'),
                              p.run(['build', 'php-fpm-core'], profiles='build_only'), p.run(['build']), p)[-1]),
         ('app-prepare', lambda p: (prepare_application(p), p)[1]),

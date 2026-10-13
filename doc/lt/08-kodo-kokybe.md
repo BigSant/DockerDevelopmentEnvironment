@@ -165,6 +165,35 @@ git -C public diff
 
 Pirmos dvi komandos tik tikrina (`--dry-run --diff`). `dir-fix` ir `fix` keičia aplikacijos failus: peržiūrėk jų Git skirtumus. Senam PHP kodui nenaudok taisyklių, kurios generuoja naujesnio PHP sintaksę. Taisyklės: [PHP-CS-Fixer](https://cs.symfony.com/doc/config.html).
 
+## F. Patikros prieš commit'ą ir push'ą (git hook'ai)
+
+Klonas `.git/hooks` neatsineša, todėl hook'us įrašo setup: `make setup` (`ENV=local`, `bootstrap` žingsnyje) ir
+`make git-hooks` (jau veikiančiame klone). Projekto patikros laikomos Git'e, aplinkos repozitorijos `bin/`
+kataloge, o setup'o hook'as jas tik paleidžia:
+
+| Hook'as | Ką paleidžia |
+| --- | --- |
+| `pre-commit` | Setup'o schemos patikrą ([DB kaip kodas](07-duomenu-baze.md#b-schema-git-ir-commit-hookas)), tada `bin/pre-commit`. Nepraėjus schemai projekto scriptas nepaleidžiamas. |
+| `pre-push` | `bin/pre-push`. Git jam perduoda remote'o vardą ir adresą argumentais, o push'inamas šakas – įvestimi (`<vietinė šaka> <sha> <remote šaka> <sha>`). |
+
+- Scriptas turi būti vykdomas (`chmod +x`). Jo išėjimo kodas sustabdo commit'ą ar push'ą.
+- Hook'as scriptą randa tik paleistas, todėl naują ar pakeistą `bin/` scriptą perinstaliuoti nereikia. Tik visai
+  naujam hook'ui (pvz. projektas pirmą kartą pridėjo `bin/pre-push`) paleisk `make git-hooks`.
+- Hook'as nerašomas, jei jam nėra ką paleisti (nei schemos patikros, nei projekto scripto).
+- Kieno nors kito hook'o, symlink'o ar `core.hooksPath` tvarkyklės setup neliečia: praneša ir palieka. Setup'o
+  hook'ą atpažįsta iš žymės `# Shared setup git hook v1` (ir senesnio schemos hook'o) ir perrašo.
+- Kartą praleisti: `git commit --no-verify`, push'o atveju – ta pati `--no-verify` parinktis.
+
+Pavyzdys: projektas, kurio push'as į `master` deploy'ina, `bin/pre-push` faile paleidžia testus tik tokiam push'ui:
+
+```sh
+#!/bin/sh
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$remote_ref" = refs/heads/master ] && exec make phpstan cmd=bitbucket-analysis </dev/null
+done
+exit 0
+```
+
 ## Kur kas laikoma
 
 | Kas | Kur |
