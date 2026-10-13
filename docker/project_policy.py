@@ -255,7 +255,7 @@ def validate_configuration(project):
         version = project.settings.get('PS_VERSION', '')
         if not version:
             raise ValueError('Set PS_VERSION in env/common.env (the PrestaShop version of the shop code)')
-        from project_prestashop import config_file, required_keys
+        from project_prestashop import SHOP_CODE_MISSING, config_file, required_keys, shop_code_missing
         if project.settings.get('SETUP_COMPATIBILITY_CHECK', '') != 'off':
             from compatibility import check
             engine = 'mariadb' if services.get('database', {}).get('image', '').startswith('mariadb-') else 'mysql'
@@ -270,7 +270,9 @@ def validate_configuration(project):
             if missing:
                 raise ValueError(f"No {config_file(root, version).relative_to(root)} yet and no keys to create it: "
                                  f"set {', '.join(missing)} (make bootstrap generates them locally)")
-        if php.get('PS_DEBUG_MODE') and not (root / 'config/defines.inc.php').is_file():
+        if shop_code_missing(root):
+            print(SHOP_CODE_MISSING.format(root))
+        elif php.get('PS_DEBUG_MODE') and not (root / 'config/defines.inc.php').is_file():
             raise ValueError('Restore config/defines.inc.php before setting PS_DEBUG_MODE')
     file = project.directory / 'config/environment.json'
     if file.is_symlink(): raise ValueError('config/environment.json must not be a symlink')

@@ -102,6 +102,20 @@ class ProjectKeysTest(unittest.TestCase):
         self.assertEqual(php['PS_VERSION'], '9.0.2')
         validate_configuration(project)
 
+    def test_debug_mode_waits_for_the_shop_checkout(self):
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('PS_VERSION=9.0.2\nPS_DEBUG_MODE=on\n')
+        ensure_generated_secrets(self.app, 'local')
+        shutil.rmtree(self.app / 'public')
+        (self.app / 'public').mkdir()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            validate_configuration(Project(self.app))
+        self.assertIn('No shop code', output.getvalue())
+        (self.app / 'public/index.php').write_text('<?php\n')
+        with self.assertRaisesRegex(ValueError, 'Restore config/defines.inc.php'):
+            validate_configuration(Project(self.app))
+
     def test_stage_never_generates_keys(self):
         with (self.app / 'env/common.env').open('a') as env:
             env.write('PS_VERSION=9.0.2\n')

@@ -41,6 +41,15 @@ def required_keys(ps_version):
     return keys
 
 
+def shop_code_missing(web_directory):
+    """No checkout yet (missing or empty web directory): PrestaShop steps wait for the clone instead of failing."""
+    path = Path(web_directory)
+    return not path.is_dir() or next(path.iterdir(), None) is None
+
+
+SHOP_CODE_MISSING = 'No shop code in {} yet: PrestaShop preparation skipped; clone the shop repository there and run make up again.'
+
+
 def config_file(web_directory, ps_version):
     return Path(web_directory) / ('config/settings.inc.php' if legacy(ps_version) else 'app/config/parameters.php')
 

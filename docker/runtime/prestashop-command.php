@@ -6,6 +6,11 @@ try {
     $profile = getenv('PROFILE');
     if ($profile !== 'ps' && $profile !== 'prestashop') { echo "PrestaShop checks skipped for this profile.\n"; exit(0); }
     $root = isset($argv[2]) ? rtrim($argv[2], '/') : '/var/www/html';
+    // No checkout yet: write nothing (a generated config would block git clone into the directory).
+    if (!is_dir($root) || !(new FilesystemIterator($root))->valid()) {
+        echo "No shop code in $root yet: PrestaShop preparation skipped; clone the shop repository there and run make up again.\n";
+        exit(0);
+    }
     if (isset($argv[1]) && $argv[1] === 'check') checkPrestashop($root);
     elseif (isset($argv[1]) && $argv[1] === 'validate') validatePrestashop($root, isset($argv[3]) ? $argv[3] : '/opt/setup/project');
     elseif (isset($argv[1]) && $argv[1] === 'policy') applyPrestashopPolicy($root);

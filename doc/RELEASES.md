@@ -6,6 +6,14 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### make up waits for the shop checkout
+
+- **An empty or missing `app/public` no longer stops `make up`** in a PrestaShop project: the preflight and the
+  PHP container's start step print `No shop code in … yet` and skip every PrestaShop step (config generation,
+  `PS_DEBUG_MODE`, policy, cache clear, `make doctor`'s DB probe). Nothing is written there, so `git clone`
+  into the directory still works. A checkout with files but without `config/defines.inc.php` still fails
+  when `PS_DEBUG_MODE` is set. Env checks (`PS_VERSION`, keys, compatibility) run as before.
+
 ### The registry skip rule applies to exports, not imports
 
 - **`make db-import` loads everything the dump holds.** The registry's live rule `skip` no longer leaves data

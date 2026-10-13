@@ -149,8 +149,11 @@ def doctor(project):
     for note in notes:
         print(note)
     if getattr(project, 'settings', {}).get('PROFILE') in ('ps', 'prestashop'):
+        from project_prestashop import shop_code_missing
         running = project.capture(['ps', '--status', 'running', '--services']).split()
-        if 'php-fpm' in running:
+        if shop_code_missing(project.web_directory):
+            pass  # validate_configuration already said the shop code is missing
+        elif 'php-fpm' in running:
             project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'check'])
             print('PrestaShop configuration and database connection: OK')
         else:

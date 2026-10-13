@@ -128,6 +128,18 @@ class PrestashopDebugTest(unittest.TestCase):
         self.file.unlink()
         self.assertIn('Restore', self.prepare(success=False).stderr)
 
+    def test_empty_web_directory_is_skipped_without_writes(self):
+        self.env['PS_DEBUG_MODE'] = 'on'
+        empty = self.root / 'empty'
+        empty.mkdir()
+        for action in ('prepare', 'validate', 'check', 'policy', 'cache-clear'):
+            with self.subTest(action=action):
+                result = self.php(str(ROOT / 'docker/runtime/prestashop-command.php'), action,
+                                  str(empty), str(self.root / 'project-config'))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('No shop code', result.stdout)
+                self.assertEqual(list(empty.iterdir()), [])
+
     def test_symlink_is_rejected_without_changing_target(self):
         target = self.root / 'outside.php'
         self.file.rename(target)

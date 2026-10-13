@@ -181,7 +181,7 @@ PS_DEBUG_MODE=ip
 PS_DEBUG_IPS=192.0.2.10,2001:db8::10
 ```
 
-`PS_DEBUG_IPS` – tikslūs IPv4/IPv6 adresai per kablelį, be portų ir CIDR. Su `ip` sąrašas privalomas. PHP lygina `REMOTE_ADDR`, kurį Apache gauna iš patikimo proxy (žr. [tikras kliento IP](05-servisai.md#ip-apribojimai)). Išjungimui visada rašyk `off` – vien eilutės ištrynimas gali palikti paveldėtą reikšmę. `defines_custom.inc.php` neturi iš anksto apibrėžti `_PS_MODE_DEV_`. `PS_DEBUG_MODE` nustatytas be `config/defines.inc.php` yra klaida.
+`PS_DEBUG_IPS` – tikslūs IPv4/IPv6 adresai per kablelį, be portų ir CIDR. Su `ip` sąrašas privalomas. PHP lygina `REMOTE_ADDR`, kurį Apache gauna iš patikimo proxy (žr. [tikras kliento IP](05-servisai.md#ip-apribojimai)). Išjungimui visada rašyk `off` – vien eilutės ištrynimas gali palikti paveldėtą reikšmę. `defines_custom.inc.php` neturi iš anksto apibrėžti `_PS_MODE_DEV_`. `PS_DEBUG_MODE` nustatytas be `config/defines.inc.php` yra klaida. Išimtis – tuščias ar dar neegzistuojantis `app/public`: tada `make up` parašo `No shop code in … yet`, praleidžia visus PrestaShop žingsnius ir nieko ten neįrašo, kad `git clone` į tą katalogą veiktų.
 
 ## Kitos aplikacijos ir startup scriptai
 
