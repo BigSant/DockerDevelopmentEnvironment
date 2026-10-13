@@ -42,11 +42,12 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.init.chmod(0o755)
         os.chmod(self.directory, 0o755)
 
-    def start(self, extras=EXTRAS, root_password=ROOT_PASSWORD, database="shop"):
+    def start(self, extras=EXTRAS, root_password=ROOT_PASSWORD, database="shop", tests=""):
         self.name = f"setup-db-schemas-{uuid.uuid4().hex[:8]}"
         subprocess.run(["docker", "run", "-d", "--rm", "--name", self.name, "--network", "none", "--tmpfs", "/var/lib/mysql",
                         "-e", f"MYSQL_ROOT_PASSWORD={root_password}", "-e", f"MYSQL_DATABASE={database}", "-e", "MYSQL_USER=shop",
                         "-e", f"MYSQL_PASSWORD={APP_PASSWORD}", "-e", f"DATABASE_EXTRA_SCHEMAS={extras}",
+                        "-e", f"DATABASE_TEST_SCHEMAS={tests}",
                         "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off",
                         "-v", f"{self.init}:/docker-entrypoint-initdb.d/01-init-app-user.sh:ro", IMAGE],
                        check=True, capture_output=True)
@@ -134,6 +135,41 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
             self.assertIn("shop and 2 extra schemas only", result.stdout)
         self.assertEqual(self.root("SELECT id FROM shop_graph.kept"), ["7"])
         self.assertNotEqual(self.sql("root", APP_PASSWORD, "SELECT 1").returncode, 0)
+        self.assert_owns_listed_schemas_only()
+
+    def assert_manages_test_schemas_only(self):
+        """The application user creates, fills and drops what the shop*_test pattern names, and nothing else."""
+        for schema in ("shop_test", "shop_graph_test", "shop_x1_test"):
+            with self.subTest(schema=schema):
+                result = self.app(f"CREATE DATABASE {schema}; CREATE TABLE {schema}.t (id INT); INSERT INTO {schema}.t VALUES (1);"
+                                  f"SELECT COUNT(*) FROM {schema}.t; DROP DATABASE {schema};")
+                self.assertEqual((result.returncode, result.stdout.split()), (0, ["1"]), result.stderr)
+        for query in ("CREATE DATABASE other_test", "CREATE DATABASE shop_test_copy", "CREATE DATABASE shop_testing",
+                      "CREATE DATABASE elsewhere"):
+            with self.subTest(query=query):
+                self.assertNotEqual(self.app(query).returncode, 0, f"{query} must be refused")
+        grants = self.app("SHOW GRANTS FOR CURRENT_USER()").stdout
+        self.assertNotIn("GRANT OPTION", grants)
+        self.assertNotIn("ALL PRIVILEGES ON *.*", grants)
+
+    def test_first_start_grants_the_test_schema_patterns_without_creating_them(self):
+        self.start(tests="shop*_test")
+        self.assertFalse([name for name in self.root("SHOW DATABASES") if name.endswith("_test")])
+        self.assert_manages_test_schemas_only()
+        self.root("CREATE DATABASE other; CREATE TABLE other.secret (id INT); INSERT INTO other.secret VALUES (1);")
+        self.assert_owns_listed_schemas_only()
+
+    def test_restrict_grants_adds_the_test_schema_patterns(self):
+        self.start(extras="", root_password=APP_PASSWORD)
+        self.root("GRANT ALL PRIVILEGES ON *.* TO 'shop'@'%' WITH GRANT OPTION;"
+                  "CREATE DATABASE other; CREATE TABLE other.secret (id INT); INSERT INTO other.secret VALUES (1);",
+                  password=APP_PASSWORD)
+        result = subprocess.run(["docker", "exec", "-e", f"MYSQL_ROOT_PASSWORD={ROOT_PASSWORD}", self.name,
+                                 "sh", "-c", RESTRICT, "restrict-grants", *EXTRAS.split(), "--test", "shop*_test"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("shop and 2 extra schemas (+ 1 test schema patterns) only", result.stdout)
+        self.assert_manages_test_schemas_only()
         self.assert_owns_listed_schemas_only()
 
     def project(self, extras=EXTRAS):

@@ -6,6 +6,15 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+### DATABASE_TEST_SCHEMAS
+
+- **Schemas an application's own tests create and drop** get the application user's privileges without becoming
+  project schemas: `DATABASE_TEST_SCHEMAS="asana*_test"` (names end in `_test`, `*` is a wildcard) is granted on a
+  first database start and by `make db-restrict-grants` (after a `--test` marker in its arguments), but never
+  created, and the snapshot, backups, imports, the table registry and migrations ignore it. Listing such schemas in
+  `DATABASE_EXTRA_SCHEMAS` put every test table into the snapshot. Local and test only: the runner refuses it on
+  stage/prod.
+
 ### PrestaShop .htaccess
 
 - **Setup writes the shop's `.htaccess`** with PrestaShop's `Tools::generateHtaccess()` in the running php-fpm:

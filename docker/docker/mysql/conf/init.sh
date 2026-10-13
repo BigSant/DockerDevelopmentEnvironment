@@ -34,6 +34,21 @@ GRANT ALL PRIVILEGES ON \`${pattern}\`.* TO '${sql_user}'@'localhost';
 GRANT ALL PRIVILEGES ON \`${pattern}\`.* TO '${sql_user}'@'%';
 "
 done
+# DATABASE_TEST_SCHEMAS: schemas the application's own tests create and drop. Granted like the extra
+# schemas but never created; every name ends in _test and * is a wildcard (% in the grant). Local and
+# test only: the runner refuses the setting on stage/prod.
+read -r -a test_schemas <<< "${DATABASE_TEST_SCHEMAS:-}"
+for schema in ${test_schemas[@]+"${test_schemas[@]}"}; do
+    if [[ ! $schema =~ ^[A-Za-z0-9_*]{1,59}_test$ ]]; then
+        echo "DATABASE_TEST_SCHEMAS: invalid name; use letters, digits, _ or * and end it in _test" >&2
+        exit 64
+    fi
+    pattern=${schema//_/\\_}
+    pattern=${pattern//\*/%}
+    extra_sql+="GRANT ALL PRIVILEGES ON \`${pattern}\`.* TO '${sql_user}'@'localhost';
+GRANT ALL PRIVILEGES ON \`${pattern}\`.* TO '${sql_user}'@'%';
+"
+done
 MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --protocol=socket --host=localhost --user=root <<EOSQL
 SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';
 CREATE USER IF NOT EXISTS '${sql_user}'@'localhost' IDENTIFIED BY '${sql_password}';

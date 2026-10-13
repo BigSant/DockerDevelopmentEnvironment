@@ -19,7 +19,7 @@ from project_ide import initialize_ide, refresh_ide
 from project_health import start_project
 from project_metrics import check_token, resolve_metrics
 from database_backup import backup_database
-from database_client import extra_schemas
+from database_client import extra_schemas, test_schemas
 from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS
 from setup_release import image_suffixes, setup_info, suffix_variable
 from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolve_policy, suggested_limits, validate_configuration
@@ -222,6 +222,9 @@ class Project:
         if settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
             raise ValueError("DATABASE_ROOT_PASSWORD must differ from DATABASE_PASSWORD")
         extra_schemas(settings)
+        if test_schemas(settings) and environment in ('stage', 'prod'):
+            raise ValueError(f'DATABASE_TEST_SCHEMAS is for local and test only: tests never run on the '
+                             f'ENV={environment} database')
         name = settings.get("PROJECT_NAME", "")
         if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
             raise ValueError(f"Set a valid lowercase PROJECT_NAME in {common_env}")

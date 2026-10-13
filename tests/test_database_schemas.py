@@ -16,11 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from create_project import scaffold
 from database_backup import backup_database
-from database_client import DUMP, extra_schemas
+from database_client import DUMP, extra_schemas, test_schemas
 from database_grants import RESTRICT, restrict_grants
 from database_import import check_dump_tables, dump_tables, filter_dump, plan_import
 from project import Project
 
+# A server env file with the limits and secrets stage/prod require.
+REMOTE = ("PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n"
+          "PROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n"
+          "DATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test-only\n")
 INIT_SCRIPTS = {"mysql": ROOT / "docker/docker/mysql/conf/init.sh", "mariadb": ROOT / "docker/docker/mariadb/conf/init.sh"}
 # What the first-start hook ran before extra schemas existed; a project without them still runs exactly this.
 INIT_SQL = ("SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';\n"
@@ -76,6 +80,28 @@ class ExtraSchemaSettingTest(unittest.TestCase):
                 extra_schemas({"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": value})
 
 
+class TestSchemaSettingTest(unittest.TestCase):
+    SETTINGS = {"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph"}
+
+    def test_names_and_wildcards_ending_in_test_are_kept_in_order(self):
+        self.assertEqual(test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": " asana*_test\tasana_probe_test "}),
+                         ["asana*_test", "asana_probe_test"])
+        self.assertEqual(test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": ""}), [])
+        self.assertEqual(test_schemas(self.SETTINGS), [])
+
+    def test_a_name_that_could_reach_a_real_schema_is_rejected(self):
+        for value in ("asana", "asana_graph", "_test", "asana_test_copy", "asana-x_test", "a;b_test", "`x`_test",
+                      "a%_test", "a/b_test", "ą_test", "x" * 60 + "_test", "asana*_test asana*_test"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": value})
+
+    def test_the_main_database_and_extra_schemas_are_not_test_schemas(self):
+        for settings in ({"DATABASE_NAME": "app_test", "DATABASE_TEST_SCHEMAS": "app_test"},
+                         {"DATABASE_NAME": "app", "DATABASE_EXTRA_SCHEMAS": "app_x_test", "DATABASE_TEST_SCHEMAS": "app_x_test"}):
+            with self.subTest(settings=settings), self.assertRaisesRegex(ValueError, "must not repeat"):
+                test_schemas(settings)
+
+
 class ExtraSchemaModelTest(unittest.TestCase):
     def setUp(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -97,6 +123,23 @@ class ExtraSchemaModelTest(unittest.TestCase):
                 self.assertEqual(database["environment"]["DATABASE_EXTRA_SCHEMAS"], "demo_graph demo_git")
                 self.assertEqual(extra_schemas(project.settings), ["demo_graph", "demo_git"])
 
+    def test_the_database_service_receives_the_test_schemas_for_both_engines(self):
+        self.configure('DATABASE_TEST_SCHEMAS="demo*_test"\n')
+        for engine in ("mysql", "mariadb"):
+            with self.subTest(engine=engine):
+                if engine == "mariadb":
+                    self.configure("DATABASE_ENGINE=mariadb\n")
+                database = Project(self.app).model()["services"]["database"]
+                self.assertEqual(database["environment"]["DATABASE_TEST_SCHEMAS"], "demo*_test")
+
+    def test_test_schemas_are_refused_on_stage_and_prod(self):
+        self.configure('DATABASE_TEST_SCHEMAS="demo*_test"\n')
+        for environment in ("stage", "prod"):
+            with self.subTest(environment=environment):
+                (self.app / f"env/{environment}.env").write_text(REMOTE)
+                with self.assertRaisesRegex(ValueError, f"DATABASE_TEST_SCHEMAS is for local and test only.*ENV={environment}"):
+                    Project(self.app, environment)
+
     def test_without_the_setting_the_list_is_empty(self):
         project = Project(self.app)
         self.assertEqual(project.model()["services"]["database"]["environment"]["DATABASE_EXTRA_SCHEMAS"], "")
@@ -109,14 +152,18 @@ class ExtraSchemaModelTest(unittest.TestCase):
 
 
 class FirstStartScriptTest(unittest.TestCase):
-    def run_init(self, engine, extras=None):
+    def run_init(self, engine, extras=None, tests=None):
         directory = scratch_directory(self)
         log = fake_clients(directory)
+        # A file a * pattern would match if the hook let the shell expand it.
+        (directory / "asana_glob_test").write_text("")
         env = {"PATH": f"{directory / 'bin'}:/usr/bin:/bin", "MYSQL_USER": "app", "MYSQL_PASSWORD": "app-secret",
                "MYSQL_DATABASE": "asana", "MYSQL_ROOT_PASSWORD": "root-secret"}
         if extras is not None:
             env["DATABASE_EXTRA_SCHEMAS"] = extras
-        result = subprocess.run(["bash", str(INIT_SCRIPTS[engine])], env=env, capture_output=True, text=True)
+        if tests is not None:
+            env["DATABASE_TEST_SCHEMAS"] = tests
+        result = subprocess.run(["bash", str(INIT_SCRIPTS[engine])], env=env, cwd=directory, capture_output=True, text=True)
         return result, calls(log)
 
     def test_without_extra_schemas_the_hook_runs_the_same_sql_as_before(self):
@@ -143,6 +190,29 @@ class FirstStartScriptTest(unittest.TestCase):
                 self.assertNotIn("*.*", sql)
                 self.assertNotIn("GRANT OPTION", sql)
                 self.assertTrue(sql.rstrip().endswith("FLUSH PRIVILEGES;"))
+
+    def test_test_schemas_are_granted_as_patterns_and_never_created(self):
+        for engine in INIT_SCRIPTS:
+            with self.subTest(engine=engine):
+                result, executed = self.run_init(engine, "asana_graph", "asana*_test asana_probe_test")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                sql = executed[0][1]
+                self.assertTrue(sql.startswith(INIT_SQL), sql)
+                for pattern in (r"asana%\_test", r"asana\_probe\_test"):
+                    for host in ("localhost", "%"):
+                        self.assertIn(f"GRANT ALL PRIVILEGES ON `{pattern}`.* TO 'app'@'{host}';", sql)
+                self.assertEqual(sql.count("CREATE DATABASE"), 1, "only the extra schema is created")
+                self.assertNotIn("glob", sql)
+                self.assertNotIn("*.*", sql)
+
+    def test_an_invalid_test_schema_fails_before_any_sql(self):
+        for engine in INIT_SCRIPTS:
+            for tests in ("asana*", "x`;DROP DATABASE asana;--_test", "a-b_test"):
+                with self.subTest(engine=engine, tests=tests):
+                    result, executed = self.run_init(engine, tests=tests)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("DATABASE_TEST_SCHEMAS", result.stderr)
+                    self.assertEqual(executed, [])
 
     def test_an_invalid_name_fails_before_any_sql(self):
         for engine in INIT_SCRIPTS:
@@ -189,9 +259,11 @@ class RestrictScriptTest(unittest.TestCase):
     def run_restrict(self, *schemas):
         directory = scratch_directory(self)
         log = fake_clients(directory)
+        (directory / "asana_glob_test").write_text("")  # what a * pattern would match if the shell expanded it
         env = {"PATH": f"{directory / 'bin'}:/usr/bin:/bin", "MYSQL_USER": "app", "MYSQL_PASSWORD": "app-secret",
                "MYSQL_DATABASE": "asana", "MYSQL_ROOT_PASSWORD": "root-secret"}
-        result = subprocess.run(["sh", "-c", RESTRICT, "restrict-grants", *schemas], env=env, capture_output=True, text=True)
+        result = subprocess.run(["sh", "-c", RESTRICT, "restrict-grants", *schemas], env=env, cwd=directory,
+                                capture_output=True, text=True)
         return result, calls(log)
 
     def grant_statements(self, executed):
@@ -222,6 +294,29 @@ class RestrictScriptTest(unittest.TestCase):
         self.assertNotIn("CREATE DATABASE", sql)
         self.assertIn("app has privileges on asana only", result.stdout)
 
+    def test_test_schemas_after_the_marker_are_granted_and_never_created(self):
+        result, executed = self.run_restrict("asana_graph", "--test", "asana*_test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sql = self.grant_statements(executed)
+        for host in ("%", "localhost"):
+            self.assertIn(f"GRANT ALL PRIVILEGES ON `asana%\\_test`.* TO 'app'@'{host}';", sql)
+        self.assertEqual(sql.count("CREATE DATABASE"), 1)
+        self.assertNotIn("glob", sql)
+        self.assertEqual(sql.count("GRANT ALL PRIVILEGES"), 6)
+        self.assertIn("asana and 1 extra schemas (+ 1 test schema patterns) only", result.stdout)
+
+    def test_test_schemas_alone_keep_the_main_database_message(self):
+        result, _ = self.run_restrict("--test", "asana*_test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("app has privileges on asana (+ 1 test schema patterns) only", result.stdout)
+
+    def test_an_invalid_test_schema_changes_nothing(self):
+        for name in ("asana*", "asana_graph", "x`;DROP DATABASE asana;--_test", "_test", "a-b_test"):
+            with self.subTest(name=name):
+                result, executed = self.run_restrict("asana_graph", "--test", name)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(executed, [])
+
     def test_an_invalid_name_changes_nothing(self):
         for name in ("bad-name", "x`;DROP DATABASE asana;--", ""):
             with self.subTest(name=name):
@@ -236,6 +331,15 @@ class RestrictScriptTest(unittest.TestCase):
         restrict_grants(project)
         self.assertEqual(commands, [["exec", "-T", "database", "sh", "-c", RESTRICT, "restrict-grants",
                                      "asana_graph", "asana_git"]])
+
+    def test_the_runner_passes_test_schemas_after_the_marker(self):
+        commands = []
+        project = SimpleNamespace(settings={"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph",
+                                            "DATABASE_TEST_SCHEMAS": "asana*_test"},
+                                  capture=lambda args: "database\n", run=commands.append)
+        restrict_grants(project)
+        self.assertEqual(commands, [["exec", "-T", "database", "sh", "-c", RESTRICT, "restrict-grants",
+                                     "asana_graph", "--test", "asana*_test"]])
 
 
 class FakeDump:

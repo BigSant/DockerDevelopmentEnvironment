@@ -382,6 +382,16 @@ Vardai – raidės, skaitmenys ir `_` (iki 64 simbolių), be pasikartojimų, ne 
 
 **Jau veikianti DB.** Schemos kuriamos tik pirmą kartą paleidžiant tuščią DB. Jei schemą įrašai į sąrašą vėliau, paleisk `make db-restrict-grants`: jis sukurs schemą ir suteiks teises. Iš sąrašo išbrauktos schemos teisės savaime neatimamos.
 
+### Testų schemos
+
+Jei aplikacijos testai patys kuria ir trina savo DB (pvz. asana.local testai – `<schema>_test` kiekvienai schemai), išvardink jas `env/local.env`, ne `DATABASE_EXTRA_SCHEMAS`:
+
+```dotenv
+DATABASE_TEST_SCHEMAS="asana*_test"
+```
+
+Vardas turi baigtis `_test`, `*` – bet kokie simboliai, todėl šablonas negali pasiekti tikros schemos. Aplikacijos vartotojas gauna teises į atitinkančias schemas, bet setup jų **nekuria** ir niekur kitur neliečia: jų nėra snapshot'e, kopijoje, importe, registre ir migracijose. Teisės suteikiamos pirmą kartą paleidžiant tuščią DB ir per `make db-restrict-grants`. Stage/prod runner'is šio nustatymo nepriima – testai serverio DB nevyksta.
+
 ## Senos DB teisės
 
 Prieš v2 sukurtoje DB aplikacijos vartotojas galėjo turėti teises į visą serverį. Vieną kartą susiaurink:

@@ -4,11 +4,23 @@
 # application user ALL PRIVILEGES ON *.* WITH GRANT OPTION and used the application
 # password for root. Afterwards root uses DATABASE_ROOT_PASSWORD (MYSQL_ROOT_PASSWORD
 # in the container) and the application user has all privileges on its database only, plus the
-# extra schemas (DATABASE_EXTRA_SCHEMAS) passed as arguments, which are created when missing.
+# extra schemas (DATABASE_EXTRA_SCHEMAS) passed as arguments, which are created when missing. Arguments after
+# --test are DATABASE_TEST_SCHEMAS patterns (ending in _test, * as a wildcard): granted, never created.
 RESTRICT = r'''
 set -eu
+set -f  # test schema patterns carry *, which must never expand to file names here
+extras=; tests=; extra_count=0; test_count=0; section=extra
 for schema in "$@"; do  # checked before any change; names also go into SQL and grant patterns
-    case $schema in ''|*[!A-Za-z0-9_]*) echo "Invalid extra schema name: $schema" >&2; exit 64 ;; esac
+    if [ "$section" = extra ] && [ "$schema" = --test ]; then section=test; continue; fi
+    if [ "$section" = extra ]; then
+        case $schema in ''|*[!A-Za-z0-9_]*) echo "Invalid extra schema name: $schema" >&2; exit 64 ;; esac
+        extras="$extras $schema"; extra_count=$((extra_count + 1))
+    else
+        case $schema in ?*_test) ;; *) echo "Invalid test schema name: $schema" >&2; exit 64 ;; esac
+        case ${schema%_test} in *[!A-Za-z0-9_*]*) echo "Invalid test schema name: $schema" >&2; exit 64 ;; esac
+        [ "${#schema}" -le 64 ] || { echo "Invalid test schema name: $schema" >&2; exit 64; }
+        tests="$tests $schema"; test_count=$((test_count + 1))
+    fi
 done
 client=$(command -v mariadb || command -v mysql)
 run() {  # run USER PASSWORD SQL — socket first (root@localhost), then TCP ('%' accounts)
@@ -42,21 +54,27 @@ for host in $root_hosts; do statements="$statements ALTER USER 'root'@'$host' ID
 run "$login_user" "$login_password" "$statements"
 # Revoking ALL at the global level also drops database-level grants, so grant afterwards.
 statements="SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';"
-for schema in "$@"; do statements="$statements CREATE DATABASE IF NOT EXISTS \`$schema\`;"; done
+for schema in $extras; do statements="$statements CREATE DATABASE IF NOT EXISTS \`$schema\`;"; done
 for host in $user_hosts; do
     statements="$statements REVOKE ALL PRIVILEGES ON *.* FROM '$user'@'$host'; REVOKE GRANT OPTION ON *.* FROM '$user'@'$host';"
     statements="$statements GRANT ALL PRIVILEGES ON \`$database\`.* TO '$user'@'$host';"
-    for schema in "$@"; do
+    for schema in $extras; do
         # Escaped _: an unescaped _ in a database grant matches any character.
         pattern=$(printf "%s" "$schema" | sed 's/_/\\_/g')
         statements="$statements GRANT ALL PRIVILEGES ON \`$pattern\`.* TO '$user'@'$host';"
     done
+    for schema in $tests; do
+        pattern=$(printf "%s" "$schema" | sed 's/_/\\_/g; s/\*/%/g')
+        statements="$statements GRANT ALL PRIVILEGES ON \`$pattern\`.* TO '$user'@'$host';"
+    done
 done
 run root "$MYSQL_ROOT_PASSWORD" "$statements"
-if [ $# -eq 0 ]; then
-    echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE only (changed as $login_user)."
+note=
+[ "$test_count" -eq 0 ] || note=" (+ $test_count test schema patterns)"
+if [ "$extra_count" -eq 0 ]; then
+    echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE$note only (changed as $login_user)."
 else
-    echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE and $# extra schemas only (changed as $login_user)."
+    echo "Root uses DATABASE_ROOT_PASSWORD; $MYSQL_USER has privileges on $MYSQL_DATABASE and $extra_count extra schemas$note only (changed as $login_user)."
 fi
 '''
 
@@ -65,8 +83,10 @@ def restrict_grants(project):
     running = project.capture(['ps', '--status', 'running', '--services']).split()
     if 'database' not in running:
         raise ValueError('Start the database first (make up or make db-prepare)')
-    from database_client import extra_schemas
-    project.run(['exec', '-T', 'database', 'sh', '-c', RESTRICT, 'restrict-grants', *extra_schemas(project.settings)])
+    from database_client import extra_schemas, test_schemas
+    tests = test_schemas(project.settings)
+    project.run(['exec', '-T', 'database', 'sh', '-c', RESTRICT, 'restrict-grants', *extra_schemas(project.settings),
+                 *(['--test', *tests] if tests else [])])
 
 
 # The DB monitor account: query statistics only (performance_schema, sys, PROCESS), no project data.

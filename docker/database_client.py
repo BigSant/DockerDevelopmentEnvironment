@@ -27,6 +27,31 @@ def extra_schemas(settings):
     return names
 
 
+# A test schema name: letters, digits, _ and the * wildcard, ending in _test.
+TEST_SCHEMA = re.compile(r'[A-Za-z0-9_*]{1,59}_test')
+
+
+def test_schemas(settings):
+    """DATABASE_TEST_SCHEMAS as a list: schemas the application's own tests create and drop.
+
+    The application user is granted them like the extra schemas, but nothing else of setup touches them:
+    no snapshot, backup, import, registry or migration, and they are not created. `*` matches any
+    characters (`asana*_test` covers `asana_test` and `asana_graph_x1_test`); every name ends in `_test`,
+    so a pattern cannot reach a real schema. Local and test only (project.py refuses it on stage/prod).
+    """
+    names = str(settings.get('DATABASE_TEST_SCHEMAS') or '').split()
+    for name in names:
+        if not TEST_SCHEMA.fullmatch(name):
+            raise ValueError(f'DATABASE_TEST_SCHEMAS: {name!r} is not allowed; use 1-64 letters, digits, _ or * '
+                             'and end the name in _test')
+    if len(set(names)) != len(names):
+        raise ValueError('DATABASE_TEST_SCHEMAS lists a schema twice')
+    taken = [name for name in names if name == settings.get('DATABASE_NAME') or name in extra_schemas(settings)]
+    if taken:
+        raise ValueError(f"DATABASE_TEST_SCHEMAS must not repeat DATABASE_NAME or DATABASE_EXTRA_SCHEMAS: {', '.join(taken)}")
+    return names
+
+
 CLIENT = '''
 set -eu
 if [ "$MYSQL_DATABASE" != "$1" ]; then
