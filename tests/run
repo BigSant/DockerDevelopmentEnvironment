@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Run setup's tests the way CI does and exit with the suite's status.
+
+  tests/run                          the A level: every test that needs no container (B tests skip themselves)
+  tests/run test_deploy test_cron    only these test modules
+  tests/run --database mysql:8.4     the database B level against that server (CI: mysql:5.7, mysql:8.4, mariadb:11.4)
+  tests/run --release                the release B level: deploy-images into a throwaway Docker daemon
+  tests/run --verbose …              stream the whole unittest output (CI uses it)
+
+Prints the summary and the names of failing tests; the whole log is in .test-work/last-run.log. Images a B level
+needs are pulled (the server, docker:27-dind) or built from this checkout (setup's database image of the same
+server version, the PHP policy and Doctrine images) when they are missing.
+"""
+
+import argparse
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+LOG = ROOT / '.test-work/last-run.log'
+DIND = 'docker:27-dind'
+SUPPORT_IMAGES = {
+    'setup-php-policy-test': ['-f', 'tests/fixtures/php-policy.Dockerfile', '.'],
+    'setup-doctrine-diff-test': ['--build-arg', 'PHP_VERSION=8.3', '--build-arg', 'COMPOSER_VERSION=2.7.6',
+                                 '--build-arg', 'DOCTRINE_MIGRATIONS_VERSION=3.8',
+                                 '-f', 'docker/docker/php-doctrine-migrations/Dockerfile', 'docker'],
+}
+
+
+def ensure(image, build=None):
+    """Pull image, or build it from this checkout with the docker build arguments given, unless it is here."""
+    if subprocess.run(['docker', 'image', 'inspect', image], capture_output=True).returncode == 0:
+        return
+    print(f'==> {"building" if build else "pulling"} {image}', flush=True)
+    command = ['docker', 'build', '-q', '-t', image, *build] if build else ['docker', 'pull', '-q', image]
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    if result.returncode:
+        sys.exit(f'tests/run: cannot get {image}: {(result.stderr or result.stdout).strip()[-300:]}')
+
+
+def database_environment(server):
+    """The variables the database B tests read, for one server image; its images are made ready."""
+    engine, _, version = server.partition(':')
+    if engine not in ('mysql', 'mariadb') or not version:
+        sys.exit('tests/run: --database takes mysql:<version> or mariadb:<version>')
+    ensure(server)
+    setup_image = f'setup-{engine}-test:{version}'
+    ensure(setup_image, ['--build-arg', f'{engine.upper()}_VERSION={version}', '--target', 'env-local',
+                         '-f', f'docker/docker/{engine}/Dockerfile', 'docker'])
+    for image, build in SUPPORT_IMAGES.items():
+        ensure(image, build)
+    # SETUP_MYSQL_IMAGE takes setup's MySQL or MariaDB image (most B tests read only it);
+    # SETUP_MARIADB_IMAGE is the guarded-migration test's second engine.
+    return {'SETUP_DB_TEST_IMAGE': server, 'SETUP_MYSQL_IMAGE': setup_image, f'SETUP_{engine.upper()}_IMAGE': setup_image,
+            'SETUP_MYSQL_FIXTURES_INTEGRATION': '1', 'SETUP_MYSQL_SCHEMA_INTEGRATION': '1',
+            'SETUP_PHP_DB_TEST_IMAGE': 'setup-php-policy-test', 'SETUP_DOCTRINE_TEST_IMAGE': 'setup-doctrine-diff-test'}
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Run setup\'s tests the way CI does.')
+    parser.add_argument('modules', nargs='*', help='test modules (test_deploy or tests/test_deploy.py); default: all')
+    level = parser.add_mutually_exclusive_group()
+    level.add_argument('--database', metavar='SERVER', help='database B level against SERVER (mysql:8.4, mariadb:11.4)')
+    level.add_argument('--release', action='store_true', help='release B level against a throwaway Docker daemon')
+    parser.add_argument('--verbose', action='store_true', help='stream the whole output')
+    args = parser.parse_args()
+    environment = dict(os.environ)
+    pattern = 'test*.py'
+    if args.database:
+        environment.update(database_environment(args.database))
+        pattern = 'test_database_*integration.py'
+    elif args.release:
+        ensure(DIND)
+        environment['SETUP_DIND_IMAGE'] = DIND
+        pattern = 'test_release_integration.py'
+    names = ['tests.' + Path(module).stem for module in args.modules]
+    command = [sys.executable, '-m', 'unittest', '-v', *names] if names else \
+        [sys.executable, '-m', 'unittest', 'discover', '-v', '-s', 'tests', '-p', pattern]
+    LOG.parent.mkdir(exist_ok=True)
+    with LOG.open('w') as log:
+        process = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True)
+        for line in process.stdout:
+            log.write(line)
+            if args.verbose:
+                print(line, end='', flush=True)
+        status = process.wait()
+    if not args.verbose:
+        lines = LOG.read_text().splitlines()
+        print('\n'.join(line for line in lines if re.match(r'(Ran |OK|FAILED|FAIL:|ERROR:)', line)))
+        if status:
+            print(f'Full log: {LOG}')
+    return status
+
+
+if __name__ == '__main__':
+    sys.exit(main())

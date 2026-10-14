@@ -32,7 +32,7 @@ class SkippedTableImportIntegrationTest(unittest.TestCase):
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", self.name], capture_output=True)
         deadline = time.time() + 120
         while time.time() < deadline:
-            if subprocess.run(["docker", "exec", self.name, "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"],
+            if subprocess.run(["docker", "exec", self.name, "sh", "-c", 'exec "$(command -v mariadb-admin || command -v mysqladmin)" ping -h 127.0.0.1 --silent'],
                               capture_output=True).returncode == 0 and self.client("", b"SELECT 1").returncode == 0:
                 return
             time.sleep(2)

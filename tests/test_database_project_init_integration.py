@@ -24,7 +24,7 @@ class DatabaseProjectInitIntegrationTest(unittest.TestCase):
                 "CREATE TABLE ${DATABASE_NAME}_marker (domain VARCHAR(64));\n"
                 "INSERT INTO ${DATABASE_NAME}_marker VALUES ('${DOMAIN}');\n")
             (config / "init.d/020-script.sh").write_text(
-                'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot "$MYSQL_DATABASE" '
+                'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" "$(command -v mariadb || command -v mysql)" --protocol=socket -uroot "$MYSQL_DATABASE" '
                 '-e "INSERT INTO example_marker VALUES (\'from-script\')"\n')
             (config / "zz-test.cnf").write_text("[mysqld]\nmax_connections=321\n")
             os.chmod(temporary, 0o755)
@@ -42,12 +42,12 @@ class DatabaseProjectInitIntegrationTest(unittest.TestCase):
 
             def sql(query):
                 return subprocess.run(["docker", "exec", name, "sh", "-c",
-                                       f'MYSQL_PWD=root-test-only mysql -uroot -N -e "{query}" example'],
+                                       f'MYSQL_PWD=root-test-only "$(command -v mariadb || command -v mysql)" -uroot -N -e "{query}" example'],
                                       capture_output=True, text=True)
             deadline = time.time() + 120
             # The final server (not the init server) answers on TCP once initialisation finished.
             while time.time() < deadline:
-                ready = subprocess.run(["docker", "exec", name, "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"],
+                ready = subprocess.run(["docker", "exec", name, "sh", "-c", 'exec "$(command -v mariadb-admin || command -v mysqladmin)" ping -h 127.0.0.1 --silent'],
                                        capture_output=True)
                 if ready.returncode == 0 and sql("SELECT 1").returncode == 0:
                     break
@@ -72,7 +72,7 @@ class DatabaseGrantsIntegrationTest(unittest.TestCase):
         deadline = time.time() + 120
         while time.time() < deadline:
             if self.sql(name, "root", root_password, "SELECT 1").returncode == 0 and \
-                    subprocess.run(["docker", "exec", name, "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"],
+                    subprocess.run(["docker", "exec", name, "sh", "-c", 'exec "$(command -v mariadb-admin || command -v mysqladmin)" ping -h 127.0.0.1 --silent'],
                                    capture_output=True).returncode == 0:
                 return name
             time.sleep(2)
@@ -80,7 +80,7 @@ class DatabaseGrantsIntegrationTest(unittest.TestCase):
 
     def sql(self, name, user, password, query, env=()):
         return subprocess.run(["docker", "exec", *env, name, "sh", "-c",
-                               f'MYSQL_PWD="{password}" mysql --protocol=TCP -h127.0.0.1 -u{user} -N -e "{query}"'],
+                               f'MYSQL_PWD="{password}" "$(command -v mariadb || command -v mysql)" --protocol=TCP -h127.0.0.1 -u{user} -N -e "{query}"'],
                               capture_output=True, text=True)
 
     def test_new_database_scopes_the_application_user(self):
