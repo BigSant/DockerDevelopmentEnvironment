@@ -193,7 +193,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   `CREATE DATABASE IF NOT EXISTS` + `USE` per schema), so a restore recreates each under its own name;
   an import refuses a dump that `USE`s any other schema; `db-restrict-grants` grants (and creates) them.
   The registry, snapshot, migrations and after-import cover them; the data set, `db-load` and the Doctrine
-  diff stay on `DATABASE_NAME`. Without the setting nothing changes.
+  diff stay on `DATABASE_NAME`. Without the setting nothing changes. An extra schema's table is named
+  `schema.table` (manifest, registry, backups), read only by `database_client.split_name`; each per-schema
+  directory stays with its module (`doc/adr/0001-schema-topology-stays-with-its-modules.md`).
 - Base data set (`make db-dataset`, local only): registry rules + recipe (product sample, slice
   conditions), personal columns faked, credentials blanked, rows sorted by key, one row per line.
   The output is deterministic. `make db-load set=dev` loads snapshot + set + fixtures.
