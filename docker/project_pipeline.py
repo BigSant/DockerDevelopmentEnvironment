@@ -38,8 +38,8 @@ import re
 import subprocess
 import sys
 
-from project_env_files import (TARGET_KEYS, file_settings, names_setting, needed_setup_version, project_root,
-                               read_dotenv, target_file, target_settings)
+from project_env_files import (TARGET_KEYS, TOOL_PASSWORDS, file_settings, hides_process_value, names_setting,
+                               needed_setup_version, project_root, read_dotenv, target_file, target_settings)
 from project_prestashop import is_prestashop
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
@@ -162,9 +162,8 @@ def deployment_variables(directory, environment):
     DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES and every APP_ENVIRONMENT name the env files
     leave to the process.
     A name the env files set is not a Deployment variable (the file wins); one they leave blank hides
-    the Deployment variable, which only setup's own secrets survive (project.PROCESS_SECRETS).
+    the Deployment variable, which only setup's own secrets survive (hides_process_value).
     """
-    from project import PROCESS_SECRETS, TOOL_PASSWORDS
     from project_prestashop import required_keys
     values, mentioned = file_settings(directory, environment)
     services = str(values.get('SERVICES') or '').split()
@@ -186,10 +185,9 @@ def deployment_variables(directory, environment):
         for name in names:
             if name in listed:
                 continue
-            if name in mentioned and mentioned[name] != '':
-                continue
-            if name in mentioned and name not in PROCESS_SECRETS:
-                hidden.append(name)
+            if name in mentioned and hides_process_value(name, mentioned[name]):
+                if mentioned[name] == '':
+                    hidden.append(name)  # A blank line would hide the Deployment variable.
                 continue
             listed[name] = {'required': required, 'secured': name not in plain, 'source': source}
     if hidden:

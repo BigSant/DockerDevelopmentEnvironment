@@ -11,6 +11,8 @@ quotes" with escapes, quoted values over several lines, # comments); it does not
 from pathlib import Path
 import re
 
+from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS
+
 DOCKER_ROOT = Path(__file__).resolve().parent
 ENTRY = re.compile(r'(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*[=:][ \t]*')
 NAME = re.compile(r'[A-Z][A-Z0-9_]*')
@@ -20,6 +22,19 @@ TARGET_KEYS = ('DEPLOY_CONTEXT', 'DEPLOY_SSH', 'DEPLOY_PATH', 'APP_UID', 'APP_GI
 TARGET_FILE = 'target.env'
 TARGET_VALUE = re.compile(r'[A-Za-z0-9@._:/+-]*')
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r'}
+# Basic-auth users of the browser tools (nginx-proxy access.sh), optional on top of their IP allowlist.
+TOOL_PASSWORDS = {tool: f'{tool.upper()}_HTPASSWD' for tool in ('pma', 'mailpit', 'cron', 'backup')}
+# Secrets a pipeline passes as process environment (Bitbucket Deployment variables, GitHub environment
+# secrets). An env file that leaves one blank does not hide the process value; any other key named in an
+# env file does.
+PROCESS_SECRETS = ('DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD', 'DATABASE_MONITOR_PASSWORD',
+                   'DBMONITOR_TOKEN', 'METRICS_TOKEN', *TOOL_PASSWORDS.values(), *PRESTASHOP_KEYS)
+
+
+def hides_process_value(name, file_value):
+    """Whether an env file that names `name` with `file_value` hides the process environment's value:
+    always, except setup's own secrets left blank, which a pipeline supplies."""
+    return not (file_value == '' and name in PROCESS_SECRETS)
 
 
 def _closing(text, quote):
@@ -124,7 +139,7 @@ def file_settings(directory, environment):
     """(values, mentioned): the merged settings, and every key the project's files name -> its value.
 
     A key the project files name hides the process environment (Deployment variables, GitHub secrets),
-    except setup's own secrets left blank (project.PROCESS_SECRETS).
+    except setup's own secrets left blank (hides_process_value).
     """
     directory = Path(directory)
     values, mentioned = {}, {}

@@ -9,7 +9,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
-from project_env_files import parse_dotenv, require_setup_version, version_tuple
+from project import env_file_keys
+from project_env_files import hides_process_value, parse_dotenv, require_setup_version, version_tuple
 
 
 class EnvFileTest(unittest.TestCase):
@@ -59,6 +60,28 @@ class EnvFileTest(unittest.TestCase):
                                      "check"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 1)
             self.assertIn("This project needs setup 99.1 or newer", result.stderr)
+
+
+class ProcessEnvironmentTest(unittest.TestCase):
+    """Which process variables the env files hide (Project drops them; deployment_variables lists the rest)."""
+
+    def test_a_named_key_hides_the_process_value_unless_it_is_a_blank_setup_secret(self):
+        self.assertTrue(hides_process_value("DOMAIN", "shop.local"))
+        self.assertTrue(hides_process_value("DOMAIN", ""), "a blank non-secret line hides the process value too")
+        self.assertTrue(hides_process_value("DATABASE_PASSWORD", "from-the-file"))
+        self.assertFalse(hides_process_value("DATABASE_PASSWORD", ""), "the pipeline supplies a blank secret")
+        self.assertFalse(hides_process_value("PMA_HTPASSWD", ""))
+
+    def test_lines_inside_a_quoted_value_are_not_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = Path(directory) / "prod.env"
+            env.write_text('KEY_PEM="-----BEGIN-----\nDATABASE_PASSWORD=not-a-key\n-----END-----"\n'
+                           'DATABASE_ROOT_PASSWORD=""\nexport TOKEN=x\n')
+            self.assertEqual(env_file_keys([env]), {"KEY_PEM": "-----BEGIN-----\nDATABASE_PASSWORD=not-a-key\n-----END-----",
+                                                    "DATABASE_ROOT_PASSWORD": "", "TOKEN": "x"})
+            env.write_text("PLAIN=1\nnot a setting\n")
+            with self.assertRaisesRegex(ValueError, "prod.env:2: not a KEY=value line"):
+                env_file_keys([env])
 
 
 if __name__ == "__main__":
