@@ -52,8 +52,9 @@ against `VERSION`. `pipeline-deploy` and `deploy-variables` then run without `Pr
 no env/<env>.env needed): they read the committed env files with `project_env_files` and start
 `make` steps afresh. Constructing `Project` is the contract every other action relies on:
 
-1. Env files: `setup/docker/.env` (versions) → `env/common.env` → `env/<env>.env`. A key named in
-   an env file is dropped from the process environment, so a previous project's exports never select
+1. Env files: `setup/docker/.env` (versions) → `env/common.env` → `env/<env>.env`, read by one dotenv parser
+   (`project_env_files`; an unreadable line stops with its line number). A key named in
+   an env file is dropped from the process environment (`hides_process_value`, shared with the Deployment variables list), so a previous project's exports never select
    this stack. Exception: the pipeline secrets (`PROCESS_SECRETS`: DB/monitor passwords, dbmonitor
    and metrics tokens, PS keys) keep their process value when the env files leave them blank or
    unset, and Compose gives the process environment precedence — that is how Bitbucket Deployment

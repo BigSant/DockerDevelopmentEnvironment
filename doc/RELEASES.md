@@ -42,6 +42,10 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   lock from the first check to the end of the migrations and shop policy, so a second load can no longer run
   between a data set's drop and its data, or during the first one's migrations; it stops with "already
   running", as before. `db-load` no longer writes a combined copy of the data set to `.generated/`.
+- **Env files are read one way.** A line inside a quoted multi-line value (a key in PEM form holding
+  `DATABASE_PASSWORD=...`) no longer counts as a setting, so it cannot hide the pipeline's real value. A line
+  setup cannot read stops with its line number. Locally, `DATABASE_ROOT_PASSWORD=""` now gets a generated
+  password instead of stopping the runner.
 - **ssh deploys fail fast.** Every ssh connection of `make deploy`, `deploy-images` and `module-pull` (rsync's
   included) runs with `BatchMode=yes` and `ConnectTimeout=15`: a password prompt or an unreachable server stops
   the step at once instead of holding a pipeline. Host keys are still checked as ssh is configured. A server's
