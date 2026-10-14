@@ -12,8 +12,9 @@ import subprocess
 import uuid
 from types import SimpleNamespace
 
-from database_schema import (MANIFEST, git, managed_file, read_schema,
-                             schema_directory, schema_repository, split_name, valid_table_file)
+from database_client import split_name
+from database_schema import (MANIFEST, git, managed_file, read_schema, schema_directory, schema_repository,
+                             valid_table_file)
 from project_ide import checked_path
 
 

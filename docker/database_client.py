@@ -20,6 +20,20 @@ def identifier(value):
     return '`' + value.replace('`', '``') + '`'
 
 
+# A table of an extra schema is named schema.table in the snapshot manifest, the table registry and backups;
+# a name whose part before the first dot is no schema name is a main database table.
+def split_name(name):
+    """(extra schema or None, table) of a snapshot or registry name."""
+    schema, dot, table = name.partition('.')
+    return (schema, table) if dot and SCHEMA_NAME.fullmatch(schema) else (None, name)
+
+
+def quoted(name):
+    """The SQL identifier of a name: `table`, or `schema`.`table` for an extra schema's table."""
+    schema, table = split_name(name)
+    return (identifier(schema) + '.' if schema else '') + identifier(table)
+
+
 def extra_schemas(settings):
     """DATABASE_EXTRA_SCHEMAS as a list: schemas besides DATABASE_NAME that belong to the project.
 
