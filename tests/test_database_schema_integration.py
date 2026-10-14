@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
-from database_schema import export_schema, git, install_schema_hook, mysql_query, read_schema
+from database_schema import export_schema, git, install_schema_hook, read_schema
 from project import Project
 
 
@@ -56,13 +56,13 @@ class SchemaIntegrationTest(unittest.TestCase):
                 deadline = time.monotonic() + 90
                 while True:
                     try:
-                        mysql_query(project, "SELECT 1;")
+                        project.database.query("SELECT 1;")
                         break
                     except ValueError:
                         if time.monotonic() > deadline:
                             raise
                         time.sleep(0.5)
-                mysql_query(project, """CREATE TABLE parent (id int NOT NULL PRIMARY KEY);
+                project.database.execute("""CREATE TABLE parent (id int NOT NULL PRIMARY KEY);
 CREATE TABLE product (
   id int NOT NULL AUTO_INCREMENT PRIMARY KEY,
   parent_id int,
@@ -85,9 +85,9 @@ CREATE TABLE product (
                 result = commit()
                 self.assertEqual(result.returncode, 0, result.stderr)
                 before = read_schema(project)
-                mysql_query(project, "INSERT INTO product (id, code) VALUES (501, 'sample');")
+                project.database.execute("INSERT INTO product (id, code) VALUES (501, 'sample');")
                 self.assertEqual(read_schema(project), before, "row data and next AUTO_INCREMENT must not create drift")
-                mysql_query(project, "ALTER TABLE product ADD COLUMN description text;")
+                project.database.execute("ALTER TABLE product ADD COLUMN description text;")
                 result = commit()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("different: table-product.sql", result.stderr)
@@ -106,7 +106,7 @@ CREATE TABLE product (
                 git(root, "add", "-A", "database")
                 result = commit()
                 self.assertEqual(result.returncode, 0, result.stderr)
-                mysql_query(project, "CREATE TABLE tmp_import (id int);")
+                project.database.execute("CREATE TABLE tmp_import (id int);")
                 result = commit()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("tmp_import", result.stderr)

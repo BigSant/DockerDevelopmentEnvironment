@@ -18,28 +18,10 @@ from urllib.parse import quote
 
 
 MANIFEST = "schema.manifest.json"
-from database_client import READ as MYSQL_READ, READ_RAW as MYSQL_READ_RAW, SCHEMA_NAME
+from database_client import SCHEMA_NAME
 # setup_migrations records applied migrations; it belongs to setup, not to the project schema.
 TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
               "AND TABLE_NAME <> 'setup_migrations' ORDER BY BINARY TABLE_NAME;\n")
-
-
-def mysql_query(project, sql, timeout=60, raw=False):
-    database = project.settings["DATABASE_NAME"]
-    if not database:
-        raise ValueError("DATABASE_NAME is required for schema commands")
-    command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_READ_RAW if raw else MYSQL_READ,
-                                 "schema-read", database]
-    try:
-        result = subprocess.run(command, input=sql.encode(), capture_output=True,
-                                env=project.child_env(), timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        raise ValueError("Schema read timed out; no successful check or export was made") from error
-    if result.returncode:
-        # Do not print Compose diagnostics, which may contain interpolated secrets.
-        raise ValueError("Cannot read DB schema; check the running database service, name and credentials")
-    # Raw output stays bytes: data-set values may hold binary columns.
-    return result.stdout if raw else result.stdout.decode("utf-8")
 
 
 def split_name(name):

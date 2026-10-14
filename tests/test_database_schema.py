@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
-from database_client import unescape_batch
-from database_schema import (MANIFEST, MYSQL_READ, check_schema, commit_schema, export_schema, git,
+from database_client import READ as MYSQL_READ, unescape_batch
+from database_schema import (MANIFEST, check_schema, commit_schema, export_schema, git,
                              install_schema_hook, normalize_ddl, read_schema, schema_directory, staged_schema,
                              table_file)
 from fake_database import FakeDatabase

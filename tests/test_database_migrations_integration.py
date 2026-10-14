@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'docker'))
-from database_schema import export_schema, git, mysql_query, read_schema
+from database_schema import export_schema, git, read_schema
 from database_migrations import generate_migration, compare_in_container
 from project import Project
 
@@ -73,16 +73,16 @@ class DoctrineIntegrationTest(unittest.TestCase):
                 deadline = time.monotonic() + 90
                 while True:
                     try:
-                        mysql_query(project, 'SELECT 1;')
+                        project.database.query('SELECT 1;')
                         break
                     except ValueError:
                         if time.monotonic() >= deadline: raise
                         time.sleep(0.5)
-                mysql_query(project, "CREATE TABLE product (id int PRIMARY KEY, name varchar(32), state enum('new','old') DEFAULT 'new');\nINSERT INTO product VALUES (1, 'keep this row', 'new');")
+                project.database.execute("CREATE TABLE product (id int PRIMARY KEY, name varchar(32), state enum('new','old') DEFAULT 'new');\nINSERT INTO product VALUES (1, 'keep this row', 'new');")
                 with contextlib.redirect_stdout(io.StringIO()): export_schema(project)
                 git(root, 'add', 'app'); git(root, 'commit', '-qm', 'baseline'); git(root, 'tag', 'v1')
                 baseline = read_schema(project)
-                mysql_query(project, "CREATE TABLE supplier (id int PRIMARY KEY);\nALTER TABLE product ADD supplier_id int DEFAULT NULL, ADD supplier_code varchar(64) DEFAULT NULL, ADD UNIQUE KEY product_code (supplier_code), ADD CONSTRAINT fk_supplier FOREIGN KEY (supplier_id) REFERENCES supplier(id);")
+                project.database.execute("CREATE TABLE supplier (id int PRIMARY KEY);\nALTER TABLE product ADD supplier_id int DEFAULT NULL, ADD supplier_code varchar(64) DEFAULT NULL, ADD UNIQUE KEY product_code (supplier_code), ADD CONSTRAINT fk_supplier FOREIGN KEY (supplier_id) REFERENCES supplier(id);")
                 target = read_schema(project)
                 output = io.StringIO()
                 generated = subprocess.run(['make', '-s', '-C', str(app), f'SETUP_DIRECTORY={ROOT}',
@@ -92,7 +92,7 @@ class DoctrineIntegrationTest(unittest.TestCase):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(generate_migration(project, 'v1'), migration)
                 self.assertEqual(read_schema(project), target)
-                self.assertEqual(mysql_query(project, 'SELECT name FROM product WHERE id=1;').strip(), 'keep this row')
+                self.assertEqual(project.database.query('SELECT name FROM product WHERE id=1;'), [('keep this row',)])
                 self.assertEqual(git(root, 'diff', '--', 'app/database/schema'), b'')
                 code = migration.read_text()
                 self.assertIn('supplier_code', code)
@@ -102,7 +102,7 @@ class DoctrineIntegrationTest(unittest.TestCase):
                     os.environ['SETUP_DOCTRINE_TEST_IMAGE'], '-l', '/migration.php'], capture_output=True, text=True)
                 self.assertEqual(lint.returncode, 0, lint.stderr)
                 # Restore only this disposable test DB, then execute the actual generated Doctrine class.
-                mysql_query(project, 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE product; DROP TABLE supplier;\n' + baseline['table-product.sql'].decode())
+                project.database.execute('SET FOREIGN_KEY_CHECKS=0; DROP TABLE product; DROP TABLE supplier;\n' + baseline['table-product.sql'].decode())
                 project.run(['run', '--rm', '--no-deps', 'php-doctrine-migrations', 'migrate', '--no-interaction'], profiles='doctrine')
                 actual = read_schema(project)
                 actual.pop('table-doctrine_migration_versions.sql')
