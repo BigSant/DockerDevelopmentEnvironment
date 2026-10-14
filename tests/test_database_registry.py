@@ -10,10 +10,12 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "docker"))
+sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 import database_registry
-from database_registry import classify, dropped, guess, load, parse, registry_file, resolve, unknown_tables
+from database_registry import (classify, dropped, guess, load, parse, registry_file, resolve, table_columns,
+                               unknown_tables)
 from database_schema import registry_exclusions
+from fake_database import FakeDatabase
 
 
 class RegistryTest(unittest.TestCase):
@@ -115,6 +117,23 @@ class RegistryTest(unittest.TestCase):
         registry_file(self.project).symlink_to(self.root / "elsewhere.txt")
         with self.assertRaisesRegex(ValueError, "symlink"):
             database_registry.append_entries(self.project, [("x", "config", "full", "import")])
+
+
+class SchemaNameTest(unittest.TestCase):
+    """The registry reads schema.table names with the snapshot's split_name, dotted table names included."""
+
+    def test_a_dotted_extra_schema_table_is_read_from_its_schema(self):
+        database = FakeDatabase(answer=lambda sql: [("odd.name", "id")] if "'asana_graph'" in sql else [("orders", "id")])
+        columns = table_columns(SimpleNamespace(database=database), ["asana_graph.odd.name", "orders"])
+        self.assertEqual(columns, {"asana_graph.odd.name": {"id"}, "orders": {"id"}})
+        self.assertIn("TABLE_SCHEMA = 'asana_graph' AND TABLE_NAME IN ('odd.name')", database.queried[0])
+
+    def test_a_name_without_a_schema_before_its_dot_is_a_main_table(self):
+        entries = [("asana_graph.*", "graph", "full", "import"), ("ps_*", "shop", "full", "import"),
+                   ("*", "other", "empty", "skip")]
+        self.assertEqual(classify(entries, "asana_graph.odd.name")[1], "graph")
+        self.assertEqual(classify(entries, "ps_orders")[1], "shop")
+        self.assertEqual(classify(entries, "not-a-schema.log")[1], "other")
 
 
 if __name__ == "__main__":

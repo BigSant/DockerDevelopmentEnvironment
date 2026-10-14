@@ -18,22 +18,10 @@ from urllib.parse import quote
 
 
 MANIFEST = "schema.manifest.json"
-from database_client import SCHEMA_NAME
+from database_client import SCHEMA_NAME, quoted, split_name
 # setup_migrations records applied migrations; it belongs to setup, not to the project schema.
 TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
               "AND TABLE_NAME <> 'setup_migrations' ORDER BY BINARY TABLE_NAME;\n")
-
-
-def split_name(name):
-    """(extra schema or None, table) of a snapshot or registry name: schema.table names an extra schema's table."""
-    schema, dot, table = name.partition(".")
-    return (schema, table) if dot and SCHEMA_NAME.fullmatch(schema) else (None, name)
-
-
-def quoted(name):
-    """The SQL identifier of a snapshot name: `table`, or `schema`.`table` for an extra schema's table."""
-    schema, table = split_name(name)
-    return ("`" + schema + "`." if schema else "") + "`" + table.replace("`", "``") + "`"
 
 
 def main_directory(project):

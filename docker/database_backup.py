@@ -9,7 +9,7 @@ import re
 import tempfile
 import time
 
-from database_client import DatabaseError, extra_schemas
+from database_client import DatabaseError, extra_schemas, split_name
 
 
 def keep_existing(structure):
@@ -37,7 +37,7 @@ def registry_passes(project, database):
         passes.append((database, [*structure, *skipped]))
     by_schema = {}
     for name in extra:
-        schema, _, table = name.partition('.')
+        schema, table = split_name(name)
         by_schema.setdefault(schema, []).append(table)
     passes += [(schema, [*structure, *tables]) for schema, tables in by_schema.items()]
     return passes

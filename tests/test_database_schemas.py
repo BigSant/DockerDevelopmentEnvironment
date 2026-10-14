@@ -404,6 +404,15 @@ class BackupPlanTest(unittest.TestCase):
         self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", first)
         self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", second)
 
+    def test_an_extra_schemas_dotted_table_keeps_its_name_in_the_structure_pass(self):
+        from database_backup import registry_passes
+        with patch("database_import.skip_rule", return_value=lambda table: True), \
+                patch("database_schema.database_tables", return_value=[]), \
+                patch("database_schema.extra_tables", return_value=["asana_graph.odd.name"]):
+            passes = registry_passes(self.project, "asana")
+        self.assertEqual(passes[-1], ("asana_graph", ["--no-data", "--skip-add-drop-table", "--skip-routines",
+                                                      "--skip-events", "odd.name"]))
+
     def test_the_dump_client_still_checks_the_main_database_name(self):
         self.assertIn('if [ "$MYSQL_DATABASE" != "$1" ]', DUMP)
 

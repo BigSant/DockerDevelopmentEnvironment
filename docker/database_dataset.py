@@ -12,8 +12,8 @@ from pathlib import Path
 import re
 import secrets
 
-from database_client import identifier, literal
-from database_schema import MANIFEST, database_tables, managed_file, schema_directory, split_name
+from database_client import identifier, literal, split_name
+from database_schema import MANIFEST, database_tables, managed_file, schema_directory
 from project_prestashop import is_prestashop
 
 DOCKER_ROOT = Path(__file__).resolve().parent

@@ -23,9 +23,8 @@ import os
 from pathlib import Path
 import re
 
-from database_client import extra_schemas, identifier, literal
-from database_schema import (git, main_directory, quoted, schema_directory, schema_repository,
-                             split_name, staged_schema)
+from database_client import extra_schemas, identifier, literal, quoted, split_name
+from database_schema import git, main_directory, schema_directory, schema_repository, staged_schema
 
 TABLE = 'setup_migrations'
 MARKER = '-- Schema change: '

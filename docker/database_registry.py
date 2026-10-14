@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 import sys
 
+from database_client import split_name
+
 BASE_RULES = ('full', 'slice', 'faker', 'empty', 'drop')
 LIVE_RULES = ('import', 'skip', '-')
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -68,7 +70,8 @@ def load(project):
 
 
 def classify(entries, table):
-    qualified = '.' in table
+    # A line with a dot is about the extra schemas (its schema part may be a pattern too).
+    qualified = split_name(table)[0] is not None
     return next(((pattern, group, base, live) for pattern, group, base, live in entries
                  if ('.' in pattern) == qualified and fnmatchcase(table, pattern)), None)
 
@@ -136,7 +139,7 @@ def table_columns(project, tables):
     from database_client import literal
     by_schema = {}
     for name in tables:
-        schema, _, table = name.rpartition('.')
+        schema, table = split_name(name)
         by_schema.setdefault(schema, []).append(table)
     columns = {}
     for schema, names in by_schema.items():
