@@ -13,7 +13,7 @@ from database_client import DatabaseError
 
 
 class FakeDatabase:
-    def __init__(self, answer=None, fail_on=None, dump_output=None):
+    def __init__(self, answer=None, fail_on=None, dump_output=None, on_write=None):
         # answer(sql) -> rows (tuples of str) for query, bytes for extract; a list answers reads in order.
         if isinstance(answer, list):
             replies = iter(answer)
@@ -23,6 +23,8 @@ class FakeDatabase:
         self.fail_on = fail_on or (lambda operation, text: False)
         # dump_output(options, schema) -> bytes the dump stream yields.
         self.dump_output = dump_output or (lambda options, schema: b"")
+        # on_write(sql) after a successful execute, for a test that keeps state in its own closure.
+        self.on_write = on_write or (lambda sql: None)
         self.queried, self.extracted, self.executed, self.loaded, self.dumps = [], [], [], [], []
 
     def _check(self, operation, text):
@@ -42,6 +44,7 @@ class FakeDatabase:
     def execute(self, sql, timeout=None):
         self.executed.append(sql)
         self._check("write", sql)
+        self.on_write(sql)
 
     @contextlib.contextmanager
     def load(self):

@@ -25,13 +25,14 @@ HOOK = textwrap.dedent("""\
     from types import SimpleNamespace
     sys.path[:0] = [{docker!r}, {tests!r}]
     import database_schema
+    from fake_database import FakeDatabase
     from test_database_schema import snapshot
     state = json.loads(Path({state!r}).read_text())
     database_schema.database_tables = lambda project: sorted(state["tables"])
     database_schema.read_schema = lambda project, require_classified=False: snapshot(state["tables"])
     project = SimpleNamespace(root=Path(state["root"]), directory=Path(state["root"]) / "docker", environment="local",
                               settings={{"SCHEMA_DIRECTORY": "database/schema", "DATABASE_NAME": "shop"}},
-                              command=["false"], child_env=dict)
+                              database=FakeDatabase(fail_on=lambda operation, text: True))
     try:
         getattr(database_schema, state.get("action", "commit_schema"))(project)
     except ValueError as error:
