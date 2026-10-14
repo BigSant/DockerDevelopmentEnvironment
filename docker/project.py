@@ -2,6 +2,7 @@
 """Run the shared Compose sources for one project; rendered files are output only."""
 
 import argparse
+import functools
 import json
 import os
 from pathlib import Path
@@ -335,6 +336,12 @@ class Project:
         if self.environment == 'test' and profiles is not None:
             self.validate_test_isolation(profiles)
         subprocess.run(self.command + args, env=self.compose_env(args, profiles), check=True)
+
+    @functools.cached_property
+    def database(self):
+        """The Database client (database_client.DatabaseClient); tests assign a fake instead."""
+        from database_client import DatabaseClient
+        return DatabaseClient(self)
 
     def model(self):
         return json.loads(self.capture(["config", "--format", "json"], profiles="*"))
