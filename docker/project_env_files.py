@@ -11,7 +11,7 @@ quotes" with escapes, quoted values over several lines, # comments); it does not
 from pathlib import Path
 import re
 
-from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS
+from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS, is_prestashop, required_keys
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 ENTRY = re.compile(r'(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*[=:][ \t]*')
@@ -22,6 +22,9 @@ TARGET_KEYS = ('DEPLOY_CONTEXT', 'DEPLOY_SSH', 'DEPLOY_PATH', 'APP_UID', 'APP_GI
 TARGET_FILE = 'target.env'
 TARGET_VALUE = re.compile(r'[A-Za-z0-9@._:/+-]*')
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r'}
+# The deployment environment names of both providers: staging -> ENV=stage, production -> ENV=prod.
+DEPLOYMENT_ENVIRONMENTS = {'staging': 'stage', 'production': 'prod'}
+DEPLOYMENT_NAMES = {setup: name for name, setup in DEPLOYMENT_ENVIRONMENTS.items()}
 # Basic-auth users of the browser tools (nginx-proxy access.sh), optional on top of their IP allowlist.
 TOOL_PASSWORDS = {tool: f'{tool.upper()}_HTPASSWD' for tool in ('pma', 'mailpit', 'cron', 'backup')}
 # Secrets a pipeline passes as process environment (Bitbucket Deployment variables, GitHub environment
@@ -162,6 +165,55 @@ def names_setting(values, key):
     if invalid:
         raise ValueError(f"{key} lists variable names only (A-Z, 0-9, _; starting with a letter): {', '.join(invalid)}")
     return names
+
+
+def deployment_variables(directory, environment):
+    """{name: {'required', 'secured', 'source'}}: the Deployment variables one environment needs.
+
+    setup's own: DATABASE_PASSWORD, DATABASE_ROOT_PASSWORD and the PrestaShop keys of PS_VERSION
+    (required); DATABASE_MONITOR_PASSWORD (metrics or dbmonitor), METRICS_TOKEN (metrics) and
+    DBMONITOR_TOKEN (dbmonitor) (optional: the IP allowlist guards both endpoints), <TOOL>_HTPASSWD of the active
+    pma, mailpit, cron and backup (optional Basic-auth on top of their allowlist). The project's:
+    DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES and every APP_ENVIRONMENT name the env files
+    leave to the process.
+    A name the env files set is not a Deployment variable (the file wins); one they leave blank hides
+    the Deployment variable, which only setup's own secrets survive (hides_process_value).
+    """
+    values, mentioned = file_settings(directory, environment)
+    services = str(values.get('SERVICES') or '').split()
+    setup_required = ['DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD']
+    version = str(values.get('PS_VERSION') or '')
+    if is_prestashop(values) and re.match(r'\d+\.\d', version):
+        setup_required += required_keys(version)
+    setup_optional = (['DATABASE_MONITOR_PASSWORD'] if {'metrics', 'dbmonitor'} & set(services) else []) + \
+        (['METRICS_TOKEN'] if 'metrics' in services else []) + (['DBMONITOR_TOKEN'] if 'dbmonitor' in services else []) + \
+        [password for tool, password in TOOL_PASSWORDS.items() if tool in services]
+    groups = [('setup', setup_required, True),
+              ('DEPLOY_REQUIRED_VARIABLES', names_setting(values, 'DEPLOY_REQUIRED_VARIABLES'), True),
+              ('setup', setup_optional, False),
+              ('DEPLOY_OPTIONAL_VARIABLES', names_setting(values, 'DEPLOY_OPTIONAL_VARIABLES'), False),
+              ('APP_ENVIRONMENT', [name for name in names_setting(values, 'APP_ENVIRONMENT') if name not in mentioned], False)]
+    plain = names_setting(values, 'DEPLOY_PLAIN_VARIABLES')
+    listed, hidden = {}, []
+    for source, names, required in groups:
+        for name in names:
+            if name in listed:
+                continue
+            if name in mentioned and hides_process_value(name, mentioned[name]):
+                if mentioned[name] == '':
+                    hidden.append(name)  # A blank line would hide the Deployment variable.
+                continue
+            listed[name] = {'required': required, 'secured': name not in plain, 'source': source}
+    if hidden:
+        raise ValueError(f"env/common.env or env/{environment}.env.example names {', '.join(hidden)} with an empty "
+                         "value, which hides the Deployment variable from the containers: remove the line (only "
+                         "setup's own secrets, such as DATABASE_PASSWORD, may stay blank)")
+    candidates = {name for _, names, _ in groups for name in names}
+    unknown = [name for name in plain if name not in candidates]
+    if unknown:
+        raise ValueError(f"DEPLOY_PLAIN_VARIABLES names {', '.join(unknown)}, which no list names "
+                         "(DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES, APP_ENVIRONMENT)")
+    return listed
 
 
 def version_tuple(text):

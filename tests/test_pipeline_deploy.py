@@ -20,7 +20,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from project_env_files import parse_dotenv
-from project_pipeline import deployment_variables
+from project_env_files import deployment_variables
 
 FAKE_MAKE = r'''#!/usr/bin/env python3
 import json, os, subprocess, sys
@@ -564,7 +564,8 @@ class TemplateTest(unittest.TestCase):
             import yaml
         except ImportError:
             self.skipTest("PyYAML is not installed")
-        from project_pipeline import DEPLOYMENT_ENVIRONMENTS, SECRETS_JSON, VARIABLES_JSON
+        from project_env_files import DEPLOYMENT_ENVIRONMENTS
+        from project_pipeline import SECRETS_JSON, VARIABLES_JSON
         model = yaml.safe_load((ROOT / "templates/pipelines/github-deploy.yml").read_text())
         inputs = model[True]["workflow_dispatch"]["inputs"]  # YAML 1.1 reads the key on as true
         self.assertEqual(list(inputs), ["environment", "ref", "images", "rollback", "backup"])

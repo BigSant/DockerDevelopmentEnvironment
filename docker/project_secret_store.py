@@ -15,7 +15,7 @@ import json
 import os
 import subprocess
 
-from project_env_files import file_settings
+from project_env_files import deployment_variables, file_settings
 from project_ide import write_overlay
 
 SERVICE = 'secrets'
@@ -26,7 +26,6 @@ def store_names(directory, environment):
     """The names the store keeps: the environment's Deployment variables; none for local/test."""
     if environment not in ENVIRONMENTS:
         return []
-    from project_pipeline import deployment_variables
     return list(deployment_variables(directory, environment))
 
 

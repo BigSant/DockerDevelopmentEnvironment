@@ -5,7 +5,7 @@
   make deploy-variables ENV=… from=FILE replace=1 also replace the ones that exist
   make deploy-variables ENV=… names=1             the list itself (no network)
 
-The list is the one make pipeline-deploy checks (project_pipeline.deployment_variables). On GitHub a
+The list is the one make pipeline-deploy checks (project_env_files.deployment_variables). On GitHub a
 DEPLOY_PLAIN_VARIABLES name is an environment *variable* (readable in the settings and the log), every
 other name an environment *secret*; the GitHub environment is staging (ENV=stage) or production
 (ENV=prod). The repository is DEPLOY_GITHUB_REPOSITORY (owner/repository) or the origin remote. The
@@ -29,7 +29,7 @@ import urllib.parse
 import urllib.request
 
 from project_bitbucket import Failure, NoRedirect, compare, load_list, print_names, private, summary
-from project_pipeline import DEPLOYMENT_NAMES
+from project_env_files import DEPLOYMENT_NAMES
 import project_remote
 
 API = 'https://api.github.com'
