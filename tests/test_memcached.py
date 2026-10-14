@@ -37,13 +37,13 @@ class MemcachedServiceTest(unittest.TestCase):
             memcached = json.loads(Project(app, 'local').capture(['config', '--format', 'json']))['services']['memcached']
             self.assertNotIn('ports', memcached)
             self.assertNotIn('profiles', memcached)
-            # ~90% of the 256m default container limit; the old numeric MEMCACHED_MEMORY stays the cache size.
+            # ~90% of the 256m default container limit, unless MEMCACHED_CACHE_MB sets the cache size.
             self.assertEqual(memcached['command'], ['memcached', '-m', '230'])
             self.assertEqual(memcached['container_name'], 'cache-demo-local-memcached-1.6.45')
             self.assertIn('network_app', memcached['networks'])
 
             with (app / 'env/common.env').open('a') as env:
-                env.write('MEMCACHED_MEMORY=64\n')
+                env.write('MEMCACHED_CACHE_MB=64\n')
             memcached = json.loads(Project(app, 'local').capture(['config', '--format', 'json']))['services']['memcached']
             self.assertEqual(memcached['command'], ['memcached', '-m', '64'])
 

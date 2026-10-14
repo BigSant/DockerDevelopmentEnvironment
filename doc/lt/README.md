@@ -51,7 +51,7 @@ Blokas su `dotenv`, `yaml`, `ini`, `php` ar `sql` yra failo turinys. Blokas su `
 
 ## Vadovo ribos
 
-Aprašoma setup 2.0.0 (failas `VERSION`, versijos įrašas [RELEASES.md](../RELEASES.md)). Nustatymai sutikrinti su [bendrais numatytaisiais nustatymais](../../docker/.env), [nustatymų sąrašu](../../docker/project-settings.yaml), [runner'iu](../../docker/project.py), [Make komandomis](../../docker/project.mk) ir [servisų aprašais](../../docker/docker).
+Aprašoma dabartinė setup versija (failas `VERSION`, pakeitimai – [RELEASES.md](../RELEASES.md)). Nustatymai sutikrinti su [bendrais numatytaisiais nustatymais](../../docker/.env), [nustatymų sąrašu](../../docker/project-settings.yaml), [runner'iu](../../docker/project.py), [Make komandomis](../../docker/project.mk) ir [servisų aprašais](../../docker/docker).
 
 PHP, Nginx, Apache ar MySQL patys turi šimtus nustatymų. Vadove aprašyta, **kur** juos dėti, o pilni sąrašai yra oficialiuose tų programų žinynuose. Savavališkai sukurtas env kintamasis pradeda veikti tik tada, kai jį perskaito runner'is, Compose, `.template` failas arba aplikacija.
 

@@ -18,8 +18,11 @@ from create_project import scaffold
 from database_backup import backup_database
 from database_client import DUMP, extra_schemas, test_schemas
 from database_grants import RESTRICT, restrict_grants
-from database_import import check_dump_tables, dump_tables, filter_dump, plan_import
+from database_import import check_dump_tables, filter_dump, plan_import
 from project import Project
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_database_import import dump_tables
 
 # A server env file with the limits and secrets stage/prod require.
 REMOTE = ("PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n"

@@ -11,13 +11,12 @@ Docker's container configuration like every other container's environment (the d
 passwords already do).
 """
 
-import hashlib
 import json
 import os
 import subprocess
 
 from project_env_files import file_settings
-from project_ide import checked_path, replace_file
+from project_ide import write_overlay
 
 SERVICE = 'secrets'
 ENVIRONMENTS = ('stage', 'prod')
@@ -54,12 +53,7 @@ def secret_store(project, names):
              '    restart: unless-stopped',
              '    environment:']
     lines += [f'      {name}: ${{{name}-}}' for name in names]
-    contents = ('\n'.join(lines) + '\n').encode()
-    digest = hashlib.sha256(contents).hexdigest()[:20]
-    path = checked_path(project, f'.generated/secret-store-{digest}.yaml')
-    # Content-addressed like the APP_ENVIRONMENT overlay: concurrent invocations stay independent.
-    replace_file(path, contents, private=True)
-    return ['-f', str(path)]
+    return ['-f', str(write_overlay(project, 'secret-store', ('\n'.join(lines) + '\n').encode()))]
 
 
 def read_store(name, context=None, run=subprocess.run):

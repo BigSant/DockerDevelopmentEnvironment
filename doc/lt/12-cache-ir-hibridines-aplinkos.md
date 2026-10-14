@@ -161,7 +161,7 @@ make restart
 
 **Stage/prod** be keturių pagrindinių servisų (`PHP`, `DATABASE`, `WEBSERVER`, `PROXY`) limitų nepasileidžia. Klaidos pranešimas pasiūlo pradines reikšmes pagal Docker host'o RAM ir CPU, skaičiuodamas vienam projektui. Jei serveryje keli projektai, reikšmes padalink. Papildomiems servisams tinka numatytosios.
 
-Seni pavadinimai dar veikia kaip atsarginės reikšmės: `PHP_CONTAINER_MEMORY` (php, cron, pma), `DB_CONTAINER_MEMORY`, `WEB_CONTAINER_MEMORY` (webserver, proxy, mailpit), `MEMCACHED_CONTAINER_MEMORY`, `CONTAINER_CPUS`. Skaitinis `MEMCACHED_MEMORY` (be `m`/`g`) vis dar suprantamas kaip cache dydis MB. Naujiems nustatymams naudok `<SERVISAS>_MEMORY/_CPUS`.
+Seni pavadinimai dar veikia kaip atsarginės reikšmės: `PHP_CONTAINER_MEMORY` (php, cron, pma), `DB_CONTAINER_MEMORY`, `WEB_CONTAINER_MEMORY` (webserver, proxy, mailpit), `CONTAINER_CPUS`. Naujiems nustatymams naudok `<SERVISAS>_MEMORY/_CPUS`.
 
 ## Aplikacijos env reikalavimai
 

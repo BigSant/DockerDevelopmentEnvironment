@@ -38,15 +38,14 @@ import re
 import subprocess
 import sys
 
-from project_env_files import (TARGET_KEYS, file_settings, names_setting, needed_setup_version, read_dotenv,
-                               target_file, target_settings)
+from project_env_files import (TARGET_KEYS, file_settings, names_setting, needed_setup_version, project_root,
+                               read_dotenv, target_file, target_settings)
+from project_prestashop import is_prestashop
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
 # The deployment environment names of both providers: staging -> ENV=stage, production -> ENV=prod.
 DEPLOYMENT_ENVIRONMENTS = {'staging': 'stage', 'production': 'prod'}
-BITBUCKET_ENVIRONMENTS = DEPLOYMENT_ENVIRONMENTS
 DEPLOYMENT_NAMES = {setup: name for name, setup in DEPLOYMENT_ENVIRONMENTS.items()}
-BITBUCKET_NAMES = DEPLOYMENT_NAMES
 # GitHub Actions: the job's secrets and configuration variables, as toJSON(secrets) / toJSON(vars).
 SECRETS_JSON, VARIABLES_JSON = 'DEPLOY_SECRETS_JSON', 'DEPLOY_VARIABLES_JSON'
 # Names the expansion never sets: GitHub's own (GITHUB_TOKEN is in the secrets context) and the runner's.
@@ -171,7 +170,7 @@ def deployment_variables(directory, environment):
     services = str(values.get('SERVICES') or '').split()
     setup_required = ['DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD']
     version = str(values.get('PS_VERSION') or '')
-    if values.get('PROFILE') in ('ps', 'prestashop') and re.match(r'\d+\.\d', version):
+    if is_prestashop(values) and re.match(r'\d+\.\d', version):
         setup_required += required_keys(version)
     setup_optional = (['DATABASE_MONITOR_PASSWORD'] if {'metrics', 'dbmonitor'} & set(services) else []) + \
         (['METRICS_TOKEN'] if 'metrics' in services else []) + (['DBMONITOR_TOKEN'] if 'dbmonitor' in services else []) + \
@@ -311,7 +310,6 @@ def environment_of(environment, name, provider=BITBUCKET):
 
 def pipeline_deploy(directory, environment='local', root=None, environ=None, out=None, err=None):
     """The deploy step; returns the exit status (64: refused before any change)."""
-    from project import project_root
     environ = dict(os.environ if environ is None else environ)
     out, err = out or sys.stdout, err or sys.stderr
     directory = Path(directory).resolve()

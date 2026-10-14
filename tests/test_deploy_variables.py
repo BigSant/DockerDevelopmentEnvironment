@@ -6,7 +6,6 @@ everything, readonly-token-* gets 403 on writes, any other token 401. No output 
 (they contain VALUE) or a token (T0KEN).
 """
 
-import contextlib
 import io
 import json
 import os
@@ -22,7 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
-from project_bitbucket import deploy_variables, repository
+from project_bitbucket import repository
+from project_ci import deploy_variables
 
 BASE = "/2.0/repositories/rsmaizys/asana_tracker"
 # asana.local's list: setup's own (metrics on prod, the cron UI password), its required and optional names, its APP_ENVIRONMENT.

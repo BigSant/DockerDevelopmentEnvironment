@@ -37,12 +37,13 @@ class ResourcePolicyTest(unittest.TestCase):
 
     def test_previous_shared_names_remain_accepted(self):
         values = resolve_policy({'PHP_CONTAINER_MEMORY': '2g', 'DB_CONTAINER_MEMORY': '3g',
-                                 'WEB_CONTAINER_MEMORY': '384m', 'CONTAINER_CPUS': '1.5',
-                                 'MEMCACHED_MEMORY': '64'}, 'local')
+                                 'WEB_CONTAINER_MEMORY': '384m', 'CONTAINER_CPUS': '1.5'}, 'local')
         self.assertEqual((values['PHP_MEMORY'], values['DATABASE_MEMORY'], values['WEBSERVER_MEMORY'],
                           values['PROXY_MEMORY']), ('2g', '3g', '384m', '384m'))
         self.assertEqual({values[f'{n}_CPUS'] for n in ('PHP', 'DATABASE', 'CRON', 'PMA')}, {'1.5'})
-        self.assertEqual(values['MEMCACHED_CACHE_MB'], '64')
+        # MEMCACHED_MEMORY is a container limit like the others; the cache size is MEMCACHED_CACHE_MB.
+        with self.assertRaisesRegex(ValueError, "Invalid size '64'"):
+            resolve_policy({'MEMCACHED_MEMORY': '64'}, 'local')
 
     def test_stage_and_prod_require_the_core_limits(self):
         for environment in ('stage', 'prod'):

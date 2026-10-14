@@ -3,6 +3,7 @@ import json
 import shlex
 from pathlib import PurePosixPath
 from project_policy import preflight_php
+from project_prestashop import is_prestashop
 
 
 def selected_service(project, service):
@@ -44,7 +45,7 @@ def npm(project, command=None, directory='.'):
 
 def cache_clear(project):
     selected_service(project, 'php-fpm')
-    if project.settings['PROFILE'] in ('ps', 'prestashop'):
+    if is_prestashop(project):
         command = ['php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear']
     else:
         command = shlex.split(project.settings.get('CACHE_CLEAR_COMMAND', ''))

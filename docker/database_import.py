@@ -13,6 +13,7 @@ import tempfile
 from database_client import IMPORT as MYSQL_IMPORT, extra_schemas
 from database_backup import backup_database
 import gzip
+from project_prestashop import is_prestashop
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -42,23 +43,12 @@ def main_schema(project):
     return project.settings["DATABASE_NAME"] if extra_schemas(project.settings) else None
 
 
-def open_dump(path):
-    return gzip.open(path, "rb") if path.name.lower().endswith(".gz") else path.open("rb")
-
-
-def dump_schemas(path):
-    """Every schema a dump switches to with USE."""
-    with open_dump(path) as source:
-        return {schema for line in source if (schema := used_schema(line)) is not None}
-
-
 # Hook values of the PrestaShop profile; a generic project's SQL has no table prefix or shop SSL flag.
 PRESTASHOP_HOOK_VALUES = ("DB_PREFIX", "PS_SSL")
 
 
 def hook_values(project):
     """Values an after-import hook may use; each is validated so it cannot carry SQL or shell syntax."""
-    from project_prestashop import is_prestashop
     domain = project.settings.get("SQL_DOMAIN") or project.settings.get("DOMAIN", "")
     values = {"DOMAIN": (domain, r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", "a valid DOMAIN hostname")}
     # The DOMAIN_<NAME> variables DOMAIN lists (project_domains); setup itself never writes them anywhere.
@@ -163,19 +153,6 @@ class DumpScanner:
             self.pending = b""
         tables = {table: {column.decode("utf-8", "replace") for column in columns} for table, columns in self.tables.items()}
         return {"size": self.size, "schemas": set(self.schemas), "tables": tables}
-
-
-def dump_tables(path, main=None, qualified=False):
-    """Tables a dump creates, with their column names (read from the CREATE TABLE statements).
-
-    With `main`, only tables of the main database count; with `qualified` too, the other schemas' tables
-    count as schema.table (the table registry's names for them).
-    """
-    scanner = DumpScanner(main, qualified)
-    with open_dump(path) as source:
-        while block := source.read(CHUNK):
-            scanner.feed(block)
-    return scanner.result()["tables"]
 
 
 def check_dump_tables(project, dump, ask=input, interactive=None):
@@ -350,7 +327,7 @@ def after_import_hooks(project):
     hooks = []
     safe = project.environment != "prod"
     profile = DOCKER_ROOT / "database-profile/prestashop/after-import"
-    if safe and project.settings.get("PROFILE") in ("ps", "prestashop"):
+    if safe and is_prestashop(project):
         # Safe defaults first (shop URL, payment sandboxes), so project scripts can refine them.
         hooks += sorted(profile.glob("*.sql"))
     extras = extra_schemas(project.settings)
@@ -431,7 +408,7 @@ def after_load(project):
     from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
     if migrations_enabled(project) and migrations_directory(project).is_dir():
         migrate(project)
-    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(project):
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if 'php-fpm' in running:
             # A restored dump may bring back cache/mail settings from production.

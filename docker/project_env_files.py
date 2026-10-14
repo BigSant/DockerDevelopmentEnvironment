@@ -89,13 +89,18 @@ def environment_file(directory, environment):
     return None
 
 
+def project_root(directory):
+    """The project root of an environment directory: the parent of app/ (or of app/ in the app/docker layout)."""
+    directory = Path(directory)
+    return directory.parent.parent if directory.parent.name == 'app' else directory.parent
+
+
 def target_file(directory, environment=None):
     """The build root's target.<env>.env, else its target.env: beside app/ (or app/ of the app/docker layout).
 
     One build root deploys both stage and prod; target.<env>.env sends one of them elsewhere.
     """
-    directory = Path(directory)
-    root = directory.parent.parent if directory.parent.name == 'app' else directory.parent
+    root = project_root(directory)
     specific = root / f'target.{environment}.env' if environment else None
     return specific if specific and specific.is_file() else root / TARGET_FILE
 

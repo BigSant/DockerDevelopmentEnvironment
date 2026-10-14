@@ -4,13 +4,15 @@ import shlex
 import shutil
 import subprocess
 
+from project_prestashop import is_prestashop
+
 PATH = re.compile(r'[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*')
 
 
 def plan_application(project):
     """Shell commands for the PHP container and whether composer runs; raises on unsafe settings."""
     settings = project.settings
-    if settings.get('PROFILE') not in ('ps', 'prestashop'):
+    if not is_prestashop(settings):
         return None
     version, paths = settings['PS_VERSION'], settings['PS_RELEASE_PATHS'].split()
     if paths and settings['PS_RELEASE'] != 'on':

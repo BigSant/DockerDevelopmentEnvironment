@@ -67,7 +67,7 @@ def ensure_generated_secrets(directory, environment):
     setting = lambda name: next((m[1].strip().strip('"\'') for f in (private, Path(directory) / 'env/common.env')
                                  if f.is_file() for m in [re.search(rf'^{name}=(.*)$', f.read_text(), re.M)] if m), '')
     if setting('PROFILE') in ('ps', 'prestashop') and setting('PS_VERSION'):
-        from project import project_root
+        from project_env_files import project_root
         from project_prestashop import local_key_values
         present = {k for k in re.findall(r'^(PS_[A-Z_]+)=\S', raw, re.M)}
         web = project_root(Path(directory).resolve()) / (setting('APP_SOURCE_DIRECTORY') or 'app/public')

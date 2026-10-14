@@ -25,6 +25,8 @@ import sys
 import tempfile
 import zlib
 
+from project_remote import origin_url
+
 TARGET = re.compile(r'[a-z_][a-z0-9_.-]*@[A-Za-z0-9][A-Za-z0-9.:-]*')
 NAME = re.compile(r'[a-z0-9][a-z0-9_-]*')
 # The nightly series of setup-server and the pre-deploy backups of make db-backup (the server's naming).
@@ -100,10 +102,10 @@ def git_name(directory):
     top = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--show-toplevel'], capture_output=True, text=True)
     if top.returncode or Path(top.stdout.strip()).resolve() != Path(directory).resolve():
         return ''
-    result = subprocess.run(['git', '-C', str(directory), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
-    if result.returncode:
+    url = origin_url(directory)
+    if not url:
         return ''
-    name = re.split(r'[/:]', result.stdout.strip().rstrip('/'))[-1]
+    name = re.split(r'[/:]', url.rstrip('/'))[-1]
     return name[:-4].lower() if name.endswith('.git') else name.lower()
 
 

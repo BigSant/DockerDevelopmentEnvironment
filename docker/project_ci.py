@@ -8,8 +8,9 @@ job's own environment. make deploy-variables goes to the provider's module.
 
 import os
 from pathlib import Path
-import subprocess
 import sys
+
+from project_remote import origin_url
 
 PROVIDERS = ('bitbucket', 'github')
 DEFAULT = 'bitbucket'
@@ -30,8 +31,7 @@ def ci_provider(directory, values):
     bitbucket = str(values.get('DEPLOY_BITBUCKET_REPOSITORY') or '').strip()
     if bool(github) != bool(bitbucket):
         return 'github' if github else 'bitbucket'
-    result = subprocess.run(['git', '-C', str(directory), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
-    if not result.returncode and 'github.com' in result.stdout:
+    if 'github.com' in origin_url(directory):
         return 'github'
     return DEFAULT
 

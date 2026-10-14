@@ -188,7 +188,7 @@ Papildomos schemos ([papildomos schemos](#papildomos-schemos)) SQL dėk į tos s
 **Kita:**
 
 - `backup=1` prieš importą sukuria DB kopiją: `make db-import file=… backup=1`.
-- Jei įdiegtas `pv`, terminale matai importo progresą.
+- Terminale matai išpakavimo ir importo progreso juostas (žurnale – po eilutę kiekvienam žingsniui).
 - `.sql.gz` patikrinamas prieš rašant į DB. Klaida sustabdo tolesnius failus, bet jau įvykdyto SQL neatšaukia.
 - Importas vykdomas kaip DB root, nes dump'uose būna `DEFINER` ar GTID eilučių.
 - Vienoje aplinkoje vienu metu gali vykti tik vienas importas.

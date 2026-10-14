@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 import re
 
-from database_client import extra_schemas
+from database_client import extra_schemas, identifier, literal
 from database_schema import (git, main_directory, mysql_query, quoted, schema_directory, schema_repository,
                              split_name, staged_schema)
 
@@ -108,14 +108,6 @@ def migration_files(project):
 
 def use(schema):
     return f'USE {identifier(schema)};\n'
-
-
-def literal(value):
-    return "'" + value.replace('\\', '\\\\').replace("'", "''") + "'"
-
-
-def identifier(value):
-    return '`' + value.replace('`', '``') + '`'
 
 
 def parse_table(ddl):

@@ -14,7 +14,6 @@ Setup's env parser does not interpolate while Compose does, so DOMAIN names vari
 using ${...}: both read the same line the same way. Names are upper case and hostnames lower case.
 """
 
-import hashlib
 import json
 import re
 
@@ -82,10 +81,7 @@ def attach_domain_aliases(project):
     hosts = str(project.settings.get(HOSTS_VARIABLE) or '').split()
     if len(hosts) < 2:
         return
-    from project_ide import checked_path, replace_file
+    from project_ide import write_overlay
     contents = ('services:\n  "nginx-proxy":\n    networks:\n      network_app:\n        aliases: '
                 + json.dumps(hosts) + '\n').encode()
-    digest = hashlib.sha256(contents).hexdigest()[:20]
-    path = checked_path(project, f'.generated/domain-aliases-{digest}.yaml')
-    replace_file(path, contents, private=True)
-    project.command += ['-f', str(path)]
+    project.command += ['-f', str(write_overlay(project, 'domain-aliases', contents))]

@@ -18,24 +18,20 @@ file permission or list error.
 import json
 import os
 from pathlib import Path
-import re
 import stat
-import subprocess
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from project_env_files import file_settings, read_dotenv
-from project_pipeline import BITBUCKET_NAMES, deployment_variables
+from project_pipeline import DEPLOYMENT_NAMES, deployment_variables
+import project_remote
 
 API = 'https://api.bitbucket.org/2.0'
 SCOPES = ('Repositories: Read and Pipelines: Read (scope pipeline) to check; apply also needs '
           'Pipelines: Edit variables (scope pipeline:variable)')
 MAX_PAGES = 100
 KINDS = ('secured', 'plain')
-REMOTE = re.compile(r'bitbucket\.org[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/*$')
-REPOSITORY = re.compile(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+')
 
 
 class Failure(Exception):
@@ -67,17 +63,8 @@ def private(path, label):
 
 def repository(directory, values):
     """workspace/repository: DEPLOY_BITBUCKET_REPOSITORY, else the origin remote of this checkout."""
-    configured = str(values.get('DEPLOY_BITBUCKET_REPOSITORY') or '').strip()
-    if configured:
-        if not REPOSITORY.fullmatch(configured):
-            raise Failure(f'DEPLOY_BITBUCKET_REPOSITORY must be workspace/repository, not {configured!r}')
-        return configured
-    result = subprocess.run(['git', '-C', str(directory), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
-    match = REMOTE.search(result.stdout.strip()) if not result.returncode else None
-    if not match:
-        raise Failure('Cannot tell the Bitbucket repository: the origin remote is not on bitbucket.org; set '
-                      'DEPLOY_BITBUCKET_REPOSITORY=workspace/repository in env/common.env')
-    return f'{match[1]}/{match[2]}'
+    return project_remote.repository(directory, values, 'DEPLOY_BITBUCKET_REPOSITORY', 'bitbucket.org', 'Bitbucket',
+                                     'workspace', Failure)
 
 
 class Bitbucket:
@@ -188,7 +175,7 @@ def load_list(directory, environment, source, replace):
     """(ENV, the listed variables, the values of from=FILE or None): the checks every provider shares."""
     # The default is production, as in the deploy step that runs it most.
     environment = 'prod' if environment == 'local' else environment
-    if environment not in BITBUCKET_NAMES:
+    if environment not in DEPLOYMENT_NAMES:
         raise Failure('Deployment variables belong to ENV=stage or ENV=prod')
     if replace and not source:
         raise Failure('replace=1 belongs to from=FILE (apply)')
@@ -209,17 +196,6 @@ def print_names(listed, out, kinds=KINDS):
               f"{'required' if variable['required'] else 'optional'} ({variable['source']})", file=out)
 
 
-def deploy_variables(directory, environment='local', source=None, replace=False, token_file=None, names_only=False,
-                     environ=None, out=None, err=None):
-    environ = os.environ if environ is None else environ
-    out, err = out or sys.stdout, err or sys.stderr
-    try:
-        return run(Path(directory).resolve(), environment, source, replace, token_file, names_only, environ, out)
-    except Failure as failure:
-        print(f'deploy-variables: {failure}', file=err)
-        return failure.status
-
-
 def run(directory, environment, source, replace, token_file, names_only, environ, out):
     environment, listed, values = load_list(directory, environment, source, replace)
     if names_only:
@@ -236,8 +212,8 @@ def run(directory, environment, source, replace, token_file, names_only, environ
         raise Failure('no token: set BITBUCKET_ACCESS_TOKEN or pass token=PATH (a file only you can read) with a '
                       f'repository access token of {slug}: {SCOPES}')
     client = Bitbucket(environ.get('BITBUCKET_API_URL') or API, token, slug)
-    url = environment_url(client, f'{client.api}/repositories/{slug}', BITBUCKET_NAMES[environment])
-    label = f'Bitbucket {slug}, environment {BITBUCKET_NAMES[environment]}'
+    url = environment_url(client, f'{client.api}/repositories/{slug}', DEPLOYMENT_NAMES[environment])
+    label = f'Bitbucket {slug}, environment {DEPLOYMENT_NAMES[environment]}'
 
     def present():
         return {v['key']: {'secured': bool(v.get('secured')), 'uuid': v.get('uuid', '')}

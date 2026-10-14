@@ -119,7 +119,6 @@ RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/ww
 # behind a restricted webserver route if pm.status monitoring is ever needed.
 
 RUN mkdir -p /var/www/html
-#COPY /app /var/www/html
 
 RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/html/
 RUN find /var/www/html/ -type d -exec chmod 755 {} +

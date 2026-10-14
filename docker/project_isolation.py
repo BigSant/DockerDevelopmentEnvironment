@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from project_prestashop import is_prestashop
+
 
 def validate_test_model(project, model):
     root = (project.directory / '.generated/test').resolve()
@@ -26,7 +28,7 @@ def validate_test_model(project, model):
             if resource.get('external') or not resource.get('name', '').startswith(prefixes):
                 raise ValueError(f'Test {kind} must use the test project prefix and cannot be external')
     php = model.get('services', {}).get('php-fpm', {}).get('environment', {})
-    if project.settings.get('PROFILE') in ('ps', 'prestashop') and php:
+    if is_prestashop(project) and php:
         database = model.get('services', {}).get('database', {}).get('environment', {})
         if php.get('DATABASE_HOST') != 'database' or php.get('DATABASE_NAME') != database.get('MYSQL_DATABASE'):
             raise ValueError('Test PrestaShop must connect to its own database service and database name')

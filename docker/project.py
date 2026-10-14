@@ -22,6 +22,7 @@ from database_backup import backup_database
 from database_client import extra_schemas, test_schemas
 from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS
 from setup_release import image_suffixes, setup_info, suffix_variable
+from project_env_files import project_root
 from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolve_policy, suggested_limits, validate_configuration
 
 
@@ -85,10 +86,6 @@ def limit_suggestion(error):
     lines = [f"{key}={value}" for key, value in suggested_limits(total, cpus).items() if key in error.missing]
     return (f"Suggested for this Docker host ({total / 1024 ** 3:.1f} GiB RAM, {cpus} CPUs, one project; "
             f"divide when several projects share it):\n  " + "\n  ".join(lines))
-
-
-def project_root(directory):
-    return directory.parent.parent if directory.parent.name == "app" else directory.parent
 
 
 class Project:

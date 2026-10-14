@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
-from database_schema import check_schema, export_schema, git, install_schema_hook, mysql_query, read_schema
+from database_schema import export_schema, git, install_schema_hook, mysql_query, read_schema
 from project import Project
 
 

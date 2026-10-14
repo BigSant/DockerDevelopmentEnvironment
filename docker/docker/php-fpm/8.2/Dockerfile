@@ -26,7 +26,6 @@ RUN apt-get update \
         libonig-dev \
         pv
 
-
 # Install APCu and APC backward compatibility
 RUN pecl install apcu-${APCU_VERSION}
 RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
@@ -118,7 +117,6 @@ RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/ww
 # behind a restricted webserver route if pm.status monitoring is ever needed.
 
 RUN mkdir -p /var/www/html
-#COPY /app /var/www/html
 
 RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/html/
 RUN find /var/www/html/ -type d -exec chmod 755 {} +
@@ -135,10 +133,8 @@ ARG XDEBUG_VERSION=""
 
 RUN pecl install xdebug-${XDEBUG_VERSION} \
     && docker-php-ext-enable xdebug
-#    && docker-php-source delete \
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
-#COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/xdebug.ini
 
 CMD ["php-fpm", "-R"]
 

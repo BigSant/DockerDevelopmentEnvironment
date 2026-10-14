@@ -20,7 +20,6 @@ services:
       target: env-${BUILD_ENV:-${ENV}}
       args:
         NGINX_VERSION: ${NGINX_VERSION}
-        ENV: ${BUILD_ENV:-${ENV}}
     command: /usr/local/bin/init.sh '${DOMAIN}' '${WEBSERVICE_TIMEOUT}'
     environment:
       TZ: ${TZ}

@@ -7,7 +7,6 @@ FROM ghcr.io/phpstan/phpstan:${PHPSTAN_PHAR_VERSION} AS phpstan
 FROM php:${PHP_VERSION}-fpm AS base
 
 ARG PHP_VERSION=""
-ARG APCU_VERSION
 ENV ACCEPT_EULA=Y
 
 RUN sed -i \
@@ -89,7 +88,6 @@ RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/ww
 RUN sed -i "s#pm\.max_children = 5#pm\.max_children = 50#g" /usr/local/etc/php-fpm.d/www.conf
 
 RUN mkdir -p /var/www/html
-#COPY /app /var/www/html
 
 RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/html/
 RUN find /var/www/html/ -type d -exec chmod 755 {} +

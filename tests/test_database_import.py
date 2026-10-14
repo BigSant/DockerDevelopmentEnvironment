@@ -4,9 +4,7 @@ import contextlib
 import gzip
 import fcntl
 import io
-import os
 from pathlib import Path
-import stat
 import subprocess
 import sys
 import tempfile
@@ -17,8 +15,17 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 import database_import
-from database_import import (MYSQL_IMPORT, DumpScanner, check_dump_tables, dump_tables, filter_dump, import_database,
+from database_import import (MYSQL_IMPORT, DumpScanner, check_dump_tables, filter_dump, import_database,
                              plan_import, remember_scan, render_hook, scan_dump, skip_rule, stream_filtered)
+
+
+def dump_tables(path, main=None, qualified=False):
+    """The tables (with columns) DumpScanner reads from a dump; with main, only the main database's, and with
+    qualified the other schemas' as schema.table. make db-import reads through scan_dump (qualified, cached)."""
+    scanner = DumpScanner(main, qualified)
+    with gzip.open(path, "rb") if path.name.endswith(".gz") else path.open("rb") as source:
+        scanner.feed(source.read())
+    return scanner.result()["tables"]
 
 
 class ImportFixture(unittest.TestCase):

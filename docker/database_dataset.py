@@ -13,7 +13,9 @@ import re
 import secrets
 import tempfile
 
+from database_client import identifier, literal
 from database_schema import MANIFEST, database_tables, managed_file, mysql_query, schema_directory, split_name
+from project_prestashop import is_prestashop
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 SET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]*')
@@ -36,20 +38,12 @@ def dataset_directory(project, name):
     return schema_directory(project).parent / 'data' / name
 
 
-def literal(value):
-    return "'" + value.replace('\\', '\\\\').replace("'", "''") + "'"
-
-
-def identifier(value):
-    return '`' + value.replace('`', '``') + '`'
-
-
 def load_recipe(project):
     """(product sample SQL, [(table pattern, condition)]) from the project recipe, then the profile one."""
     from database_registry import prefix
     from fnmatch import fnmatchcase
     sources = [schema_directory(project).parent / 'data/recipe.txt']
-    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(project):
         sources.append(DOCKER_ROOT / 'database-profile/prestashop/data-recipe.txt')
     products, conditions = None, []
     for path in sources:

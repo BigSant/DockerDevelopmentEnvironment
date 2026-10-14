@@ -7,6 +7,16 @@ SCHEMA_NAME = re.compile(r'[A-Za-z0-9_]{1,64}')
 SYSTEM_SCHEMAS = ('mysql', 'sys', 'information_schema', 'performance_schema')
 
 
+# SQL quoting for values setup writes into statements: a string literal (backslash escapes on, as MySQL's
+# default sql_mode has them) and a backquoted identifier.
+def literal(value):
+    return "'" + value.replace('\\', '\\\\').replace("'", "''") + "'"
+
+
+def identifier(value):
+    return '`' + value.replace('`', '``') + '`'
+
+
 def extra_schemas(settings):
     """DATABASE_EXTRA_SCHEMAS as a list: schemas besides DATABASE_NAME that belong to the project.
 

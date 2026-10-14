@@ -7,6 +7,8 @@ import re
 import socket
 import subprocess
 
+from project_prestashop import is_prestashop
+
 
 def initialize_env(directory, environment):
     directory = Path(directory).resolve()
@@ -148,7 +150,7 @@ def doctor(project):
     print("Active service sources, local images, host ports, mount directories and TLS files checked.")
     for note in notes:
         print(note)
-    if getattr(project, 'settings', {}).get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(getattr(project, 'settings', {})):
         from project_prestashop import shop_code_missing
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if shop_code_missing(project.web_directory):

@@ -127,7 +127,10 @@ test-prepare:
 phpunit:
 	@$(RUN_PROJECT) $@ $(if $(module),--module $(call quote,$(module)),) $(if $(filter),--filter $(call quote,$(filter)),) $(if $(filter 0,$(sync)),--no-sync,)
 
-db-dataset db-load:
+db-dataset:
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),)
+
+db-load:
 	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter 1,$(replace)),--replace,) $(if $(filter 1,$(backup)),--backup,)
 
 db-backup:

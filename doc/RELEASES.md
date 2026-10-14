@@ -10,9 +10,29 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   include `php_smart_string.h`, which PHP 8.5 removed). A PHP 8.5 project's images are rebuilt once.
 - **CI is green again** (red since 2026-09-12, test fixtures only): the PHP image builder builds the CORE image
   too, the runtime hook test gives a stock PHP image the writable drop-in directories, the Doctrine test starts
-  only its database and drops the core networks, data volume and user it replaces, the metrics test keeps its Docker socket under the 107-byte
-  limit, the MariaDB schema test accepts `text DEFAULT NULL`, and the probe test no longer reads a 404 page
-  that repeats the URL as the probe answering.
+  only its database and drops the core networks, data volume and user it replaces, the metrics test keeps its
+  Docker socket under the 107-byte limit, the MariaDB schema test accepts `text DEFAULT NULL`, and the probe test
+  no longer reads a 404 page that repeats the URL as the probe answering.
+- **Leftovers removed.** Every project rebuilds its PHP, nginx-proxy and PrestaShop database images once, because
+  their Dockerfiles or build args changed (no change inside the images apart from PHP 5.6 below).
+  - **`MEMCACHED_MEMORY` is a container limit only.** A plain number (the cache size in MB of the never-released
+    first memcached version) is refused; the cache size is `MEMCACHED_CACHE_MB`. `MEMCACHED_CONTAINER_MEMORY` is
+    gone; the other pre-2.0 resource names still work.
+  - **PHP 5.6 local images no longer print `Failed loading xdebug.so`** on every start; Xdebug was never
+    installed there.
+  - **`make db-dataset` no longer passes `replace=`/`backup=`**, which only `db-load` reads.
+  - **Unused build args and arguments are gone:** `APCU_VERSION` on PHP 5.6–7.4, nginx-proxy's `ENV`, php-phpstan's
+    `COMPOSER_VERSION`; so are commented-out Dockerfile lines and the empty PrestaShop `my.<env>.cnf` files.
+  - **Unused files are gone:** the PhpStorm screenshots in `assets/` (their guide went in 2.0.0) and an unused test
+    fixture.
+  - **Unused code is gone:** `dump_schemas`, `dump_tables`, `supported_php`, the Bitbucket-only
+    `deploy_variables` wrapper and the `BITBUCKET_*` aliases.
+- **Shared helpers instead of copies.**
+  - SQL quoting (`database_client.literal`/`identifier`): the table registry's column lookup now escapes
+    backslashes too.
+  - The PrestaShop check (`is_prestashop`), the checkout's origin and CI repository (`project_remote`), the
+    `.generated/` Compose overlays (`project_ide.write_overlay`) and the project root
+    (`project_env_files.project_root`).
 
 ## 2.9.0
 
