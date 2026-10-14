@@ -176,6 +176,11 @@ fingerprint is outdated; it removes only with `apply=1`.
   schema. Applied ones are recorded in `setup_migrations` of the main database (outside the snapshot; an extra
   schema's as `<schema>/<file>`). The hook stops while committed migrations are not applied locally.
   `DATABASE_MIGRATIONS=off` leaves migrations to the project (Doctrine); the snapshot and hook stay.
+- Load (`database_load`; `db-import`, `db-pull import=1`, `db-load`, `test-prepare`, `db-fixtures-load`):
+  `plan_load` checks everything without writing (files readable, hooks rendered, dump intact, its schemas, every
+  dump table classified, disk space) and is what `db-import-plan`/`db-fixtures-plan` print; `run_load` holds the
+  import lock for the whole run: existing-table check (a data set without `replace=1` stops here), backup, drop
+  (data set), data, after-import SQL and fixtures, after-load steps. Fixtures alone skip the after-load steps.
 - Load sequence (import, data set, test): data → safe after-import (profile defaults outside prod,
   project scripts — `<group>/*.sql` in the main database, then `<group>/<schema>/*.sql` in that extra
   schema — integration switches unless `INTEGRATIONS_ENABLED`) → pending migrations → shop

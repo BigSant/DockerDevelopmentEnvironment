@@ -38,6 +38,10 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   container started for another `DATABASE_NAME`; before, a failed migration said only that it failed. Compose
   output still never appears, because it may hold secrets. Behind it, every database call goes through one
   Database client (`doc/ARCHITECTURE.md` §5).
+- **One lock for a whole load.** `db-import`, `db-load`, `test-prepare` and `db-fixtures-load` hold the import
+  lock from the first check to the end of the migrations and shop policy, so a second load can no longer run
+  between a data set's drop and its data, or during the first one's migrations; it stops with "already
+  running", as before. `db-load` no longer writes a combined copy of the data set to `.generated/`.
 
 ## 2.9.0
 
