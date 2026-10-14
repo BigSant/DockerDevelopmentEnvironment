@@ -13,6 +13,8 @@ import re
 import shutil
 import subprocess
 
+from project_target import deploy_target
+
 DOCKER_ROOT = Path(__file__).resolve().parent
 SETUP_ROOT = DOCKER_ROOT.parent
 LOCK_NAME = 'images.lock.json'
@@ -122,10 +124,8 @@ def sync_environment(project, deploy_path, model=None):
     mount the checkout directly. Anywhere else, a local directory or a server, they mount DEPLOY_PATH's copy,
     which follows the checked-out commit on every deploy-images and deploy (--delete: a file removed from
     the repository goes on the target too)."""
-    ssh = project.settings.get('DEPLOY_SSH') or ''
-    if ssh and not re.fullmatch(r'[A-Za-z0-9._-]+@[A-Za-z0-9.-]+', ssh):
-        raise ValueError('DEPLOY_SSH must look like user@host')
-    if not ssh and Path(deploy_path).resolve() == project.root.resolve():
+    target = deploy_target(project)
+    if target.local and Path(deploy_path).resolve() == project.root.resolve():
         return []
     if model is None:
         paths = environment_mounts(project, json.loads(project.capture(['config', '--format', 'json'])))
@@ -133,20 +133,13 @@ def sync_environment(project, deploy_path, model=None):
         paths = environment_mounts(project, model, deploy_path)
     if not paths:
         return []
-    parents = sorted({str(Path(deploy_path, path).parent) for path in paths})
-    if ssh:
-        subprocess.run(['ssh', ssh, 'mkdir', '-p', '--', *parents], check=True)
-    else:
-        for parent in parents:
-            Path(parent).mkdir(parents=True, exist_ok=True)
+    target.mkdir(sorted({str(Path(deploy_path, path).parent) for path in paths}))
     for path in paths:
         source = project.root / path
         directory = source.is_dir()
-        destination = f'{deploy_path}/{path}' + ('/' if directory else '')
-        subprocess.run(['rsync', '-a', '--checksum', *(['--delete'] if directory else []),
-                        f'{source}/' if directory else str(source), f'{ssh}:{destination}' if ssh else destination],
-                       check=True)
-    print(f'==> environment files to {ssh + ":" if ssh else ""}{deploy_path}: {" ".join(paths)}', flush=True)
+        target.push(f'{source}/' if directory else str(source), f'{deploy_path}/{path}' + ('/' if directory else ''),
+                    '-a', '--checksum', *(['--delete'] if directory else []))
+    print(f'==> environment files to {target.label}{deploy_path}: {" ".join(paths)}', flush=True)
     return paths
 
 
@@ -175,12 +168,9 @@ def prepare_runtime_directories(project, model, deploy_path):
     bind source as root, and the containers run as APP_UID: on a first deploy php-fpm could not write its code
     directory nor MySQL its data, and both restarted until compose gave up on them."""
     paths = runtime_directories(project, model, deploy_path)
-    ssh = project.settings.get('DEPLOY_SSH') or ''
-    if paths and ssh:
-        subprocess.run(['ssh', ssh, 'mkdir', '-p', '--', *paths], check=True)
-    elif paths:
-        for path in paths:
-            Path(path).mkdir(parents=True, exist_ok=True)
+    target = deploy_target(project)
+    target.mkdir(paths)
+    if paths and target.local:
         locked = [path for path in paths if not os.access(path, os.W_OK)]
         if locked:
             raise ValueError('These directories are not writable by this account (Docker created them as root on an '
@@ -201,25 +191,19 @@ def check_ports(project, context, compose_project, model):
     Started anyway, Docker gives up on that container's networking halfway: it is left on some of its networks
     only, and later deploys restart it unchanged. Only a target this machine can look at is checked (its own
     Docker, or DEPLOY_SSH); ports this project's containers publish already are theirs."""
-    ssh = project.settings.get('DEPLOY_SSH') or ''
-    if not ssh and context != 'default':
+    target = deploy_target(project)
+    if target.local and context != 'default':
         return
     wanted = published_ports(model)
     if not wanted:
         return
-    listing = subprocess.run([*(['ssh', ssh] if ssh else []), 'ss', '-Hltn'], capture_output=True, text=True)
-    if listing.returncode:
+    listeners = target.listening()
+    if listeners is None:
         return
     own = subprocess.run(['docker', '--context', context, 'ps', '--filter', f'label=com.docker.compose.project={compose_project}',
                           '--format', '{{.Ports}}'], capture_output=True, text=True).stdout
     owned = set(re.findall(r'(?:^|[\s,])\[?([0-9a-fA-F.:]*?)\]?:(\d+)->', own))
     owned_ports = {port for _, port in owned}
-    listeners = set()
-    for line in listing.stdout.splitlines():
-        fields = line.split()
-        if len(fields) >= 4 and ':' in fields[3]:
-            address, port = fields[3].rsplit(':', 1)
-            listeners.add((address.strip('[]'), port))
     wildcard = {'', '0.0.0.0', '*', '::'}
     taken = [f'{address or "*"}:{port}' for address, port in wanted if port not in owned_ports and any(
         port == held_port and (held in wildcard or address in wildcard or held == address) for held, held_port in listeners)]
