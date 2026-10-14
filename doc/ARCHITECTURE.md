@@ -266,7 +266,7 @@ checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH`
 whenever `DEPLOY_PATH` is not the project root. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
-The Deployment variables list (`project_pipeline.deployment_variables`) is setup's secrets for the env
+The Deployment variables list (`project_env_files.deployment_variables`, beside `PROCESS_SECRETS`) is setup's secrets for the env
 (DB passwords, PS keys of `PS_VERSION`; monitor password and metrics/monitor tokens optional) +
 `DEPLOY_REQUIRED_VARIABLES` + `DEPLOY_OPTIONAL_VARIABLES` + `APP_ENVIRONMENT` names the env files do not
 mention; a name an env file sets is not a Deployment variable, a blank one (other than `PROCESS_SECRETS`)
