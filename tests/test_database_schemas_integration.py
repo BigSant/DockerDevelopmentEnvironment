@@ -18,6 +18,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 from database_backup import backup_database
+from database_client import DatabaseClient
 from database_grants import RESTRICT
 from database_import import import_database, plan_import
 
@@ -179,9 +180,12 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
                            f'exec docker exec -i {self.name} "$@"\n')
         compose.chmod(0o755)
         (self.directory / "docker").mkdir(exist_ok=True)
-        return SimpleNamespace(name="shop-local", root=self.directory, directory=self.directory / "docker",
-                               environment="local", command=[str(compose)], child_env=lambda: dict(os.environ),
-                               settings={"DATABASE_NAME": "shop", "DATABASE_EXTRA_SCHEMAS": extras, "MIN_FREE_DISK_MB": "0"})
+        project = SimpleNamespace(name="shop-local", root=self.directory, directory=self.directory / "docker",
+                                  environment="local", command=[str(compose)], compose_env=lambda args: dict(os.environ),
+                                  capture=lambda args: "database\n",
+                                  settings={"DATABASE_NAME": "shop", "DATABASE_EXTRA_SCHEMAS": extras, "MIN_FREE_DISK_MB": "0"})
+        project.database = DatabaseClient(project)
+        return project
 
     def populate(self):
         self.root("CREATE TABLE shop.orders (id INT PRIMARY KEY); INSERT INTO shop.orders VALUES (1),(2);"
