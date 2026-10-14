@@ -26,6 +26,7 @@ def main():
             output.write('\n' + versions + '\n')
         project = Project(app)
         project.run(['build', 'php-fpm-base'], profiles='build_only')
+        project.run(['build', 'php-fpm-core'], profiles='build_only')
         project.run(['build', 'php-fpm'])
         image = project.model()['services']['php-fpm']['image']
         subprocess.run(['docker', 'tag', image, args.tag], check=True)

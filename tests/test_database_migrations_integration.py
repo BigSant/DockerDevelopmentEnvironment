@@ -57,12 +57,19 @@ class DoctrineIntegrationTest(unittest.TestCase):
                         '--configuration=/tmp/doctrine-migrations/config/migrations.php',
                         '--db-configuration=/tmp/doctrine-migrations/config/connection.php'],
                     'volumes': [str(config) + ':/tmp/doctrine-migrations/config:ro']}}}
-            (app / 'compose/base.yaml').write_text(json.dumps(model))
+            # setup's database and doctrine services join network_app, which Compose refuses beside network_mode;
+            # its database keeps /var/lib/mysql in a volume, where this one has a tmpfs, and runs as the host user,
+            # who cannot write that root-owned tmpfs (MariaDB stops): all three are dropped.
+            for service in model['services'].values():
+                service['networks'] = '__reset__'
+            model['services']['database'].update(volumes='__reset__', user='__reset_null__')
+            (app / 'compose/base.yaml').write_text(
+                json.dumps(model).replace('"__reset__"', '!reset []').replace('"__reset_null__"', '!reset null'))
             git(root, 'init', '-q'); git(root, 'config', 'user.name', 'Doctrine Test')
             git(root, 'config', 'user.email', 'doctrine@example.invalid'); git(root, 'config', 'commit.gpgsign', 'false')
             project = Project(app)
             try:
-                project.run(['up', '-d', '--no-build', '--pull', 'never'])
+                project.run(['up', '-d', '--no-build', '--pull', 'never', 'database'])
                 deadline = time.monotonic() + 90
                 while True:
                     try:

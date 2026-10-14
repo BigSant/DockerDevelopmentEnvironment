@@ -140,7 +140,10 @@ class ContainersGroupTest(base.EndpointMixin, unittest.TestCase):
 
     def setUp(self):
         self.prepare()
-        self.socket_path = self.work / "docker.sock"
+        # A socket path holds at most 107 bytes; the CI checkout path alone takes ~70, so not under self.work.
+        sockets = tempfile.TemporaryDirectory(prefix="setup-")
+        self.addCleanup(sockets.cleanup)
+        self.socket_path = Path(sockets.name) / "docker.sock"
         server = socketserver.ThreadingUnixStreamServer(str(self.socket_path), DockerApi)
         server.requests, server.list_queries, server.event_queries = [], [], []
         containers = [inspected("a1", "demo-stage-php-fpm", "php-fpm", "running", "unhealthy", restarts=3),

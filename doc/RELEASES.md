@@ -4,6 +4,16 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **PHP 8.5 images build again with the cache extensions**: memcached 3.4.0 and redis 6.3.0 (3.3.0 and 6.2.0
+  include `php_smart_string.h`, which PHP 8.5 removed). A PHP 8.5 project's images are rebuilt once.
+- **CI is green again** (red since 2026-09-12, test fixtures only): the PHP image builder builds the CORE image
+  too, the runtime hook test gives a stock PHP image the writable drop-in directories, the Doctrine test starts
+  only its database and drops the core networks, data volume and user it replaces, the metrics test keeps its Docker socket under the 107-byte
+  limit, the MariaDB schema test accepts `text DEFAULT NULL`, and the probe test no longer reads a 404 page
+  that repeats the URL as the probe answering.
+
 ## 2.9.0
 
 ### Cron UI: a running job and its output, live

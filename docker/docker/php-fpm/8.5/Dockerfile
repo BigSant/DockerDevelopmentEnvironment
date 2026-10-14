@@ -33,8 +33,8 @@ RUN docker-php-ext-enable apcu --ini-name 10-docker-php-ext-apcu.ini \
 
 # Optional cache extensions, compiled but NOT enabled: a project that selects the memcached or
 # redis service enables one with an ini drop-in (extension=memcached.so / extension=redis.so).
-ARG MEMCACHED_EXT_VERSION=3.3.0
-ARG REDIS_EXT_VERSION=6.2.0
+ARG MEMCACHED_EXT_VERSION=3.4.0
+ARG REDIS_EXT_VERSION=6.3.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libmemcached-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/* \

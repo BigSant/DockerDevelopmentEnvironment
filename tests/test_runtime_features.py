@@ -104,7 +104,10 @@ define('_DB_PREFIX_', 'custom_');
         command = ['docker', 'run', '--rm', '--network', 'none',
                    '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'PROFILE=akeneo',
                    '-v', f'{ROOT}/docker/runtime:/opt/setup/runtime:ro',
-                   '-v', f'{config}:/opt/setup/project:ro', '--entrypoint', '/bin/sh',
+                   '-v', f'{config}:/opt/setup/project:ro',
+                   # The effective drop-in directories setup's Dockerfile creates (0777); a stock php image has none.
+                   '--tmpfs', '/usr/local/etc/php/project.r:mode=1777',
+                   '--tmpfs', '/usr/local/etc/php/project.r.env:mode=1777', '--entrypoint', '/bin/sh',
                    os.environ['PHP_TEST_IMAGE'], '/opt/setup/runtime/start.sh',
                    'php', '-r', 'echo "application-started\\n";']
         result = subprocess.run(command, capture_output=True, text=True)

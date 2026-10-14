@@ -385,9 +385,11 @@ class ProbeWebGateTest(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertIn('removed directory _expired_remove', body)
         self.assertFalse((self.root / '_expired_remove').exists())
-        # php -S answers a missing file with the root index.php (a web server would say 404): the probe is gone.
+        # The probe is gone: an expired one would refuse (403 'probe expired'). php -S answers a missing file with
+        # the root index.php, or a 404 page that repeats the URL (so the word "probe" may still be there).
         status, body, _ = self.get('_expired_remove', f'token={TOKEN}')
-        self.assertNotIn('probe', body)
+        self.assertNotEqual(status, 403, body)
+        self.assertNotIn('probe expired', body)
 
     def test_delete_keeps_foreign_files(self):
         status, body, _ = self.get('_shared', f'action=delete&token={TOKEN}')

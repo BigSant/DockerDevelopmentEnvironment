@@ -101,7 +101,8 @@ CREATE TABLE product (
                 self.assertIn("no new migration is staged", result.stderr)
                 drafts = list((root / "database/migrations").glob("*-schema.sql"))
                 self.assertEqual(len(drafts), 1)
-                self.assertIn("ADD COLUMN `description` text AFTER `code`", drafts[0].read_text())
+                # MariaDB writes a nullable TEXT column with its DEFAULT NULL; MySQL leaves it out.
+                self.assertRegex(drafts[0].read_text(), r"ADD COLUMN `description` text (DEFAULT NULL )?AFTER `code`")
                 git(root, "add", "-A", "database")
                 result = commit()
                 self.assertEqual(result.returncode, 0, result.stderr)
