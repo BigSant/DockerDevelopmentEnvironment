@@ -16,15 +16,12 @@ file permission or list error.
 """
 
 import json
-import os
-from pathlib import Path
-import stat
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from project_env_files import file_settings, read_dotenv
-from project_env_files import DEPLOYMENT_NAMES, deployment_variables
+from project_ci import Failure, NoRedirect, compare, load_list, print_names, read_token, summary
+from project_env_files import DEPLOYMENT_NAMES, file_settings
 import project_remote
 
 API = 'https://api.bitbucket.org/2.0'
@@ -32,33 +29,6 @@ SCOPES = ('Repositories: Read and Pipelines: Read (scope pipeline) to check; app
           'Pipelines: Edit variables (scope pipeline:variable)')
 MAX_PAGES = 100
 KINDS = ('secured', 'plain')
-
-
-class Failure(Exception):
-    def __init__(self, message, status=64):
-        super().__init__(message)
-        self.status = status
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    """A redirect would carry the token to another address: report it instead."""
-
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
-def private(path, label):
-    """A file only its owner can read: the token and the values file."""
-    try:
-        info = os.stat(path)
-    except OSError as error:
-        raise Failure(f'{label} {path}: {error.strerror}') from None
-    if not stat.S_ISREG(info.st_mode):
-        raise Failure(f'{label} {path} is not a regular file')
-    if info.st_uid != os.geteuid():
-        raise Failure(f'{label} {path} must be owned by you (uid {os.geteuid()}), not uid {info.st_uid}')
-    if info.st_mode & 0o077:
-        raise Failure(f'{label} {path} is readable by others (mode {stat.S_IMODE(info.st_mode):04o}): chmod 600 {path}')
 
 
 def repository(directory, values):
@@ -137,77 +107,14 @@ def environment_url(client, base, wanted):
     raise Failure(f'no Bitbucket deployment environment named {wanted} (the repository has: {names})', 2)
 
 
-def compare(listed, present, label, out, provider='Bitbucket', kinds=KINDS):
-    """The check report; returns the number of missing names.
-
-    present: {name: {'secured': bool, 'both': bool}}; kinds names a secured and a plain one.
-    """
-    missing = mismatched = 0
-    print(f'{label}: {len(listed)} listed variables', file=out)
-    for name, variable in listed.items():
-        kind = kinds[0] if variable['secured'] else kinds[1]
-        if name not in present:
-            missing += 1
-            print(f"  MISSING   {name} ({kind}{', required' if variable['required'] else ''})", file=out)
-        elif present[name].get('both'):
-            mismatched += 1
-            print(f'  present   {name}: both a {kinds[0]} and a {kinds[1]} in {provider} (the {kinds[0]} is used), '
-                  f'the list says {kind}', file=out)
-        elif present[name]['secured'] != variable['secured']:
-            mismatched += 1
-            have = kinds[0] if present[name]['secured'] else kinds[1]
-            print(f'  present   {name}: {have} in {provider}, the list says {kind}', file=out)
-        else:
-            print(f'  present   {name}', file=out)
-    for name in present:
-        if name not in listed:
-            print(f'  extra     {name} (not in the list)', file=out)
-    print(summary(len(listed) - missing, missing, mismatched, kinds), file=out)
-    return missing
-
-
-def summary(present, missing, mismatched, kinds=KINDS):
-    return (f'{present} present, {missing} missing, {mismatched} {kinds[0]}/{kinds[1]} mismatch'
-            + ('es' if mismatched != 1 else ''))
-
-
-def load_list(directory, environment, source, replace):
-    """(ENV, the listed variables, the values of from=FILE or None): the checks every provider shares."""
-    # The default is production, as in the deploy step that runs it most.
-    environment = 'prod' if environment == 'local' else environment
-    if environment not in DEPLOYMENT_NAMES:
-        raise Failure('Deployment variables belong to ENV=stage or ENV=prod')
-    if replace and not source:
-        raise Failure('replace=1 belongs to from=FILE (apply)')
-    try:
-        listed = deployment_variables(directory, environment)
-        values = None
-        if source:
-            private(source, 'Values file')
-            values = read_dotenv(source, strict=True)
-    except (ValueError, OSError) as error:
-        raise Failure(str(error)) from None
-    return environment, listed, values
-
-
-def print_names(listed, out, kinds=KINDS):
-    for name, variable in listed.items():
-        print(f"{name} {kinds[0] if variable['secured'] else kinds[1]} "
-              f"{'required' if variable['required'] else 'optional'} ({variable['source']})", file=out)
-
-
 def run(directory, environment, source, replace, token_file, names_only, environ, out):
     environment, listed, values = load_list(directory, environment, source, replace)
     if names_only:
-        print_names(listed, out)
+        print_names(listed, out, KINDS)
         return 0
     settings, _ = file_settings(directory, environment)
     slug = repository(directory, settings)
-    if token_file:
-        private(token_file, 'Token file')
-        token = ''.join(Path(token_file).read_text().split())
-    else:
-        token = environ.get('BITBUCKET_ACCESS_TOKEN', '')
+    token = read_token(token_file, environ, ('BITBUCKET_ACCESS_TOKEN',))
     if not token:
         raise Failure('no token: set BITBUCKET_ACCESS_TOKEN or pass token=PATH (a file only you can read) with a '
                       f'repository access token of {slug}: {SCOPES}')
@@ -220,7 +127,7 @@ def run(directory, environment, source, replace, token_file, names_only, environ
                 for v in client.fetch(url, 'variables')}
 
     if values is None:
-        return 1 if compare(listed, present(), label, out) else 0
+        return 1 if compare(listed, present(), label, out, 'Bitbucket', KINDS) else 0
 
     print(f'{label}: apply from {source}', file=out)
     existing = present()
@@ -258,5 +165,5 @@ def run(directory, environment, source, replace, token_file, names_only, environ
     now = present()
     missing = sum(1 for name in listed if name not in now)
     mismatched = sum(1 for name in listed if name in now and now[name]['secured'] != listed[name]['secured'])
-    print(f'Now: {summary(len(listed) - missing, missing, mismatched)}', file=out)
+    print(f'Now: {summary(len(listed) - missing, missing, mismatched, KINDS)}', file=out)
     return 1 if missing else 0

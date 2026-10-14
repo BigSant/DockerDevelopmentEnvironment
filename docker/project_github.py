@@ -21,14 +21,13 @@ file permission or list error.
 
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from project_bitbucket import Failure, NoRedirect, compare, load_list, print_names, private, summary
+from project_ci import Failure, NoRedirect, compare, load_list, print_names, read_token, summary
 from project_env_files import DEPLOYMENT_NAMES
 import project_remote
 
@@ -126,11 +125,7 @@ class GitHub:
 
 
 def token_of(token_file, environ, slug):
-    if token_file:
-        private(token_file, 'Token file')
-        token = ''.join(Path(token_file).read_text().split())
-    else:
-        token = environ.get('GH_TOKEN') or environ.get('GITHUB_TOKEN') or ''
+    token = read_token(token_file, environ, ('GH_TOKEN', 'GITHUB_TOKEN'))
     if not token:
         raise Failure(f'no token: set GH_TOKEN (or GITHUB_TOKEN) or pass token=PATH (a file only you can read) with '
                       f'{PERMISSIONS} ({slug})')
