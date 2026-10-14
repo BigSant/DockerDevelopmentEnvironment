@@ -527,8 +527,7 @@ def main():
             from database_dataset import build_dataset
             build_dataset(project, args.set)
         elif args.action == "db-load":
-            from database_dataset import load_dataset
-            load_dataset(project, args.set, replace=args.replace, backup=args.backup)
+            run_load(project, plan_load(project, dataset=args.set, replace=args.replace), backup=args.backup)
         elif args.action == "test-prepare":
             from project_testing import prepare_tests
             prepare_tests(project, args.set)

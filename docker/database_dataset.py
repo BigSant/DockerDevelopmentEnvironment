@@ -11,7 +11,6 @@ import gzip
 from pathlib import Path
 import re
 import secrets
-import tempfile
 
 from database_client import identifier, literal
 from database_schema import MANIFEST, database_tables, managed_file, schema_directory, split_name
@@ -281,22 +280,18 @@ def schema_sql(project):
         if managed_file(table['file']) and split_name(table['name'])[0] is None)
 
 
-def plan_load(project, name):
-    """Inputs of make db-load: one combined schema + data file, then after-import hooks and fixtures."""
-    from database_import import after_import_hooks, render_hook
+def dataset_inputs(project, name):
+    """The set's data files and its fixtures (database/fixtures/<set>, else common, when FIXTURES_DIRECTORY is set)."""
     files = dataset_files(project, name)
     if not (schema_directory(project) / MANIFEST).is_file():
         raise ValueError('The schema snapshot is missing; export and commit it first')
-    hooks = after_import_hooks(project)
     fixtures = []
     if project.settings.get('FIXTURES_DIRECTORY'):
         from database_fixtures import plan_fixtures
         root = (project.root / project.settings['FIXTURES_DIRECTORY'])
         if (root / name).is_dir() or (root / 'common').is_dir():
             fixtures = plan_fixtures(project, name if (root / name).is_dir() else 'common')
-    for path in [*hooks, *fixtures]:
-        render_hook(project, path)
-    return files, [*hooks, *fixtures]
+    return files, fixtures
 
 
 def drop_all_tables(project):
@@ -309,33 +304,11 @@ def drop_all_tables(project):
     project.database.execute('\n'.join(statements) + '\n')
 
 
-def load_dataset(project, name='dev', replace=False, backup=False):
-    from database_import import execute_sql
-    from database_load import after_load
-    if project.environment in ('stage', 'prod'):
-        raise ValueError('The base data set (dev logins, sample data) loads only into local and test databases')
-    files, hooks = plan_load(project, name)
-    existing = database_tables(project)
-    if existing and not replace:
-        raise ValueError(f'Database {project.settings["DATABASE_NAME"]} has {len(existing)} tables; '
-                         'replace=1 drops them first (add backup=1 to keep a copy)')
-    output = project.directory / '.generated'
-    output.mkdir(mode=0o700, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=output, suffix='.sql') as combined:
-        combined.write(schema_sql(project))
-        for path in files:
-            combined.write(path.read_bytes())
-        combined.flush()
-        if existing:
-            if backup:
-                from database_backup import backup_database
-                backup_database(project)
-            drop_all_tables(project)
-        execute_sql(project, [Path(combined.name), *hooks], first_is_dump=True)
+def dataset_notes(project, name):
+    """What to tell a person after the set is loaded."""
+    notes = []
     legacy = dataset_directory(project, name) / 'dataset.env'
-    from project_prestashop import is_prestashop
     if is_prestashop(project) and legacy.is_file() and \
             f'PS_COOKIE_KEY={project.settings.get("PS_COOKIE_KEY", "")}\n' not in legacy.read_text():
-        print(f'Warning: dev logins of this PrestaShop 1.6 set need PS_COOKIE_KEY from {legacy} in env/local.env.')
-    after_load(project)
-    print(f'Data set {name} loaded. {dev_login_hint(project)}')
+        notes.append(f'Warning: dev logins of this PrestaShop 1.6 set need PS_COOKIE_KEY from {legacy} in env/local.env.')
+    return notes + [f'Data set {name} loaded. {dev_login_hint(project)}']
