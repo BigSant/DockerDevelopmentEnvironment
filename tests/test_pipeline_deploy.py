@@ -77,7 +77,12 @@ LLM_MODEL=claude
 
 
 def git(directory, *args):
-    return subprocess.run(["git", "-C", str(directory), *args], check=True, capture_output=True, text=True).stdout.strip()
+    result = subprocess.run(["git", "-C", str(directory), *args], capture_output=True, text=True)
+    if result.returncode:
+        # CalledProcessError's message leaves out git's own; CI then shows only the exit status.
+        raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr) from \
+            RuntimeError(f"git {' '.join(args)} in {directory}: {result.stderr.strip()[-800:] or '(no stderr)'}")
+    return result.stdout.strip()
 
 
 class Fixture(unittest.TestCase):
