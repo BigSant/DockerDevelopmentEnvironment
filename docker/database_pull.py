@@ -292,16 +292,17 @@ def download(project, ssh, name, source, file, size, target, popen=subprocess.Po
 
 
 def pull(project, source='prod', run=subprocess.run, reconfigure=False, ask=input, interactive=None, full=False,
-         fresh=False, popen=subprocess.Popen, steps=None):
+         fresh=False, popen=subprocess.Popen, then_import=False, backup=False):
     """The local path of the newest (or, with fresh, a new) backup of ENV `source`; downloads it unless it is here.
 
-    steps: (first step number, number of steps) for the step headings when the caller goes on (import=1)."""
+    then_import loads it into the local database afterwards (the Load: after-import SQL, migrations); backup
+    keeps a copy of that database first."""
     from progress import amount, step
     if project.environment != 'local':
         raise ValueError('make db-pull downloads into a developer copy: run it with ENV=local')
     if source not in ENVIRONMENTS:
         raise ValueError('from= must be stage or prod')
-    first, count = steps or (1, 2 if fresh else 1)
+    first, count = 1, 1 + int(fresh) + int(then_import)
     ssh = ssh_command(*connection(project, reconfigure, ask, interactive))
     name, latest = newest(project, ssh, source, run, ask, interactive, full)
     kind = ('a new full' if full else 'a new') if fresh else ('the newest full' if full else 'the newest')
@@ -328,4 +329,9 @@ def pull(project, source='prod', run=subprocess.run, reconfigure=False, ask=inpu
     print(f'Backup: {target} ({amount(target.stat().st_size)})')
     print('Warning: this is the server\'s copy with real customer data. It stays private (0600) in .generated/backups; '
           'delete it when you no longer need it.')
+    if then_import:
+        from database_load import plan_load, run_load
+        step(count, count, f'Import into the local database ({project.settings["DATABASE_NAME"]}): '
+             'dump, after-import, migrations')
+        run_load(project, plan_load(project, dump=str(target)), backup=backup)
     return target

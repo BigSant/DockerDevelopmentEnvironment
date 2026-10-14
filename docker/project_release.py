@@ -325,9 +325,8 @@ def build_release(project, allow_dirty=False):
     _, deploy_path = release_settings(project, remote=False)
     version = setup_version(allow_dirty, tagged=project.environment == 'prod')
     print(f'==> building {project.environment} images from setup {version}', flush=True)
-    project.run(['build', 'php-fpm-base'], profiles='build_only')
-    project.run(['build', 'php-fpm-core'], profiles='build_only')
-    project.run(['build'])
+    from project_images import build_images
+    build_images(project)
     model = release_model(project, deploy_path)
     images = image_names(model)
     external = external_images(project, model)

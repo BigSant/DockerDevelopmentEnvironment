@@ -102,6 +102,17 @@ class DbPullTest(unittest.TestCase):
         self.assertIn("Already downloaded", again)
         self.assertEqual(len(self.calls()), 3, "no second download")
 
+    def test_import_is_the_last_step_and_goes_through_the_load(self):
+        loads = []
+        with patch("database_load.plan_load", lambda project, dump: ("plan", dump)), \
+                patch("database_load.run_load", lambda project, plan, backup=False: loads.append((plan, backup))):
+            target, _ = self.pull(then_import=True, backup=True)
+        self.assertEqual(loads, [(("plan", str(target)), True)])
+        self.assertIn("==> [1/2] Download", self.errors)
+        self.assertIn("==> [2/2] Import into the local database (shop)", self.errors)
+        self.pull()
+        self.assertIn("==> [1/1] Download", self.errors, "no import: one step")
+
     def test_full_downloads_the_newest_full_backup(self):
         target, _ = self.pull(full=True)
         self.assertEqual(target.name, "full-prod-20261011T043000Z.sql.gz")

@@ -484,10 +484,8 @@ def main():
         elif args.action == "config":
             print(project.render())
         elif args.action == "build":
-            # Locally built parents first: base, then the CORE project layer.
-            project.run(["build", "php-fpm-base"], profiles="build_only")
-            project.run(["build", "php-fpm-core"], profiles="build_only")
-            project.run(["build"])
+            from project_images import build_images
+            build_images(project)
         elif args.action == "up":
             start_project(project, args.timeout)
         elif args.action in ("down", "ps"):
@@ -544,15 +542,9 @@ def main():
              "schema-hook-install": install_schema_hook}[args.action](project)
         elif args.action == "db-pull":
             from database_pull import pull
-            from progress import step
-            count = 1 + int(args.fresh) + int(args.import_now)
             target = pull(project, args.source or 'prod', reconfigure=args.configure, full=args.full, fresh=args.fresh,
-                          steps=(1, count))
-            if args.import_now:
-                step(count, count, f'Import into the local database ({project.settings["DATABASE_NAME"]}): '
-                     'dump, after-import, migrations')
-                run_load(project, plan_load(project, dump=str(target)), backup=args.backup)
-            else:
+                          then_import=args.import_now, backup=args.backup)
+            if not args.import_now:
                 print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
         elif args.action in ("db-import", "db-import-plan"):
             # Every dump table must be classified; the plan only reports, the import may ask.
@@ -585,25 +577,8 @@ def main():
             arguments = shlex.split(args.command or "status")
             project.run(["run", "--rm", "--no-deps", "php-doctrine-migrations"] + arguments, profiles="doctrine")
         else:
-            service, profile, entrypoint, default = {
-                "phpstan": ("php-phpstan", "phpstan", "make", "report"),
-                "phpcs": ("php-cs", "phpcs", "make", "check"),
-                "e2e": ("playwright", "playwright", "", project.settings["PLAYWRIGHT_COMMAND"]),
-            }[args.action]
-            if args.action == "e2e":
-                # End-to-end tests write orders and customers: only ever against ENV=test.
-                from project_testing import test_project
-                project = test_project(project)
-            command = ["run", "--rm"]
-            arguments = shlex.split(args.command or default)
-            if not arguments or not arguments[0]:
-                raise ValueError("QA command cannot be empty")
-            if args.action != "e2e":
-                command += ["--no-deps", "--entrypoint", entrypoint]
-            else:
-                # The shared Playwright service otherwise starts `tail -f /dev/null`.
-                command += ["--entrypoint", arguments.pop(0)]
-            project.run(command + [service] + arguments, profiles=profile)
+            from project_commands import run_qa
+            run_qa(project, args.action, args.command)
         if args.action not in ('ide-init', 'ide-refresh', 'test-init', 'setup-info') and (project.directory / '.idea/php.xml').is_file():
             refresh_ide(project)
         return 0

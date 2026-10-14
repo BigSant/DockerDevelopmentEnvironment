@@ -140,9 +140,13 @@ class ReleaseTest(unittest.TestCase):
             self.assertEqual(command[:2], ['docker', 'compose'], 'nothing else runs during the release')
             return real(command, **kwargs)
 
+        built = []
         with patch('project_release.subprocess.run', run), patch.object(project, 'run', lambda *a, **k: None), \
+                patch('project_images.build_images', built.append), \
                 patch('project_release.trivy_report'), contextlib.redirect_stdout(io.StringIO()):
-            return build_release(project), pulls
+            lock = build_release(project)
+        self.assertEqual(built, [project], 'the release builds through build_images, parents first')
+        return lock, pulls
 
     def test_release_pulls_locks_and_ships_external_project_images(self):
         project = self.external_project()

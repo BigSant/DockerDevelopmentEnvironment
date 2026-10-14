@@ -11,6 +11,14 @@ LEGACY_NAME = re.compile(
     r'playwright-|php-phpstan-|php-cs-|php-doctrine-migrations-|[a-z0-9][a-z0-9_-]*-php-fpm-(local|stage|prod|test))')
 
 
+def build_images(project):
+    """Build this project's images, locally built parents first: the PHP base, then the CORE layer on it (both
+    only in the build_only profile, which nothing starts), then every other image, the project's PHP among them."""
+    project.run(['build', 'php-fpm-base'], profiles='build_only')
+    project.run(['build', 'php-fpm-core'], profiles='build_only')
+    project.run(['build'])
+
+
 def _docker(*arguments):
     result = subprocess.run(['docker', *arguments], capture_output=True, text=True)
     if result.returncode:

@@ -13,7 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from project import Project
-from project_images import LEGACY_NAME, plan_prune, prune_images
+from project_images import LEGACY_NAME, build_images, plan_prune, prune_images
 from setup_release import build_fingerprint, dockerfile_sources, image_suffixes, suffix_variable
 
 
@@ -134,6 +134,14 @@ class PrunePlanTest(unittest.TestCase):
                 prune_images(project, apply=True)
             run.assert_called_once()
             self.assertEqual(run.call_args.args[0], ["docker", "rmi", "sha256:stale"])
+
+
+class BuildOrderTest(unittest.TestCase):
+    def test_locally_built_parents_come_first(self):
+        calls = []
+        build_images(SimpleNamespace(run=lambda args, profiles=None: calls.append((args, profiles))))
+        self.assertEqual(calls, [(["build", "php-fpm-base"], "build_only"), (["build", "php-fpm-core"], "build_only"),
+                                 (["build"], None)])
 
 
 if __name__ == "__main__":
