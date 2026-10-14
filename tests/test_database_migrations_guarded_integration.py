@@ -37,8 +37,9 @@ class GuardedMigrationIntegrationTest(unittest.TestCase):
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
         deadline = time.time() + 120
         while time.time() < deadline:
-            if subprocess.run(["docker", "exec", name, "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"],
-                              capture_output=True).returncode == 0 and self.sql(name, "", "SELECT 1").returncode == 0:
+            # MariaDB 11 ships mariadb-admin only.
+            if subprocess.run(["docker", "exec", name, "sh", "-c", 'exec "$(command -v mariadb-admin || command -v mysqladmin)" '
+                               'ping -h 127.0.0.1 --silent'], capture_output=True).returncode == 0 and self.sql(name, "", "SELECT 1").returncode == 0:
                 return name
             time.sleep(2)
         self.fail("database did not start")
