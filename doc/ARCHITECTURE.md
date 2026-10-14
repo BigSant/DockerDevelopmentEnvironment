@@ -251,8 +251,8 @@ workflow passes `toJSON(secrets)` / `toJSON(vars)` in `DEPLOY_SECRETS_JSON` / `D
 and `expand_json` sets every valid name the process lacks (never `GITHUB_*`, `RUNNER_*`, `ACTIONS_*`;
 the job's env wins, a secret wins over a variable); the JSON itself is dropped from the child steps.
 It runs in the build root's environment checkout:
-ENV from the deployment environment (staging/production); `REF` (aliases `APP_REF`, `SHOP_REF`), `IMAGES`, `ROLLBACK`,
-`BACKUP`. Layout decides the ref: one repository (no `app/public/.git`) checks out the deployed commit
+ENV from the deployment environment (staging/production); `REF` (aliases `APP_REF`, `SHOP_REF`), `IMAGES`
+(`yes`/`no`/`auto`), `CRON` (`auto` by default), `ROLLBACK`, `BACKUP`. Layout decides the ref: one repository (no `app/public/.git`) checks out the deployed commit
 (REF, the pipeline commit, or the history's rollback target) and follows the history afterwards; a
 separate code repository keeps the environment checkout on the pipeline commit and deploys REF of
 `app/public`, which is only fetched. Order: refusals before any change (exit 64; required Deployment
@@ -261,7 +261,16 @@ variables included) → fetch → checkout → `env/<env>.env` from the example 
 them is refused; without `target.env` the example's own target, + the runner's ids on the same host)
 → the same checks with the deployed commit's files (a too old setup on a setup-server worker: `setup_self_update`
 checks out the newest release tag of the same MAJOR that is new enough and the step restarts on it) →
-`make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy`. `project_release.sync_environment` copies the environment
+`make release` + `make deploy-images` (`transfer=0` on the same host) → `make deploy` → `make cron-reload`.
+The `auto` switches are decided before the checkout from `git diff live target` in the environment checkout
+(`images_needed`: no `images.lock.json`, its `setup` unlike `git describe` of setup, or `IMAGE_PATHS` +
+`env/<env>.env.example` touched; a rollback stays code-only; `cron_needed`: `config/cron/` touched) and
+logged with the reason. `make cron-reload` (`project_deploy.reload_cron`) runs `CRON_RELOAD` with `sh -e -c` in
+the cron container: `cronCompose()` into `/tmp/crontab.next` (not compose.php as a script, whose start-up step
+closes running jobs as interrupted), `supercronic -test`, swap, `SIGUSR2`. A command, not a runtime file,
+because stage/prod images carry the runtime they were built with. supercronic reads the crontab only at
+start, and compose recreates no container whose mounted file alone changed. A refused crontab fails the
+step after the deploy and undoes nothing. `project_release.sync_environment` copies the environment
 checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH` in deploy-images and deploy
 whenever `DEPLOY_PATH` is not the project root. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps

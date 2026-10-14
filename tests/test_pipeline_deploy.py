@@ -318,7 +318,9 @@ class OneRepositoryTest(Fixture):
         for variables, message in [({"BITBUCKET_DEPLOYMENT_ENVIRONMENT": "test"}, "Run this from a Staging or Production"),
                                    ({"BITBUCKET_DEPLOYMENT_ENVIRONMENT": None}, "BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set"),
                                    ({"REF": "a", "APP_REF": "b"}, "REF, APP_REF name different refs"),
-                                   ({"IMAGES": "maybe"}, "IMAGES must be yes or no")]:
+                                   ({"IMAGES": "maybe"}, "IMAGES must be yes, no or auto"),
+                                   ({"CRON": "maybe"}, "CRON must be yes, no or auto"),
+                                   ({"BACKUP": "auto"}, "BACKUP must be yes or no")]:
             self.run_step(64, **variables)
             self.assert_out(message)
             self.assert_out("Nothing was changed.")
@@ -545,6 +547,78 @@ class DeploymentVariablesListTest(unittest.TestCase):
             deployment_variables(directory, "prod")
 
 
+class AutoSwitchTest(Fixture):
+    """IMAGES=auto and CRON=auto: the step decides from the commits between the live one and the deployed one."""
+
+    def setUp(self):
+        super().setUp()
+        # One env file for every commit: a change to it alone would need images.
+        base = {"env/common.env": COMMON, "env/prod.env.example": "DEPLOY_CONTEXT=default\nDEPLOY_SSH=\nDEPLOY_PATH=/srv/fixture\n",
+                "config/mark": "same\n", "config/cron/crontab": "0 * * * * echo hourly\n", "public/index.php": "<?php // A\n"}
+        commits = [("A", base),
+                   ("B", {"public/index.php": "<?php // B\n"}),  # code only
+                   ("C", {"config/cron/crontab": "* * * * * echo minute\n"}),  # the crontab only
+                   ("D", {"config/nginx/site.conf": "server {}\n"})]  # the containers' config
+        origin, self.commits = self.repository("environment", commits)
+        self.app = self.work / "root/app"
+        git(self.work, "clone", "-q", str(origin), str(self.app))
+        git(self.app, "checkout", "-q", "--detach", self.commits["A"])
+        (self.app / "env/prod.env").write_text((self.app / "env/prod.env.example").read_text())
+        self.pipeline_commit = self.commits["B"]
+        self.secrets = dict(REQUIRED)
+        self.lock = self.app / ".generated/release/prod/images.lock.json"
+
+    def write_lock(self, setup=None):
+        setup = setup or git(ROOT, "describe", "--tags", "--always", "--dirty")
+        self.lock.parent.mkdir(parents=True, exist_ok=True)
+        self.lock.write_text(json.dumps({"setup": setup, "images": {}}))
+
+    def test_images_auto_builds_when_none_were_built_setup_moved_or_the_containers_change(self):
+        c = self.commits
+        self.run_step(0, IMAGES="auto", REF=c["B"])
+        self.assert_out("IMAGES=auto: yes (no release images yet (.generated/release/prod/images.lock.json))")
+        self.assert_log("make release ENV=prod | head=B")
+        self.write_lock()
+        self.run_step(0, IMAGES="auto", REF=c["C"])
+        self.assert_out(f"IMAGES=auto: no (nothing image-related changed since {c['B'][:12]})")
+        self.assertNotIn("make release", self.make_log(), "a crontab change needs no images")
+        self.run_step(0, IMAGES="auto", REF=c["D"])
+        self.assert_out(f"IMAGES=auto: yes (changed since {c['C'][:12]}: config/nginx/site.conf)")
+        self.assert_log("make deploy-images ENV=prod transfer=0 | head=D")
+        self.write_lock("v0.0.1")
+        self.run_step(0, IMAGES="auto", REF=c["D"])
+        self.assert_out("IMAGES=auto: yes (the images were built with setup v0.0.1, setup is now")
+        self.write_lock()
+        self.run_step(0, IMAGES="auto", ROLLBACK="yes")
+        self.assertNotIn("make release", self.make_log(), "a rollback stays code-only")
+        self.assert_log("make deploy ENV=prod rollback=1")
+
+    def test_cron_auto_reloads_after_the_deploy_when_the_crontab_changed(self):
+        c = self.commits
+        self.run_step(0, REF=c["B"])
+        self.assert_out(f"CRON=auto: no (the crontab did not change since {c['A'][:12]})")
+        self.assertNotIn("cron-reload", self.make_log())
+        self.run_step(0, REF=c["C"])
+        self.assert_out(f"CRON=auto: yes (changed since {c['B'][:12]}: config/cron/crontab)")
+        self.assertEqual([line.split(" |")[0] for line in self.make_log().splitlines()],
+                         [f"make deploy ENV=prod ref={c['C']} backup=0", "make cron-reload ENV=prod"],
+                         "after the deploy, on the deployed checkout")
+        self.assert_log("make cron-reload ENV=prod | head=C")
+        # a rollback over a crontab change reloads too
+        self.run_step(0, ROLLBACK="yes")
+        self.assert_log("make cron-reload ENV=prod | head=B")
+        self.run_step(0, REF=c["C"], CRON="no")
+        self.assertNotIn("cron-reload", self.make_log())
+        self.run_step(0, REF=c["C"], CRON="yes")
+        self.assert_log("make cron-reload ENV=prod | head=C")
+
+    def test_a_refused_crontab_fails_the_step_and_leaves_the_deployed_code(self):
+        self.run_step(2, REF=self.commits["C"], FAIL="cron-reload")
+        self.assert_log("make cron-reload ENV=prod | head=C")
+        self.assertNotIn("back at the previously live commit", self.output)
+        self.assertEqual(git(self.app, "log", "-1", "--format=%s"), "C", "the deployed code stays")
+
+
 class TemplateTest(unittest.TestCase):
     def test_the_example_pipeline_runs_the_step_with_the_variables_it_reads(self):
         try:
@@ -554,7 +628,7 @@ class TemplateTest(unittest.TestCase):
         model = yaml.safe_load((ROOT / "templates/pipelines/bitbucket-pipelines.yml").read_text())
         for name, deployment in (("deploy-stage", "Staging"), ("deploy-production", "Production")):
             variables, step = model["pipelines"]["custom"][name]
-            self.assertEqual([v["name"] for v in variables["variables"]], ["REF", "IMAGES", "ROLLBACK", "BACKUP"])
+            self.assertEqual([v["name"] for v in variables["variables"]], ["REF", "IMAGES", "CRON", "ROLLBACK", "BACKUP"])
             self.assertEqual(step["step"]["deployment"], deployment)
             self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["step"]["script"])
             self.assertIn("self.hosted", step["step"]["runs-on"])
@@ -568,11 +642,12 @@ class TemplateTest(unittest.TestCase):
         from project_pipeline import SECRETS_JSON, VARIABLES_JSON
         model = yaml.safe_load((ROOT / "templates/pipelines/github-deploy.yml").read_text())
         inputs = model[True]["workflow_dispatch"]["inputs"]  # YAML 1.1 reads the key on as true
-        self.assertEqual(list(inputs), ["environment", "ref", "images", "rollback", "backup"])
+        self.assertEqual(list(inputs), ["environment", "ref", "images", "cron", "rollback", "backup"])
         self.assertEqual(inputs["environment"]["options"], list(DEPLOYMENT_ENVIRONMENTS))
-        for name, default in (("images", "no"), ("rollback", "no"), ("backup", "no")):
+        for name, options, default in (("images", ["auto", "no", "yes"], "auto"), ("cron", ["auto", "no", "yes"], "auto"),
+                                       ("rollback", ["no", "yes"], "no"), ("backup", ["no", "yes"], "no")):
             self.assertEqual((inputs[name]["type"], sorted(inputs[name]["options"]), inputs[name]["default"]),
-                             ("choice", ["no", "yes"], default))
+                             ("choice", options, default))
         job = model["jobs"]["deploy"]
         self.assertEqual(job["runs-on"], ["self-hosted", "linux", "setup.build"])
         self.assertEqual(job["environment"], "${{ inputs.environment }}")
@@ -581,7 +656,7 @@ class TemplateTest(unittest.TestCase):
         [step] = job["steps"]
         self.assertEqual(step["env"], {
             "DEPLOY_ENVIRONMENT": "${{ inputs.environment }}", "REF": "${{ inputs.ref }}",
-            "IMAGES": "${{ inputs.images }}", "ROLLBACK": "${{ inputs.rollback }}", "BACKUP": "${{ inputs.backup }}",
+            "IMAGES": "${{ inputs.images }}", "CRON": "${{ inputs.cron }}", "ROLLBACK": "${{ inputs.rollback }}", "BACKUP": "${{ inputs.backup }}",
             "BUILD_ROOT": "${{ vars.BUILD_ROOT }}", SECRETS_JSON: "${{ toJSON(secrets) }}",
             VARIABLES_JSON: "${{ toJSON(vars) }}"})
         self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["run"])

@@ -364,6 +364,8 @@ Kas vyksta:
 - local/test leidžia redaguoti crontab'ą: pakeitimas patikrinamas `supercronic -test`, išsaugomas `config/cron/` ir iš karto pritaikomas. Pakeitimą commit'ink;
 - stage/prod crontab'ą tik rodo: serveryje jis keičiamas tik per Git.
 
+supercronic crontab'ą perskaito tik startuodamas. Git'e pakeistą crontab'ą veikiantis konteineris paima su `make cron-reload ENV=…` (be restart'o, vykdomos užduotys nenutraukiamos); pipeline'as tai daro pats, kai deploy'inami commit'ai keičia `config/cron/` (`CRON=auto`, žr. [Bitbucket Pipelines](09-aplinkos.md#bitbucket-pipelines)).
+
 Atskiro prisijungimo sąsaja neturi. Prieigą riboja `CRON_ALLOWED_IPS` / `ALLOWED_IPS`, o stage/prod be sąrašo cron nepasileidžia. Sąsaja atsako tik nginx-proxy: kiti projekto tinklo konteineriai (pvz. parduotuvė) gauna 403.
 
 **Grafikas išjungtas.** Kai kopijoje yra tikri API token'ai, o crontab'as sinchronizuoja su gyvomis sistemomis, sąsają galima palikti, o grafiką išjungti. `crontab.<ENV>` užduotis tik prideda, todėl tam yra atskiras raktas, leidžiamas bet kurioje aplinkoje (pvz. `env/local.env` arba serveryje lygiagretaus veikimo metu):

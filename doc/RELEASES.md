@@ -6,6 +6,18 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 ## Unreleased
 
+- **`make pipeline-deploy` decides `IMAGES=auto` itself, and reloads cron (`CRON=auto`).** A project no longer
+  needs its own script for when images are due: with `IMAGES=auto` the step rebuilds them when the build root
+  has none yet, when setup moved since they were built, or when the deployed commits touch `Dockerfile`,
+  `docker/`, `compose/`, `config/` (not `config/cron/`) or the env files; a rollback stays code-only. `IMAGES`
+  still defaults to `no`; the pipeline templates now default to `auto`.
+  New `CRON` (default `auto`): when the deployed commits touch `config/cron/`, the step runs the new
+  **`make cron-reload ENV=…`** after the deploy. supercronic read the crontab only at start, and neither
+  `make deploy` nor `make deploy-images` recreated the cron container for a changed mounted file, so a job
+  added in git did not run until a restart. `make cron-reload` rebuilds the crontab, checks it with
+  `supercronic -test` and sends `SIGUSR2`; running jobs go on, a refused crontab keeps the running schedule and
+  fails the step. Both decisions are logged with their reason (`==> CRON=auto: yes (changed since …)`). Add the
+  `CRON` variable to a copied pipeline file to choose it by hand (templates/pipelines).
 - **PHP 8.5 images build again with the cache extensions**: memcached 3.4.0 and redis 6.3.0 (3.3.0 and 6.2.0
   include `php_smart_string.h`, which PHP 8.5 removed). A PHP 8.5 project's images are rebuilt once.
 - **CI is green again** (red since 2026-09-12, test fixtures only): the PHP image builder builds the CORE image

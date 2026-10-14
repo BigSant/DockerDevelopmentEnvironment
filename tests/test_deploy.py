@@ -303,6 +303,22 @@ class GenericDeployTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DEPLOY_PHP_RELOAD must be on or off"):
             self.deploy(ref="g1")
 
+    def test_cron_reload_runs_in_the_cron_container_only_when_the_project_has_cron(self):
+        from project_deploy import CRON_RELOAD, reload_cron
+        reload_cron(self.project)
+        self.assertEqual(self.calls, [])
+        self.assertIn("No cron service", self.output.getvalue())
+        self.project.process_env["SETUP_ENABLE_CRON"] = "1"
+        reload_cron(self.project)
+        self.assertEqual(self.calls, [["exec", "-T", "cron", "sh", "-e", "-c", CRON_RELOAD]])
+
+        def refuse(args, profiles=None):
+            raise subprocess.CalledProcessError(1, args)
+
+        self.project.run = refuse
+        with self.assertRaisesRegex(ValueError, "previous schedule stays running.*make cron-reload ENV=stage"):
+            reload_cron(self.project)
+
     def test_generic_htaccess_and_robots_deploy_as_code(self):
         public = self.generic()
         self.deploy(ref="g1")

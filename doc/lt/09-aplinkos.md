@@ -183,7 +183,8 @@ Paleidimo kintamieji (pipeline'o `variables`):
 | Kintamasis | Numatyta | Ką daro |
 | --- | --- | --- |
 | `REF` | Tuščias | Ką deploy'inti: tag'as arba commit'as. Viena repozitorija: tuščias reiškia pipeline commit'ą. Atskira kodo repozitorija: kodo repo ref'as, privalomas (išskyrus `ROLLBACK=yes`). Seni vardai `APP_REF` ir `SHOP_REF` irgi veikia. Jei nurodyti keli skirtingi, komanda atsisako. |
-| `IMAGES` | `no` | `yes`: prieš kodą `make release` ir `make deploy-images` (kai taikinys yra pats build serveris – `transfer=0`). Pirmam deploy'ui ir pakeitus serverio env būtina. |
+| `IMAGES` | `no` | `yes`: prieš kodą `make release` ir `make deploy-images` (kai taikinys yra pats build serveris – `transfer=0`). Pirmam deploy'ui ir pakeitus serverio env būtina. `auto` (šablonų numatytasis): žingsnis sprendžia pats, žr. žemiau. |
+| `CRON` | `auto` | Po deploy'aus `make cron-reload`: veikiantis cron konteineris perskaito `config/cron/`. `auto` – kai deploy'inami commit'ai keičia `config/cron/`; `yes` – visada; `no` – niekada. |
 | `ROLLBACK` | `no` | `yes`: `make deploy rollback=1`. `REF` ignoruojamas. |
 | `BACKUP` | `no` | `yes`: `make deploy backup=1`, prieš hook'us ir migracijas pasidaroma DB kopija. |
 
@@ -194,16 +195,22 @@ Du išdėstymai. Setup juos atskiria pagal tai, ar `app/public` turi savo `.git`
 
 Eiga:
 
-1. **Patikros prieš bet kokį pakeitimą:** Deployment aplinka, `REF`, `IMAGES`/`ROLLBACK`/`BACKUP` reikšmės, privalomi [Deployment variables](#deployment-variables). Jei kas nors negerai, komanda baigiasi kodu 64 ir pranešimu `Nothing was changed`.
+1. **Patikros prieš bet kokį pakeitimą:** Deployment aplinka, `REF`, `IMAGES`/`CRON`/`ROLLBACK`/`BACKUP` reikšmės, privalomi [Deployment variables](#deployment-variables). Jei kas nors negerai, komanda baigiasi kodu 64 ir pranešimu `Nothing was changed`.
 2. `git fetch --tags` (abiem repozitorijoms) ir commit'o checkout'as build root'e.
 3. `env/<env>.env` perrašomas iš to commit'o `env/<env>.env.example` ir build katalogo `target.env` (setup-server užregistruotas taikinys: `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`). Pavyzdys, kuris pats mini kurį nors iš jų, atmetamas; be `target.env` ir be `DEPLOY_PATH` pavyzdyje deploy'us nepradedamas (`No deploy target`). Be `target.env` lieka ankstesnė taisyklė: taikinys pavyzdyje, o kai `DEPLOY_CONTEXT=default` ir `DEPLOY_SSH` tuščias, pridedami runner'io vartotojo `APP_UID`/`APP_GID`.
 4. Patikros dar kartą su deploy'inamo commit'o sąrašais ir `SETUP_MIN_VERSION`, kad naujas privalomas vardas būtų patikrintas jau pirmame deploy'uje. Tušti neprivalomi vardai išvardijami įspėjime (`Warning: empty Deployment variables`).
    **Per sena setup versija.** Jei deploy'inamas commit'as reikalauja naujesnio setup (`SETUP_MIN_VERSION`), o žingsnis vyksta setup-server worker'yje (runner'is perduoda `SETUP_SERVER_ROOT`, o setup checkout'as priklauso jo paskyrai), build root grąžinamas, setup checkout'as perjungiamas į naujausią to paties MAJOR release tag'ą (`vX.Y.Z`), kuris pakankamai naujas, ir žingsnis paleidžiamas iš naujo jau su juo (`==> setup 2.4.0 -> v2.7.0 …`). Naujas MAJOR, checkout'as su vietiniais pakeitimais ar tag'o nebuvimas – deploy'us sustoja ir paaiškina; programuotojo kompiuteryje setup savaime neatnaujinamas.
 5. `IMAGES=yes`: `make release`, `make deploy-images`. Tada `make deploy ref=… backup=…` arba `make deploy rollback=1`.
+6. `CRON=yes`: `make cron-reload`, kai kodas jau įdiegtas. Crontab'ą, kurio `supercronic -test` nepriima, cron nepritaiko: lieka ankstesnis grafikas, žingsnis baigiasi klaida, bet niekas negrąžinama.
+
+**`auto` sprendimai** daromi prieš checkout'ą, lyginant build root'o veikiantį commit'ą su deploy'inamu, ir parašomi log'e su priežastimi (`==> IMAGES=auto: yes (changed since …: config/nginx/site.conf)`):
+
+- `IMAGES=auto` – `yes`, kai dar nėra release image'ų (`.generated/release/<env>/images.lock.json`), kai setup pasikeitė nuo jų build'o (lock'o `setup` prieš `git describe` setup checkout'o, pvz. po `bin/update`), arba kai commit'ai keičia `Dockerfile`, `.dockerignore`, `docker/`, `compose/`, `config/` (be `config/cron/`), `env/common.env` ar `env/<env>.env.example`. `make deploy` kopijuoja tik kodą ir pasenusių image'ų nepastebi. `ROLLBACK=yes` su `auto` lieka be image'ų.
+- `CRON=auto` – `yes`, kai commit'ai (ir `ROLLBACK=yes` atveju) keičia `config/cron/`. supercronic crontab'ą skaito tik startuodamas, o nei `make deploy`, nei `make deploy-images` cron konteinerio neperkuria, kai pasikeitė tik prijungtas failas (perbuildintas php-fpm image'as, kurį cron naudoja, dažniausiai išeina toks pat, todėl compose konteinerį palieka).
 
 Kiekvienas `make` žingsnis vykdomas su tuo pačiu setup (`SETUP_DIRECTORY`) ir be Bitbucket'o `DOCKER_HOST`: jis rodo į Bitbucket'o debesies Docker servisą ir nustelbtų `DEPLOY_CONTEXT`.
 
-**Nepavykus** build root checkout'as ir `env/<env>.env` grąžinami į anksčiau veikusį commit'ą. Jei nepavyko po rsync (setup istorijoje pažymėjo deploy'ų kaip nepavykusį), taikinyje jau naujas kodas: pataisyk ir deploy'ink iš naujo arba `ROLLBACK=yes`. Išimtis: jei šis paleidimas jau perkrovė konteinerius ant naujų image'ų (`IMAGES=yes`), niekas negrąžinama, nes veikiantys konteineriai naudoja checkout'o konfigūraciją. Log'e parašyta, kaip grįžti: dar kartą su `IMAGES=yes`, arba ankstesnis commit'as su `REF=… IMAGES=yes` (atskiros kodo repozitorijos atveju – pipeline'as ant ankstesnio aplinkos commit'o).
+**Nepavykus** build root checkout'as ir `env/<env>.env` grąžinami į anksčiau veikusį commit'ą. Jei nepavyko po rsync (setup istorijoje pažymėjo deploy'ų kaip nepavykusį), taikinyje jau naujas kodas: pataisyk ir deploy'ink iš naujo arba `ROLLBACK=yes`. Išimtis: jei šis paleidimas jau perkrovė konteinerius ant naujų image'ų (`IMAGES=yes` ar `auto` nusprendus `yes`), niekas negrąžinama, nes veikiantys konteineriai naudoja checkout'o konfigūraciją. Log'e parašyta, kaip grįžti: dar kartą su `IMAGES=yes`, arba ankstesnis commit'as su `REF=… IMAGES=yes` (atskiros kodo repozitorijos atveju – pipeline'as ant ankstesnio aplinkos commit'o).
 
 ### Deployment variables
 

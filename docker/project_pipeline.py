@@ -26,9 +26,13 @@ DEPLOY_PATH, APP_UID, APP_GID; the example must not name them). Without target.e
 the target itself (plus the runner account's APP_UID/APP_GID when DEPLOY_CONTEXT=default deploys to
 this same host).
 IMAGES=yes runs make release + make deploy-images, then make deploy (BACKUP=yes: backup=1) or
-make deploy rollback=1. A failure returns the checkout and env file to the previously live commit,
-unless this run already restarted the containers on the new images: then nothing is undone and the
-step prints the way back.
+make deploy rollback=1. IMAGES=auto decides it (images_needed()): yes when the build root has no release
+images yet, when setup moved since they were built, or when the commits from the live one to the deployed
+one touch what the images or the containers are made of; a rollback stays code-only. CRON (default auto:
+when those commits touch config/cron/) runs make cron-reload after the deploy, because the running cron
+container reads its crontab only at start and nothing above recreates it for a changed mounted file.
+A failure returns the checkout and env file to the previously live commit, unless this run already
+restarted the containers on the new images: then nothing is undone and the step prints the way back.
 """
 
 import json
@@ -49,7 +53,14 @@ RESERVED_PREFIXES = ('GITHUB_', 'RUNNER_', 'ACTIONS_')
 ENVIRONMENT_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 # One ref variable; the per-layout names of the former project scripts keep working.
 REF_VARIABLES = ('REF', 'APP_REF', 'SHOP_REF')
-SWITCHES = (('IMAGES', 'no'), ('ROLLBACK', 'no'), ('BACKUP', 'no'))
+SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('ROLLBACK', 'no'), ('BACKUP', 'no'))
+# Switches the step can decide itself from the commits it deploys.
+AUTO_SWITCHES = ('IMAGES', 'CRON')
+# What the images and containers are made of, in the environment repository: IMAGES=auto rebuilds when the
+# deployed commits touch it (env/<env>.env.example is added per environment). config/ is mounted, but Apache,
+# nginx and the PHP startup read it at container start; config/cron/ is left to CRON (make cron-reload).
+IMAGE_PATHS = ('Dockerfile', '.dockerignore', 'docker', 'compose', 'config', ':(exclude)config/cron', 'env/common.env')
+CRON_PATHS = ('config/cron',)
 USAGE = 64
 # The step's make variables would leak into the make steps it starts; Bitbucket's DOCKER_HOST points
 # at its cloud Docker service and would override DEPLOY_CONTEXT (Docker reads it first). The JSON of
@@ -274,8 +285,9 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
         switches = {}
         for name, default in SWITCHES:
             switches[name] = environ.get(name) or default
-            if switches[name] not in ('yes', 'no'):
-                raise Refusal(f'{name} must be yes or no, not {switches[name]!r}')
+            allowed = ('yes', 'no', 'auto') if name in AUTO_SWITCHES else ('yes', 'no')
+            if switches[name] not in allowed:
+                raise Refusal(f"{name} must be {', '.join(allowed[:-1])} or {allowed[-1]}, not {switches[name]!r}")
         given = {name: environ[name] for name in REF_VARIABLES if environ.get(name)}
         if len(set(given.values())) > 1:
             raise Refusal(f"{', '.join(given)} name different refs: set only REF")
@@ -304,8 +316,47 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
     return run_step(step, environ, provider, deployment, ref, switches)
 
 
+def images_needed(step, live, target):
+    """IMAGES=auto: (yes or no, the reason). setup's make deploy copies code only and does not notice outdated images."""
+    from project_release import LOCK_NAME
+    lock = step.directory / '.generated/release' / step.environment / LOCK_NAME
+    if not lock.is_file():
+        return True, f'no release images yet ({lock.relative_to(step.directory)})'
+    try:
+        built = json.loads(lock.read_text())['setup']
+    except (ValueError, KeyError):
+        return True, f'{lock.relative_to(step.directory)} does not name the setup the images were built with'
+    try:
+        current = step.git('describe', '--tags', '--always', '--dirty', directory=SETUP_ROOT)
+    except subprocess.CalledProcessError:
+        return True, f'the setup version is unknown ({SETUP_ROOT} is no git checkout)'
+    if built != current:
+        return True, f'the images were built with setup {built}, setup is now {current}'
+    changed = step.git('diff', '--name-only', live, target, '--', *IMAGE_PATHS, f'env/{step.environment}.env.example')
+    if changed:
+        return True, f"changed since {live[:12]}: {' '.join(changed.split())}"
+    return False, f'nothing image-related changed since {live[:12]}'
+
+
+def cron_needed(step, live, target):
+    """CRON=auto: (yes or no, the reason) — whether the deployed commits change the crontab."""
+    changed = step.git('diff', '--name-only', live, target, '--', *CRON_PATHS)
+    if changed:
+        return True, f"changed since {live[:12]}: {' '.join(changed.split())}"
+    return False, f'the crontab did not change since {live[:12]}'
+
+
+def decide(step, name, value, needed):
+    """A switch's yes/no; auto asks needed() and prints the answer with its reason in the step log."""
+    if value != 'auto':
+        return value == 'yes'
+    answer, reason = needed()
+    print(f"==> {name}=auto: {'yes' if answer else 'no'} ({reason})", file=step.out, flush=True)
+    return answer
+
+
 def run_step(step, environ, provider, deployment, ref, switches):
-    rollback, images = switches['ROLLBACK'] == 'yes', switches['IMAGES'] == 'yes'
+    rollback = switches['ROLLBACK'] == 'yes'
     try:
         live = step.git('rev-parse', '--verify', 'HEAD')
     except subprocess.CalledProcessError:
@@ -329,6 +380,10 @@ def run_step(step, environ, provider, deployment, ref, switches):
         else:
             ref = ref or environ[provider.commit]
             target = step.resolve(ref)
+        # Decided before the checkout: the build root still holds the live commit.
+        images = decide(step, 'IMAGES', 'no' if rollback and switches['IMAGES'] == 'auto' else switches['IMAGES'],
+                        lambda: images_needed(step, live, target))
+        cron = decide(step, 'CRON', switches['CRON'], lambda: cron_needed(step, live, target))
         state['restore'] = True
         step.checkout(target)
         print(f'==> {step.directory} at {target[:12]}, env/{step.environment}.env written from its example',
@@ -362,6 +417,9 @@ def run_step(step, environ, provider, deployment, ref, switches):
             if deployed and deployed != target:
                 step.say(f'Warning: setup deployed {deployed}, not {target}; the build root follows it.')
                 step.checkout(deployed)
+        if cron:
+            # The code is live: a crontab cron refuses fails the step but undoes nothing.
+            step.make('cron-reload')
         return 0
     except (Refusal, subprocess.CalledProcessError, OSError, ValueError) as error:
         if isinstance(error, subprocess.CalledProcessError):

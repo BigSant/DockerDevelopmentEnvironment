@@ -32,10 +32,15 @@ on:
         type: string
         default: ""
       images:
-        description: Rebuild and restart the images first (prod needs setup on a release tag; the first deploy needs yes)
+        description: Rebuild and restart the images first (auto = when needed; prod needs setup on a release tag)
         type: choice
-        options: ["no", "yes"]
-        default: "no"
+        options: ["auto", "no", "yes"]
+        default: "auto"
+      cron:
+        description: Reload the crontab in the running cron container after the deploy (auto = when config/cron changed)
+        type: choice
+        options: ["auto", "no", "yes"]
+        default: "auto"
       rollback:
         description: Deploy the previous release again
         type: choice
@@ -67,6 +72,7 @@ jobs:
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
           REF: ${{ inputs.ref }}
           IMAGES: ${{ inputs.images }}
+          CRON: ${{ inputs.cron }}
           ROLLBACK: ${{ inputs.rollback }}
           BACKUP: ${{ inputs.backup }}
           BUILD_ROOT: ${{ vars.BUILD_ROOT }}

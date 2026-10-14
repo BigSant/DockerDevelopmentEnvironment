@@ -334,6 +334,68 @@ class CronUiTest(unittest.TestCase):
         self.assertEqual((self.root / "cron.d/crontab").read_text(), "*/5 * * * * echo from-cron\n")
 
 
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class CronReloadTest(unittest.TestCase):
+    """make cron-reload's script (project_deploy.CRON_RELOAD), as the cron container runs it."""
+
+    def setUp(self):
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="cron-reload-", dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        (self.root / "cron.d").mkdir()
+        (self.root / "cron.d/crontab").write_text("* * * * * echo every-minute\n")
+        (self.root / "bin").mkdir()
+        self.accept(True)
+        # A process standing in for supercronic: SIGUSR2 ends sleep, so a reload shows as its exit.
+        self.sleeper = subprocess.Popen(["sleep", "60"])
+        self.addCleanup(self.sleeper.wait)
+        self.addCleanup(self.sleeper.kill)
+        (self.root / "supercronic.pid").write_text(str(self.sleeper.pid))
+        # A job running now: a reload must not record it as interrupted.
+        (self.root / "history/running").mkdir(parents=True)
+        (self.root / "history/running/abc123def456-1.json").write_text("{}")
+        (self.root / "crontab").write_text("# the schedule running now\n")
+
+    def accept(self, ok):
+        (self.root / "bin/supercronic").write_text("#!/bin/sh\n" + ("exit 0\n" if ok else "echo 'bad line 1' >&2; exit 1\n"))
+        (self.root / "bin/supercronic").chmod(0o755)
+
+    def reload(self):
+        from project_deploy import CRON_RELOAD
+        env = {**os.environ, "ENV": "prod", "CRON_DIRECTORY": str(self.root / "cron.d"), "CRON_COMPOSE": str(CRON / "compose.php"),
+               "CRON_CRONTAB": str(self.root / "crontab"), "CRON_PID_FILE": str(self.root / "supercronic.pid"),
+               "CRON_HISTORY_DIR": str(self.root / "history"), "CRON_RUN": str(CRON / "cron-run.sh"),
+               "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
+        return subprocess.run(["sh", "-e", "-c", CRON_RELOAD], capture_output=True, text=True, env=env)
+
+    def test_the_crontab_is_rebuilt_and_supercronic_signalled(self):
+        result = self.reload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Cron: crontab reloaded (1 jobs)", result.stdout)
+        self.assertIn("cron-run.sh", (self.root / "crontab").read_text())
+        self.assertIn("echo every-minute", (self.root / "crontab").read_text())
+        self.assertIsNotNone(self.sleeper.wait(timeout=5), "supercronic got SIGUSR2")
+        self.assertTrue((self.root / "history/running/abc123def456-1.json").exists(), "a running job stays running")
+
+    def test_a_refused_crontab_keeps_the_running_schedule(self):
+        self.accept(False)
+        result = self.reload()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("previous schedule stays running: bad line 1", result.stderr)
+        self.assertEqual((self.root / "crontab").read_text(), "# the schedule running now\n")
+        self.assertFalse((self.root / "crontab.next").exists())
+        self.assertIsNone(self.sleeper.poll())
+
+    def test_with_the_schedule_off_it_only_rebuilds(self):
+        (self.root / "supercronic.pid").unlink()
+        result = self.reload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("the schedule is off", result.stdout)
+        self.assertIn("echo every-minute", (self.root / "crontab").read_text())
+
+
 class CrontabMountTest(unittest.TestCase):
     def test_ui_may_write_the_crontab_only_on_local_and_test(self):
         scratch = ROOT / ".test-work"

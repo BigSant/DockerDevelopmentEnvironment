@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy pipeline-deploy deploy-variables module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy cron-reload pipeline-deploy deploy-variables module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -59,8 +59,9 @@ help:
 	@echo 'release ENV=stage|prod: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
 	@echo 'deploy ENV=stage|prod ref=TAG [backup=1] | rollback=1: release the code, (back up), rsync, hook, upgrade, migrate'
+	@echo 'cron-reload [ENV=stage|prod]: the running cron container takes config/cron/ now (checked, no restart)'
 	@echo 'module-pull ENV=stage|prod name=MODULE: copy a module that exists only on the target into the shop checkout'
-	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, ROLLBACK, BACKUP)'
+	@echo 'pipeline-deploy [ENV=stage|prod]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, CRON, ROLLBACK, BACKUP)'
 	@echo 'deploy-variables [ENV=stage|prod] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
 
 setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install git-hooks schema-resolve test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
@@ -120,6 +121,9 @@ module-pull:
 
 deploy-images:
 	@$(RUN_PROJECT) $@ $(if $(filter 0,$(transfer)),--no-transfer,)
+
+cron-reload:
+	@$(RUN_PROJECT) $@
 
 test-prepare:
 	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),)

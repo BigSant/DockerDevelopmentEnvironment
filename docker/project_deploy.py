@@ -259,6 +259,43 @@ def reload_php(project):
     print('php-fpm reloaded (OPcache emptied).')
 
 
+# Run in the cron container by make cron-reload: what the cron UI does after an edit. Rebuild the wrapped crontab
+# with compose.php's cronCompose() (not compose.php as a script: its start-up step would record the jobs running
+# now as interrupted), check it with supercronic -test, swap it in and SIGUSR2 to supercronic. A command, not a
+# runtime file: stage/prod images carry the setup runtime they were built with.
+CRON_RELOAD = r'''
+target=${CRON_CRONTAB:-/tmp/crontab}
+next=$target.next
+jobs=$(CRON_CRONTAB=$next php -r 'require getenv("CRON_COMPOSE") ?: "/opt/setup/runtime/cron/compose.php"; echo count(cronCompose(cronFiles()));')
+if ! problems=$(supercronic -test "$next" 2>&1); then
+    rm -f "$next"
+    echo "Cron: the crontab was refused; the previous schedule stays running: $problems" >&2
+    exit 1
+fi
+mv "$next" "$target"
+pid_file=${CRON_PID_FILE:-/tmp/supercronic.pid}
+if [ -s "$pid_file" ] && kill -USR2 "$(cat "$pid_file")" 2>/dev/null; then
+    echo "Cron: crontab reloaded ($jobs jobs)"
+else
+    echo "Cron: crontab rebuilt ($jobs jobs); the schedule is off (CRON_SCHEDULE=off), nothing to reload"
+fi
+'''
+
+
+def reload_cron(project):
+    """make cron-reload: the running cron container takes the crontab in config/cron/ now. supercronic reads it only
+    at its start, and compose does not recreate a container whose mounted file alone changed. Running jobs go on.
+    A crontab supercronic refuses is not applied: the schedule running now stays, and the command fails."""
+    if project.process_env.get('SETUP_ENABLE_CRON') != '1':
+        print('No cron service in SERVICES: nothing to reload.')
+        return
+    try:
+        project.run(['exec', '-T', 'cron', 'sh', '-e', '-c', CRON_RELOAD])
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f'cron did not take the crontab (exit {error.returncode}); the previous schedule stays running. '
+                         f'Fix config/cron and run make cron-reload ENV={project.environment} again') from None
+
+
 def upgrade_modules(project, release):
     """Run the upgrade of every installed module whose code version is newer than the database's."""
     if str(project.settings.get('PS_VERSION', '')).startswith('1.6'):

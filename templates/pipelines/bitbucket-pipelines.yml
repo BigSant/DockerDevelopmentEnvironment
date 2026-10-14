@@ -29,9 +29,15 @@ pipelines:
           # (PrestaShop): the code tag or commit, required unless ROLLBACK=yes.
           description: Tag or commit to deploy (ignored with ROLLBACK=yes)
         - name: IMAGES
-          description: Rebuild and restart the images first (prod needs setup on a release tag; the first deploy needs yes)
-          default: "no"
-          allowed-values: ["no", "yes"]
+          # auto: yes when there are no release images yet, setup moved since they were built, or the deployed
+          # commits touch Dockerfile, docker/, compose/, config/ (not config/cron/) or the env files.
+          description: Rebuild and restart the images first (auto = when needed; prod needs setup on a release tag)
+          default: "auto"
+          allowed-values: ["auto", "no", "yes"]
+        - name: CRON
+          description: Reload the crontab in the running cron container after the deploy (auto = when config/cron changed)
+          default: "auto"
+          allowed-values: ["auto", "no", "yes"]
         - name: ROLLBACK
           default: "no"
           allowed-values: ["no", "yes"]
