@@ -14,7 +14,10 @@ from database_client import DatabaseError
 
 class FakeDatabase:
     def __init__(self, answer=None, fail_on=None, dump_output=None):
-        # answer(sql) -> rows (tuples of str) for query, bytes for extract.
+        # answer(sql) -> rows (tuples of str) for query, bytes for extract; a list answers reads in order.
+        if isinstance(answer, list):
+            replies = iter(answer)
+            answer = lambda sql: next(replies)
         self.answer = answer or (lambda sql: [])
         # fail_on(operation, text) -> True raises DatabaseError; operation is read/write/load/dump.
         self.fail_on = fail_on or (lambda operation, text: False)

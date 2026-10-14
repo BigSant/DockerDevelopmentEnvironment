@@ -11,7 +11,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 from database_migrations_guarded import OPEN, draft_text, split_rollback
-from database_schema import normalize_ddl, unescape_batch
+from database_client import unescape_batch
+from database_schema import normalize_ddl
 
 IMAGES = [image for image in (os.environ.get("SETUP_MYSQL_IMAGE"), os.environ.get("SETUP_MARIADB_IMAGE")) if image]
 PASSWORD = "migration-test-only"

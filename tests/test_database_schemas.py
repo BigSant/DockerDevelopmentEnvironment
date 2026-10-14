@@ -23,6 +23,7 @@ from project import Project
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_database_import import dump_tables
+from fake_database import FakeDatabase
 
 # A server env file with the limits and secrets stage/prod require.
 REMOTE = ("PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n"
@@ -529,19 +530,19 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
     def read(self, extra_rows):
         """read_schema against fake DB answers: main tables, extra tables, SHOW CREATE rows, then both lists again."""
         from database_schema import read_schema
-        main = "users".encode().hex() + "\n"
-        extra = "".join(f"{'asana_git'.encode().hex()}\t{name.encode().hex()}\n" for name in extra_rows)
-        ddl = "users\t" + self.MAIN.rstrip(";\n").replace("\n", "\\n") + "\n"
-        ddl += "".join(f"{name}\t" + self.REFS.replace("refs", name).rstrip(";\n").replace("\n", "\\n") + "\n" for name in extra_rows)
-        with patch("database_schema.mysql_query", side_effect=[main, extra, ddl, main, extra]) as query:
-            files = read_schema(self.project)
-        return files, query
+        main = [("users".encode().hex(),)]
+        extra = [("asana_git".encode().hex(), name.encode().hex()) for name in extra_rows]
+        ddl = [("users", self.MAIN.rstrip(";\n"))]
+        ddl += [(name, self.REFS.replace("refs", name).rstrip(";\n")) for name in extra_rows]
+        self.project.database = FakeDatabase(answer=[main, extra, ddl, main, extra])
+        files = read_schema(self.project)
+        return files, self.project.database.queried
 
     def test_with_extra_schemas_every_schema_has_its_own_directory(self):
         import json
         from database_schema import export_schema
         files, query = self.read(["refs"])
-        self.assertIn("SHOW CREATE TABLE `asana_git`.`refs`;", query.call_args_list[2].args[1])
+        self.assertIn("SHOW CREATE TABLE `asana_git`.`refs`;", query[2])
         self.assertEqual(sorted(files), ["asana/table-users.sql", "asana_git/table-refs.sql", "schema.manifest.json"])
         self.assertEqual([(t["name"], t["file"]) for t in json.loads(files["schema.manifest.json"])["tables"]],
                          [("asana_git.refs", "asana_git/table-refs.sql"), ("users", "asana/table-users.sql")])
@@ -557,18 +558,18 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         directory = self.root / "database/schema"
         single = dict(self.project.settings, DATABASE_EXTRA_SCHEMAS="")
         flat = SimpleNamespace(**{**vars(self.project), "settings": single})
-        with patch("database_schema.mysql_query", side_effect=["users".encode().hex() + "\n",
-                   "users\t" + self.MAIN.rstrip(";\n").replace("\n", "\\n") + "\n", "users".encode().hex() + "\n"]):
-            from database_schema import read_schema
-            export_schema(flat, read_schema(flat))
+        flat.database = FakeDatabase(answer=[[("users".encode().hex(),)], [("users", self.MAIN.rstrip(";\n"))],
+                                             [("users".encode().hex(),)]])
+        from database_schema import read_schema
+        export_schema(flat, read_schema(flat))
         self.assertEqual(sorted(p.name for p in directory.iterdir()), ["schema.manifest.json", "table-users.sql"])
         files, _ = self.read(["refs"])
         export_schema(self.project, files)
         self.assertEqual(sorted(p.name for p in directory.iterdir()), ["asana", "asana_git", "schema.manifest.json"])
         self.assertTrue((directory / "asana/table-users.sql").is_file())
-        with patch("database_schema.mysql_query", side_effect=["users".encode().hex() + "\n",
-                   "users\t" + self.MAIN.rstrip(";\n").replace("\n", "\\n") + "\n", "users".encode().hex() + "\n"]):
-            export_schema(flat, read_schema(flat))
+        flat.database = FakeDatabase(answer=[[("users".encode().hex(),)], [("users", self.MAIN.rstrip(";\n"))],
+                                             [("users".encode().hex(),)]])
+        export_schema(flat, read_schema(flat))
         self.assertEqual(sorted(p.name for p in directory.iterdir()), ["schema.manifest.json", "table-users.sql"],
                          "back to one database: back to flat")
 
