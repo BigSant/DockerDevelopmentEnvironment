@@ -484,10 +484,8 @@ def main():
         elif args.action == "config":
             print(project.render())
         elif args.action == "build":
-            # Locally built parents first: base, then the CORE project layer.
-            project.run(["build", "php-fpm-base"], profiles="build_only")
-            project.run(["build", "php-fpm-core"], profiles="build_only")
-            project.run(["build"])
+            from project_images import build_images
+            build_images(project)
         elif args.action == "up":
             start_project(project, args.timeout)
         elif args.action in ("down", "ps"):
