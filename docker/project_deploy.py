@@ -24,6 +24,7 @@ import shutil
 import subprocess
 
 from project_prestashop import is_prestashop
+from project_target import deploy_target
 
 # PrestaShop paths written by the shop itself; a PrestaShop deploy never overwrites or deletes them.
 # Paths the shop repository tracks (mails/, translations/, config/xml/) are code like any other file.
@@ -169,17 +170,6 @@ def removed_files(project, previous, current):
     return sorted(name for name in before - after if not protected(name))
 
 
-def delete_on_target(ssh, path, names):
-    if not names:
-        return
-    if ssh:
-        listing = ''.join(f'{name}\0' for name in names).encode()
-        subprocess.run(['ssh', ssh, f'cd {shlex.quote(path)} && xargs -0 rm -f --'], input=listing, check=True)
-        return
-    for name in names:
-        (Path(path) / name).unlink(missing_ok=True)
-
-
 def _run_hook(project, release, hook):
     """Project build step (assets, translations) inside the release image, on the release copy."""
     script = release / '.setup-build.sh'
@@ -199,32 +189,17 @@ def prune_releases(project, keep):
             shutil.rmtree(path)
 
 
-def target_location(project, deploy_path):
-    """rsync destination of the shop code: ssh host:path, or a local path when DEPLOY_SSH is empty."""
-    relative = project.web_directory.relative_to(project.root).as_posix()
-    path = f'{deploy_path}/{relative}'
-    ssh = project.settings.get('DEPLOY_SSH') or ''
-    if ssh and not re.fullmatch(r'[A-Za-z0-9._-]+@[A-Za-z0-9.-]+', ssh):
-        raise ValueError('DEPLOY_SSH must look like user@host')
-    return ssh, path
+def code_path(project, deploy_path):
+    """The shop code's directory on the Deploy target."""
+    return f'{deploy_path}/{project.web_directory.relative_to(project.root).as_posix()}'
 
 
-def target_modules(ssh, path):
-    if ssh:
-        result = subprocess.run(['ssh', ssh, 'ls', '-1', shlex.quote(path + '/modules')], capture_output=True, text=True)
-        return set(result.stdout.split()) if result.returncode == 0 else set()
-    folder = Path(path) / 'modules'
-    return {child.name for child in folder.iterdir() if child.is_dir()} if folder.is_dir() else set()
-
-
-def rsync_command(release, ssh, path, protected):
+def code_rsync_options(protected):
     """protected: rsync patterns anchored at the code root (protected_paths plus target-only modules)."""
     excludes = [*protected, '/.setup-release']
-    destination = f'{ssh}:{path}/' if ssh else f'{path}/'
     # --checksum: archive mtimes are commit times, so size + mtime cannot tell two releases apart.
     # No --delete: the target holds files the code does not track (module vendors, built assets).
-    return ['rsync', '-a', '--checksum', '--human-readable', '--stats', *(f'--exclude={pattern}' for pattern in excludes),
-            f'{release}/', destination]
+    return ['-a', '--checksum', '--human-readable', '--stats', *(f'--exclude={pattern}' for pattern in excludes)]
 
 
 def module_versions(release):
@@ -331,23 +306,23 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
         if not ref:
             raise ValueError('Name the shop release to deploy: make deploy ENV=... ref=TAG')
         release, commit = build_code(project, ref)
-    ssh, path = target_location(project, deploy_path)
+    target, path = deploy_target(project), code_path(project, deploy_path)
     prestashop = is_prestashop(project)
     excludes = protected_paths(project)
     # PrestaShop modules installed only on the target stay; for other profiles modules/ is plain code.
-    protected = sorted(target_modules(ssh, path) - {child.name for child in (release / 'modules').iterdir() if child.is_dir()}) \
+    protected = sorted(target.directories(path + '/modules') - {child.name for child in (release / 'modules').iterdir() if child.is_dir()}) \
         if prestashop and (release / 'modules').is_dir() else []
     backup_file = None
     if backup:
         from database_backup import backup_database
         print('==> backing up the target database (table registry)', flush=True)
         backup_file = backup_database(project, registry=True)
-    print(f'==> rsync {release} -> {ssh + ":" if ssh else ""}{path}', flush=True)
-    subprocess.run(rsync_command(release, ssh, path, excludes + [f'/modules/{name}/' for name in protected]), check=True)
+    print(f'==> rsync {release} -> {target.label}{path}', flush=True)
+    target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
     if not manifest_path(project, commit).is_file():
         write_manifest(project, release, commit)
     removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
-    delete_on_target(ssh, path, removed)
+    target.remove(path, removed)
     if removed:
         print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
     elif not entries:
@@ -391,11 +366,10 @@ def module_pull(project, name):
     if not re.fullmatch(r'[A-Za-z0-9_]+', name or ''):
         raise ValueError('Name the module: make module-pull ENV=... name=MODULE')
     _, deploy_path = release_settings(project)
-    ssh, path = target_location(project, deploy_path)
     local = shop_checkout(project) / 'modules' / name
     if local.exists():
         raise ValueError(f'{local} already exists; the code copy wins')
-    source = f'{ssh}:{path}/modules/{name}/' if ssh else f'{path}/modules/{name}/'
-    subprocess.run(['rsync', '-a', '--exclude=/cache/', '--exclude=/var/', source, f'{local}/'], check=True)
+    deploy_target(project).pull(f'{code_path(project, deploy_path)}/modules/{name}/', f'{local}/', '-a', '--exclude=/cache/',
+                                '--exclude=/var/')
     print(f'Pulled module {name} into {local}; review and commit it to the shop repository.')
     return local

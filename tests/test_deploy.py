@@ -18,8 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 from fake_database import FakeDatabase
 import project_deploy
-from project_deploy import (build_code, deploy_code, module_pull, module_versions, newer, protected_paths, rsync_command,
-                            target_location, upgrade_modules)
+from project_deploy import (build_code, code_rsync_options, deploy_code, module_pull, module_versions, newer,
+                            protected_paths, upgrade_modules)
+from project_target import SshTarget
 
 
 def git(directory, *args):
@@ -99,17 +100,38 @@ class DeployTest(unittest.TestCase):
             return deploy_code(self.project, **options)
 
     def test_rsync_spares_writable_paths_and_target_only_modules(self):
-        command = rsync_command(Path("/release"), "shop@host", "/srv/app/public",
-                                protected_paths(self.project) + ["/modules/serveronly/"])
+        command = code_rsync_options(protected_paths(self.project) + ["/modules/serveronly/"])
         self.assertNotIn("--delete", command, "the target keeps files the code does not track")
         self.assertIn("--checksum", command)
         for pattern in ("/var/", "/img/", "/app/config/parameters.php", "/modules/*/cache/", "/modules/serveronly/", "/.git/"):
             self.assertIn(f"--exclude={pattern}", command)
         for tracked in ("/mails/", "/translations/", "/config/xml/"):
             self.assertNotIn(f"--exclude={tracked}", command, "paths the shop repository tracks are code")
-        self.assertEqual(command[-2:], ["/release/", "shop@host:/srv/app/public/"])
-        with self.assertRaisesRegex(ValueError, "user@host"):
-            target_location(SimpleNamespace(settings={"DEPLOY_SSH": "host; rm -rf"}, web_directory=self.shop, root=self.root), "/srv")
+
+    def test_a_server_target_gets_the_code_and_the_removals_over_ssh(self):
+        calls = []
+
+        def record(command, **kwargs):
+            calls.append((command, kwargs))
+            listed = "serveronly\nshop\n" if command[0] == "ssh" and command[-1].startswith("find ") else ""
+            return subprocess.CompletedProcess(command, 0, listed, "")
+
+        server = SshTarget("shop@host.example", run=record)
+        with patch("project_deploy.deploy_target", lambda project: server), \
+                patch("project_release.sync_environment", lambda project, path: []):
+            self.deploy(ref="v1")
+            self.commit("v2", {"index.php": "<?php // v2\n"}, removed=["old.php"])
+            self.deploy(ref="v2")
+        code = f"{self.target}/app/public"
+        commands = [command for command, _ in calls]
+        self.assertEqual(commands[0][-1], f"find {code}/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\\n'")
+        pushes = [command for command in commands if command[0] == "rsync"]
+        self.assertEqual(pushes[0][-1], f"shop@host.example:{code}/")
+        self.assertIn("--exclude=/modules/serveronly/", pushes[0], "a module only the server has is left alone")
+        self.assertIn("module serveronly exists only on the target", self.output.getvalue())
+        removal = [(command, kwargs) for command, kwargs in calls if command[-1].endswith("xargs -0 rm -f --")]
+        self.assertEqual([kwargs["input"] for _, kwargs in removal], [b"old.php\0"])
+        self.assertFalse((self.target / "app/public/index.php").exists(), "nothing is written to this machine's DEPLOY_PATH")
 
     def test_module_versions_and_comparison(self):
         release, _ = self.build("v1")

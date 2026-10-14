@@ -16,6 +16,7 @@ from create_project import scaffold
 from project import Project
 import project_release
 from project_release import build_release, deploy_images, release_model, release_settings, setup_version
+from project_target import LocalTarget, SshTarget
 
 REMOTE = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\nWEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\n'
           'PROXY_MEMORY=128m\nPROXY_CPUS=0.5\nDOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n'
@@ -259,11 +260,18 @@ class ReleaseTest(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0, own, '')
             return run
 
-        with patch('project_release.subprocess.run', target('10.8.0.14:443->443/tcp\n')):
+        def on(own):
+            """ss on this machine and its Docker answer from the fake."""
+            run, stack = target(own), contextlib.ExitStack()
+            stack.enter_context(patch('project_release.subprocess.run', run))
+            stack.enter_context(patch('project_release.deploy_target', lambda project: LocalTarget(run=run)))
+            return stack
+
+        with on('10.8.0.14:443->443/tcp\n'):
             with self.assertRaisesRegex(ValueError, r'10\.8\.0\.14:80 .*in use on the target.*nothing was started'):
                 project_release.check_ports(project, 'default', 'release-demo-stage', model)
         # This project's own proxy holds both: nothing to free.
-        with patch('project_release.subprocess.run', target('10.8.0.14:80->80/tcp, 10.8.0.14:443->443/tcp\n')):
+        with on('10.8.0.14:80->80/tcp, 10.8.0.14:443->443/tcp\n'):
             project_release.check_ports(project, 'default', 'release-demo-stage', model)
         # A remote Docker context without DEPLOY_SSH: no way to look, compose reports it as before.
         with patch('project_release.subprocess.run', side_effect=AssertionError('no lookup')):
@@ -288,13 +296,11 @@ class ReleaseTest(unittest.TestCase):
         with patch('project_release.os.access', lambda path, mode: Path(path) != locked), \
                 self.assertRaisesRegex(ValueError, f'not writable.*{locked}.*chown'):
             project_release.prepare_runtime_directories(project, model, str(target))
-        project.settings['DEPLOY_SSH'] = 'shop@host.example'
         calls = []
-        with patch('project_release.subprocess.run', lambda command, **kwargs: calls.append(command)), \
-                contextlib.redirect_stdout(io.StringIO()):
+        server = SshTarget('shop@host.example', run=lambda command, **kwargs: calls.append(command))
+        with patch('project_release.deploy_target', lambda project: server), contextlib.redirect_stdout(io.StringIO()):
             project_release.prepare_runtime_directories(project, model, str(target))
-        self.assertEqual(calls[0][:5], ['ssh', 'shop@host.example', 'mkdir', '-p', '--'])
-        self.assertEqual(calls[0][5:], runtime)
+        self.assertEqual(calls, [server.ssh('mkdir', '-p', '--', *runtime)], 'a server checks no local permissions')
 
 
 if __name__ == '__main__':

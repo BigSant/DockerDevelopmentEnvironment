@@ -42,6 +42,11 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   lock from the first check to the end of the migrations and shop policy, so a second load can no longer run
   between a data set's drop and its data, or during the first one's migrations; it stops with "already
   running", as before. `db-load` no longer writes a combined copy of the data set to `.generated/`.
+- **ssh deploys fail fast.** Every ssh connection of `make deploy`, `deploy-images` and `module-pull` (rsync's
+  included) runs with `BatchMode=yes` and `ConnectTimeout=15`: a password prompt or an unreachable server stops
+  the step at once instead of holding a pipeline. Host keys are still checked as ssh is configured. A server's
+  `modules/` is read as directories only, so PrestaShop's `modules/index.php` no longer warns "module index.php
+  exists only on the target".
 
 ## 2.9.0
 

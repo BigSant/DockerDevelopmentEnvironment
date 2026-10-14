@@ -59,7 +59,10 @@ class ReleaseTargetTest(unittest.TestCase):
             "volumes": [{"type": "bind", "source": "/srv/shop/data/app", "target": "/data",
                          "bind": {"create_host_path": True}}]}}}
         self.assertNotIn(b"alpine", subprocess.run(["docker", "--context", self.target, "images"], capture_output=True).stdout)
-        with contextlib.redirect_stdout(io.StringIO()), patch("project_release.release_model", return_value=model):
+        # DEPLOY_PATH is inside the throwaway daemon, which has no ssh: the file steps (environment files, runtime
+        # directories) are the Deploy target's and tested on their own; this test is about images and the context.
+        with contextlib.redirect_stdout(io.StringIO()), patch("project_release.release_model", return_value=model), \
+                patch("project_release.sync_environment"), patch("project_release.prepare_runtime_directories"):
             self.assertEqual(deploy_images(project), ["alpine:latest"])
         self.assertFalse(any(release.glob("*compose*")), "the model (with env secrets) is piped, never stored")
         for _ in range(30):
