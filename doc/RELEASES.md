@@ -4,6 +4,25 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## 2.11.0
+
+Nothing changes for projects: no setting, command, image or file format. This release is for setup's own
+maintenance.
+
+- **`tests/run` runs setup's tests the way CI does** and exits with the suite's status, naming the failing tests
+  (whole log in `.test-work/last-run.log`). `tests/run --database mysql:8.4` (or `mariadb:11.4`, `mysql:5.7`)
+  and `tests/run --release` run the database and release integration tests: they pull or build the images and
+  set every variable. CI calls it too, and now also runs the tests that need setup's own database image on
+  every server of its matrix, plus a new `release` job. Three of those tests had never run in CI and failed
+  there (the release test assumed `alpine:latest` was present; the import and project-init tests used
+  `mysqladmin`/`mysql`, which MariaDB 11 no longer ships); they are fixed.
+- **Internal restructuring, same behaviour.** The deploy-variables providers share their checks from
+  `project_ci`; `Project.active_model()` replaces eight copies of the Compose model read; the image build
+  order (base, core, the rest) is written once (`project_images.build_images`); `make db-pull import=1`
+  numbers and runs its import step itself; `make phpstan`/`phpcs`/`e2e` go through
+  `project_commands.run_qa`, with its first tests.
+- A root `CLAUDE.md` points agents to `doc/ARCHITECTURE.md`, `GLOSSARY.md`, `doc/adr/` and `tests/run`.
+
 ## 2.10.0
 
 - **`make pipeline-deploy` decides `IMAGES=auto` itself, and reloads cron (`CRON=auto`).** A project no longer
