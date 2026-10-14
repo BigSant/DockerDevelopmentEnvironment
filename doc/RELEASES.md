@@ -4,6 +4,11 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## 2.11.1
+
+Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status
+128, passing on rerun) now shows git's own message in the log, so the cause can be found the next time it happens.
+
 ## 2.11.0
 
 Nothing changes for projects: no setting, command, image or file format. This release is for setup's own
