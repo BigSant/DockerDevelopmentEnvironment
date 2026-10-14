@@ -234,6 +234,11 @@ Every application-specific step follows `PROFILE`: protected paths are `PRESTASH
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
+The release's files reach the **Deploy target** (`project_target.deploy_target`): this machine, or `DEPLOY_SSH=user@host`
+over ssh. Code push, removals, target-only module listing (directories only), `module-pull`, environment-file sync,
+runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with
+`BatchMode=yes` and `ConnectTimeout=15`, host keys checked as ssh is configured. The containers' Docker daemon is
+the separate `DEPLOY_CONTEXT`.
 
 `make pipeline-deploy` (`project_pipeline`) is the CI deploy step of both providers; projects keep only
 `bitbucket-pipelines.yml` or `.github/workflows/deploy.yml` (`templates/pipelines/`; `create-project --ci`
