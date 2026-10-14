@@ -33,6 +33,11 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   - The PrestaShop check (`is_prestashop`), the checkout's origin and CI repository (`project_remote`), the
     `.generated/` Compose overlays (`project_ide.write_overlay`) and the project root
     (`project_env_files.project_root`).
+- **Database errors say why.** A failed migration, rollback, import, backup or schema read now names the
+  database's own error line (for example `ERROR 1064 (42000) at line 2: …`), a stopped database service, or a
+  container started for another `DATABASE_NAME`; before, a failed migration said only that it failed. Compose
+  output still never appears, because it may hold secrets. Behind it, every database call goes through one
+  Database client (`doc/ARCHITECTURE.md` §5).
 
 ## 2.9.0
 
