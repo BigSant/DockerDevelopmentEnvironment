@@ -309,7 +309,7 @@ Kai reikia veikiančios aplinkos su tikrais duomenimis, nebūtina prašyti dump'
 
 Vieną kartą:
 
-1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas>` (su `--allow-fresh` gali prašyti ir šviežios kopijos). Raktas veiks tik iš VPN ir tik kopijoms (be shell'o).
+1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas>` (su `--allow-fresh` gali prašyti ir šviežios kopijos). Raktas veiks tik iš VPN ir tik kopijoms (be shell'o). Jei serveris atsako `Connection refused`, jame nėra sshd: administratorius pirmiausia paleidžia `sudo bin/install-ssh --from <VPN tinklas>`.
 2. Pirmas `make db-pull` paklausia serverio (`setup@10.8.0.14`) ir SSH rakto (tuščia – numatytasis) ir išsaugo atsakymą setup'o `docker/.env.backup` (0600, ne Git). Juo naudojasi visi šio kompiuterio projektai; projekto `BACKUP_SSH` / `BACKUP_SSH_KEY`, jei nurodyti, laimi. `make db-pull configure=1` paklausia iš naujo.
 3. Projekto vardas serveryje randamas pats: aplinkos repo vardas (`origin`, mažosiomis raidėmis – taip serveris vadina build katalogą), tada `PROJECT_NAME`. Jei serveris nežino nė vieno, komanda paklausia ir įrašo `BACKUP_SERVER_PROJECT` į `env/local.env`.
 
