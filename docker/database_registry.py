@@ -134,7 +134,6 @@ def guess(table, columns):
 def table_columns(project, tables):
     """{name: column names}; schema.table names are read from their extra schema."""
     from database_client import literal
-    from database_schema import mysql_query
     by_schema = {}
     for name in tables:
         schema, _, table = name.rpartition('.')
@@ -144,10 +143,9 @@ def table_columns(project, tables):
         listed = ','.join(literal(t) for t in names)
         # Extra schema names are validated (letters, digits, _), so they are safe inside the quotes.
         where = f"TABLE_SCHEMA = '{schema}'" if schema else 'TABLE_SCHEMA = DATABASE()'
-        rows = mysql_query(project, f'SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE '
-                                    f'{where} AND TABLE_NAME IN ({listed});\n')
-        for line in rows.splitlines():
-            table, column = line.split('\t')
+        rows = project.database.query(f'SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE '
+                                      f'{where} AND TABLE_NAME IN ({listed});\n')
+        for table, column in rows:
             columns.setdefault(f'{schema}.{table}' if schema else table, set()).add(column)
     return columns
 

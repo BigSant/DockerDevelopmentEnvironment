@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / 'docker'))
 from database_schema import export_schema, git
 from database_migrations import committed_schema, definitions, generate_migration, compare_in_container
 from test_database_schema import snapshot
+from fake_database import FakeDatabase
 
 
 class MigrationTest(unittest.TestCase):
@@ -50,8 +51,8 @@ class MigrationTest(unittest.TestCase):
             payload = args[-1]
             return result or {'sql_count': 1, 'directory': 'versions',
                               'code': '<?php\n// Schema diff: ' + payload['fingerprint'] + '\n'}
+        self.project.database = FakeDatabase(answer=lambda sql: [('utf8mb4', 'utf8mb4_unicode_ci')])
         with patch('database_migrations.read_schema', return_value=files or self.changed), \
-                patch('database_migrations.mysql_query', return_value='utf8mb4\tutf8mb4_unicode_ci\n'), \
                 patch('database_migrations.docker', return_value='sha256:fixture'), \
                 patch('database_migrations.compare_in_container', side_effect=worker):
             return generate_migration(self.project, reference)

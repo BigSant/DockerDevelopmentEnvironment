@@ -15,10 +15,11 @@ import uuid
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
+sys.path[:0] = [str(ROOT), str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
+from fake_database import FakeDatabase
 import project_deploy
 from project_deploy import (build_code, deploy_code, module_pull, module_versions, newer, protected_paths, rsync_command,
-                            target_location)
+                            target_location, upgrade_modules)
 
 
 def git(directory, *args):
@@ -115,6 +116,17 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(module_versions(release), {"shop": "1.0.0"})
         self.assertTrue(newer("1.10.0", "1.9.3"))
         self.assertFalse(newer("1.0.0", "1.0.0"))
+
+    def test_only_installed_modules_with_a_newer_code_version_are_upgraded(self):
+        release = self.root / "release"
+        ran = []
+        project = SimpleNamespace(settings={"PS_VERSION": "8.1.7", "PS_DATABASE_PREFIX": "fs_"}, run=ran.append,
+                                  database=FakeDatabase(answer=lambda sql: [("shop", "0.9.0"), ("blog", "2.0.0")]))
+        with patch("project_deploy.module_versions", return_value={"shop": "1.0.0", "blog": "2.0.0", "new": "1.0.0"}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(upgrade_modules(project, release), ["shop"])
+        self.assertIn("FROM `fs_module`", project.database.queried[0])
+        self.assertEqual(ran, [["exec", "-T", "php-fpm", "php", "bin/console", "prestashop:module", "upgrade", "shop"]])
 
     def build(self, ref):
         with patch("project_deploy.php_image", return_value="php:test"), \
@@ -232,17 +244,16 @@ class GenericDeployTest(unittest.TestCase):
         return public
 
     def deploy(self, **options):
-        queries = []
+        self.project.database = FakeDatabase()
         with patch("project_deploy.php_image", return_value="php:test"), \
                 patch("project_deploy.in_release_image", lambda project, release, command: self.calls.append(["image", command])), \
                 patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
-                patch("database_schema.mysql_query", lambda project, sql, *a, **k: queries.append(sql) or ""), \
                 patch("database_migrations_guarded.migrate", lambda project: self.calls.append(["migrate"])), \
                 patch("database_schema.schema_report", lambda project: self.calls.append(["schema-report"])):
             try:
                 return deploy_code(self.project, **options)
             finally:
-                self.assertEqual(queries, [], "a generic deploy never queries the database for modules")
+                self.assertEqual(self.project.database.queried, [], "a generic deploy never queries the database for modules")
 
     def test_generic_deploy_reads_no_ps_module_and_upgrades_nothing(self):
         public = self.generic()

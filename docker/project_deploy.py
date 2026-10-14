@@ -286,13 +286,11 @@ def reload_php(project):
 
 def upgrade_modules(project, release):
     """Run the upgrade of every installed module whose code version is newer than the database's."""
-    from database_schema import mysql_query
     if str(project.settings.get('PS_VERSION', '')).startswith('1.6'):
         print('PrestaShop 1.6 has no module upgrade command; upgrade changed modules from the back office.')
         return []
     prefix = project.settings.get('PS_DATABASE_PREFIX') or 'ps_'
-    installed = dict(line.split('\t') for line in mysql_query(project, f'SELECT name, version FROM `{prefix}module`;\n').splitlines()
-                     if '\t' in line)
+    installed = dict(row for row in project.database.query(f'SELECT name, version FROM `{prefix}module`;\n') if len(row) == 2)
     changed = [name for name, version in module_versions(release).items()
                if name in installed and newer(version, installed[name])]
     for name in changed:
