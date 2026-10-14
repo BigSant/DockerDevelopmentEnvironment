@@ -243,7 +243,7 @@ def resolve_policy(settings, environment):
 
 def validate_configuration(project):
     """Read-only checks, including optional project-owned service env contracts."""
-    model = json.loads(project.capture(['config', '--format', 'json']))
+    model = project.active_model()
     services = model['services']
     php = services.get('php-fpm', {}).get('environment', {})
     if is_prestashop(project):

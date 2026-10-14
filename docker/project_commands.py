@@ -1,5 +1,4 @@
 """Daily operations with argument arrays and explicit application adapters."""
-import json
 import shlex
 from pathlib import PurePosixPath
 from project_policy import preflight_php
@@ -7,7 +6,7 @@ from project_prestashop import is_prestashop
 
 
 def selected_service(project, service):
-    if service and service not in json.loads(project.capture(['config', '--format', 'json']))['services']:
+    if service and service not in project.active_model()['services']:
         raise ValueError('Service is not enabled in this environment: ' + service)
     return [service] if service else []
 

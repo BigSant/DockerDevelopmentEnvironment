@@ -15,7 +15,7 @@ from database_import import render_hook
 from host_proxy import configuration
 import project_bootstrap
 from project_bootstrap import prepare_host, route_exists
-from project_domains import HOSTS_VARIABLE, apply_domains, attach_domain_aliases, extra_hosts, resolve_domains
+from project_domains import HOSTS_VARIABLE, apply_domains, domain_aliases, extra_hosts, resolve_domains
 from project_metrics import resolve_metrics
 
 VALUES = {'DOMAIN_LT': 'demo.local', 'DOMAIN_LV': 'lv.demo.local', 'DOMAIN_EE': 'Ee.Demo.Local'}
@@ -80,16 +80,15 @@ class ApplyTest(unittest.TestCase):
 
     def test_every_hostname_is_a_network_alias_of_nginx_proxy(self):
         self.project.settings = {HOSTS_VARIABLE: 'demo.local lv.demo.local'}
-        attach_domain_aliases(self.project)
-        overlay = Path(self.project.command[-1])
-        self.assertEqual(self.project.command[-2], '-f')
+        flag, overlay = domain_aliases(self.project)
+        overlay = Path(overlay)
+        self.assertEqual(flag, '-f')
         self.assertTrue(overlay.name.startswith('domain-aliases-'))
         self.assertIn('aliases: ["demo.local", "lv.demo.local"]', overlay.read_text())
 
     def test_one_hostname_needs_no_alias_overlay(self):
         self.project.settings = {HOSTS_VARIABLE: 'demo.local'}
-        attach_domain_aliases(self.project)
-        self.assertEqual(self.project.command, ['docker', 'compose'])
+        self.assertEqual(domain_aliases(self.project), [])
 
 
 class RoutingTest(unittest.TestCase):

@@ -71,7 +71,7 @@ def pull_images(project):
     # pulling that project-local tag from a registry, even when PHP is inactive.
     built_images = {service.get("image") for service in project.model()["services"].values()
                     if service.get("build")}
-    active = json.loads(project.capture(["config", "--format", "json"]))["services"]
+    active = project.active_model()["services"]
     external = [name for name, service in active.items()
                 if service.get("image") and service["image"] not in built_images]
     if external:
@@ -92,7 +92,7 @@ def doctor(project):
     match = re.search(r"(\d+)\.(\d+)\.(\d+)", version.stdout)
     if version.returncode or not match or tuple(map(int, match.groups())) < (2, 24, 4):
         raise ValueError("Docker Compose 2.24.4 or newer is required")
-    model = json.loads(project.capture(["config", "--format", "json"]))
+    model = project.active_model()
     issues, notes = set(), []
     private = project.env_files[-1]
     if private.stat().st_mode & 0o077:
