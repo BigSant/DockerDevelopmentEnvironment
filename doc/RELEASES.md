@@ -4,7 +4,7 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.10.0
 
 - **`make pipeline-deploy` decides `IMAGES=auto` itself, and reloads cron (`CRON=auto`).** A project no longer
   needs its own script for when images are due: with `IMAGES=auto` the step rebuilds them when the build root
