@@ -58,6 +58,9 @@ class ReleaseTargetTest(unittest.TestCase):
             "image": "alpine:latest", "command": ["sh", "-c", "date > /data/started; sleep 300"],
             "volumes": [{"type": "bind", "source": "/srv/shop/data/app", "target": "/data",
                          "bind": {"create_host_path": True}}]}}}
+        # The release image comes from this machine: a fresh CI runner has none.
+        if subprocess.run(["docker", "image", "inspect", "alpine:latest"], capture_output=True).returncode:
+            subprocess.run(["docker", "pull", "-q", "alpine:latest"], check=True, capture_output=True)
         self.assertNotIn(b"alpine", subprocess.run(["docker", "--context", self.target, "images"], capture_output=True).stdout)
         # DEPLOY_PATH is inside the throwaway daemon, which has no ssh: the file steps (environment files, runtime
         # directories) are the Deploy target's and tested on their own; this test is about images and the context.

@@ -52,7 +52,9 @@ def database_environment(server):
                          '-f', f'docker/docker/{engine}/Dockerfile', 'docker'])
     for image, build in SUPPORT_IMAGES.items():
         ensure(image, build)
-    return {'SETUP_DB_TEST_IMAGE': server, f'SETUP_{engine.upper()}_IMAGE': setup_image,
+    # SETUP_MYSQL_IMAGE takes setup's MySQL or MariaDB image (most B tests read only it);
+    # SETUP_MARIADB_IMAGE is the guarded-migration test's second engine.
+    return {'SETUP_DB_TEST_IMAGE': server, 'SETUP_MYSQL_IMAGE': setup_image, f'SETUP_{engine.upper()}_IMAGE': setup_image,
             'SETUP_MYSQL_FIXTURES_INTEGRATION': '1', 'SETUP_MYSQL_SCHEMA_INTEGRATION': '1',
             'SETUP_PHP_DB_TEST_IMAGE': 'setup-php-policy-test', 'SETUP_DOCTRINE_TEST_IMAGE': 'setup-doctrine-diff-test'}
 
