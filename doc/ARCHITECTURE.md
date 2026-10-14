@@ -296,11 +296,12 @@ token in `GH_TOKEN`; without `gh` nothing is written.
 
 ## 8. Tests
 
-`python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, a fake DB: the
+`tests/run` (CI calls it too; it exits with the suite's status) runs the A level (temporary projects, real git, a fake DB: the
 `tests/fake_database.FakeDatabase` assigned as `project.database`, which records and never parses SQL; the
 pipeline step for both providers against git fixtures and a fake `make`, `deploy-variables` against fake
-Bitbucket and GitHub APIs and a fake `gh`). B tests
-run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
+Bitbucket and GitHub APIs and a fake `gh`). `tests/run --database mysql:8.4` (or `mariadb:11.4`, `mysql:5.7`)
+and `tests/run --release` run the database and release B levels as CI does: they pull or build the images and set
+the variables. B tests run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,
 `SETUP_DIND_IMAGE`, `SETUP_MYSQL_SCHEMA_INTEGRATION=1`, … (see each test's skip reason).
 `SETUP_OLD_BASH_IMAGE=mysql:5.7` runs the DB first-start hooks under bash 4.2: shell hooks that run
 inside third-party images must not rely on bash ≥ 4.4 (e.g. `"${array[@]}"` of an empty array under `set -u`).
