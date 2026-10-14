@@ -577,25 +577,8 @@ def main():
             arguments = shlex.split(args.command or "status")
             project.run(["run", "--rm", "--no-deps", "php-doctrine-migrations"] + arguments, profiles="doctrine")
         else:
-            service, profile, entrypoint, default = {
-                "phpstan": ("php-phpstan", "phpstan", "make", "report"),
-                "phpcs": ("php-cs", "phpcs", "make", "check"),
-                "e2e": ("playwright", "playwright", "", project.settings["PLAYWRIGHT_COMMAND"]),
-            }[args.action]
-            if args.action == "e2e":
-                # End-to-end tests write orders and customers: only ever against ENV=test.
-                from project_testing import test_project
-                project = test_project(project)
-            command = ["run", "--rm"]
-            arguments = shlex.split(args.command or default)
-            if not arguments or not arguments[0]:
-                raise ValueError("QA command cannot be empty")
-            if args.action != "e2e":
-                command += ["--no-deps", "--entrypoint", entrypoint]
-            else:
-                # The shared Playwright service otherwise starts `tail -f /dev/null`.
-                command += ["--entrypoint", arguments.pop(0)]
-            project.run(command + [service] + arguments, profiles=profile)
+            from project_commands import run_qa
+            run_qa(project, args.action, args.command)
         if args.action not in ('ide-init', 'ide-refresh', 'test-init', 'setup-info') and (project.directory / '.idea/php.xml').is_file():
             refresh_ide(project)
         return 0

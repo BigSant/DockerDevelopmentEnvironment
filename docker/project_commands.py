@@ -52,3 +52,27 @@ def cache_clear(project):
     project.run(['exec', '-T', 'php-fpm'] + command)
     # OPcache/APCu belong to FPM processes, not the CLI cache-clearing process.
     project.run(['restart', 'php-fpm'])
+
+
+# QA tools: (service, profile, entrypoint, default command); e2e's entrypoint is the command's first word.
+QA_TOOLS = {'phpstan': ('php-phpstan', 'phpstan', 'make', 'report'), 'phpcs': ('php-cs', 'phpcs', 'make', 'check'),
+            'e2e': ('playwright', 'playwright', None, None)}
+
+
+def run_qa(project, action, command=None):
+    """make phpstan / phpcs / e2e [command=...]: the tool's container, its default command unless one is given.
+    End-to-end tests write orders and customers, so e2e only ever runs against ENV=test."""
+    service, profile, entrypoint, default = QA_TOOLS[action]
+    if action == 'e2e':
+        from project_testing import test_project
+        default = project.settings['PLAYWRIGHT_COMMAND']  # The setting of the environment make was run in.
+        project = test_project(project)
+    arguments = shlex.split(command or default)
+    if not arguments or not arguments[0]:
+        raise ValueError('QA command cannot be empty')
+    if entrypoint:
+        options = ['--no-deps', '--entrypoint', entrypoint]
+    else:
+        # The shared Playwright service otherwise starts `tail -f /dev/null`.
+        options = ['--entrypoint', arguments.pop(0)]
+    project.run(['run', '--rm', *options, service, *arguments], profiles=profile)
