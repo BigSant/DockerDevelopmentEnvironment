@@ -260,11 +260,11 @@ class Project:
         self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment in ('local', 'test') else 'ro'
         # The backup UI edits the table registry the same way: locally, servers through git.
         self.process_env['SETUP_BACKUP_ACCESS'] = self.process_env['SETUP_CRON_CONFIG_ACCESS']
-        from project_domains import attach_domain_aliases
-        attach_domain_aliases(self)
+        from project_domains import domain_aliases
+        self.command += domain_aliases(self)
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
-        active = json.loads(self.capture(['config', '--format', 'json']))['services']
+        active = self.active_model()['services']
         if environment in ('stage', 'prod'):
             for tool in ALLOWLISTED_TOOLS:
                 if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
@@ -322,7 +322,12 @@ class Project:
         from database_client import DatabaseClient
         return DatabaseClient(self)
 
+    def active_model(self):
+        """The Compose model of the profiles this command runs: what up, ps and exec see."""
+        return json.loads(self.capture(["config", "--format", "json"]))
+
     def model(self):
+        """The Compose model of every profile: images to build, mounts and services a profile may start."""
         return json.loads(self.capture(["config", "--format", "json"], profiles="*"))
 
     def render(self):

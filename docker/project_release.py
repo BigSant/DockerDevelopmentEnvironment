@@ -64,7 +64,7 @@ def release_settings(project, remote=True):
 
 def release_model(project, deploy_path):
     """The active services as a self-contained compose model for the target."""
-    model = json.loads(project.capture(['config', '--format', 'json']))
+    model = project.active_model()
     local_root = project.root.resolve()
     for name, service in model['services'].items():
         service.pop('build', None)
@@ -128,7 +128,7 @@ def sync_environment(project, deploy_path, model=None):
     if target.local and Path(deploy_path).resolve() == project.root.resolve():
         return []
     if model is None:
-        paths = environment_mounts(project, json.loads(project.capture(['config', '--format', 'json'])))
+        paths = environment_mounts(project, project.active_model())
     else:  # a release model: its sources are already DEPLOY_PATH's
         paths = environment_mounts(project, model, deploy_path)
     if not paths:

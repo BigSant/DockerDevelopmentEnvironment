@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
@@ -118,7 +117,7 @@ def ide_plan(project, server):
         except ET.ParseError as error:
             raise ValueError(f"Invalid existing IDE XML; preserved: {relative}") from error
 
-    model = json.loads(project.capture(["config", "--format", "json"]))
+    model = project.active_model()
     php = model["services"].get("php-fpm")
     if not php:
         raise ValueError("ide-init requires the php-fpm service")

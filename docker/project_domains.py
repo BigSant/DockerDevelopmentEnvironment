@@ -76,12 +76,13 @@ def extra_hosts(settings):
     return [host for host in str(settings.get(HOSTS_VARIABLE) or '').split() if host != primary]
 
 
-def attach_domain_aliases(project):
-    """Every hostname resolves to nginx-proxy inside the project network, like DOMAIN itself."""
+def domain_aliases(project):
+    """Compose arguments for the overlay that resolves every hostname to nginx-proxy inside the project network,
+    like DOMAIN itself; none with one hostname."""
     hosts = str(project.settings.get(HOSTS_VARIABLE) or '').split()
     if len(hosts) < 2:
-        return
+        return []
     from project_ide import write_overlay
     contents = ('services:\n  "nginx-proxy":\n    networks:\n      network_app:\n        aliases: '
                 + json.dumps(hosts) + '\n').encode()
-    project.command += ['-f', str(write_overlay(project, 'domain-aliases', contents))]
+    return ['-f', str(write_overlay(project, 'domain-aliases', contents))]

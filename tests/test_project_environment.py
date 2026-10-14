@@ -118,7 +118,15 @@ class ProjectEnvironmentTest(unittest.TestCase):
         model = project.model()
         self.assertEqual(Path(model["services"]["php-fpm"]["build"]["context"]), ROOT / "docker/docker/php-fpm/project")
         # The full template selects the CORE redis service, which starts with up.
-        self.assertIn("redis", json.loads(project.capture(["config", "--format", "json"]))["services"])
+        self.assertIn("redis", project.active_model()["services"])
+
+    def test_the_active_model_leaves_out_what_only_a_profile_starts(self):
+        self.initialize()
+        project = Project(self.directory)
+        active, full = project.active_model()["services"], project.model()["services"]
+        self.assertIn("php-fpm-base", full, "the base image is built through its build_only profile")
+        self.assertNotIn("php-fpm-base", active, "up, ps and exec never see it")
+        self.assertLess(set(active), set(full))
 
     def test_mixed_sources_and_escaping_parent_symlinks_fail_before_writes(self):
         (self.directory / ".env").write_text("PROJECT_NAME=old\n")
@@ -145,7 +153,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         model = {"services": {"nginx-proxy": {"image": "available", "volumes": [
             {"type": "bind", "source": str(certificates), "target": "/etc/ssl/certs", "read_only": True}]}}}
         project = SimpleNamespace(name="example-prod", environment="prod", env_files=[private], directory=self.directory,
-                                  data_directory=self.root / "data/prod", settings={}, capture=lambda args: json.dumps(model))
+                                  data_directory=self.root / "data/prod", settings={}, active_model=lambda: model)
         available = lambda *arguments: SimpleNamespace(
             returncode=0, stdout="5.0.2" if arguments[:2] == ("compose", "version") else "29.2.1")
         with patch("project_environment.docker", side_effect=available), \
@@ -171,7 +179,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
                                   "target": "/etc/ssl/certs", "read_only": True}]}}}
             project = SimpleNamespace(name="example-local", env_files=[private],
                                       directory=self.directory, data_directory=self.root / 'data', settings={},
-                                      capture=lambda args: json.dumps(model))
+                                      active_model=lambda: model)
             def available(*arguments):
                 output = "5.0.2" if arguments[:2] == ("compose", "version") else "29.2.1"
                 return SimpleNamespace(returncode=0, stdout=output)
@@ -198,7 +206,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
                               "redis": {"image": "redis:7.4-alpine"}}}
         active = {"services": {name: value for name, value in model["services"].items()
                                if name != "php"}}
-        project = SimpleNamespace(model=lambda: model, capture=lambda args: json.dumps(active), run=Mock())
+        project = SimpleNamespace(model=lambda: model, active_model=lambda: active, run=Mock())
         pull_images(project)
         project.run.assert_called_once_with(["pull", "--ignore-buildable", "redis"])
         active["services"].pop("redis")

@@ -76,7 +76,7 @@ class DeployTest(unittest.TestCase):
             settings={"DEPLOY_PATH": str(self.target), "DEPLOY_CONTEXT": "shop-stage", "DEPLOY_SSH": "", "APP_UID": "1012",
                       "APP_GID": "1013", "PS_VERSION": "9.0.2", "PROFILE": "prestashop"},
             process_env={"HOST_UID": "1012", "HOST_GID": "1013"}, run=lambda args, profiles=None: self.calls.append(args),
-            data_directory=self.root / "data", capture=lambda args, profiles=None: json.dumps(compose_model(self.root)))
+            data_directory=self.root / "data", active_model=lambda: compose_model(self.root))
         output = contextlib.redirect_stdout(io.StringIO())
         self.output = output.__enter__()
         self.addCleanup(output.__exit__, None, None, None)
