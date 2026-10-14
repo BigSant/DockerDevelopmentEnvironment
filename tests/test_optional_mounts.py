@@ -1,7 +1,6 @@
 """Minimal projects omit missing shared config; explicit mounts remain required."""
 import contextlib
 import io
-import json
 from pathlib import Path
 import sys
 import tempfile

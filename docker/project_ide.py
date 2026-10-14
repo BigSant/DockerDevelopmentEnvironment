@@ -1,6 +1,7 @@
 """Prepare PhpStorm project metadata and a private native-Compose bridge."""
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -48,6 +49,15 @@ def replace_file(path, contents, private=False):
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def write_overlay(project, name, contents):
+    """A private Compose overlay .generated/<name>-<digest>.yaml; named after its content, so concurrent
+    runner and IDE invocations stay independent. Returns its path."""
+    digest = hashlib.sha256(contents).hexdigest()[:20]
+    path = checked_path(project, f'.generated/{name}-{digest}.yaml')
+    replace_file(path, contents, private=True)
+    return path
 
 
 def refresh_ide(project):

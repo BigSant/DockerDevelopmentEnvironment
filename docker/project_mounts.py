@@ -1,8 +1,7 @@
 """Omit absent project configuration directories instead of letting Compose create them."""
-import hashlib
 import json
 from pathlib import Path
-from project_ide import checked_path, replace_file
+from project_ide import write_overlay
 
 
 def attach_optional_config_mounts(project):
@@ -53,9 +52,4 @@ def attach_optional_config_mounts(project):
                       '    volumes: !override ' + json.dumps(kept).replace('$', '$$')]
     if len(lines) == 1:
         return
-    contents = ('\n'.join(lines) + '\n').encode()
-    digest = hashlib.sha256(contents).hexdigest()[:20]
-    path = checked_path(project, f'.generated/optional-mounts-{digest}.yaml')
-    # Content-addressed files keep concurrent runner/IDE invocations independent.
-    replace_file(path, contents, private=True)
-    project.command += ['-f', str(path)]
+    project.command += ['-f', str(write_overlay(project, 'optional-mounts', ('\n'.join(lines) + '\n').encode()))]

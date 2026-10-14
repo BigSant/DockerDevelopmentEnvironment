@@ -7,24 +7,7 @@ FROM ghcr.io/phpstan/phpstan:${PHPSTAN_PHAR_VERSION} AS phpstan
 FROM php:${PHP_VERSION}-fpm AS base
 
 ARG PHP_VERSION=""
-ARG APCU_VERSION
 ENV ACCEPT_EULA=Y
-
-#RUN apt-get update \
-#    && apt-get install -y libmcrypt-dev \
-#        libjpeg62-turbo-dev \
-#        libpcre3-dev \
-#        libpng-dev \
-#        libwebp-dev \
-#        libxml2-dev \
-#        libicu-dev \
-#        libzip-dev \
-#        default-mysql-client \
-#        wget \
-#        unzip \
-#        libonig-dev
-
-#RUN apt-get install -y pv
 
 # Optional cache extensions, compiled but NOT enabled: a project that selects the memcached or
 # redis service enables one with an ini drop-in (extension=memcached.so / extension=redis.so).
@@ -50,14 +33,6 @@ RUN curl -fsSLo /usr/local/bin/supercronic \
     && chmod +x /usr/local/bin/supercronic
 
 RUN rm -rf /var/lib/apt/lists/*
-#RUN docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-png-dir=/usr/include/ --with-jpeg-dir=/usr/include/
-#RUN docker-php-ext-install iconv intl pdo_mysql mbstring soap gd zip bcmath exif
-
-#RUN docker-php-source extract \
-#    && if [ -d "/usr/src/php/ext/mysql" ]; then docker-php-ext-install mysql; fi \
-#    && if [ -d "/usr/src/php/ext/mcrypt" ]; then docker-php-ext-install mcrypt; fi \
-#    && if [ -d "/usr/src/php/ext/opcache" ]; then docker-php-ext-install opcache; fi \
-#    && docker-php-source delete
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/php.ini /usr/local/etc/php/php.ini
 
@@ -83,7 +58,6 @@ RUN sed -i "s#^group = www-data#;group = www-data#g" /usr/local/etc/php-fpm.d/ww
 RUN sed -i "s#pm\.max_children = 5#pm\.max_children = 50#g" /usr/local/etc/php-fpm.d/www.conf
 
 RUN mkdir -p /var/www/html
-#COPY /app /var/www/html
 
 RUN chown -R ${CONTAINER_USER}:${CONTAINER_GROUP} /var/www/html/
 RUN find /var/www/html/ -type d -exec chmod 755 {} +
@@ -96,11 +70,6 @@ CMD ["php-fpm", "-R"]
 FROM base AS env-local
 
 ARG PHP_VERSION=""
-ARG XDEBUG_VERSION=""
-
-#RUN pecl install xdebug-${XDEBUG_VERSION} \
-#    && docker-php-ext-enable xdebug \
-#    && docker-php-source delete
 
 COPY /docker/php-fpm/${PHP_VERSION}/conf/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 

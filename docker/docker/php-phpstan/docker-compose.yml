@@ -17,7 +17,6 @@ services:
       target: env-${BUILD_ENV:-${ENV}}
       args:
         PHP_PHPSTAN_VERSION: ${PHP_PHPSTAN_VERSION}
-        COMPOSER_VERSION: ${COMPOSER_VERSION}
     depends_on:
       php-fpm:
         condition: service_healthy

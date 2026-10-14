@@ -149,6 +149,14 @@ fingerprint is outdated; it removes only with `apply=1`.
 
 ## 5. Database as code
 
+- **Database client** (`database_client.DatabaseClient`, `project.database`): the only way setup reaches a
+  project database from the host. It runs the installed client inside the database service (`docker compose
+  exec`, so stage/prod reach `DEPLOY_CONTEXT`) and chooses the account: `query` (rows), `extract` (raw bytes),
+  `execute` and `dump` as the application user, `load` (a byte stream) as root, because dumps may carry DEFINER
+  or GTID statements. `execute` and `load` run their whole input in one session and stop at the first error, so
+  a migration and the row recording it fail together. A failure is a `DatabaseError` naming the operation and
+  the client's own error line; Compose output never reaches it. The two grant scripts (`database_grants`) are
+  self-contained programs and run through `project.run`.
 - `database/schema/`: one normalised `CREATE TABLE` per table plus a manifest; the pre-commit hook
   (`make schema-hook-install`) exports it, stops the commit on change and drafts a guarded migration.
   It only warns when the DB is unreachable. With one database the files are flat; with
@@ -266,7 +274,8 @@ token in `GH_TOKEN`; without `gh` nothing is written.
 
 ## 8. Tests
 
-`python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, fake DB; the
+`python3 -m unittest discover -s tests` runs the A level (temporary projects, real git, a fake DB: the
+`tests/fake_database.FakeDatabase` assigned as `project.database`, which records and never parses SQL; the
 pipeline step for both providers against git fixtures and a fake `make`, `deploy-variables` against fake
 Bitbucket and GitHub APIs and a fake `gh`). B tests
 run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP_MARIADB_IMAGE`, `PHP_TEST_IMAGE`,

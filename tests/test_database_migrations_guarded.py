@@ -14,6 +14,7 @@ sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 import database_migrations_guarded as guarded
 from database_migrations_guarded import commit_problems, draft_text, parse_table, split_rollback, untouched_draft, write_drafts
 from database_schema import commit_schema, export_schema, git
+from fake_database import FakeDatabase
 from test_database_schema import snapshot
 
 PRODUCT = """CREATE TABLE `product` (
@@ -100,8 +101,7 @@ class CommitGateTest(unittest.TestCase):
         stack.enter_context(patch("database_schema.database_tables", lambda project: sorted(self.tables)))
         stack.enter_context(patch("database_schema.read_schema",
                                   lambda project, require_classified=False: snapshot(self.tables)))
-        self.recorded = []
-        stack.enter_context(patch.object(guarded, "mysql_query", lambda project, sql, timeout=60: self.recorded.append(sql) or ""))
+        self.project.database = FakeDatabase()
         self.addCleanup(stack.close)
 
     def commit(self):
@@ -125,7 +125,8 @@ class CommitGateTest(unittest.TestCase):
             self.commit()  # the edited file is not staged yet
         git(self.root, "add", "-A", "database")
         self.commit()
-        self.assertIn(drafts[0].name, self.recorded[-1], "this DB has the change: the migration is recorded as applied")
+        self.assertIn(drafts[0].name, self.project.database.executed[-1],
+                      "this DB has the change: the migration is recorded as applied")
 
     def test_staged_snapshot_without_a_migration_is_stopped(self):
         self.tables = {"product": PRODUCT, "feed": FEED}
@@ -169,7 +170,7 @@ class CommitGateTest(unittest.TestCase):
         self.assertFalse((self.root / "database/migrations").exists())
         git(self.root, "add", "-A", "database")
         self.commit()
-        self.assertEqual(self.recorded, [])
+        self.assertEqual(self.project.database.executed, [])
 
     def test_each_changed_schema_gets_its_own_draft_and_needs_its_own_migration(self):
         self.project.settings.update(DATABASE_NAME="shop", DATABASE_EXTRA_SCHEMAS="shop_git")
@@ -254,27 +255,32 @@ class MigrateTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="migrate-", dir=scratch)
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.project = SimpleNamespace(root=self.root, settings={"SCHEMA_DIRECTORY": "database/schema"})
-        self.migrations = self.root / "database/migrations"
-        self.migrations.mkdir(parents=True)
         self.applied = {}
         self.queries = []
+        self.project = SimpleNamespace(root=self.root, settings={"SCHEMA_DIRECTORY": "database/schema"},
+                                       database=FakeDatabase(answer=self.answer, on_write=self.write))
+        self.migrations = self.root / "database/migrations"
+        self.migrations.mkdir(parents=True)
 
-    def query(self, project, sql, timeout=60):
+    def answer(self, sql):
+        """setup_migrations as the fake database's state: reads come from self.applied, writes change it."""
         self.queries.append(sql)
         if sql.startswith("SELECT name, checksum"):
-            return "".join(f"{name}\t{checksum}\n" for name, checksum in self.applied.items())
+            return list(self.applied.items())
         if sql.startswith("SELECT name FROM setup_migrations ORDER BY"):
-            return "".join(f"{name}\n" for name in reversed(list(self.applied)))
+            return [(name,) for name in reversed(list(self.applied))]
+        return []
+
+    def write(self, sql):
+        self.queries.append(sql)
         if "INSERT INTO setup_migrations" in sql:
             name, checksum = sql.split("VALUES (")[1].split(", NOW()")[0].replace("'", "").split(", ")
             self.applied[name] = checksum
         if "DELETE FROM setup_migrations" in sql:
             del self.applied[sql.split("name = '")[1].split("'")[0]]
-        return ""
 
     def migrate(self):
-        with patch.object(guarded, "mysql_query", self.query), contextlib.redirect_stdout(io.StringIO()) as output:
+        with contextlib.redirect_stdout(io.StringIO()) as output:
             applied = guarded.migrate(self.project)
         return applied, output.getvalue()
 
@@ -290,7 +296,7 @@ class MigrateTest(unittest.TestCase):
         self.assertIn("changed after it was applied", output)
 
     def rollback(self, **arguments):
-        with patch.object(guarded, "mysql_query", self.query), contextlib.redirect_stdout(io.StringIO()) as output:
+        with contextlib.redirect_stdout(io.StringIO()) as output:
             undone = guarded.rollback(self.project, **arguments)
         return undone, output.getvalue()
 
@@ -319,6 +325,15 @@ class MigrateTest(unittest.TestCase):
         (self.migrations / "20260102000000-old.sql").write_text("SELECT 2;\n-- Rollback:\n-- TODO: restore\n")
         with self.assertRaisesRegex(ValueError, "TODO in its rollback"):
             self.rollback()
+
+    def test_a_failing_migration_names_the_reason_and_is_not_recorded(self):
+        (self.migrations / "20260101000000-first.sql").write_text("SELECT 1;\n")
+        (self.migrations / "20260102000000-broken.sql").write_text("SELECT 'broken';\n")
+        self.project.database.fail_on = lambda operation, text: operation == "write" and "'broken'" in text
+        with self.assertRaisesRegex(ValueError, r"^Migration 20260102000000-broken.sql failed \(write failed \(fake\)\); "
+                                                r"it is not recorded"):
+            self.migrate()
+        self.assertEqual(list(self.applied), ["20260101000000-first.sql"])
 
     def test_completing_the_rollback_later_does_not_change_the_applied_migration(self):
         path = self.migrations / "20260101000000-first.sql"

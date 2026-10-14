@@ -13,11 +13,12 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "docker"))
-from database_schema import (MANIFEST, MYSQL_READ, check_schema, commit_schema, export_schema, git,
-                             install_schema_hook, mysql_query, normalize_ddl,
-                             read_schema, schema_directory, staged_schema, table_file,
-                             unescape_batch)
+sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
+from database_client import READ as MYSQL_READ, unescape_batch
+from database_schema import (MANIFEST, check_schema, commit_schema, export_schema, git,
+                             install_schema_hook, normalize_ddl, read_schema, schema_directory, staged_schema,
+                             table_file)
+from fake_database import FakeDatabase
 
 
 def snapshot(tables):
@@ -70,19 +71,19 @@ class DatabaseSchemaTest(unittest.TestCase):
 
     def test_read_collects_ordered_table_files_without_rows(self):
         name = "unusual`table"
-        tables = name.encode().hex() + "\n"
-        ddl = "CREATE TABLE `unusual``table` (\\n  `id` int NOT NULL\\n) ENGINE=InnoDB AUTO_INCREMENT=8"
-        with patch("database_schema.mysql_query", side_effect=[tables, name + "\t" + ddl + "\n", tables]) as query:
-            files = read_schema(self.project)
+        tables = [(name.encode().hex(),)]
+        ddl = "CREATE TABLE `unusual``table` (\n  `id` int NOT NULL\n) ENGINE=InnoDB AUTO_INCREMENT=8"
+        self.project.database = FakeDatabase(answer=[tables, [(name, ddl)], tables])
+        files = read_schema(self.project)
         self.assertIn(table_file(name), files)
         self.assertNotIn(b"AUTO_INCREMENT=8", files[table_file(name)])
-        self.assertIn("SHOW CREATE TABLE `unusual``table`", query.call_args_list[1].args[1])
+        self.assertIn("SHOW CREATE TABLE `unusual``table`", self.project.database.queried[1])
         self.assertEqual(json.loads(files[MANIFEST])["tables"][0]["name"], name)
 
     def test_table_disappearing_during_read_fails(self):
-        with patch("database_schema.mysql_query", side_effect=["74\n", "t\tCREATE TABLE `t` (`id` int)\n", ""]):
-            with self.assertRaisesRegex(ValueError, "changed"):
-                read_schema(self.project)
+        self.project.database = FakeDatabase(answer=[[("74",)], [("t", "CREATE TABLE `t` (`id` int)")], []])
+        with self.assertRaisesRegex(ValueError, "changed"):
+            read_schema(self.project)
 
     def test_worktree_updates_do_not_replace_required_staged_updates(self):
         self.export()
@@ -208,10 +209,7 @@ class DatabaseSchemaTest(unittest.TestCase):
             commit_schema(self.project)  # a hook installed before the switch must not block commits
         self.assertIn("DATABASE_AS_CODE=off", output.getvalue())
 
-    def test_failed_mysql_and_wrong_database_do_not_pass(self):
-        failure = subprocess.CompletedProcess([], 1, stdout=b"", stderr=b"private diagnostics")
-        with patch("database_schema.subprocess.run", return_value=failure), self.assertRaisesRegex(ValueError, "Cannot read DB"):
-            mysql_query(self.project, "SELECT 1")
+    def test_the_read_client_refuses_another_database(self):
         mismatch = subprocess.run(["sh", "-c", MYSQL_READ, "schema-read", "expected"],
                                   env={"MYSQL_DATABASE": "other"}, capture_output=True)
         self.assertEqual(mismatch.returncode, 64)

@@ -342,8 +342,6 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
 
 
 MOZILLA = "Mozilla/5.0 (X11; Linux x86_64)"
-ERROR_TYPES = ("Access to context", "Abort request processing", "PHP Warning", "PHP Fatal error", "Segmentation fault",
-               "Connection reset")
 
 
 def labelled(metrics, name, label):

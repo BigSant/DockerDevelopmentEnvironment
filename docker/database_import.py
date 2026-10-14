@@ -5,14 +5,14 @@ import fcntl
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import tempfile
 
 
-from database_client import IMPORT as MYSQL_IMPORT, extra_schemas
+from database_client import DatabaseError, extra_schemas
 from database_backup import backup_database
 import gzip
+from project_prestashop import is_prestashop
 
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -42,23 +42,12 @@ def main_schema(project):
     return project.settings["DATABASE_NAME"] if extra_schemas(project.settings) else None
 
 
-def open_dump(path):
-    return gzip.open(path, "rb") if path.name.lower().endswith(".gz") else path.open("rb")
-
-
-def dump_schemas(path):
-    """Every schema a dump switches to with USE."""
-    with open_dump(path) as source:
-        return {schema for line in source if (schema := used_schema(line)) is not None}
-
-
 # Hook values of the PrestaShop profile; a generic project's SQL has no table prefix or shop SSL flag.
 PRESTASHOP_HOOK_VALUES = ("DB_PREFIX", "PS_SSL")
 
 
 def hook_values(project):
     """Values an after-import hook may use; each is validated so it cannot carry SQL or shell syntax."""
-    from project_prestashop import is_prestashop
     domain = project.settings.get("SQL_DOMAIN") or project.settings.get("DOMAIN", "")
     values = {"DOMAIN": (domain, r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?", "a valid DOMAIN hostname")}
     # The DOMAIN_<NAME> variables DOMAIN lists (project_domains); setup itself never writes them anywhere.
@@ -163,19 +152,6 @@ class DumpScanner:
             self.pending = b""
         tables = {table: {column.decode("utf-8", "replace") for column in columns} for table, columns in self.tables.items()}
         return {"size": self.size, "schemas": set(self.schemas), "tables": tables}
-
-
-def dump_tables(path, main=None, qualified=False):
-    """Tables a dump creates, with their column names (read from the CREATE TABLE statements).
-
-    With `main`, only tables of the main database count; with `qualified` too, the other schemas' tables
-    count as schema.table (the table registry's names for them).
-    """
-    scanner = DumpScanner(main, qualified)
-    with open_dump(path) as source:
-        while block := source.read(CHUNK):
-            scanner.feed(block)
-    return scanner.result()["tables"]
 
 
 def check_dump_tables(project, dump, ask=input, interactive=None):
@@ -296,50 +272,25 @@ class Counted:
         self.bar.update(done)
 
 
-def stream_sql(project, command, handle, meter=None):
-    if not meter:
-        subprocess.run(command, env=project.child_env(), stdin=handle, check=True)
-        return
-    size = os.fstat(handle.fileno()).st_size - handle.tell()
-    bar = meter("Import", size)
-    client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
-    try:
-        while block := handle.read(CHUNK):
-            client.stdin.write(block)
-            bar.advance(len(block))
-    except BrokenPipeError:
-        pass  # The client stopped early; its exit status reports why.
-    finally:
-        try:
-            client.stdin.close()
-        except BrokenPipeError:
-            pass
-        status = client.wait()
-    bar.finish("failed" if status else "")
-    if status:
-        raise subprocess.CalledProcessError(status, command[:1])
-
-
-def stream_filtered(project, command, handle, skip, meter=None):
-    bar = None
-    if meter:
-        bar = meter("Import", os.fstat(handle.fileno()).st_size - handle.tell())
-    client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
+def load_dump(project, handle, skip=None, meter=None):
+    """Stream a dump into the database; skip leaves out the data of those tables. Returns the tables skipped."""
+    bar = meter("Import", os.fstat(handle.fileno()).st_size - handle.tell()) if meter else None
     skipped = set()
     try:
-        skipped = filter_dump(Counted(handle, bar) if bar else handle, client.stdin, skip, main_schema(project))
-    except BrokenPipeError:
-        pass  # The client stopped early; its exit status reports why.
-    finally:
-        try:
-            client.stdin.close()
-        except BrokenPipeError:
-            pass
-        status = client.wait()
+        with project.database.load() as sink:
+            if skip:
+                skipped = filter_dump(Counted(handle, bar) if bar else handle, sink, skip, main_schema(project))
+            else:
+                while block := handle.read(CHUNK):
+                    sink.write(block)
+                    if bar:
+                        bar.advance(len(block))
+    except DatabaseError:
+        if bar:
+            bar.finish("failed")
+        raise
     if bar:
-        bar.finish("failed" if status else "")
-    if status:
-        raise subprocess.CalledProcessError(status, command[:1])
+        bar.finish("")
     return skipped
 
 
@@ -350,7 +301,7 @@ def after_import_hooks(project):
     hooks = []
     safe = project.environment != "prod"
     profile = DOCKER_ROOT / "database-profile/prestashop/after-import"
-    if safe and project.settings.get("PROFILE") in ("ps", "prestashop"):
+    if safe and is_prestashop(project):
         # Safe defaults first (shop URL, payment sandboxes), so project scripts can refine them.
         hooks += sorted(profile.glob("*.sql"))
     extras = extra_schemas(project.settings)
@@ -431,7 +382,7 @@ def after_load(project):
     from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
     if migrations_enabled(project) and migrations_directory(project).is_dir():
         migrate(project)
-    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(project):
         running = project.capture(['ps', '--status', 'running', '--services']).split()
         if 'php-fpm' in running:
             # A restored dump may bring back cache/mail settings from production.
@@ -475,24 +426,18 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
                     else:
                         handle = stack.enter_context(path.open("rb"))
                 else:
-                    # subprocess stdin requires a real file descriptor. Keep rendered SQL
-                    # in a private temporary file inside this repository, never in sources.
-                    handle = stack.enter_context(tempfile.TemporaryFile(dir=output))
-                    handle.write(render_hook(project, path))
-                    handle.seek(0)
+                    handle = render_hook(project, path)  # Rendered before any change, so a bad hook stops early.
                 inputs.append((path, handle))
             if backup:
                 backup_database(project)
-            command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_IMPORT,
-                                         "database-import", project.settings["DATABASE_NAME"]]
-            meter = progress_meter() if first_is_dump else None
             skipped = set()
             for index, (path, handle) in enumerate(inputs):
                 dump = index == 0 and first_is_dump
                 print(f"{'Import' if dump else 'SQL'}: {path}", flush=True)
                 # A failing dump or hook stops the sequence; no later SQL runs.
-                if dump and skip:
-                    skipped = stream_filtered(project, command, handle, skip, meter)
+                if dump:
+                    skipped = load_dump(project, handle, skip, progress_meter())
                 else:
-                    stream_sql(project, command, handle, meter if dump else None)
+                    with project.database.load() as sink:
+                        sink.write(handle)
             return skipped

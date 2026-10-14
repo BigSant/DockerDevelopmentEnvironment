@@ -7,10 +7,9 @@ env files or, for a name they do not set, the process environment (Bitbucket Dep
 so the generated overlay holds references only and the image fingerprints do not change.
 """
 
-import hashlib
 import re
 
-from project_ide import checked_path, replace_file
+from project_ide import write_overlay
 
 # The web PHP (PHPUnit runs in it too, through exec) and the cron jobs; cron only when enabled.
 APPLICATION_SERVICES = ('php-fpm', 'cron')
@@ -61,9 +60,4 @@ def application_environment(project, settings, services):
     for service in application_services(services):
         lines += [f'  {service}:', '    environment:']
         lines += [f'      {name}: ${{{name}-}}' for name in names]
-    contents = ('\n'.join(lines) + '\n').encode()
-    digest = hashlib.sha256(contents).hexdigest()[:20]
-    path = checked_path(project, f'.generated/app-environment-{digest}.yaml')
-    # Content-addressed files keep concurrent runner/IDE invocations independent.
-    replace_file(path, contents, private=True)
-    return ['-f', str(path)]
+    return ['-f', str(write_overlay(project, 'app-environment', ('\n'.join(lines) + '\n').encode()))]

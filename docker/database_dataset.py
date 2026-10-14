@@ -13,7 +13,9 @@ import re
 import secrets
 import tempfile
 
-from database_schema import MANIFEST, database_tables, managed_file, mysql_query, schema_directory, split_name
+from database_client import identifier, literal
+from database_schema import MANIFEST, database_tables, managed_file, schema_directory, split_name
+from project_prestashop import is_prestashop
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 SET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]*')
@@ -36,20 +38,12 @@ def dataset_directory(project, name):
     return schema_directory(project).parent / 'data' / name
 
 
-def literal(value):
-    return "'" + value.replace('\\', '\\\\').replace("'", "''") + "'"
-
-
-def identifier(value):
-    return '`' + value.replace('`', '``') + '`'
-
-
 def load_recipe(project):
     """(product sample SQL, [(table pattern, condition)]) from the project recipe, then the profile one."""
     from database_registry import prefix
     from fnmatch import fnmatchcase
     sources = [schema_directory(project).parent / 'data/recipe.txt']
-    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(project):
         sources.append(DOCKER_ROOT / 'database-profile/prestashop/data-recipe.txt')
     products, conditions = None, []
     for path in sources:
@@ -74,15 +68,14 @@ def load_recipe(project):
 def table_metadata(project):
     """Columns (name, type, nullable, generated) in order and primary key columns per table."""
     columns, keys = {}, {}
-    rows = mysql_query(project, 'SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, EXTRA FROM information_schema.COLUMNS '
-                                'WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION;\n')
-    for line in rows.splitlines():
-        table, column, kind, nullable, extra = (line.split('\t') + [''])[:5]
+    rows = project.database.query('SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, EXTRA FROM information_schema.COLUMNS '
+                                  'WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION;\n')
+    for row in rows:
+        table, column, kind, nullable, extra = (list(row) + [''])[:5]
         columns.setdefault(table, []).append((column, kind, nullable == 'YES', 'GENERATED' in extra.upper()))
-    rows = mysql_query(project, "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
-                                "AND INDEX_NAME = 'PRIMARY' ORDER BY TABLE_NAME, SEQ_IN_INDEX;\n")
-    for line in rows.splitlines():
-        table, column = line.split('\t')
+    rows = project.database.query("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+                                  "AND INDEX_NAME = 'PRIMARY' ORDER BY TABLE_NAME, SEQ_IN_INDEX;\n")
+    for table, column in rows:
         keys.setdefault(table, []).append(column)
     return columns, keys
 
@@ -208,7 +201,7 @@ def build_dataset(project, name='dev'):
     if product_sample_needed(entries, tables, recipe):
         if not sample_sql:
             raise ValueError('The recipe needs an @products line selecting the product sample')
-        ids = [line for line in mysql_query(project, sample_sql.rstrip(';') + ';\n').split() if line.isdigit()]
+        ids = [row[0] for row in project.database.query(sample_sql.rstrip(';') + ';\n') if row[0].isdigit()]
     products = '(' + (','.join(ids) or '0') + ')'
     legacy_key = legacy_password_key(project, directory)
     columns, keys = table_metadata(project)
@@ -220,7 +213,7 @@ def build_dataset(project, name='dev'):
         condition = slice_condition(table, columns[table], products, recipe) if rule == 'slice' else (
             (recipe(table) or '').replace('{products}', products) or None)
         names, sql = select_sql(project, table, columns[table], keys.get(table, []), rule, condition, legacy_key)
-        output = mysql_query(project, sql, timeout=900, raw=True)
+        output = project.database.extract(sql)
         rows = [row.lstrip(b'\n') for row in output.split(b'\x00') if row.strip(b'\n')]
         summary.append((table, rule, len(rows)))
         if not rows:
@@ -308,12 +301,12 @@ def plan_load(project, name):
 
 def drop_all_tables(project):
     tables = database_tables(project)
-    views = mysql_query(project, "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
-                                 "AND TABLE_TYPE = 'VIEW';\n").split()
+    views = [view for view, in project.database.query("SELECT TABLE_NAME FROM information_schema.TABLES "
+                                                      "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'VIEW';\n")]
     statements = ['SET SESSION foreign_key_checks = 0;']
     statements += [f'DROP VIEW IF EXISTS {identifier(view)};' for view in views]
     statements += [f'DROP TABLE IF EXISTS {identifier(table)};' for table in [*tables, 'setup_migrations']]
-    mysql_query(project, '\n'.join(statements) + '\n', timeout=900)
+    project.database.execute('\n'.join(statements) + '\n')
 
 
 def load_dataset(project, name='dev', replace=False, backup=False):

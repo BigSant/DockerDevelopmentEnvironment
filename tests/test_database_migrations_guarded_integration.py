@@ -11,7 +11,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 from database_migrations_guarded import OPEN, draft_text, split_rollback
-from database_schema import normalize_ddl, unescape_batch
+from database_client import unescape_batch
+from database_schema import normalize_ddl
 
 IMAGES = [image for image in (os.environ.get("SETUP_MYSQL_IMAGE"), os.environ.get("SETUP_MARIADB_IMAGE")) if image]
 PASSWORD = "migration-test-only"
@@ -36,8 +37,9 @@ class GuardedMigrationIntegrationTest(unittest.TestCase):
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
         deadline = time.time() + 120
         while time.time() < deadline:
-            if subprocess.run(["docker", "exec", name, "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"],
-                              capture_output=True).returncode == 0 and self.sql(name, "", "SELECT 1").returncode == 0:
+            # MariaDB 11 ships mariadb-admin only.
+            if subprocess.run(["docker", "exec", name, "sh", "-c", 'exec "$(command -v mariadb-admin || command -v mysqladmin)" '
+                               'ping -h 127.0.0.1 --silent'], capture_output=True).returncode == 0 and self.sql(name, "", "SELECT 1").returncode == 0:
                 return name
             time.sleep(2)
         self.fail("database did not start")

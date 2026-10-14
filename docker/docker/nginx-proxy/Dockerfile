@@ -1,8 +1,6 @@
 ARG NGINX_VERSION=""
 FROM nginx:${NGINX_VERSION} AS base
 
-ARG ENV=""
-
 COPY /docker/nginx-proxy/conf/nginx.conf      /etc/nginx/nginx.conf
 COPY /docker/nginx-proxy/conf/proxy_params    /etc/nginx/proxy_params
 COPY /docker/nginx-proxy/conf/sites.conf      /etc/nginx/conf.d/sites.conf

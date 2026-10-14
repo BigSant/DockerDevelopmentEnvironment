@@ -16,6 +16,7 @@ import database_dataset
 from database_dataset import (DEV_PASSWORD_BCRYPT, anonymised, build_dataset, load_dataset, load_recipe, plan_load,
                               select_sql, slice_condition)
 from database_schema import export_schema
+from fake_database import FakeDatabase
 from test_database_schema import snapshot
 
 
@@ -82,20 +83,21 @@ class DatasetTest(unittest.TestCase):
     def build(self, rows):
         (self.root / "database/table-registry.txt").write_text(
             "ps_product catalog slice import\nps_customer customers faker import\nps_log cache empty skip\n")
-        def query(project, sql, timeout=60, raw=False):
+        def answer(sql):
             if sql.startswith("SELECT id_product"):
-                return "3\n1\n"
+                return [("3",), ("1",)]
             if "information_schema.COLUMNS" in sql:
-                return ("ps_customer\tid_customer\tint\tNO\t\nps_customer\temail\tvarchar\tNO\t\n"
-                        "ps_log\tid\tint\tNO\t\nps_product\tid_product\tint\tNO\t\nps_product\tnote\ttext\tYES\t\n")
+                return [("ps_customer", "id_customer", "int", "NO", ""), ("ps_customer", "email", "varchar", "NO", ""),
+                        ("ps_log", "id", "int", "NO", ""), ("ps_product", "id_product", "int", "NO", ""),
+                        ("ps_product", "note", "text", "YES", "")]
             if "information_schema.STATISTICS" in sql:
-                return "ps_customer\tid_customer\nps_product\tid_product\n"
+                return [("ps_customer", "id_customer"), ("ps_product", "id_product")]
             table = sql.split(" FROM `")[1].split("`")[0]
             if table == "ps_product":
                 self.assertIn("WHERE `id_product` IN (3,1)", sql)
             return rows.get(table, b"")
-        with patch("database_dataset.mysql_query", query), \
-                patch("database_dataset.database_tables", lambda project: ["ps_customer", "ps_log", "ps_product"]), \
+        self.project.database = FakeDatabase(answer=answer)
+        with patch("database_dataset.database_tables", lambda project: ["ps_customer", "ps_log", "ps_product"]), \
                 patch("database_schema.database_tables", lambda project: ["ps_customer", "ps_log", "ps_product"]):
             return build_dataset(self.project)
 

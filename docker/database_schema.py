@@ -18,34 +18,10 @@ from urllib.parse import quote
 
 
 MANIFEST = "schema.manifest.json"
-from database_client import READ as MYSQL_READ, READ_RAW as MYSQL_READ_RAW, SCHEMA_NAME
+from database_client import SCHEMA_NAME
 # setup_migrations records applied migrations; it belongs to setup, not to the project schema.
 TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
               "AND TABLE_NAME <> 'setup_migrations' ORDER BY BINARY TABLE_NAME;\n")
-
-
-def mysql_query(project, sql, timeout=60, raw=False):
-    database = project.settings["DATABASE_NAME"]
-    if not database:
-        raise ValueError("DATABASE_NAME is required for schema commands")
-    command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_READ_RAW if raw else MYSQL_READ,
-                                 "schema-read", database]
-    try:
-        result = subprocess.run(command, input=sql.encode(), capture_output=True,
-                                env=project.child_env(), timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        raise ValueError("Schema read timed out; no successful check or export was made") from error
-    if result.returncode:
-        # Do not print Compose diagnostics, which may contain interpolated secrets.
-        raise ValueError("Cannot read DB schema; check the running database service, name and credentials")
-    # Raw output stays bytes: data-set values may hold binary columns.
-    return result.stdout if raw else result.stdout.decode("utf-8")
-
-
-def unescape_batch(value):
-    # MySQL batch output escapes backslashes before control characters.
-    escapes = {"0": "\0", "t": "\t", "n": "\n", "r": "\r", "b": "\b", "\\": "\\"}
-    return re.sub(r"\\([0tnrb\\])", lambda match: escapes[match[1]], value)
 
 
 def split_name(name):
@@ -117,7 +93,7 @@ def normalize_ddl(ddl):
 
 
 def database_tables(project):
-    return [bytes.fromhex(line).decode("utf-8") for line in mysql_query(project, TABLES_SQL).splitlines()]
+    return [bytes.fromhex(name).decode("utf-8") for name, in project.database.query(TABLES_SQL)]
 
 
 def extra_tables(project):
@@ -127,10 +103,9 @@ def extra_tables(project):
     if not schemas:
         return []
     listed = ','.join(f"'{schema}'" for schema in schemas)  # validated names: letters, digits, _
-    rows = mysql_query(project, "SELECT HEX(TABLE_SCHEMA), HEX(TABLE_NAME) FROM information_schema.TABLES "
-                                f"WHERE TABLE_SCHEMA IN ({listed}) AND TABLE_TYPE = 'BASE TABLE' ORDER BY 1, 2;\n")
-    return [bytes.fromhex(schema).decode("utf-8") + "." + bytes.fromhex(table).decode("utf-8")
-            for schema, table in (line.split("\t") for line in rows.splitlines() if line)]
+    rows = project.database.query("SELECT HEX(TABLE_SCHEMA), HEX(TABLE_NAME) FROM information_schema.TABLES "
+                                  f"WHERE TABLE_SCHEMA IN ({listed}) AND TABLE_TYPE = 'BASE TABLE' ORDER BY 1, 2;\n")
+    return [bytes.fromhex(schema).decode("utf-8") + "." + bytes.fromhex(table).decode("utf-8") for schema, table in rows]
 
 
 def registry_tables(project):
@@ -151,14 +126,13 @@ def read_schema(project, require_classified=False):
         statements = "SET SESSION sql_quote_show_create=1; SET SESSION sql_mode='';\n"
         statements += "\n".join("SHOW CREATE TABLE " + quoted(name) + ";" for name in names)
         # One row per statement, in order: an extra schema's row names the table without its schema.
-        rows = [line for line in mysql_query(project, statements).split("\n") if line]
+        rows = project.database.query(statements)
         if len(rows) != len(names):
             raise ValueError("Schema changed during collection; retry without concurrent DDL")
-        for name, line in zip(names, rows):
-            fields = line.split("\t")
+        for name, fields in zip(names, rows):
             if len(fields) != 2:
                 raise ValueError("Unexpected SHOW CREATE TABLE response")
-            table, ddl = map(unescape_batch, fields)
+            table, ddl = fields
             if table != split_name(name)[1] or name in definitions or not ddl.startswith("CREATE TABLE "):
                 raise ValueError("Incomplete or unexpected table definition")
             definitions[name] = normalize_ddl(ddl)

@@ -12,7 +12,7 @@ import subprocess
 import uuid
 from types import SimpleNamespace
 
-from database_schema import (MANIFEST, git, managed_file, mysql_query, read_schema,
+from database_schema import (MANIFEST, git, managed_file, read_schema,
                              schema_directory, schema_repository, split_name, valid_table_file)
 from project_ide import checked_path
 
@@ -158,7 +158,9 @@ def _generate_migration(project, reference):
         raise ValueError('Start the local database before generating a migration')
     database_image = docker(['inspect', '--format', '{{.Image}}', container]).strip()
     after = main_tables(definitions(read_schema(project)))
-    character = mysql_query(project, 'SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=DATABASE();\n').strip().split('\t')
+    rows = project.database.query('SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA '
+                                  'WHERE SCHEMA_NAME=DATABASE();\n')
+    character = list(rows[0]) if len(rows) == 1 else []
     if len(character) != 2 or any(not re.fullmatch(r'[a-zA-Z0-9_]+', value) for value in character):
         raise ValueError('Cannot determine database character settings')
     fingerprint = hashlib.sha256(json.dumps([commit, before, after], sort_keys=True).encode()).hexdigest()

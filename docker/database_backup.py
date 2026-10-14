@@ -6,11 +6,10 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import tempfile
 import time
 
-from database_client import DUMP, extra_schemas
+from database_client import DatabaseError, extra_schemas
 
 
 def keep_existing(structure):
@@ -44,15 +43,6 @@ def registry_passes(project, database):
     return passes
 
 
-def dump_error(errors):
-    """': <the dump client's last error line>' (bounded), or a hint when it wrote none. Error lines name the
-    statement or table that failed, never the rows; the password travels in MYSQL_PWD."""
-    errors.seek(0)
-    lines = [line.strip() for line in errors.read().decode('utf-8', 'replace').splitlines()
-             if line.strip() and '[Warning]' not in line]
-    return f': {lines[-1][:300]}' if lines else ' (no error from the dump client; check the database service)'
-
-
 def backup_database(project, destination=None, registry=False):
     database = project.settings['DATABASE_NAME']
     if not database:
@@ -77,45 +67,31 @@ def backup_database(project, destination=None, registry=False):
         # database's skipped tables goes first. The registry covers the main database only.
         (_, data), *structure = passes
         passes = [*structure, (database, [*data, '--databases', *extras])]
-    # The dump client checks the main database name ($1 = MYSQL_DATABASE); an extra schema follows as --schema.
-    commands = [(schema, project.command + ['exec', '-T', 'database', 'sh', '-c', DUMP, 'database-backup', database,
-                                            *(['--schema', schema] if schema != database else []), *options])
-                for schema, options in passes]
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as raw:
             temporary = Path(raw.name)
-            # Drain output while the client runs. Errors go to a temporary descriptor, and only the client's
-            # last error line reaches the message; failed/truncated output is never published.
+            # Drain output while the client runs; failed or truncated output is never published.
             writer = gzip.GzipFile(fileobj=raw, mode='wb', mtime=0) if target.name.endswith('.gz') else raw
             try:
-                for schema, command in commands:
-                    with tempfile.TemporaryFile(dir=target.parent) as errors:
-                        process = subprocess.Popen(command, env=project.child_env(), stdout=subprocess.PIPE,
-                                                   stderr=errors)
-                        try:
-                            count = 0
-                            if '--no-data' in command:
-                                # Structure only: small enough to rewrite in memory.
-                                block = keep_existing(process.stdout.read())
-                                if schema != database:
-                                    # An extra schema's skip tables: its structure dump names no schema.
-                                    block = b'\nUSE `' + schema.encode() + b'`;\n' + block
-                                writer.write(block)
-                                count = len(block)
-                            while True:
-                                block = process.stdout.read(1024 * 1024)
-                                if not block:
-                                    break
-                                writer.write(block)
-                                count += len(block)
-                            if process.wait() or count == 0:
-                                raise ValueError(f'Database backup failed{dump_error(errors)}; no backup published.')
-                        finally:
-                            process.stdout.close()
-                            if process.poll() is None:
-                                process.terminate()
-                                process.wait()
+                for schema, options in passes:
+                    count = 0
+                    with project.database.dump(*options, schema=schema) as stream:
+                        if '--no-data' in options:
+                            # Structure only: small enough to rewrite in memory.
+                            block = keep_existing(stream.read())
+                            if schema != database:
+                                # An extra schema's skip tables: its structure dump names no schema.
+                                block = b'\nUSE `' + schema.encode() + b'`;\n' + block
+                            writer.write(block)
+                            count = len(block)
+                        while block := stream.read(1024 * 1024):
+                            writer.write(block)
+                            count += len(block)
+                    if count == 0:
+                        raise DatabaseError('Database dump failed: the dump client wrote nothing')
+            except DatabaseError as error:
+                raise DatabaseError(f'{error}; no backup published.') from error
             finally:
                 if writer is not raw:
                     writer.close()

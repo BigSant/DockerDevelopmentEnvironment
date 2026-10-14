@@ -1,6 +1,5 @@
 """Cache extensions are present but disabled in the PHP image and work once enabled."""
 import os
-from pathlib import Path
 import subprocess
 import time
 import unittest

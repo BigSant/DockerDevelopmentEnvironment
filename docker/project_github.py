@@ -22,7 +22,6 @@ file permission or list error.
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import urllib.error
@@ -31,6 +30,7 @@ import urllib.request
 
 from project_bitbucket import Failure, NoRedirect, compare, load_list, print_names, private, summary
 from project_pipeline import DEPLOYMENT_NAMES
+import project_remote
 
 API = 'https://api.github.com'
 KINDS = ('secret', 'variable')
@@ -40,25 +40,14 @@ PERMISSIONS = ('a fine-grained personal access token for the repository with the
 MAX_PAGES = 100
 # The largest page each list allows.
 PER_PAGE = {'secrets': 100, 'variables': 30, 'environments': 100}
-REMOTE = re.compile(r'github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/*$')
-REPOSITORY = re.compile(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+')
 # Tokens of the caller that gh would prefer to the one given here.
 GH_TOKENS = ('GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN')
 
 
 def repository(directory, values):
     """owner/repository: DEPLOY_GITHUB_REPOSITORY, else the origin remote of this checkout."""
-    configured = str(values.get('DEPLOY_GITHUB_REPOSITORY') or '').strip()
-    if configured:
-        if not REPOSITORY.fullmatch(configured):
-            raise Failure(f'DEPLOY_GITHUB_REPOSITORY must be owner/repository, not {configured!r}')
-        return configured
-    result = subprocess.run(['git', '-C', str(directory), 'remote', 'get-url', 'origin'], capture_output=True, text=True)
-    match = REMOTE.search(result.stdout.strip()) if not result.returncode else None
-    if not match:
-        raise Failure('Cannot tell the GitHub repository: the origin remote is not on github.com; set '
-                      'DEPLOY_GITHUB_REPOSITORY=owner/repository in env/common.env')
-    return f'{match[1]}/{match[2]}'
+    return project_remote.repository(directory, values, 'DEPLOY_GITHUB_REPOSITORY', 'github.com', 'GitHub', 'owner',
+                                     Failure)
 
 
 def error_message(data):

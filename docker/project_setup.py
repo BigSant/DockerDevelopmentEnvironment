@@ -1,16 +1,16 @@
 """make setup: run the one-action commands in order, stop at the first failure, never touch the DB."""
 import subprocess
 
-from database_client import READ
+from database_client import DatabaseError
 
 
 def database_tables(project):
     """Number of tables in the project database, or None when it cannot be asked."""
-    command = project.command + ['exec', '-T', 'database', 'sh', '-c', READ, 'setup-status',
-                                 project.settings['DATABASE_NAME']]
-    result = subprocess.run(command, env=project.child_env(), input='SELECT COUNT(*) FROM information_schema.tables '
-                            'WHERE table_schema = DATABASE();\n', capture_output=True, text=True)
-    return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else None
+    try:
+        rows = project.database.query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE();\n')
+    except DatabaseError:
+        return None
+    return int(rows[0][0]) if rows and rows[0][0].isdigit() else None
 
 
 def git_hooks(project):

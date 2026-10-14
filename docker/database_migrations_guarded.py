@@ -23,8 +23,8 @@ import os
 from pathlib import Path
 import re
 
-from database_client import extra_schemas
-from database_schema import (git, main_directory, mysql_query, quoted, schema_directory, schema_repository,
+from database_client import extra_schemas, identifier, literal
+from database_schema import (git, main_directory, quoted, schema_directory, schema_repository,
                              split_name, staged_schema)
 
 TABLE = 'setup_migrations'
@@ -108,14 +108,6 @@ def migration_files(project):
 
 def use(schema):
     return f'USE {identifier(schema)};\n'
-
-
-def literal(value):
-    return "'" + value.replace('\\', '\\\\').replace("'", "''") + "'"
-
-
-def identifier(value):
-    return '`' + value.replace('`', '``') + '`'
 
 
 def parse_table(ddl):
@@ -382,10 +374,9 @@ def commit_problems(project, staged):
 
 
 def applied_migrations(project):
-    mysql_query(project, f'CREATE TABLE IF NOT EXISTS {TABLE} (name varchar(255) NOT NULL PRIMARY KEY, '
-                         'checksum char(64) NOT NULL, applied_at datetime NOT NULL) ENGINE=InnoDB;\n')
-    rows = mysql_query(project, f'SELECT name, checksum FROM {TABLE};\n')
-    return dict(line.split('\t') for line in rows.splitlines() if line)
+    project.database.execute(f'CREATE TABLE IF NOT EXISTS {TABLE} (name varchar(255) NOT NULL PRIMARY KEY, '
+                             'checksum char(64) NOT NULL, applied_at datetime NOT NULL) ENGINE=InnoDB;\n')
+    return dict(project.database.query(f'SELECT name, checksum FROM {TABLE};\n'))
 
 
 def pending_migrations(project):
@@ -460,7 +451,7 @@ def record_applied(project, names):
         if identity not in applied and path.is_file():
             rows.append(f'({literal(identity)}, {literal(migration_checksum(path.read_text()))}, NOW())')
     if rows:
-        mysql_query(project, f'INSERT INTO {TABLE} (name, checksum, applied_at) VALUES {", ".join(rows)};\n')
+        project.database.execute(f'INSERT INTO {TABLE} (name, checksum, applied_at) VALUES {", ".join(rows)};\n')
 
 
 def run_in(project, schema, sql):
@@ -493,10 +484,10 @@ def migrate(project, dry=False):
             continue
         print(f'Applying {identity}...', flush=True)
         try:
-            mysql_query(project, run_in(project, schema, sql) + f'\nINSERT INTO {TABLE} (name, checksum, applied_at) VALUES '
-                                 f'({literal(identity)}, {literal(checksum)}, NOW());\n', timeout=None)
+            project.database.execute(run_in(project, schema, sql) + f'\nINSERT INTO {TABLE} (name, checksum, applied_at) '
+                                     f'VALUES ({literal(identity)}, {literal(checksum)}, NOW());\n')
         except ValueError as error:
-            raise ValueError(f'Migration {identity} failed; it is not recorded. Fix it and rerun make db-migrate.') from error
+            raise ValueError(f'Migration {identity} failed ({error}); it is not recorded. Fix it and rerun make db-migrate.') from error
     print(f'{"Would apply" if dry else "Applied"} {len(pending)} migrations.')
     return [] if dry else [identity for identity, *_ in pending]
 
@@ -507,8 +498,7 @@ def rollback(project, steps=1, to=None, dry=False):
     to=<identity> rolls back everything applied after that migration (it stays); otherwise the last steps."""
     require_enabled(project)
     applied_migrations(project)
-    rows = [line.split('\t')[0] for line in mysql_query(
-        project, f'SELECT name FROM {TABLE} ORDER BY applied_at DESC, name DESC;\n').splitlines() if line]
+    rows = [row[0] for row in project.database.query(f'SELECT name FROM {TABLE} ORDER BY applied_at DESC, name DESC;\n')]
     if to:
         if to not in rows:
             raise ValueError(f'{to} is not applied here; applied: {", ".join(rows[:5]) or "none"}')
@@ -538,9 +528,9 @@ def rollback(project, steps=1, to=None, dry=False):
             continue
         print(f'Rolling back {identity}...', flush=True)
         try:
-            mysql_query(project, run_in(project, schema, sql) + f'\nDELETE FROM {TABLE} WHERE name = {literal(identity)};\n',
-                        timeout=None)
+            project.database.execute(run_in(project, schema, sql) + f'\nDELETE FROM {TABLE} WHERE name = {literal(identity)};\n')
         except ValueError as error:
-            raise ValueError(f'Rollback of {identity} failed; it stays recorded as applied. Fix its rollback and rerun.') from error
+            raise ValueError(f'Rollback of {identity} failed ({error}); it stays recorded as applied. Fix its rollback and '
+                             'rerun.') from error
     print(f'{"Would roll back" if dry else "Rolled back"} {len(plans)} migrations.')
     return [] if dry else [identity for identity, *_ in plans]

@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
+from project_prestashop import is_prestashop
+
 # Defaults are resolved once, before service Compose interpolation.
 DEFAULTS = {
     'CACHE_MODE': 'auto', 'PHP_OPCACHE': 'auto', 'PHP_APCU': 'auto',
@@ -55,10 +57,9 @@ REMOTE_REQUIRED = ('PHP', 'DATABASE', 'WEBSERVER', 'PROXY')
 MEMORY_ALIASES = {
     'PHP': 'PHP_CONTAINER_MEMORY', 'CRON': 'PHP_CONTAINER_MEMORY', 'PMA': 'PHP_CONTAINER_MEMORY',
     'DATABASE': 'DB_CONTAINER_MEMORY', 'WEBSERVER': 'WEB_CONTAINER_MEMORY', 'PROXY': 'WEB_CONTAINER_MEMORY',
-    'MAILPIT': 'WEB_CONTAINER_MEMORY', 'MEMCACHED': 'MEMCACHED_CONTAINER_MEMORY',
+    'MAILPIT': 'WEB_CONTAINER_MEMORY',
 }
-LEGACY_RESOURCE_KEYS = ('PHP_CONTAINER_MEMORY', 'DB_CONTAINER_MEMORY', 'WEB_CONTAINER_MEMORY',
-                        'MEMCACHED_CONTAINER_MEMORY', 'CONTAINER_CPUS')
+LEGACY_RESOURCE_KEYS = ('PHP_CONTAINER_MEMORY', 'DB_CONTAINER_MEMORY', 'WEB_CONTAINER_MEMORY', 'CONTAINER_CPUS')
 for _name, (_memory, _cpus) in RESOURCES.items():
     DEFAULTS[f'{_name}_MEMORY'] = ''
     DEFAULTS[f'{_name}_CPUS'] = ''
@@ -81,12 +82,8 @@ def resolve_resources(settings, values, environment):
     """Container limits per service and the internal sizes derived from them."""
     get = lambda key: str(settings.get(key) or '')
     missing = []
-    legacy_cache = ''
     for name, (memory, cpus) in RESOURCES.items():
         explicit_memory = get(f'{name}_MEMORY') or get(MEMORY_ALIASES.get(name, ''))
-        if name == 'MEMCACHED' and re.fullmatch(r'\d+', explicit_memory):
-            # The former MEMCACHED_MEMORY was the cache size in MB, not a container limit.
-            legacy_cache, explicit_memory = explicit_memory, get('MEMCACHED_CONTAINER_MEMORY')
         explicit_cpus = get(f'{name}_CPUS') or get('CONTAINER_CPUS')
         if environment in ('stage', 'prod') and name in REMOTE_REQUIRED:
             missing += [f'{name}_{kind}' for kind, value in (('MEMORY', explicit_memory), ('CPUS', explicit_cpus)) if not value]
@@ -103,7 +100,7 @@ def resolve_resources(settings, values, environment):
         values['DATABASE_BUFFER_POOL'] = f"{max(64, int(megabytes(values['DATABASE_MEMORY']) * 0.6))}M"
     if not re.fullmatch(r'[1-9]\d*[KMG]?', values['DATABASE_BUFFER_POOL']):
         raise ValueError('DATABASE_BUFFER_POOL must be a size such as 1228M or 12G')
-    values['MEMCACHED_CACHE_MB'] = values['MEMCACHED_CACHE_MB'] or legacy_cache or str(
+    values['MEMCACHED_CACHE_MB'] = values['MEMCACHED_CACHE_MB'] or str(
         max(16, int(megabytes(values['MEMCACHED_MEMORY']) * 0.9)))
     if not re.fullmatch(r'[1-9]\d*', values['MEMCACHED_CACHE_MB']):
         raise ValueError('MEMCACHED_CACHE_MB must be a positive number of megabytes')
@@ -229,7 +226,7 @@ def resolve_policy(settings, environment):
         'PHP_FPM_MAX_SPARE_SERVERS', 'PHP_FPM_MAX_CHILDREN'))
     if not minimum <= start <= maximum <= children:
         raise ValueError('FPM requires MIN_SPARE_SERVERS <= START_SERVERS <= MAX_SPARE_SERVERS <= MAX_CHILDREN')
-    if settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(settings):
         mode = choice(values, 'PS_DEBUG_MODE', ('', 'off', 'on', 'ip'))
         ips = values['PS_DEBUG_IPS'].strip()
         if mode:
@@ -249,7 +246,7 @@ def validate_configuration(project):
     model = json.loads(project.capture(['config', '--format', 'json']))
     services = model['services']
     php = services.get('php-fpm', {}).get('environment', {})
-    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(project):
         for name in ('DATABASE_HOST', 'DATABASE_PORT', 'DATABASE_NAME', 'DATABASE_USER', 'DATABASE_PASSWORD'):
             if not php.get(name): raise ValueError(f'PHP runtime requires {name}')
         if not str(php['DATABASE_PORT']).isdigit() or not 1 <= int(php['DATABASE_PORT']) <= 65535:
@@ -311,6 +308,6 @@ def validate_configuration(project):
 
 def preflight_php(project):
     validate_configuration(project)
-    if project.settings.get('PROFILE') in ('ps', 'prestashop'):
+    if is_prestashop(project):
         project.capture(['run', '--rm', '--pull', 'never', '--no-deps', '--entrypoint', 'php', 'php-fpm',
                          '/opt/setup/runtime/prestashop-command.php', 'validate'])

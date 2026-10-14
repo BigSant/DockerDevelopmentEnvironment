@@ -15,10 +15,6 @@ def release_line(ps_version):
     return line
 
 
-def supported_php(ps_version):
-    return DATA[release_line(ps_version)]['php']
-
-
 def check(ps_version, php_version, engine, database_version):
     """(errors, warnings) for one project's selected versions."""
     errors, warnings = [], []

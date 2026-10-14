@@ -10,7 +10,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
-from database_schema import mysql_query
 from project import Project
 
 
@@ -64,21 +63,21 @@ class FixturesIntegrationTest(unittest.TestCase):
                 return subprocess.run(["make", "--no-print-directory", *args], cwd=directory,
                                       capture_output=True, text=True)
             def rows():
-                return mysql_query(project, "SELECT id, value FROM seed ORDER BY id;").strip()
+                return "\n".join("\t".join(row) for row in project.database.query("SELECT id, value FROM seed ORDER BY id;"))
             try:
                 project.run(["up", "-d", "--no-build", "--pull", "never", "database"])
                 deadline = time.monotonic() + 90
                 while True:
                     try:
-                        mysql_query(project, "SELECT 1;")
+                        project.database.query("SELECT 1;")
                         break
                     except ValueError:
                         if time.monotonic() > deadline:
                             raise
                         time.sleep(0.5)
-                mysql_query(project, "CREATE TABLE seed (id int PRIMARY KEY, value varchar(64));")
-                grants = mysql_query(project, 'SHOW GRANTS;')
-                self.assertIn('ON *.*', grants)
+                project.database.execute("CREATE TABLE seed (id int PRIMARY KEY, value varchar(64));")
+                grants = project.database.query('SHOW GRANTS;')
+                self.assertIn('ON *.*', str(grants))
                 result = make("db-fixtures-plan", "set=local")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(rows(), "")
@@ -86,7 +85,7 @@ class FixturesIntegrationTest(unittest.TestCase):
                     result = make("db-fixtures-load", "set=local")
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(rows(), "1\tcommon\n2\tlocal")
-                mysql_query(project, "DELETE FROM seed;")
+                project.database.execute("DELETE FROM seed;")
                 result = make("db-fixtures-load", "set=test", "ENV=local")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(rows(), "1\tcommon\n3\ttest")
@@ -113,7 +112,7 @@ class FixturesIntegrationTest(unittest.TestCase):
                 self.assertEqual(rows(), '1\tcommon\n2\tlocal')
                 result = make('db-backup', f'file={backup}')
                 self.assertNotEqual(result.returncode, 0)
-                mysql_query(project, 'DELETE FROM seed;')
+                project.database.execute('DELETE FROM seed;')
                 result = make('db-import', f'file={backup}', 'backup=1')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(rows(), '1\thook\n2\tlocal')
