@@ -265,7 +265,7 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
 
 
     def test_snapshot_migration_and_after_import_reach_the_extra_schemas(self):
-        from database_import import after_import_hooks, execute_sql
+        from database_import import after_import_hooks, render_hook
         from database_migrations_guarded import draft_text, migrate
         from database_migrations import definitions
         from database_schema import read_schema
@@ -298,8 +298,9 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         hook = self.directory / "docker/database/after-import/local/shop_git/010-mark.sql"
         hook.parent.mkdir(parents=True)
         hook.write_text("INSERT INTO commits (sha, author) VALUES ('ab12', 'setup');\n")
-        with contextlib.redirect_stdout(io.StringIO()):
-            execute_sql(project, after_import_hooks(project))
+        for path in after_import_hooks(project):
+            with project.database.load() as sink:
+                sink.write(render_hook(project, path))
         self.assertEqual(self.root("SELECT author FROM shop_git.commits WHERE sha = 'ab12'"), ["setup"])
 
     def test_per_schema_migrations_apply_and_roll_back_on_a_real_database(self):

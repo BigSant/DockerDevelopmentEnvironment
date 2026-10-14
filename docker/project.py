@@ -13,7 +13,6 @@ import sys
 import tempfile
 
 from database_load import plan_load, run_load
-from database_fixtures import load_fixtures, plan_fixtures
 from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
 from project_ide import initialize_ide, refresh_ide
@@ -576,15 +575,12 @@ def main():
             else:
                 run_load(project, plan, backup=args.backup)
         elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
-            plan = plan_fixtures(project, args.db_fixtures)
-            print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")
+            plan = plan_load(project, fixtures=args.db_fixtures)
             if args.action == "db-fixtures-plan":
-                for step in plan:
-                    print(step)
-                if not plan:
-                    print("No SQL fixtures in the selected set.")
+                print('\n'.join(plan.lines(project)))
             else:
-                load_fixtures(project, plan)
+                print(plan.lines(project)[0])
+                run_load(project, plan)
         elif args.action == "phpstan-baseline":
             baseline = project.settings["PHPSTAN_BASELINE_FILE"]
             if not baseline or not baseline.startswith("/"):

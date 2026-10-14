@@ -1,17 +1,12 @@
-"""Stream an explicit SQL dump, then ordered project hooks, to its Compose DB."""
+"""Dump mechanics: read, check and filter an SQL dump, and render the after-import SQL that follows it."""
 
-from contextlib import ExitStack
-import fcntl
+import gzip
 import os
 from pathlib import Path
 import re
 import sys
-import tempfile
-
 
 from database_client import DatabaseError, extra_schemas
-from database_backup import backup_database
-import gzip
 from project_prestashop import is_prestashop
 
 
@@ -333,48 +328,3 @@ def after_import_hooks(project):
         if name not in enabled:
             hooks.append(resolved)
     return hooks
-
-
-def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
-    """Pre-open all inputs and serialize imports/fixtures with the same DB lock; returns skipped tables."""
-    output = project.directory / ".generated"
-    output.mkdir(mode=0o700, exist_ok=True)
-    if first_is_dump:
-        from project_storage import require_space
-        size = plan[0].stat().st_size
-        if plan[0].name.lower().endswith('.gz'):
-            size = scan_dump(plan[0], main_schema(project), progress_meter())["size"]
-            require_space(project, output, size)
-        require_space(project, getattr(project, 'data_directory', output), 2 * size)
-    lock_path = output / f"db-import.{project.environment}.lock"
-    with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600), "r+") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise ValueError("An import for this project/environment is already running") from error
-        with ExitStack() as stack:
-            inputs = []
-            for index, path in enumerate(plan):
-                if index == 0 and first_is_dump:
-                    if path.name.lower().endswith(".sql.gz"):
-                        handle = stack.enter_context(tempfile.TemporaryFile(dir=output))
-                        unpack(path, handle, progress_meter())
-                        handle.seek(0)
-                    else:
-                        handle = stack.enter_context(path.open("rb"))
-                else:
-                    handle = render_hook(project, path)  # Rendered before any change, so a bad hook stops early.
-                inputs.append((path, handle))
-            if backup:
-                backup_database(project)
-            skipped = set()
-            for index, (path, handle) in enumerate(inputs):
-                dump = index == 0 and first_is_dump
-                print(f"{'Import' if dump else 'SQL'}: {path}", flush=True)
-                # A failing dump or hook stops the sequence; no later SQL runs.
-                if dump:
-                    skipped = load_dump(project, handle, skip, progress_meter())
-                else:
-                    with project.database.load() as sink:
-                        sink.write(handle)
-            return skipped

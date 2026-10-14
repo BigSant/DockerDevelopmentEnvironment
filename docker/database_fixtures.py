@@ -3,7 +3,7 @@
 from pathlib import Path
 import re
 
-from database_import import execute_sql, render_hook
+from database_import import render_hook
 
 
 def plan_fixtures(project, selected):
@@ -35,11 +35,3 @@ def plan_fixtures(project, selected):
             render_hook(project, path)  # Read and validate every file before DB work.
             plan.append(path)
     return plan
-
-
-def load_fixtures(project, plan):
-    if not plan:
-        print("No SQL fixtures in the selected set; database unchanged.")
-        return
-    execute_sql(project, plan)
-    print("SQL fixtures completed.")
