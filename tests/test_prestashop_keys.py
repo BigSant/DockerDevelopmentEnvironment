@@ -102,6 +102,17 @@ class ProjectKeysTest(unittest.TestCase):
         self.assertEqual(php['PS_VERSION'], '9.0.2')
         validate_configuration(project)
 
+    def test_blank_values_are_generated_and_the_ps_alias_counts(self):
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('PS_VERSION=9.0.2\nPROFILE=ps\n')
+        local = self.app / 'env/local.env'
+        local.write_text(local.read_text() + 'DATABASE_ROOT_PASSWORD=""\nPS_COOKIE_KEY=\n')
+        ensure_generated_secrets(self.app, 'local')
+        from project_env_files import read_dotenv
+        generated = read_dotenv(local)
+        self.assertRegex(generated['DATABASE_ROOT_PASSWORD'], r'^[0-9a-f]{48}$', 'a blank "" is not a password')
+        self.assertTrue(generated['PS_COOKIE_KEY'], 'a blank shop key is generated, PROFILE=ps included')
+
     def test_debug_mode_waits_for_the_shop_checkout(self):
         with (self.app / 'env/common.env').open('a') as env:
             env.write('PS_VERSION=9.0.2\nPS_DEBUG_MODE=on\n')
