@@ -346,30 +346,17 @@ class RestrictScriptTest(unittest.TestCase):
                                      "asana_graph", "--test", "asana*_test"]])
 
 
-class FakeDump:
-    """Popen stand-in for the dump client: records the command and returns a small dump."""
-    def __init__(self, commands):
-        self.commands = commands
-
-    def __call__(self, command, **kwargs):
-        self.commands.append(command)
-        process = SimpleNamespace(stdout=io.BytesIO(b"-- dump\nCREATE TABLE `t` (id int);\n"))
-        process.wait = lambda: 0
-        process.poll = lambda: 0
-        return process
-
-
 class BackupPlanTest(unittest.TestCase):
     def setUp(self):
         self.root = scratch_directory(self)
         self.project = SimpleNamespace(
-            name="asana-local", directory=self.root, command=["compose"], child_env=lambda: {},
-            settings={"DATABASE_NAME": "asana", "MIN_FREE_DISK_MB": "0"})
+            name="asana-local", directory=self.root, settings={"DATABASE_NAME": "asana", "MIN_FREE_DISK_MB": "0"},
+            database=FakeDatabase(dump_output=lambda options, schema: b"-- dump\nCREATE TABLE `t` (id int);\n"))
 
-    def dump_commands(self, registry=False, skipped=()):
-        commands = []
-        with patch("database_backup.subprocess.Popen", side_effect=FakeDump(commands)), \
-                patch("database_import.skip_rule", return_value=(lambda table: table in skipped) if skipped else None), \
+    def dumps(self, registry=False, skipped=()):
+        """(schema, dump options) of every dump the backup asked for."""
+        self.project.database.dumps.clear()
+        with patch("database_import.skip_rule", return_value=(lambda table: table in skipped) if skipped else None), \
                 patch("database_schema.database_tables", return_value=["asana_log", "asana_task"]), \
                 patch("database_schema.extra_tables", return_value=["asana_graph.edges", "asana_graph.nodes"]), \
                 contextlib.redirect_stdout(io.StringIO()):
@@ -377,45 +364,40 @@ class BackupPlanTest(unittest.TestCase):
                                      registry=registry)
         self.written = gzip.decompress(target.read_bytes())
         self.assertTrue(self.written)
-        return [command[command.index("database-backup") + 1:] for command in commands]
+        return [(schema, options) for options, schema in self.project.database.dumps]
 
-    def test_a_failed_dump_names_the_clients_last_error_and_publishes_nothing(self):
-        def failing(command, **kwargs):
-            kwargs['stderr'].write(b"mysqldump: [Warning] Using a password on the command line\n"
-                                   b"mysqldump: Couldn't execute 'SHOW CREATE PROCEDURE `asana`.`p`': denied (1227)\n\n")
-            process = SimpleNamespace(stdout=io.BytesIO(b"-- partial"))
-            process.wait = lambda: 2
-            process.poll = lambda: 2
-            return process
-        with patch("database_backup.subprocess.Popen", side_effect=failing), \
-                self.assertRaisesRegex(ValueError, r"Database backup failed: mysqldump: Couldn't execute 'SHOW CREATE "
-                                                   r"PROCEDURE `asana`.`p`': denied \(1227\); no backup published"):
+    def test_a_failed_dump_publishes_nothing(self):
+        self.project.database.fail_on = lambda operation, text: operation == "dump"
+        with self.assertRaisesRegex(ValueError, r"^dump failed \(fake\); no backup published\.$"):
             backup_database(self.project, self.root / "failed.sql.gz")
+        self.project.database = FakeDatabase()
+        with self.assertRaisesRegex(ValueError, "the dump client wrote nothing; no backup published"):
+            backup_database(self.project, self.root / "empty.sql.gz")
         self.assertEqual(list(self.root.glob("*.gz")), [])
 
     def test_without_extra_schemas_the_backup_runs_as_before(self):
-        self.assertEqual(self.dump_commands(), [["asana"]])
-        self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log"}),
-                         [["asana", "--ignore-table=asana.asana_log"],
-                          ["asana", "--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"]])
+        self.assertEqual(self.dumps(), [("asana", [])])
+        self.assertEqual(self.dumps(registry=True, skipped={"asana_log"}),
+                         [("asana", ["--ignore-table=asana.asana_log"]),
+                          ("asana", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"])])
 
     def test_extra_schemas_join_the_main_database_in_one_dump_run(self):
         self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph asana_git"
-        self.assertEqual(self.dump_commands(), [["asana", "--databases", "asana_graph", "asana_git"]])
+        self.assertEqual(self.dumps(), [("asana", ["--databases", "asana_graph", "asana_git"])])
 
     def test_registry_structure_comes_first_so_it_restores_into_the_main_database(self):
         # The multi-schema run ends inside the last schema (USE), so the header-less structure pass leads.
         self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph"
-        self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log"}),
-                         [["asana", "--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"],
-                          ["asana", "--ignore-table=asana.asana_log", "--databases", "asana_graph"]])
+        self.assertEqual(self.dumps(registry=True, skipped={"asana_log"}),
+                         [("asana", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"]),
+                          ("asana", ["--ignore-table=asana.asana_log", "--databases", "asana_graph"])])
 
     def test_an_extra_schemas_skip_tables_keep_structure_under_their_own_schema(self):
         self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph"
         structure = ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events"]
-        self.assertEqual(self.dump_commands(registry=True, skipped={"asana_log", "asana_graph.edges"}),
-                         [["asana", *structure, "asana_log"], ["asana", "--schema", "asana_graph", *structure, "edges"],
-                          ["asana", "--ignore-table=asana.asana_log", "--ignore-table=asana_graph.edges", "--databases", "asana_graph"]])
+        self.assertEqual(self.dumps(registry=True, skipped={"asana_log", "asana_graph.edges"}),
+                         [("asana", [*structure, "asana_log"]), ("asana_graph", [*structure, "edges"]),
+                          ("asana", ["--ignore-table=asana.asana_log", "--ignore-table=asana_graph.edges", "--databases", "asana_graph"])])
         # The main structure restores into the target database; the extra schema's names its schema first.
         first, second = self.written.split(b"USE `asana_graph`;", 1)
         self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", first)
