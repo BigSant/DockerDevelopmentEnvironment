@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "docker"))
 from database_backup import backup_database
 from database_client import DatabaseClient
 from database_grants import RESTRICT
-from database_import import import_database, plan_import
+from database_load import plan_load, run_load
 
 IMAGE = os.environ.get("SETUP_MYSQL_IMAGE")
 ENGINE = "mariadb" if "mariadb" in (IMAGE or "") else "mysql"
@@ -210,7 +210,7 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
             self.assertIn(b"USE `" + schema + b"`;", text)
         self.root("DROP DATABASE shop_graph; DROP DATABASE shop_git; DROP TABLE shop.orders;")
         with contextlib.redirect_stdout(io.StringIO()):
-            import_database(project, plan_import(project, str(backup)))
+            run_load(project, plan_load(project, dump=str(backup)))
         self.assertEqual(self.counts(), ["2", "3", "2", "2", "1"])
         self.assertEqual(self.root("SELECT label FROM shop_graph.nodes WHERE id = 2"), ["USE", "`shop`;"])
         # The restored schemas are still the application's.
@@ -231,7 +231,7 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.root("INSERT INTO shop.connections VALUES (4); DELETE FROM shop.orders;"
                   "DROP DATABASE shop_graph; DELETE FROM shop_git.commits;")
         with contextlib.redirect_stdout(io.StringIO()):
-            import_database(project, plan_import(project, str(backup)))
+            run_load(project, plan_load(project, dump=str(backup)))
         # Main data and every extra schema come back; the skipped table keeps what the server has.
         self.assertEqual(self.counts(), ["2", "4", "2", "2", "1"])
 
@@ -247,7 +247,7 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
             backup = backup_database(project, registry=True)
         self.root("INSERT INTO shop_git.commits VALUES ('ef01'); DELETE FROM shop.orders;")
         with contextlib.redirect_stdout(io.StringIO()):
-            import_database(project, plan_import(project, str(backup)))
+            run_load(project, plan_load(project, dump=str(backup)))
         # The data comes back; the skipped extra-schema table keeps the rows it has here (no DROP in the backup).
         self.assertEqual(self.counts(), ["2", "3", "2", "2", "2"])
 
@@ -260,7 +260,7 @@ class ExtraSchemaIntegrationTest(unittest.TestCase):
         self.assertNotIn(b"USE `", gzip.decompress(backup.read_bytes()))
         self.root("DROP TABLE shop.orders;")
         with contextlib.redirect_stdout(io.StringIO()):
-            import_database(project, plan_import(project, str(backup)))
+            run_load(project, plan_load(project, dump=str(backup)))
         self.assertEqual(self.root("SELECT COUNT(*) FROM shop.orders"), ["1"])
 
 

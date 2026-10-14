@@ -219,13 +219,13 @@ class GenericSettingsTest(unittest.TestCase):
                 (self.app / 'env/common.env').write_text(common)
 
     def test_prestashop_hook_values_are_refused_in_generic_sql(self):
-        from database_import import plan_import
+        from database_load import plan_load
         hook = self.app / 'database/after-import/common/020-prefix.sql'
         for token in ('${DB_PREFIX}', '${PS_SSL}'):
             with self.subTest(token=token):
                 hook.write_text(f"UPDATE `{token}configuration` SET value = '{token}';\n")
                 with self.assertRaisesRegex(ValueError, 'PROFILE=prestashop'):
-                    plan_import(Project(self.app), str(self.app.parent / 'dump.sql'))
+                    plan_load(Project(self.app), dump=str(self.app.parent / 'dump.sql'))
 
     def test_the_prestashop_table_prefix_is_refused_in_a_generic_registry(self):
         from database_registry import load

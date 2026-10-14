@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from database_import import check_dump_tables, import_database, plan_import
+from database_load import plan_load, run_load
 from database_fixtures import load_fixtures, plan_fixtures
 from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
@@ -565,23 +565,17 @@ def main():
             if args.import_now:
                 step(count, count, f'Import into the local database ({project.settings["DATABASE_NAME"]}): '
                      'dump, after-import, migrations')
-                plan = plan_import(project, str(target))
-                check_dump_tables(project, plan[0])
-                import_database(project, plan, backup=args.backup)
+                run_load(project, plan_load(project, dump=str(target)), backup=args.backup)
             else:
                 print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
         elif args.action in ("db-import", "db-import-plan"):
-            plan = plan_import(project, args.dump)
             # Every dump table must be classified; the plan only reports, the import may ask.
-            check_dump_tables(project, plan[0], interactive=False if args.action == "db-import-plan" else None)
-            if args.db_fixtures is not None:
-                plan += plan_fixtures(project, args.db_fixtures)
+            plan = plan_load(project, dump=args.dump or '', fixtures=args.db_fixtures, skip=args.skip,
+                             interactive=False if args.action == "db-import-plan" else None)
             if args.action == "db-import-plan":
-                print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}")
-                for step in plan:
-                    print(step)
+                print('\n'.join(plan.lines(project)))
             else:
-                import_database(project, plan, backup=args.backup, skip=args.skip)
+                run_load(project, plan, backup=args.backup)
         elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
             plan = plan_fixtures(project, args.db_fixtures)
             print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")

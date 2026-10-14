@@ -310,7 +310,8 @@ def drop_all_tables(project):
 
 
 def load_dataset(project, name='dev', replace=False, backup=False):
-    from database_import import after_load, execute_sql
+    from database_import import execute_sql
+    from database_load import after_load
     if project.environment in ('stage', 'prod'):
         raise ValueError('The base data set (dev logins, sample data) loads only into local and test databases')
     files, hooks = plan_load(project, name)

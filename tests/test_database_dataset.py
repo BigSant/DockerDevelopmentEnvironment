@@ -158,7 +158,7 @@ class DatasetTest(unittest.TestCase):
         with patch("database_dataset.database_tables", return_value=[]), \
                 patch("database_import.execute_sql", lambda project, plan, **options: executed.append(
                     [Path(plan[0]).read_bytes(), [p.name for p in plan[1:]], options])), \
-                patch("database_import.after_load", lambda project: executed.append("after_load")):
+                patch("database_load.after_load", lambda project: executed.append("after_load")):
             load_dataset(self.project)
         combined, hooks, options = executed[0]
         self.assertTrue(combined.startswith(database_dataset.HEADER.encode()))
