@@ -542,15 +542,9 @@ def main():
              "schema-hook-install": install_schema_hook}[args.action](project)
         elif args.action == "db-pull":
             from database_pull import pull
-            from progress import step
-            count = 1 + int(args.fresh) + int(args.import_now)
             target = pull(project, args.source or 'prod', reconfigure=args.configure, full=args.full, fresh=args.fresh,
-                          steps=(1, count))
-            if args.import_now:
-                step(count, count, f'Import into the local database ({project.settings["DATABASE_NAME"]}): '
-                     'dump, after-import, migrations')
-                run_load(project, plan_load(project, dump=str(target)), backup=args.backup)
-            else:
+                          then_import=args.import_now, backup=args.backup)
+            if not args.import_now:
                 print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
         elif args.action in ("db-import", "db-import-plan"):
             # Every dump table must be classified; the plan only reports, the import may ask.
