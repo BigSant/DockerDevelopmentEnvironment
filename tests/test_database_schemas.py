@@ -18,7 +18,8 @@ from create_project import scaffold
 from database_backup import backup_database
 from database_client import DUMP, extra_schemas, test_schemas
 from database_grants import RESTRICT, restrict_grants
-from database_import import check_dump_tables, filter_dump, plan_import
+from database_import import check_dump_tables, filter_dump
+from database_load import plan_load
 from project import Project
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -474,21 +475,21 @@ class MultiSchemaImportTest(unittest.TestCase):
         check_dump_tables(self.project, self.dump, interactive=False)
 
     def test_a_dump_that_switches_to_an_unlisted_schema_is_refused_before_loading(self):
-        self.assertEqual(plan_import(self.project, str(self.dump)), [self.dump.resolve()])
+        self.assertEqual(plan_load(self.project, dump=str(self.dump)).paths(), [self.dump.resolve()])
         foreign = self.root / "foreign.sql.gz"
         foreign.write_bytes(gzip.compress(self.DUMP + b"USE `mysql`;\nDELETE FROM `user`;\n"))
         with self.assertRaisesRegex(ValueError, "mysql"):
-            plan_import(self.project, str(foreign))
+            plan_load(self.project, dump=str(foreign)).paths()
         renamed = self.root / "renamed.sql"
         renamed.write_bytes(self.DUMP.replace(b"`asana_graph`", b"`other_graph`"))
         with self.assertRaisesRegex(ValueError, "other_graph"):
-            plan_import(self.project, str(renamed))
+            plan_load(self.project, dump=str(renamed)).paths()
 
     def test_without_extra_schemas_the_import_preflight_is_unchanged(self):
         self.project.settings["DATABASE_EXTRA_SCHEMAS"] = ""
         foreign = self.root / "foreign.sql"
         foreign.write_bytes(b"USE `other`;\nSELECT 1;\n")
-        self.assertEqual(plan_import(self.project, str(foreign)), [foreign.resolve()])
+        self.assertEqual(plan_load(self.project, dump=str(foreign)).paths(), [foreign.resolve()])
 
 
 class MultiSchemaSnapshotTest(unittest.TestCase):

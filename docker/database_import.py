@@ -1,17 +1,12 @@
-"""Stream an explicit SQL dump, then ordered project hooks, to its Compose DB."""
+"""Dump mechanics: read, check and filter an SQL dump, and render the after-import SQL that follows it."""
 
-from contextlib import ExitStack
-import fcntl
+import gzip
 import os
 from pathlib import Path
 import re
 import sys
-import tempfile
-
 
 from database_client import DatabaseError, extra_schemas
-from database_backup import backup_database
-import gzip
 from project_prestashop import is_prestashop
 
 
@@ -19,7 +14,7 @@ DOCKER_ROOT = Path(__file__).resolve().parent
 CHUNK = 1024 * 1024
 # What one reading of a dump found (DumpScanner: size, schemas, tables), by (path, size, mtime_ns, main schema).
 # db-pull fills it while it downloads, so an import right after it does not read a large file again; without
-# it plan_import and the registry check share one reading instead of three.
+# it the load plan and the registry check share one reading instead of three.
 SCANS = {}
 # INSERT/REPLACE statements of mysqldump and phpMyAdmin dumps; the table name is the first quoted name.
 CREATE = re.compile(rb"^CREATE\s+(?:TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`((?:[^`]|``)+)`", re.I)
@@ -333,111 +328,3 @@ def after_import_hooks(project):
         if name not in enabled:
             hooks.append(resolved)
     return hooks
-
-
-def plan_import(project, dump):
-    if not dump:
-        raise ValueError("Specify a dump with file=/path/to/dump.sql")
-    source = Path(dump).resolve()
-    if not (source.name.lower().endswith(".sql") or source.name.lower().endswith(".sql.gz")) or not source.is_file() or source.stat().st_size == 0:
-        raise ValueError("The dump must be a readable, nonempty .sql or .sql.gz file")
-    if not project.settings["DATABASE_NAME"]:
-        raise ValueError("DATABASE_NAME is required for import")
-    hooks = after_import_hooks(project)
-    plan = [source, *hooks]
-    # Preflight every input before any database operation, including hook readability.
-    for path in plan:
-        with path.open("rb"):
-            pass
-    scan = scan_dump(source, main_schema(project), progress_meter())
-    if source.name.lower().endswith(".sql.gz") and not scan["size"]:
-        raise ValueError("The compressed SQL dump is empty")
-    extras = extra_schemas(project.settings)
-    if extras:
-        # A multi-schema dump restores each schema under its own name; refuse one that would write elsewhere.
-        foreign = sorted(scan["schemas"] - {project.settings["DATABASE_NAME"], *extras})
-        if foreign:
-            raise ValueError(f"The dump switches to schemas outside DATABASE_NAME and DATABASE_EXTRA_SCHEMAS: "
-                             f"{', '.join(foreign)}; nothing was imported")
-    for path in hooks:
-        render_hook(project, path)
-    return plan
-
-
-def import_database(project, plan, backup=False, skip=False):
-    """Dump -> after-import SQL -> migrations -> shop policy -> schema report.
-
-    The whole dump is loaded: the registry's skip rule applies when a backup is made. skip=True also
-    leaves out the data of the skip tables while importing (their structure is kept)."""
-    skipped = execute_sql(project, plan, first_is_dump=True, backup=backup, skip=skip_rule(project) if skip else None)
-    if skipped:
-        print(f"Data not imported for {len(skipped)} tables (registry live rule skip; skip=1 was given): "
-              + ", ".join(sorted(skipped)[:10]) + (" ..." if len(skipped) > 10 else ""))
-    after_load(project)
-    print("Dump and after-import SQL completed.")
-
-
-def after_load(project):
-    """Everything that follows loading data: pending migrations, shop policy and a schema report."""
-    from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
-    if migrations_enabled(project) and migrations_directory(project).is_dir():
-        migrate(project)
-    if is_prestashop(project):
-        running = project.capture(['ps', '--status', 'running', '--services']).split()
-        if 'php-fpm' in running:
-            # A restored dump may bring back cache/mail settings from production.
-            # If PHP is stopped, its next startup performs this preparation instead.
-            project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'policy'])
-            project.capture(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
-            project.run(['restart', 'php-fpm'])
-            # Outside prod the load gave the shops their local domains: the old .htaccess rewrites the old ones.
-            from project_prestashop import ensure_htaccess
-            ensure_htaccess(project, regenerate=project.environment != 'prod')
-    if project.settings.get("SCHEMA_DIRECTORY"):
-        from database_schema import schema_report
-        schema_report(project)
-
-
-def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
-    """Pre-open all inputs and serialize imports/fixtures with the same DB lock; returns skipped tables."""
-    output = project.directory / ".generated"
-    output.mkdir(mode=0o700, exist_ok=True)
-    if first_is_dump:
-        from project_storage import require_space
-        size = plan[0].stat().st_size
-        if plan[0].name.lower().endswith('.gz'):
-            size = scan_dump(plan[0], main_schema(project), progress_meter())["size"]
-            require_space(project, output, size)
-        require_space(project, getattr(project, 'data_directory', output), 2 * size)
-    lock_path = output / f"db-import.{project.environment}.lock"
-    with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600), "r+") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise ValueError("An import for this project/environment is already running") from error
-        with ExitStack() as stack:
-            inputs = []
-            for index, path in enumerate(plan):
-                if index == 0 and first_is_dump:
-                    if path.name.lower().endswith(".sql.gz"):
-                        handle = stack.enter_context(tempfile.TemporaryFile(dir=output))
-                        unpack(path, handle, progress_meter())
-                        handle.seek(0)
-                    else:
-                        handle = stack.enter_context(path.open("rb"))
-                else:
-                    handle = render_hook(project, path)  # Rendered before any change, so a bad hook stops early.
-                inputs.append((path, handle))
-            if backup:
-                backup_database(project)
-            skipped = set()
-            for index, (path, handle) in enumerate(inputs):
-                dump = index == 0 and first_is_dump
-                print(f"{'Import' if dump else 'SQL'}: {path}", flush=True)
-                # A failing dump or hook stops the sequence; no later SQL runs.
-                if dump:
-                    skipped = load_dump(project, handle, skip, progress_meter())
-                else:
-                    with project.database.load() as sink:
-                        sink.write(handle)
-            return skipped

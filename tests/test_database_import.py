@@ -16,8 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 import database_import
 from database_client import IMPORT as MYSQL_IMPORT, DatabaseError
-from database_import import (DumpScanner, check_dump_tables, filter_dump, import_database, load_dump, plan_import,
-                             remember_scan, render_hook, scan_dump, skip_rule)
+from database_import import (DumpScanner, check_dump_tables, filter_dump, load_dump, remember_scan, render_hook,
+                             scan_dump, skip_rule)
+import database_load
+from database_load import plan_load, run_load
 from fake_database import FakeDatabase
 
 
@@ -52,9 +54,10 @@ class ImportFixture(unittest.TestCase):
         )
         self.project.directory.mkdir()
         # Keep streaming deterministic whether or not the suite runs in a terminal.
-        meter = patch("database_import.progress_meter", return_value=None)
-        meter.start()
-        self.addCleanup(meter.stop)
+        for module in ("database_import", "database_load"):
+            meter = patch(f"{module}.progress_meter", return_value=None)
+            meter.start()
+            self.addCleanup(meter.stop)
 
     def recording_meter(self):
         """A progress meter that records each bar: (label, total, last value, how it finished)."""
@@ -79,23 +82,23 @@ class ImportFixture(unittest.TestCase):
 
 class DatabaseImportTest(ImportFixture):
     def test_the_dump_streams_with_a_progress_bar_over_its_size_and_hooks_do_not(self):
-        plan = plan_import(self.project, str(self.dump))
+        plan = plan_load(self.project, dump=str(self.dump))
         meter, bars = self.recording_meter()
-        with patch("database_import.progress_meter", return_value=meter), contextlib.redirect_stdout(io.StringIO()):
-            import_database(self.project, plan)
+        with patch("database_load.progress_meter", return_value=meter), contextlib.redirect_stdout(io.StringIO()):
+            run_load(self.project, plan)
         # The dump goes through the bar; each hook is a load of its own.
-        self.assertEqual(self.project.database.loaded, [p.read_bytes() for p in plan])
+        self.assertEqual(self.project.database.loaded, [p.read_bytes() for p in plan.paths()])
         imported = [bar for bar in bars if bar.label == "Import"]
         self.assertEqual([(bar.total, bar.done, bar.note) for bar in imported],
                          [(self.dump.stat().st_size, self.dump.stat().st_size, "")])
 
     def test_a_failing_client_stops_before_hooks_and_marks_the_bar(self):
-        plan = plan_import(self.project, str(self.dump))
+        plan = plan_load(self.project, dump=str(self.dump))
         meter, bars = self.recording_meter()
         self.project.database.fail_on = lambda operation, text: operation == "load"
-        with patch("database_import.progress_meter", return_value=meter), \
+        with patch("database_load.progress_meter", return_value=meter), \
                 contextlib.redirect_stdout(io.StringIO()), self.assertRaises(DatabaseError):
-            import_database(self.project, plan)
+            run_load(self.project, plan)
         self.assertEqual(len(self.project.database.loaded), 1, "no hook runs after a failed dump")
         self.assertEqual([bar.note for bar in bars if bar.label == "Import"], ["failed"])
 
@@ -136,68 +139,68 @@ class DatabaseImportTest(ImportFixture):
             scan_dump(broken)
 
     def test_plan_orders_common_then_only_selected_environment_without_outputs(self):
-        plan = plan_import(self.project, str(self.dump))
-        self.assertEqual([p.name for p in plan], [self.dump.name, "010-first.sql", "020-second.sql", "010-local.sql"])
+        plan = plan_load(self.project, dump=str(self.dump))
+        self.assertEqual([p.name for p in plan.paths()], [self.dump.name, "010-first.sql", "020-second.sql", "010-local.sql"])
         self.project.environment = "prod"
-        self.assertEqual(plan_import(self.project, str(self.dump))[-1].name, "010-prod.sql")
+        self.assertEqual(plan_load(self.project, dump=str(self.dump)).paths()[-1].name, "010-prod.sql")
         self.assertFalse((self.project.directory / ".generated").exists())
 
     def test_unset_directory_defaults_to_project_after_import_or_dump_only(self):
         del self.project.settings["POST_IMPORT_SQL_DIRECTORY"]
-        self.assertEqual(plan_import(self.project, str(self.dump)), [self.dump.resolve()])
+        self.assertEqual(plan_load(self.project, dump=str(self.dump)).paths(), [self.dump.resolve()])
         default = self.project.directory / "database/after-import/local"
         default.mkdir(parents=True)
         (default / "010-default.sql").write_text("SELECT 'default';\n")
-        self.assertEqual([p.name for p in plan_import(self.project, str(self.dump))], [self.dump.name, "010-default.sql"])
+        self.assertEqual([p.name for p in plan_load(self.project, dump=str(self.dump)).paths()], [self.dump.name, "010-default.sql"])
         self.project.settings["POST_IMPORT_SQL_DIRECTORY"] = ""
-        self.assertEqual(plan_import(self.project, str(self.dump))[-1].name, "010-default.sql")
+        self.assertEqual(plan_load(self.project, dump=str(self.dump)).paths()[-1].name, "010-default.sql")
 
     def test_explicit_missing_directory_is_still_rejected(self):
         self.project.settings["POST_IMPORT_SQL_DIRECTORY"] = "database/missing"
         with self.assertRaisesRegex(ValueError, "inside the project"):
-            plan_import(self.project, str(self.dump))
+            plan_load(self.project, dump=str(self.dump)).paths()
 
     def test_preflight_rejects_missing_empty_non_sql_dump_and_escaping_hooks(self):
         empty = self.root / "empty.sql"
         empty.touch()
         compressed = self.root / "dump.sql.gz"
         compressed.write_bytes(b"example")
-        for source in (None, str(empty), str(compressed), str(self.root / "missing.sql")):
+        for source in ("", str(empty), str(compressed), str(self.root / "missing.sql")):
             with self.subTest(source=source), self.assertRaises(ValueError):
-                plan_import(self.project, source)
+                plan_load(self.project, dump=source).paths()
         (self.sql / "common/030-escape.sql").symlink_to(self.dump)
         with self.assertRaisesRegex(ValueError, "inside"):
-            plan_import(self.project, str(self.dump))
+            plan_load(self.project, dump=str(self.dump)).paths()
 
     def test_streams_each_file_and_stops_after_first_failure(self):
-        plan = plan_import(self.project, str(self.dump))
+        plan = plan_load(self.project, dump=str(self.dump))
         for fail_at in (None, 0, 2):
             database = self.project.database = FakeDatabase(
                 fail_on=lambda operation, text: len(database.loaded) - 1 == fail_at)
             with self.subTest(fail_at=fail_at), contextlib.redirect_stdout(io.StringIO()):
                 if fail_at is None:
-                    import_database(self.project, plan)
+                    run_load(self.project, plan)
                 else:
                     with self.assertRaises(DatabaseError):
-                        import_database(self.project, plan)
-                count = len(plan) if fail_at is None else fail_at + 1
-                self.assertEqual(database.loaded, [p.read_bytes() for p in plan[:count]])
+                        run_load(self.project, plan)
+                count = len(plan.paths()) if fail_at is None else fail_at + 1
+                self.assertEqual(database.loaded, [p.read_bytes() for p in plan.paths()[:count]])
 
     def test_deleted_hook_prevents_any_database_execution(self):
-        plan = plan_import(self.project, str(self.dump))
-        plan[-1].unlink()
+        plan = plan_load(self.project, dump=str(self.dump))
+        plan.paths()[-1].unlink()
         with self.assertRaises(FileNotFoundError):
-            import_database(self.project, plan)
+            run_load(self.project, plan)
         self.assertEqual(self.project.database.loaded, [])
 
     def test_concurrent_import_is_rejected_before_execution(self):
-        plan = plan_import(self.project, str(self.dump))
+        plan = plan_load(self.project, dump=str(self.dump))
         output = self.project.directory / ".generated"
         output.mkdir()
         with (output / "db-import.local.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             with self.assertRaisesRegex(ValueError, "already running"):
-                import_database(self.project, plan)
+                run_load(self.project, plan)
             self.assertEqual(self.project.database.loaded, [])
 
     def test_running_database_name_mismatch_aborts_before_mysql(self):
@@ -211,9 +214,9 @@ class DatabaseImportTest(ImportFixture):
         self.dump.write_text("SELECT '${DOMAIN}';\n")
         hook = self.sql / "local/010-local.sql"
         hook.write_text("UPDATE shop SET domain = '${DOMAIN}';\n")
-        plan = plan_import(self.project, str(self.dump))
+        plan = plan_load(self.project, dump=str(self.dump))
         with contextlib.redirect_stdout(io.StringIO()):
-            import_database(self.project, plan)
+            run_load(self.project, plan)
         inputs = self.project.database.loaded
         self.assertIn(b"${DOMAIN}", inputs[0])
         self.assertEqual(inputs[-1], b"UPDATE shop SET domain = 'forsena.local';\n")
@@ -225,7 +228,7 @@ class DatabaseImportTest(ImportFixture):
         for domain in ("", "bad'; DROP TABLE shop; --", "$(whoami)"):
             self.project.settings["DOMAIN"] = domain
             with self.subTest(domain=domain), self.assertRaisesRegex(ValueError, "valid DOMAIN"):
-                plan_import(self.project, str(self.dump))
+                plan_load(self.project, dump=str(self.dump)).paths()
 
 
 class ImportSequenceTest(ImportFixture):
@@ -256,13 +259,10 @@ class ImportSequenceTest(ImportFixture):
     def test_an_import_loads_every_table_unless_skip_is_asked_for(self):
         self.project.settings.update(SCHEMA_DIRECTORY="database/schema", PROFILE="")
         (self.root / "database/table-registry.txt").write_text("ps_feed_cache cache empty skip\n")
-        plan = plan_import(self.project, str(self.dump))
         for skip, expected in ((False, None), (True, True)):
-            with self.subTest(skip=skip), patch("database_import.execute_sql", return_value=set()) as execute, \
-                    patch("database_import.after_load"), contextlib.redirect_stdout(io.StringIO()):
-                import_database(self.project, plan, skip=skip)
-            rule = execute.call_args.kwargs["skip"]
-            self.assertEqual(rule if rule is None else rule("ps_feed_cache"), expected)
+            with self.subTest(skip=skip):
+                rule = plan_load(self.project, dump=str(self.dump), skip=skip).skip
+                self.assertEqual(rule if rule is None else rule("ps_feed_cache"), expected)
 
     def test_a_dump_table_the_registry_does_not_know_stops_the_import(self):
         self.project.settings.update(SCHEMA_DIRECTORY="database/schema", PROFILE="prestashop")
@@ -290,6 +290,32 @@ class ImportSequenceTest(ImportFixture):
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "1 tables are not classified"):
             check_dump_tables(self.project, self.dump, ask=lambda prompt: next(answers), interactive=True)
 
+    def test_the_plan_classifies_every_dump_table_before_anything_loads(self):
+        self.project.settings.update(SCHEMA_DIRECTORY="database/schema")
+        (self.root / "database/table-registry.txt").write_text("ps_orders orders full import\n")
+        self.dump.write_bytes(b"CREATE TABLE `zz_new` (`id` int);\n")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "1 tables are not classified"):
+            plan_load(self.project, dump=str(self.dump), interactive=False)
+        self.assertEqual(self.project.database.loaded, [])
+
+    def test_the_plan_prints_the_database_and_every_input_in_order(self):
+        plan = plan_load(self.project, dump=str(self.dump))
+        self.assertEqual(plan.lines(self.project), ["Database: example; environment: local", str(self.dump.resolve()),
+                                                    *map(str, plan.hooks)])
+
+    def test_the_lock_is_held_until_the_after_load_steps_finish(self):
+        plan = plan_load(self.project, dump=str(self.dump))
+        held = []
+
+        def after_load(project):
+            with self.assertRaisesRegex(ValueError, "already running"), database_load.import_lock(project):
+                pass
+            held.append(True)
+
+        with patch("database_load.after_load", after_load), contextlib.redirect_stdout(io.StringIO()):
+            run_load(self.project, plan)
+        self.assertEqual(held, [True])
+
     def test_without_a_registry_every_dump_table_is_accepted(self):
         self.dump.write_bytes(b"CREATE TABLE `anything` (`id` int);\n")
         check_dump_tables(self.project, self.dump, interactive=False)
@@ -309,17 +335,17 @@ class ImportSequenceTest(ImportFixture):
         (self.sql / "integrations").mkdir()
         for name in ("gtm", "tecdoc"):
             (self.sql / f"integrations/{name}.sql").write_text(f"SELECT '{name} off';\n")
-        names = [p.name for p in plan_import(self.project, str(self.dump))]
+        names = [p.name for p in plan_load(self.project, dump=str(self.dump)).paths()]
         self.assertEqual(names, [self.dump.name, "010-shop-url.sql", "020-payments-sandbox.sql", "010-first.sql",
                                  "020-second.sql", "010-local.sql", "gtm.sql", "tecdoc.sql"])
         self.project.settings["INTEGRATIONS_ENABLED"] = "tecdoc"
-        self.assertNotIn("tecdoc.sql", [p.name for p in plan_import(self.project, str(self.dump))])
+        self.assertNotIn("tecdoc.sql", [p.name for p in plan_load(self.project, dump=str(self.dump)).paths()])
         self.project.settings["INTEGRATIONS_ENABLED"] = "omnisend"
         with self.assertRaisesRegex(ValueError, "unknown integrations: omnisend; available: gtm, tecdoc"):
-            plan_import(self.project, str(self.dump))
+            plan_load(self.project, dump=str(self.dump)).paths()
         self.project.settings["INTEGRATIONS_ENABLED"] = ""
         self.project.environment = "prod"
-        self.assertEqual([p.name for p in plan_import(self.project, str(self.dump))],
+        self.assertEqual([p.name for p in plan_load(self.project, dump=str(self.dump)).paths()],
                          [self.dump.name, "010-first.sql", "020-second.sql", "010-prod.sql"],
                          "a prod restore keeps the shop's own URL, payments and integrations")
 
@@ -346,7 +372,7 @@ class ImportSequenceTest(ImportFixture):
         from project_prestashop import HTACCESS_PHP
         with patch("database_migrations_guarded.migrate", lambda project: calls.append("migrate")), \
                 patch("database_schema.schema_report", lambda project: calls.append("report")):
-            database_import.after_load(self.project)
+            database_load.after_load(self.project)
         # The loaded shop has its local domains: .htaccess is written again, even though one exists.
         self.assertEqual(calls, ["migrate", "--services", "policy", "cache-clear", "restart", "--services", HTACCESS_PHP, "report"])
 

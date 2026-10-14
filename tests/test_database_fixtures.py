@@ -8,12 +8,12 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 from database_client import DatabaseError
-from database_fixtures import load_fixtures, plan_fixtures
+from database_fixtures import plan_fixtures
+from database_load import plan_load, run_load
 from fake_database import FakeDatabase
 
 
@@ -59,37 +59,39 @@ class FixturesTest(unittest.TestCase):
         (self.fixtures / "common").rmdir()
         self.assertEqual(len(plan_fixtures(self.project, "local")), 1)
         (self.fixtures / "empty").mkdir()
-        with patch("database_fixtures.execute_sql") as execute, contextlib.redirect_stdout(io.StringIO()):
-            load_fixtures(self.project, plan_fixtures(self.project, "empty"))
-        execute.assert_not_called()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            run_load(self.project, plan_load(self.project, fixtures="empty"))
+        self.assertEqual(self.project.database.loaded, [])
+        self.assertIn("database unchanged", output.getvalue())
+        self.assertFalse((self.project.directory / ".generated").exists(), "an empty set takes no lock")
 
     def test_all_files_render_including_first_and_failure_stops_later_sql(self):
-        plan = plan_fixtures(self.project, "test")
+        plan = plan_load(self.project, fixtures="test")
         database = self.project.database
         database.fail_on = lambda operation, text: len(database.loaded) == 2
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(DatabaseError):
-            load_fixtures(self.project, plan)
+            run_load(self.project, plan)
         self.assertEqual(database.loaded, [b"SELECT 'example.local';\n"] * 2)
-        self.assertIn(b"${DOMAIN}", plan[0].read_bytes())
+        self.assertIn(b"${DOMAIN}", plan.fixtures[0].read_bytes())
 
     def test_removed_file_and_invalid_domain_prevent_execution(self):
-        plan = plan_fixtures(self.project, "test")
-        plan[-1].unlink()
+        plan = plan_load(self.project, fixtures="test")
+        plan.fixtures[-1].unlink()
         with self.assertRaises(FileNotFoundError):
-            load_fixtures(self.project, plan)
+            run_load(self.project, plan)
         self.assertEqual(self.project.database.loaded, [])
         self.project.settings["DOMAIN"] = "invalid'; SQL"
         with self.assertRaisesRegex(ValueError, "valid DOMAIN"):
             plan_fixtures(self.project, "local")
 
     def test_fixture_load_uses_same_lock_as_dump_import(self):
-        plan = plan_fixtures(self.project, "local")
+        plan = plan_load(self.project, fixtures="local")
         output = self.project.directory / ".generated"
         output.mkdir()
         with (output / "db-import.local.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             with self.assertRaisesRegex(ValueError, "already running"):
-                load_fixtures(self.project, plan)
+                run_load(self.project, plan)
         self.assertEqual(self.project.database.loaded, [])
 
 

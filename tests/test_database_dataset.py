@@ -13,8 +13,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 import database_dataset
-from database_dataset import (DEV_PASSWORD_BCRYPT, anonymised, build_dataset, load_dataset, load_recipe, plan_load,
-                              select_sql, slice_condition)
+from database_dataset import (DEV_PASSWORD_BCRYPT, anonymised, build_dataset, load_recipe, select_sql,
+                              slice_condition)
+from database_load import plan_load, run_load
 from database_schema import export_schema
 from fake_database import FakeDatabase
 from test_database_schema import snapshot
@@ -127,7 +128,7 @@ class DatasetTest(unittest.TestCase):
         for environment in ("stage", "prod"):
             self.project.environment = environment
             with self.subTest(environment=environment), self.assertRaisesRegex(ValueError, "only into local and test"):
-                load_dataset(self.project, replace=True)
+                plan_load(self.project, dataset="dev", replace=True)
 
     def test_a_ps16_set_has_its_own_dev_key_never_the_builders(self):
         self.project.settings.update(PS_VERSION="1.6.1.24", PS_COOKIE_KEY="LiveCookieKeyOfTheShopxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
@@ -142,31 +143,37 @@ class DatasetTest(unittest.TestCase):
     def test_load_plan_and_refusal_to_overwrite(self):
         export_schema(self.project, snapshot({"ps_product": "CREATE TABLE `ps_product` (`id_product` int);\n"}))
         with self.assertRaisesRegex(ValueError, "make db-dataset set=dev"):
-            plan_load(self.project, "dev")
+            plan_load(self.project, dataset="dev")
         (self.root / "database/data/dev").mkdir(parents=True)
         (self.root / "database/data/dev/catalog.sql").write_text("INSERT INTO `ps_product` VALUES (1);\n")
         self.project.settings.update(FIXTURES_DIRECTORY="database/fixtures", DOMAIN="shop.local")
         (self.root / "database/fixtures/dev").mkdir(parents=True)
         (self.root / "database/fixtures/dev/010-extra.sql").write_text("SELECT 1;\n")
-        files, hooks = plan_load(self.project, "dev")
-        self.assertEqual([path.name for path in files], ["catalog.sql"])
-        self.assertEqual([path.name for path in hooks], ["010-shop-url.sql", "020-payments-sandbox.sql", "010-extra.sql"])
-        executed = []
-        with patch("database_dataset.database_tables", return_value=["ps_product"]), \
-                self.assertRaisesRegex(ValueError, "replace=1 drops them first"):
-            load_dataset(self.project)
-        with patch("database_dataset.database_tables", return_value=[]), \
-                patch("database_import.execute_sql", lambda project, plan, **options: executed.append(
-                    [Path(plan[0]).read_bytes(), [p.name for p in plan[1:]], options])), \
-                patch("database_import.after_load", lambda project: executed.append("after_load")):
-            load_dataset(self.project)
-        combined, hooks, options = executed[0]
-        self.assertTrue(combined.startswith(database_dataset.HEADER.encode()))
-        self.assertIn(b"CREATE TABLE `ps_product`", combined)
-        self.assertTrue(combined.endswith(b"INSERT INTO `ps_product` VALUES (1);\n"))
-        self.assertEqual(hooks, ["010-shop-url.sql", "020-payments-sandbox.sql", "010-extra.sql"])
-        self.assertEqual(options, {"first_is_dump": True})
-        self.assertEqual(executed[1], "after_load")
+        plan = plan_load(self.project, dataset="dev")
+        self.assertEqual([path.name for path in plan.data], ["catalog.sql"])
+        self.assertEqual([path.name for path in [*plan.hooks, *plan.fixtures]],
+                         ["010-shop-url.sql", "020-payments-sandbox.sql", "010-extra.sql"])
+        tables = ["ps_product"]
+        events = []
+        database = FakeDatabase(answer=lambda sql: [(t.encode().hex(),) for t in tables] if "HEX(TABLE_NAME)" in sql else [],
+                                on_write=lambda sql: events.append(("drop", len(database.loaded))))
+        self.project.database = database
+        with patch("database_backup.backup_database", lambda project: events.append(("backup", len(database.loaded)))), \
+                patch("database_load.after_load", lambda project: events.append(("after_load", len(database.loaded)))):
+            with self.assertRaisesRegex(ValueError, "replace=1 drops them first"):
+                run_load(self.project, plan, backup=True)
+            self.assertEqual((events, database.loaded), ([], []), "refused before any change")
+            run_load(self.project, plan_load(self.project, dataset="dev", replace=True), backup=True)
+            self.assertEqual(events, [("backup", 0), ("drop", 0), ("after_load", 4)])
+            combined, *sql = database.loaded
+            self.assertTrue(combined.startswith(database_dataset.HEADER.encode()))
+            self.assertIn(b"CREATE TABLE `ps_product`", combined)
+            self.assertTrue(combined.endswith(b"INSERT INTO `ps_product` VALUES (1);\n"))
+            self.assertEqual(sql[-1], b"SELECT 1;\n")
+            tables.clear()
+            events.clear()
+            run_load(self.project, plan, backup=True)
+            self.assertEqual(events, [("after_load", 8)], "an empty database needs no backup and no drop")
 
 
 if __name__ == "__main__":

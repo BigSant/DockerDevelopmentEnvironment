@@ -12,8 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from database_import import check_dump_tables, import_database, plan_import
-from database_fixtures import load_fixtures, plan_fixtures
+from database_load import plan_load, run_load
 from database_schema import check_schema, export_schema, install_schema_hook
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
 from project_ide import initialize_ide, refresh_ide
@@ -527,8 +526,7 @@ def main():
             from database_dataset import build_dataset
             build_dataset(project, args.set)
         elif args.action == "db-load":
-            from database_dataset import load_dataset
-            load_dataset(project, args.set, replace=args.replace, backup=args.backup)
+            run_load(project, plan_load(project, dataset=args.set, replace=args.replace), backup=args.backup)
         elif args.action == "test-prepare":
             from project_testing import prepare_tests
             prepare_tests(project, args.set)
@@ -565,33 +563,24 @@ def main():
             if args.import_now:
                 step(count, count, f'Import into the local database ({project.settings["DATABASE_NAME"]}): '
                      'dump, after-import, migrations')
-                plan = plan_import(project, str(target))
-                check_dump_tables(project, plan[0])
-                import_database(project, plan, backup=args.backup)
+                run_load(project, plan_load(project, dump=str(target)), backup=args.backup)
             else:
                 print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
         elif args.action in ("db-import", "db-import-plan"):
-            plan = plan_import(project, args.dump)
             # Every dump table must be classified; the plan only reports, the import may ask.
-            check_dump_tables(project, plan[0], interactive=False if args.action == "db-import-plan" else None)
-            if args.db_fixtures is not None:
-                plan += plan_fixtures(project, args.db_fixtures)
+            plan = plan_load(project, dump=args.dump or '', fixtures=args.db_fixtures, skip=args.skip,
+                             interactive=False if args.action == "db-import-plan" else None)
             if args.action == "db-import-plan":
-                print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}")
-                for step in plan:
-                    print(step)
+                print('\n'.join(plan.lines(project)))
             else:
-                import_database(project, plan, backup=args.backup, skip=args.skip)
+                run_load(project, plan, backup=args.backup)
         elif args.action in ("db-fixtures-load", "db-fixtures-plan"):
-            plan = plan_fixtures(project, args.db_fixtures)
-            print(f"Database: {project.settings['DATABASE_NAME']}; environment: {project.environment}; fixture set: {args.db_fixtures}")
+            plan = plan_load(project, fixtures=args.db_fixtures)
             if args.action == "db-fixtures-plan":
-                for step in plan:
-                    print(step)
-                if not plan:
-                    print("No SQL fixtures in the selected set.")
+                print('\n'.join(plan.lines(project)))
             else:
-                load_fixtures(project, plan)
+                print(plan.lines(project)[0])
+                run_load(project, plan)
         elif args.action == "phpstan-baseline":
             baseline = project.settings["PHPSTAN_BASELINE_FILE"]
             if not baseline or not baseline.startswith("/"):

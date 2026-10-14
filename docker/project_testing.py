@@ -32,7 +32,7 @@ def test_project(project):
 
 def prepare_tests(project, dataset='dev'):
     """Copy or refresh the application, load the mock data set into the test DB and start ENV=test."""
-    from database_dataset import load_dataset
+    from database_load import plan_load, run_load
     from project_bootstrap import initialize_test
     from project_health import start_project
     if project.environment != 'local':
@@ -42,7 +42,7 @@ def prepare_tests(project, dataset='dev'):
     print('==> starting the test database', flush=True)
     test.run(['up', '-d', '--wait', 'database'])
     print(f'==> loading data set {dataset} into {test.settings["DATABASE_NAME"]}', flush=True)
-    load_dataset(test, dataset, replace=True)
+    run_load(test, plan_load(test, dataset=dataset, replace=True))
     print('==> starting ENV=test', flush=True)
     start_project(test, 180)
     print(f'ENV=test is ready on https://{test.settings["DOMAIN"]}:{test.settings.get("LOCALHOST_PORT_SSL", "")}/ '
