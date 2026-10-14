@@ -84,5 +84,14 @@ class ProcessEnvironmentTest(unittest.TestCase):
                 env_file_keys([env])
 
 
+class ImportTest(unittest.TestCase):
+    def test_the_deployment_variables_users_do_not_load_the_ci_step(self):
+        """A stage/prod Project (secret store) and make deploy-variables need the list, not the pipeline step."""
+        code = ("import sys; import project_secret_store, project_bitbucket, project_github; "
+                "print('project_pipeline' in sys.modules)")
+        result = subprocess.run([sys.executable, "-c", code], cwd=ROOT / "docker", capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout.strip(), "False")
+
+
 if __name__ == "__main__":
     unittest.main()

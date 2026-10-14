@@ -5,7 +5,7 @@
   make deploy-variables ENV=… from=FILE replace=1 also replace the ones that exist
   make deploy-variables ENV=… names=1             the list itself (no network)
 
-The list is the one make pipeline-deploy checks (project_pipeline.deployment_variables): setup's own
+The list is the one make pipeline-deploy checks (project_env_files.deployment_variables): setup's own
 secrets for the environment, DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES and the
 APP_ENVIRONMENT names the env files leave to the process; DEPLOY_PLAIN_VARIABLES are stored not
 Secured. The repository is DEPLOY_BITBUCKET_REPOSITORY (workspace/repository) or the origin remote.
@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 
 from project_env_files import file_settings, read_dotenv
-from project_pipeline import DEPLOYMENT_NAMES, deployment_variables
+from project_env_files import DEPLOYMENT_NAMES, deployment_variables
 import project_remote
 
 API = 'https://api.bitbucket.org/2.0'
