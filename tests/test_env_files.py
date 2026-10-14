@@ -92,6 +92,12 @@ class ImportTest(unittest.TestCase):
         result = subprocess.run([sys.executable, "-c", code], cwd=ROOT / "docker", capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout.strip(), "False")
 
+    def test_the_github_provider_does_not_load_the_bitbucket_one(self):
+        """What both providers share is in project_ci; neither imports the other."""
+        code = "import sys; import project_github; print('project_bitbucket' in sys.modules)"
+        result = subprocess.run([sys.executable, "-c", code], cwd=ROOT / "docker", capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout.strip(), "False")
+
 
 if __name__ == "__main__":
     unittest.main()
