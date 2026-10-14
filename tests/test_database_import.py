@@ -13,10 +13,12 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "docker"))
+sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
 import database_import
-from database_import import (MYSQL_IMPORT, DumpScanner, check_dump_tables, filter_dump, import_database,
-                             plan_import, remember_scan, render_hook, scan_dump, skip_rule, stream_filtered)
+from database_client import IMPORT as MYSQL_IMPORT, DatabaseError
+from database_import import (DumpScanner, check_dump_tables, filter_dump, import_database, load_dump, plan_import,
+                             remember_scan, render_hook, scan_dump, skip_rule)
+from fake_database import FakeDatabase
 
 
 def dump_tables(path, main=None, qualified=False):
@@ -46,7 +48,7 @@ class ImportFixture(unittest.TestCase):
             root=self.root, directory=self.root / "docker", environment="local",
             settings={"DATABASE_NAME": "example", "POST_IMPORT_SQL_DIRECTORY": "database/after-import"},
             command=["docker", "compose", "--project-name", "example-local"],
-            child_env=lambda: {},
+            child_env=lambda: {}, database=FakeDatabase(),
         )
         self.project.directory.mkdir()
         # Keep streaming deterministic whether or not the suite runs in a terminal.
@@ -78,21 +80,11 @@ class ImportFixture(unittest.TestCase):
 class DatabaseImportTest(ImportFixture):
     def test_the_dump_streams_with_a_progress_bar_over_its_size_and_hooks_do_not(self):
         plan = plan_import(self.project, str(self.dump))
-        target = self.root / "imported.sql"
         meter, bars = self.recording_meter()
-        hooks = []
-
-        def execute(command, *, env, stdin, check):
-            hooks.append(stdin.read())
-
-        with patch("database_import.progress_meter", return_value=meter), \
-                patch("database_import.subprocess.run", side_effect=execute), \
-                patch.object(self.project, "command", ["sh", "-c", f"cat >> '{target}'", "--"]), \
-                contextlib.redirect_stdout(io.StringIO()):
+        with patch("database_import.progress_meter", return_value=meter), contextlib.redirect_stdout(io.StringIO()):
             import_database(self.project, plan)
-        # The dump goes through the bar (the client's stdin is a pipe it fills); hooks are read straight.
-        self.assertEqual(target.read_bytes(), self.dump.read_bytes())
-        self.assertEqual(hooks, [p.read_bytes() for p in plan[1:]])
+        # The dump goes through the bar; each hook is a load of its own.
+        self.assertEqual(self.project.database.loaded, [p.read_bytes() for p in plan])
         imported = [bar for bar in bars if bar.label == "Import"]
         self.assertEqual([(bar.total, bar.done, bar.note) for bar in imported],
                          [(self.dump.stat().st_size, self.dump.stat().st_size, "")])
@@ -100,12 +92,11 @@ class DatabaseImportTest(ImportFixture):
     def test_a_failing_client_stops_before_hooks_and_marks_the_bar(self):
         plan = plan_import(self.project, str(self.dump))
         meter, bars = self.recording_meter()
+        self.project.database.fail_on = lambda operation, text: operation == "load"
         with patch("database_import.progress_meter", return_value=meter), \
-                patch("database_import.subprocess.run") as execute, \
-                patch.object(self.project, "command", ["sh", "-c", "cat > /dev/null; exit 3", "--"]), \
-                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(DatabaseError):
             import_database(self.project, plan)
-        self.assertEqual(execute.call_count, 0, "no hook runs after a failed dump")
+        self.assertEqual(len(self.project.database.loaded), 1, "no hook runs after a failed dump")
         self.assertEqual([bar.note for bar in bars if bar.label == "Import"], ["failed"])
 
     def test_a_dump_is_read_once_and_a_remembered_reading_is_not_repeated(self):
@@ -181,31 +172,23 @@ class DatabaseImportTest(ImportFixture):
     def test_streams_each_file_and_stops_after_first_failure(self):
         plan = plan_import(self.project, str(self.dump))
         for fail_at in (None, 0, 2):
-            seen = []
-
-            def execute(command, *, env, stdin, check):
-                self.assertEqual(command[-1], "example")
-                self.assertIn("-T", command)
-                self.assertTrue(check)
-                seen.append(stdin.read())
-                if len(seen) - 1 == fail_at:
-                    raise subprocess.CalledProcessError(1, ["mysql"])
-
-            with self.subTest(fail_at=fail_at), patch("database_import.subprocess.run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+            database = self.project.database = FakeDatabase(
+                fail_on=lambda operation, text: len(database.loaded) - 1 == fail_at)
+            with self.subTest(fail_at=fail_at), contextlib.redirect_stdout(io.StringIO()):
                 if fail_at is None:
                     import_database(self.project, plan)
                 else:
-                    with self.assertRaises(subprocess.CalledProcessError):
+                    with self.assertRaises(DatabaseError):
                         import_database(self.project, plan)
                 count = len(plan) if fail_at is None else fail_at + 1
-                self.assertEqual(seen, [p.read_bytes() for p in plan[:count]])
+                self.assertEqual(database.loaded, [p.read_bytes() for p in plan[:count]])
 
     def test_deleted_hook_prevents_any_database_execution(self):
         plan = plan_import(self.project, str(self.dump))
         plan[-1].unlink()
-        with patch("database_import.subprocess.run") as execute, self.assertRaises(FileNotFoundError):
+        with self.assertRaises(FileNotFoundError):
             import_database(self.project, plan)
-        execute.assert_not_called()
+        self.assertEqual(self.project.database.loaded, [])
 
     def test_concurrent_import_is_rejected_before_execution(self):
         plan = plan_import(self.project, str(self.dump))
@@ -213,9 +196,9 @@ class DatabaseImportTest(ImportFixture):
         output.mkdir()
         with (output / "db-import.local.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            with patch("database_import.subprocess.run") as execute, self.assertRaisesRegex(ValueError, "already running"):
+            with self.assertRaisesRegex(ValueError, "already running"):
                 import_database(self.project, plan)
-            execute.assert_not_called()
+            self.assertEqual(self.project.database.loaded, [])
 
     def test_running_database_name_mismatch_aborts_before_mysql(self):
         result = subprocess.run(["sh", "-c", MYSQL_IMPORT, "database-import", "expected"],
@@ -229,16 +212,9 @@ class DatabaseImportTest(ImportFixture):
         hook = self.sql / "local/010-local.sql"
         hook.write_text("UPDATE shop SET domain = '${DOMAIN}';\n")
         plan = plan_import(self.project, str(self.dump))
-        inputs = []
-        run_process = subprocess.run
-
-        def consume_stdin(*args, **kwargs):
-            result = run_process([sys.executable, "-c", "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"],
-                                 stdin=kwargs["stdin"], capture_output=True, check=True)
-            inputs.append(result.stdout)
-
-        with patch("database_import.subprocess.run", side_effect=consume_stdin), contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()):
             import_database(self.project, plan)
+        inputs = self.project.database.loaded
         self.assertIn(b"${DOMAIN}", inputs[0])
         self.assertEqual(inputs[-1], b"UPDATE shop SET domain = 'forsena.local';\n")
         self.assertIn("${DOMAIN}", hook.read_text())
@@ -319,14 +295,14 @@ class ImportSequenceTest(ImportFixture):
         check_dump_tables(self.project, self.dump, interactive=False)
 
     def test_filtered_stream_reaches_the_client_and_reports_its_failure(self):
-        target = self.root / "received.sql"
         source = self.root / "dump.sql"
         source.write_bytes(b"INSERT INTO `skip` VALUES (1);\nINSERT INTO `keep` VALUES (2);\n")
         with source.open("rb") as handle:
-            skipped = stream_filtered(self.project, ["sh", "-c", f"cat > '{target}'"], handle, lambda t: t == "skip")
-        self.assertEqual((skipped, target.read_bytes()), ({"skip"}, b"INSERT INTO `keep` VALUES (2);\n"))
-        with source.open("rb") as handle, self.assertRaises(subprocess.CalledProcessError):
-            stream_filtered(self.project, ["sh", "-c", "exit 5"], handle, lambda t: False)
+            skipped = load_dump(self.project, handle, lambda t: t == "skip")
+        self.assertEqual((skipped, self.project.database.loaded), ({"skip"}, [b"INSERT INTO `keep` VALUES (2);\n"]))
+        self.project.database.fail_on = lambda operation, text: True
+        with source.open("rb") as handle, self.assertRaises(DatabaseError):
+            load_dump(self.project, handle, lambda t: False)
 
     def test_profile_defaults_then_project_hooks_then_integration_switches(self):
         self.project.settings.update(PROFILE="prestashop", DOMAIN="shop.local")

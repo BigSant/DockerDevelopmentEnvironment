@@ -4,7 +4,6 @@ import contextlib
 import fcntl
 import io
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -12,8 +11,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "docker"))
+sys.path[:0] = [str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
+from database_client import DatabaseError
 from database_fixtures import load_fixtures, plan_fixtures
+from fake_database import FakeDatabase
 
 
 class FixturesTest(unittest.TestCase):
@@ -30,7 +31,7 @@ class FixturesTest(unittest.TestCase):
             (self.fixtures / name).write_text("SELECT '${DOMAIN}';\n")
         self.project = SimpleNamespace(root=self.root, directory=self.root / "app", environment="local",
             settings={"DATABASE_NAME": "example", "DOMAIN": "example.local", "FIXTURES_DIRECTORY": "app/database/fixtures"},
-            command=["docker", "compose"], child_env=lambda: {})
+            command=["docker", "compose"], child_env=lambda: {}, database=FakeDatabase())
 
     def test_order_and_set_are_independent_of_docker_environment(self):
         for environment in ("local", "prod"):
@@ -64,22 +65,19 @@ class FixturesTest(unittest.TestCase):
 
     def test_all_files_render_including_first_and_failure_stops_later_sql(self):
         plan = plan_fixtures(self.project, "test")
-        seen = []
-        def execute(command, *, env, stdin, check):
-            seen.append(stdin.read())
-            if len(seen) == 2:
-                raise subprocess.CalledProcessError(1, ["mysql"])
-        with patch("database_import.subprocess.run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+        database = self.project.database
+        database.fail_on = lambda operation, text: len(database.loaded) == 2
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(DatabaseError):
             load_fixtures(self.project, plan)
-        self.assertEqual(seen, [b"SELECT 'example.local';\n"] * 2)
+        self.assertEqual(database.loaded, [b"SELECT 'example.local';\n"] * 2)
         self.assertIn(b"${DOMAIN}", plan[0].read_bytes())
 
     def test_removed_file_and_invalid_domain_prevent_execution(self):
         plan = plan_fixtures(self.project, "test")
         plan[-1].unlink()
-        with patch("database_import.subprocess.run") as execute, self.assertRaises(FileNotFoundError):
+        with self.assertRaises(FileNotFoundError):
             load_fixtures(self.project, plan)
-        execute.assert_not_called()
+        self.assertEqual(self.project.database.loaded, [])
         self.project.settings["DOMAIN"] = "invalid'; SQL"
         with self.assertRaisesRegex(ValueError, "valid DOMAIN"):
             plan_fixtures(self.project, "local")
@@ -90,9 +88,9 @@ class FixturesTest(unittest.TestCase):
         output.mkdir()
         with (output / "db-import.local.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            with patch("database_import.subprocess.run") as execute, self.assertRaisesRegex(ValueError, "already running"):
+            with self.assertRaisesRegex(ValueError, "already running"):
                 load_fixtures(self.project, plan)
-        execute.assert_not_called()
+        self.assertEqual(self.project.database.loaded, [])
 
 
 if __name__ == "__main__":

@@ -5,12 +5,11 @@ import fcntl
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import tempfile
 
 
-from database_client import IMPORT as MYSQL_IMPORT, extra_schemas
+from database_client import DatabaseError, extra_schemas
 from database_backup import backup_database
 import gzip
 from project_prestashop import is_prestashop
@@ -273,50 +272,25 @@ class Counted:
         self.bar.update(done)
 
 
-def stream_sql(project, command, handle, meter=None):
-    if not meter:
-        subprocess.run(command, env=project.child_env(), stdin=handle, check=True)
-        return
-    size = os.fstat(handle.fileno()).st_size - handle.tell()
-    bar = meter("Import", size)
-    client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
-    try:
-        while block := handle.read(CHUNK):
-            client.stdin.write(block)
-            bar.advance(len(block))
-    except BrokenPipeError:
-        pass  # The client stopped early; its exit status reports why.
-    finally:
-        try:
-            client.stdin.close()
-        except BrokenPipeError:
-            pass
-        status = client.wait()
-    bar.finish("failed" if status else "")
-    if status:
-        raise subprocess.CalledProcessError(status, command[:1])
-
-
-def stream_filtered(project, command, handle, skip, meter=None):
-    bar = None
-    if meter:
-        bar = meter("Import", os.fstat(handle.fileno()).st_size - handle.tell())
-    client = subprocess.Popen(command, env=project.child_env(), stdin=subprocess.PIPE)
+def load_dump(project, handle, skip=None, meter=None):
+    """Stream a dump into the database; skip leaves out the data of those tables. Returns the tables skipped."""
+    bar = meter("Import", os.fstat(handle.fileno()).st_size - handle.tell()) if meter else None
     skipped = set()
     try:
-        skipped = filter_dump(Counted(handle, bar) if bar else handle, client.stdin, skip, main_schema(project))
-    except BrokenPipeError:
-        pass  # The client stopped early; its exit status reports why.
-    finally:
-        try:
-            client.stdin.close()
-        except BrokenPipeError:
-            pass
-        status = client.wait()
+        with project.database.load() as sink:
+            if skip:
+                skipped = filter_dump(Counted(handle, bar) if bar else handle, sink, skip, main_schema(project))
+            else:
+                while block := handle.read(CHUNK):
+                    sink.write(block)
+                    if bar:
+                        bar.advance(len(block))
+    except DatabaseError:
+        if bar:
+            bar.finish("failed")
+        raise
     if bar:
-        bar.finish("failed" if status else "")
-    if status:
-        raise subprocess.CalledProcessError(status, command[:1])
+        bar.finish("")
     return skipped
 
 
@@ -452,24 +426,18 @@ def execute_sql(project, plan, *, first_is_dump=False, backup=False, skip=None):
                     else:
                         handle = stack.enter_context(path.open("rb"))
                 else:
-                    # subprocess stdin requires a real file descriptor. Keep rendered SQL
-                    # in a private temporary file inside this repository, never in sources.
-                    handle = stack.enter_context(tempfile.TemporaryFile(dir=output))
-                    handle.write(render_hook(project, path))
-                    handle.seek(0)
+                    handle = render_hook(project, path)  # Rendered before any change, so a bad hook stops early.
                 inputs.append((path, handle))
             if backup:
                 backup_database(project)
-            command = project.command + ["exec", "-T", "database", "sh", "-c", MYSQL_IMPORT,
-                                         "database-import", project.settings["DATABASE_NAME"]]
-            meter = progress_meter() if first_is_dump else None
             skipped = set()
             for index, (path, handle) in enumerate(inputs):
                 dump = index == 0 and first_is_dump
                 print(f"{'Import' if dump else 'SQL'}: {path}", flush=True)
                 # A failing dump or hook stops the sequence; no later SQL runs.
-                if dump and skip:
-                    skipped = stream_filtered(project, command, handle, skip, meter)
+                if dump:
+                    skipped = load_dump(project, handle, skip, progress_meter())
                 else:
-                    stream_sql(project, command, handle, meter if dump else None)
+                    with project.database.load() as sink:
+                        sink.write(handle)
             return skipped
