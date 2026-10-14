@@ -60,18 +60,19 @@ def ensure_generated_secrets(directory, environment):
     private = Path(directory) / f'env/{environment}.env'
     if not private.is_file():
         return
-    raw = private.read_text()
+    from project_env_files import project_root, read_dotenv
+    from project_prestashop import is_prestashop, local_key_values
+    own = read_dotenv(private)
+    common = Path(directory) / 'env/common.env'
+    # As Compose reads them: common.env, then the private file; a blank value is not set.
+    settings = {**(read_dotenv(common) if common.is_file() else {}), **own}
     values = {}
-    if not re.search(r'^DATABASE_ROOT_PASSWORD=\S', raw, re.M):
+    if not own.get('DATABASE_ROOT_PASSWORD'):
         values['DATABASE_ROOT_PASSWORD'] = secrets.token_hex(24)
-    setting = lambda name: next((m[1].strip().strip('"\'') for f in (private, Path(directory) / 'env/common.env')
-                                 if f.is_file() for m in [re.search(rf'^{name}=(.*)$', f.read_text(), re.M)] if m), '')
-    if setting('PROFILE') in ('ps', 'prestashop') and setting('PS_VERSION'):
-        from project_env_files import project_root
-        from project_prestashop import local_key_values
-        present = {k for k in re.findall(r'^(PS_[A-Z_]+)=\S', raw, re.M)}
-        web = project_root(Path(directory).resolve()) / (setting('APP_SOURCE_DIRECTORY') or 'app/public')
-        values.update(local_key_values(web, setting('PS_VERSION'), present))
+    if is_prestashop(settings) and settings.get('PS_VERSION'):
+        present = {key for key, value in own.items() if key.startswith('PS_') and value}
+        web = project_root(Path(directory).resolve()) / (settings.get('APP_SOURCE_DIRECTORY') or 'app/public')
+        values.update(local_key_values(web, settings['PS_VERSION'], present))
     if values:
         set_env_values(private, values)
 
