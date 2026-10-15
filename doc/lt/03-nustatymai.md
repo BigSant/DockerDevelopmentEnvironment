@@ -125,7 +125,8 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
 | `METRICS_TOKEN` | Tuščias | Neprivalomas Bearer token'as `/metrics`, bent 24 simboliai. Tuščias – prieigą saugo tik `METRICS_ALLOWED_IPS`. |
-| `METRICS_ALLOWED_IPS` | Tuščias | Prometheus serverio adresas (IP/CIDR). Be jo ar `ALLOWED_IPS` stage/prod servisas nepasileidžia. |
+| `METRICS_HTPASSWD` | Tuščias | Neprivalomas Basic-auth (htpasswd eilutės) `metrics.<domain>` puslapiams, išskyrus `/metrics`. Slaptas kaip token'as. Žr. [slaptažodžiai įrankiams](05-servisai.md#slaptažodžiai-įrankiams-htpasswd). |
+| `METRICS_ALLOWED_IPS` | Tuščias | Kas pasiekia `metrics.<domain>`: Prometheus serverio adresas (IP/CIDR) ir, jei reikia, komandos adresai. Be jo ar `ALLOWED_IPS` stage/prod servisas nepasileidžia. |
 | `METRICS_URLS` | `https://<DOMAIN>/` | Tikrinami URL per tarpus (seno scripto `--urls`): atsakymo laikas ir būsena. |
 | `METRICS_PROBE_ADDRESS` | Tuščias | IP, į kurį jungiasi URL patikra vietoj DNS (kaip `curl --connect-to`), pvz. VPN adresas. |
 | `METRICS_NETWORK_INTERFACE` | Numatytojo maršruto sąsaja | Serverio tinklo sąsaja `network_*` metrikoms (seno scripto `network_interface`). |

@@ -6,8 +6,9 @@
 # allows only those IPs/CIDRs. An empty list leaves local/test and the site open; on stage/prod the tools
 # are denied (the runner already refuses to start setup's tools without a list).
 # <NAME>_HTPASSWD (htpasswd lines user:hash, separated by whitespace) adds Basic-auth on top of the IP rule
-# for PMA, MAILPIT, CRON, BACKUP and the PROXY_TOOLS names; empty keeps the IP rule alone. Not for the site
-# (the application guards itself) nor DBMONITOR and METRICS, whose bearer token uses the same header.
+# for PMA, MAILPIT, CRON, BACKUP, METRICS and the PROXY_TOOLS names; empty keeps the IP rule alone. Not for the
+# site (the application guards itself) nor DBMONITOR, whose bearer token uses the same header; METRICS turns it
+# off again for /metrics, which has such a token (sites.metrics.conf).
 # PROXY_TOOLS: a project's own nginx-proxy sites (config/nginx-proxy/), which include
 # /etc/nginx/setup-access/<name>.conf like setup's tools do.
 set -euo pipefail
@@ -64,7 +65,7 @@ for name in $project_names; do
         exit 1
     fi
 done
-password_names=" pma mailpit cron backup $project_names "
+password_names=" pma mailpit cron backup metrics $project_names "
 
 for name in $setup_names $project_names; do
     setting="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')_ALLOWED_IPS"

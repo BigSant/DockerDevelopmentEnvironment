@@ -4,6 +4,24 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **Breaking for `SERVICES=metrics`: the metrics move from `<domain>/metrics` to their own tool site
+  `metrics.<domain>`** (like `cron.` and `backup.`). The main site no longer has a `/metrics` path: from the first
+  deploy with this setup, a request there reaches the application like any other page. Prometheus reads
+  `https://metrics.<domain>/metrics` with the same names, the same `METRICS_ALLOWED_IPS` and the same optional
+  `METRICS_TOKEN`. Scrapes no longer pass through the site's server, so they are out of its access log by
+  construction. New optional **`METRICS_HTPASSWD`** (Basic-auth, a Deployment variable like the other tools'
+  passwords) guards every `metrics.<domain>` page except `/metrics`, which keeps its bearer token; for now the only
+  other page is a short index, the dashboard comes later. `make deploy-variables` lists it, and `make pipeline-deploy`
+  names it among the empty optional variables until it is set.
+  Before deploying a project that runs `metrics` with this setup, on its server:
+  1. DNS record `metrics.<domain>` (VPN target: the name pointing at the VPN address on the Prometheus server, e.g. `/etc/hosts`);
+  2. DirectAdmin: subdomain `metrics.<domain>` proxied to nginx-proxy like the main domain, with a TLS certificate;
+  3. Prometheus: target `metrics.<domain>`, `metrics_path: /metrics` (job name unchanged, so the dashboards keep working).
+  Locally the host Nginx helper changed: run `setup/install-host` once (sudo), as `make bootstrap` asks; it then
+  adds the `/etc/hosts` entry and the host Nginx name (the mkcert certificate already covers `*.<domain>`).
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

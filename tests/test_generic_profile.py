@@ -130,6 +130,10 @@ class GenericCycleTest(unittest.TestCase):
         unresolved = patch('project_bootstrap.socket.getaddrinfo', side_effect=socket.gaierror('not found'))
         unresolved.start()
         self.addCleanup(unresolved.stop)
+        # The helpers this checkout ships, not the copies install-host left on the machine running the tests.
+        helpers = patch('project_bootstrap.INSTALLED_HELPERS', self.parent / 'no-installed-helpers')
+        helpers.start()
+        self.addCleanup(helpers.stop)
 
     def make(self, action, *options):
         argv = ['project.py', '--docker-directory', str(self.app), '--project-directory', str(self.app.parent),

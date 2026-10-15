@@ -42,7 +42,7 @@ def configuration(domain, port, ssl, hosts=()):
                   f'    ssl_certificate_key "{ssl}/domain.key";') if tls else 'listen 80;\n    listen [::]:80;'
         result += f'''server {{
     {listen}
-    server_name {names} pma.{domain} mailpit.{domain} cron.{domain} dbmonitor.{domain} backup.{domain};
+    server_name {names} pma.{domain} mailpit.{domain} cron.{domain} dbmonitor.{domain} backup.{domain} metrics.{domain};
     location / {{
         proxy_pass http://127.0.0.1:{port};
         proxy_set_header Host $http_host;

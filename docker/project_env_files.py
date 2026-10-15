@@ -26,7 +26,7 @@ ESCAPES = {'n': '\n', 't': '\t', 'r': '\r'}
 DEPLOYMENT_ENVIRONMENTS = {'staging': 'stage', 'production': 'prod'}
 DEPLOYMENT_NAMES = {setup: name for name, setup in DEPLOYMENT_ENVIRONMENTS.items()}
 # Basic-auth users of the browser tools (nginx-proxy access.sh), optional on top of their IP allowlist.
-TOOL_PASSWORDS = {tool: f'{tool.upper()}_HTPASSWD' for tool in ('pma', 'mailpit', 'cron', 'backup')}
+TOOL_PASSWORDS = {tool: f'{tool.upper()}_HTPASSWD' for tool in ('pma', 'mailpit', 'cron', 'backup', 'metrics')}
 # Secrets a pipeline passes as process environment (Bitbucket Deployment variables, GitHub environment
 # secrets). An env file that leaves one blank does not hide the process value; any other key named in an
 # env file does.
@@ -173,7 +173,7 @@ def deployment_variables(directory, environment):
     setup's own: DATABASE_PASSWORD, DATABASE_ROOT_PASSWORD and the PrestaShop keys of PS_VERSION
     (required); DATABASE_MONITOR_PASSWORD (metrics or dbmonitor), METRICS_TOKEN (metrics) and
     DBMONITOR_TOKEN (dbmonitor) (optional: the IP allowlist guards both endpoints), <TOOL>_HTPASSWD of the active
-    pma, mailpit, cron and backup (optional Basic-auth on top of their allowlist). The project's:
+    pma, mailpit, cron, backup and metrics (optional Basic-auth on top of their allowlist). The project's:
     DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES and every APP_ENVIRONMENT name the env files
     leave to the process.
     A name the env files set is not a Deployment variable (the file wins); one they leave blank hides

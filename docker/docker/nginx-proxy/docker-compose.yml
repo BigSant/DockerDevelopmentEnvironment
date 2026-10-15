@@ -53,6 +53,7 @@ services:
       MAILPIT_HTPASSWD: ${MAILPIT_HTPASSWD:-}
       CRON_HTPASSWD: ${CRON_HTPASSWD:-}
       BACKUP_HTPASSWD: ${BACKUP_HTPASSWD:-}
+      METRICS_HTPASSWD: ${METRICS_HTPASSWD:-}
       PROXY_TOOLS: ${PROXY_TOOLS:-}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # 1 = ports on a non-loopback PUBLISH_ADDRESS: clients connect directly, their X-Forwarded-* are not trusted.

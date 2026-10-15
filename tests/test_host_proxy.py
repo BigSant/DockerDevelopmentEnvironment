@@ -24,6 +24,10 @@ class HostProxyTest(unittest.TestCase):
         self.ssl.mkdir()
         for name in ('domain.crt', 'domain.key'):
             (self.ssl / name).write_text('test certificate placeholder')
+        # The helpers this checkout ships, not the copies install-host left on the machine running the tests.
+        helpers = patch('project_bootstrap.INSTALLED_HELPERS', self.root / 'no-installed-helpers')
+        helpers.start()
+        self.addCleanup(helpers.stop)
         (self.root / 'sites-available').mkdir()
         (self.root / 'sites-enabled').mkdir()
         self.target = self.root / 'sites-available/demo.local.conf'
@@ -31,7 +35,7 @@ class HostProxyTest(unittest.TestCase):
 
     def test_http_and_https_preserve_original_host_and_scheme(self):
         config = configuration('demo.local', '32001', self.ssl).decode()
-        self.assertIn('server_name demo.local pma.demo.local mailpit.demo.local cron.demo.local dbmonitor.demo.local backup.demo.local;', config)
+        self.assertIn('server_name demo.local pma.demo.local mailpit.demo.local cron.demo.local dbmonitor.demo.local backup.demo.local metrics.demo.local;', config)
         self.assertEqual(config.count('proxy_pass http://127.0.0.1:32001;'), 2)
         self.assertIn('listen 80;', config)
         self.assertIn('listen 443 ssl http2;', config)

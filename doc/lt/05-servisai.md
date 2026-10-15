@@ -17,7 +17,7 @@ SERVICES="pma mailpit cron"
 | `cron` | Suplanuotos užduotys su sąsaja ir istorija | UI `https://cron.demo.local/`. Žr. [cron](#cron). |
 | `dbmonitor` | DB našumo duomenys JSON forma | `https://dbmonitor.demo.local/` iš IP sąrašo (token'as – neprivalomas). Žr. [DB monitorius](#db-monitorius). |
 | `backup` | Lentelių registras: kiekviena DB lentelė ir jos taisyklė kopijoms, importui ir dev rinkiniui | UI `https://backup.demo.local/`. Žr. [lentelių registras](#lentelių-registras-backup). |
-| `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://demo.local/metrics` iš IP sąrašo (token'as – neprivalomas). Žr. [Metrikos](#metrikos-prometheus). |
+| `metrics` | Serverio, svetainės, HTTP, saugumo, DB, procesų, konteinerių ir cron Prometheus metrikos esamiems Grafana dashboard'ams | `https://metrics.demo.local/metrics` iš IP sąrašo (token'as – neprivalomas). Žr. [Metrikos](#metrikos-prometheus). |
 | `memcached` | Memcached cache | `memcached:11211` projekto tinkle. |
 | `redis` | Redis cache | `redis:6379` projekto tinkle. |
 | `playwright` | Naršyklės testų įrankis | `make e2e`. |
@@ -48,7 +48,7 @@ make up
 
 `make build` sukuria naujo serviso image'ą, `make up` jį paleidžia. Išjungus servisą, pašalink seną konteinerį: `make down`, tada `make up`.
 
-Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.`, `backup.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `backup`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
+Nežinomas vardas `SERVICES` sąraše yra klaida. Servisų adresai `pma.`, `mailpit.`, `cron.`, `dbmonitor.`, `backup.`, `metrics.` veikia per kompiuterio Nginx, kurį paruošia `make bootstrap`. Stage/prod įrankiai `pma`, `mailpit`, `cron`, `dbmonitor`, `backup`, `metrics` be IP sąrašo nepasileidžia, žr. [IP apribojimai](#ip-apribojimai).
 
 ## Drop-in failai: papildyti CORE konfigūraciją
 
@@ -217,13 +217,13 @@ location / {
 
 ## IP apribojimai
 
-Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius, `/metrics`) ribojamas nginx-proxy lygyje.
+Kiekvienas web įėjimas (svetainė, PMA, Mailpit, cron UI, DB monitorius, metrikos) ribojamas nginx-proxy lygyje.
 
 | Raktas | Kam galioja |
 | --- | --- |
 | `ALLOWED_IPS` | Visiems įėjimams, **įskaitant svetainę**. |
 | `SITE_ALLOWED_IPS` | Tik svetainei. |
-| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `BACKUP_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja tik `/metrics` keliui, ne visai svetainei. |
+| `PMA_ALLOWED_IPS`, `MAILPIT_ALLOWED_IPS`, `CRON_ALLOWED_IPS`, `DBMONITOR_ALLOWED_IPS`, `BACKUP_ALLOWED_IPS`, `METRICS_ALLOWED_IPS` | Tik tam įrankiui. `METRICS_ALLOWED_IPS` galioja visam `metrics.<domain>`. |
 
 Taisyklės:
 
@@ -252,11 +252,11 @@ Pakeitus sąrašą: `make restart service=nginx-proxy` (stage/prod su `DEPLOY_CO
 
 ### Slaptažodžiai įrankiams (htpasswd)
 
-IP sąrašas įleidžia visus to tinklo (pvz. VPN) klientus. Kad įrankį pasiektų tik dalis jų, `PMA_HTPASSWD`, `MAILPIT_HTPASSWD`, `CRON_HTPASSWD` ir `BACKUP_HTPASSWD` prideda Basic-auth **prie** IP sąrašo: reikia ir leistino adreso, ir slaptažodžio (ne iš sąrašo – `403`, be slaptažodžio ar su neteisingu – `401`). Kiekvienas įrankis turi savo sąrašą, bendro nėra. Tuščias – tikrinamas tik IP sąrašas, kaip anksčiau.
+IP sąrašas įleidžia visus to tinklo (pvz. VPN) klientus. Kad įrankį pasiektų tik dalis jų, `PMA_HTPASSWD`, `MAILPIT_HTPASSWD`, `CRON_HTPASSWD`, `BACKUP_HTPASSWD` ir `METRICS_HTPASSWD` prideda Basic-auth **prie** IP sąrašo: reikia ir leistino adreso, ir slaptažodžio (ne iš sąrašo – `403`, be slaptažodžio ar su neteisingu – `401`). Kiekvienas įrankis turi savo sąrašą, bendro nėra. Tuščias – tikrinamas tik IP sąrašas, kaip anksčiau.
 
 - Reikšmė – htpasswd eilutės `vartotojas:hash`, atskirtos tarpais: `htpasswd -nbB VARTOTOJAS SLAPTAŽODIS` (bcrypt) arba `htpasswd -nbm …` (apr1). Neteisinga eilutė sustabdo Nginx; klaidoje nurodomas tik kintamasis ir eilutės numeris, ne jos tekstas.
 - Stage/prod tai slapti kintamieji: Bitbucket / GitHub Deployment variables (`make deploy-variables` juos išvardija, kai įrankis įjungtas, kaip neprivalomus). Lokaliai – `env/local.env` (vienguba kabute, nes hash'e yra `$`).
-- `metrics` ir `dbmonitor` slaptažodžio negauna: jų neprivalomas bearer token'as naudoja tą pačią `Authorization` antraštę. Svetainės taip pat neliečia – ją saugo pati aplikacija.
+- `dbmonitor` slaptažodžio negauna: jo neprivalomas bearer token'as naudoja tą pačią `Authorization` antraštę. Dėl tos pačios priežasties `METRICS_HTPASSWD` saugo visus `metrics.<domain>` puslapius, išskyrus `/metrics` (ten – `METRICS_TOKEN`). Svetainės taip pat neliečia – ją saugo pati aplikacija.
 
 **Projekto įrankiai.** Projekto savo nginx-proxy svetainė (`config/nginx-proxy/<env>/*.conf`, pvz. Meilisearch skydelis) gauna tas pačias taisykles: `PROXY_TOOLS` (`env/common.env` ar `env/<env>.env`) išvardija jos vardus, o svetainė įtraukia `include /etc/nginx/setup-access/<vardas>.conf;`. Vardui galioja `<VARDAS>_ALLOWED_IPS` (arba `ALLOWED_IPS`) ir `<VARDAS>_HTPASSWD`; stage/prod be sąrašo įrankis uždarytas. Šias reikšmes nginx-proxy gauna per projekto compose failą, o slaptažodį projektas išvardija `DEPLOY_OPTIONAL_VARIABLES`:
 
@@ -442,7 +442,7 @@ Prieigą saugo IP sąrašas: ne iš jo – `403`. Token'as neprivalomas: tušči
 
 ## Metrikos (Prometheus)
 
-Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Atiduodami **visi** dashboard'ų ir alert'ų naudojami vardai (išskyrus parduotuvės `monitoring_*` – PrestaShop modulio, ir PageSpeed `pagespeed_insight_*` – stebėjimo programos), grupėmis:
+Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `metrics.<domain>/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Atiduodami **visi** dashboard'ų ir alert'ų naudojami vardai (išskyrus parduotuvės `monitoring_*` – PrestaShop modulio, ir PageSpeed `pagespeed_insight_*` – stebėjimo programos), grupėmis:
 
 - **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`, `active_connections`;
 - **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas);
@@ -466,7 +466,7 @@ METRICS_URLS="https://demo.lt/ https://demo.lt/kontaktai"
 METRICS_SUPPORT_LEVEL=2
 ```
 
-2. Pritaikyk (`nginx-proxy` image'as gauna `/metrics` kelią):
+2. Pritaikyk (`nginx-proxy` gauna `metrics.<domain>` svetainę):
 
 ```bash
 make build
@@ -476,16 +476,16 @@ make up
 3. Patikra:
 
 ```bash
-curl https://demo.lt/metrics                                            # be token'o
-curl -H "Authorization: Bearer $METRICS_TOKEN" https://demo.lt/metrics   # su token'u
+curl https://metrics.demo.lt/metrics                                            # be token'o
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://metrics.demo.lt/metrics   # su token'u
 ```
 
-Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is).
+Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is). Kiti `metrics.<domain>` puslapiai (pradžios puslapis, vėliau dashboard'as) token'o neprašo; juos papildomai gali saugoti `METRICS_HTPASSWD` ([slaptažodžiai įrankiams](#slaptažodžiai-įrankiams-htpasswd)).
 
-**Kaip Prometheus skaito.** Kelias yra pagrindiniame domene, ne atskirame subdomene, todėl tinka abu taikiniai:
+**Kaip Prometheus skaito.** Metrikos yra atskirame subdomene `metrics.<domain>` (kaip `cron.` ir `backup.`), todėl taikinyje jį reikia paruošti:
 
-- **DirectAdmin** (viešas domenas): DirectAdmin baigia TLS ir perduoda užklausą į nginx-proxy, šis IP tikrina pagal `X-Forwarded-For`. Sąraše – tik Prometheus adresas.
-- **VPN** (`PUBLISH_ADDRESS` – VPN sąsajos adresas, be DirectAdmin): Prometheus jungiasi per VPN `http://` ir domeno vardu (Prometheus serveryje vardas turi rodyti į VPN adresą, pvz. `/etc/hosts`).
+- **DirectAdmin** (viešas domenas): DNS įrašas `metrics.<domain>`, DirectAdmin subdomenas su proxy į nginx-proxy (kaip pagrindiniam domenui) ir TLS sertifikatas (Let's Encrypt). DirectAdmin baigia TLS ir perduoda užklausą į nginx-proxy, šis IP tikrina pagal `X-Forwarded-For`. Sąraše – tik Prometheus adresas.
+- **VPN** (`PUBLISH_ADDRESS` – VPN sąsajos adresas, be DirectAdmin): Prometheus jungiasi per VPN `http://` ir vardu `metrics.<domain>` (Prometheus serveryje jis turi rodyti į VPN adresą, pvz. `/etc/hosts`).
 
 ```yaml
 scrape_configs:
@@ -497,7 +497,7 @@ scrape_configs:
     authorization:                    # tik su METRICS_TOKEN
       credentials_file: /etc/prometheus/tokens/demo
     static_configs:
-      - targets: ['demo.lt']
+      - targets: ['metrics.demo.lt']
 ```
 
 Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat 1 1` / `sar 1 1`) plius kiekvieno `METRICS_URLS` adreso patikra (iki 20 s), todėl `scrape_timeout` palik didesnį už numatytą 10 s.
@@ -510,7 +510,7 @@ Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat
 
 Su `cron` servisu prisijungia dar du katalogai, taip pat tik skaitymui: cron istorija (`data/cron`) ir crontab (`app/config/cron`, jei yra). Docker socket'o metrikų servisas negauna – konteinerius skaito atskiras kolektorius, žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai).
 
-Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra tik nginx-proxy (jis kreipiasi į `/metrics`) ir DB (DB grupei).
+Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra tik nginx-proxy (jis perduoda `metrics.<domain>` užklausas) ir DB (DB grupei).
 
 **Prasmė ir vienetai** (kaip seno scripto, įskaitant jo keistenybes, kad dashboard'ai rodytų tą patį):
 
