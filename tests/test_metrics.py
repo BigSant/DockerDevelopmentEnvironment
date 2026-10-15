@@ -645,14 +645,61 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(release["volumes"], model["volumes"])
         self.assertEqual(services["php-fpm"]["environment"]["SETUP_ENABLE_METRICS"], "1")
 
+    def test_the_log_collector_has_the_collector_guards_and_its_own_volume(self):
+        app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\nLOGS_RETENTION_DAYS=30\n")
+        project = Project(app, "stage")
+        model = json.loads(project.capture(["config", "--format", "json"]))
+        logs = model["services"]["metrics-logs"]
+        self.assertEqual((logs["network_mode"], logs["read_only"], logs["cap_drop"], logs["user"]), ("none", True, ["ALL"], "0:0"))
+        self.assertIn("no-new-privileges:true", logs["security_opt"])
+        self.assertNotIn("ports", logs)
+        mounts = {volume["target"]: volume for volume in logs["volumes"]}
+        socket = mounts["/var/run/docker.sock"]
+        self.assertEqual((socket["source"], socket["read_only"]), ("/var/run/docker.sock", True))
+        volume = mounts["/var/lib/setup-logs"]
+        self.assertEqual((volume["type"], volume.get("read_only", False)), ("volume", False))
+        self.assertEqual(model["volumes"][volume["source"]]["name"], f"{project.settings['PROJECT_NAME']}-stage-logs")
+        environment = logs["environment"]
+        self.assertEqual((environment["METRICS_DOCKER_PROJECT"], environment["LOGS_RETENTION_DAYS"], environment["LOGS_MAX_MB"]),
+                         (project.name, "30", "2048"))
+        release = release_model(project, "/srv/demo")
+        self.assertIn(("/var/run/docker.sock", "/var/run/docker.sock"),
+                      {(v["source"], v["target"]) for v in release["services"]["metrics-logs"]["volumes"] if v["type"] == "bind"})
+        for setting, value, message in (("LOGS_RETENTION_DAYS", "0", "1 to 366"), ("LOGS_MAX_MB", "10", "64 to 1048576")):
+            with (app / "env/stage.env").open("a") as env:
+                env.write(f"{setting}={value}\n")
+            with self.assertRaisesRegex(ValueError, message):
+                Project(app, "stage")
+            text = (app / "env/stage.env").read_text().replace(f"{setting}={value}\n", "")
+            (app / "env/stage.env").write_text(text)
+
+    def test_make_logs_day_reads_the_collector_files(self):
+        from project_commands import logs
+        app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
+        project = Project(app, "stage")
+        calls = []
+        project.run = lambda args, profiles=None: calls.append(args)
+        logs(project, "php-fpm", day="2026-10-14")
+        logs(project, day="today")
+        logs(project, "php-fpm")
+        self.assertEqual(calls, [
+            ["exec", "-T", "metrics-logs", "php", "/opt/setup/runtime/metrics/log-collector.php", "--print", "2026-10-14", "php-fpm"],
+            ["exec", "-T", "metrics-logs", "php", "/opt/setup/runtime/metrics/log-collector.php", "--print", "today"],
+            ["logs", "--tail", "100", "php-fpm"]])
+        with self.assertRaisesRegex(ValueError, "follow=1 is for docker logs"):
+            logs(project, day="today", follow=True)
+        plain = Project(self.project("CRON_ALLOWED_IPS=10.8.0.20\n", services="cron"), "stage")
+        with self.assertRaisesRegex(ValueError, "runs with SERVICES=metrics"):
+            logs(plain, day="today")
+
     def test_only_the_networkless_collector_reads_docker_and_cron_history_is_mounted_with_cron(self):
         app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
         project = Project(app, "stage")
         services = json.loads(project.capture(["config", "--format", "json"]))["services"]
         metrics, collector = services["metrics"], services["metrics-docker"]
-        # The web-facing service never gets the socket; the collector has no network, ports or capabilities.
+        # The web-facing service never gets the socket; the collectors have no network, ports or capabilities.
         for name, service in services.items():
-            if name != "metrics-docker":
+            if name not in ("metrics-docker", "metrics-logs"):
                 self.assertNotIn("/var/run/docker.sock", {v.get("source") for v in service.get("volumes", [])}, name)
         self.assertEqual((collector["network_mode"], collector["read_only"], collector["cap_drop"]), ("none", True, ["ALL"]))
         self.assertIn("no-new-privileges:true", collector["security_opt"])

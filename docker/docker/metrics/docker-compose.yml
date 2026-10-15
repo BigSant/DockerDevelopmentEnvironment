@@ -103,6 +103,46 @@ services:
         source: docker_state
         target: /var/lib/setup-docker
 
+  # Log collector: follows the stdout and stderr of this project's containers through the Docker API and keeps
+  # them in the log volume past the containers' life, one file per service, stream and day, gzipped once the day is
+  # over, LOGS_RETENTION_DAYS days and LOGS_MAX_MB at most. It holds the socket, so it has the same guards as
+  # metrics-docker: GET requests for the project's own containers only, no network, capabilities or writable root.
+  metrics-logs:
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+    container_name: ${PROJECT_NAME}-${ENV}-metrics-logs
+    # Root only to open the root-owned socket; the files it writes are readable by the project account.
+    user: "0:0"
+    entrypoint: ["php", "/opt/setup/runtime/metrics/log-collector.php"]
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${METRICS_MEMORY}
+    cpus: ${METRICS_CPUS}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      METRICS_DOCKER_PROJECT: ${PROJECT_NAME}-${ENV}
+      LOGS_DIR: /var/lib/setup-logs
+      LOGS_RETENTION_DAYS: ${LOGS_RETENTION_DAYS}
+      LOGS_MAX_MB: ${LOGS_MAX_MB}
+    volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - type: volume
+        source: logs
+        target: /var/lib/setup-logs
+
   # Writers of the HTTP log volume, each file bounded to two of METRICS_HTTP_LOG_MB (current and rotated).
   nginx-proxy:
     networks:
@@ -132,6 +172,8 @@ services:
 volumes:
   http_logs:
     name: ${PROJECT_NAME}-${ENV}-http-logs
+  logs:
+    name: ${PROJECT_NAME}-${ENV}-logs
   docker_state:
     name: ${PROJECT_NAME}-${ENV}-metrics-docker
 

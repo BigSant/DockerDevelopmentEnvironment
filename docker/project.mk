@@ -27,7 +27,7 @@ help:
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
 	@echo 'check / config: validate / render shared sources without starting containers'
 	@echo 'build: explicitly build images; up: start using existing images; down / ps / logs'
-	@echo 'restart [service=php-fpm]: apply configuration; logs [service=database] [follow=1] [tail=100]'
+	@echo 'restart [service=php-fpm]: apply configuration; logs [service=database] [follow=1] [tail=100] [day=2026-10-14|today|yesterday]'
 	@echo 'runtime-info: resolved cache/mail policy; cache-clear: clear application and PHP caches'
 	@echo 'composer / npm [dir=themes/example/_dev] [cmd="install"]: run package tools in application sources'
 	@echo 'db-backup-prune [apply=1]: preview / prune old backups'
@@ -71,7 +71,7 @@ restart:
 	@$(RUN_PROJECT) $@ $(if $(service),--service $(call quote,$(service)),)
 
 logs:
-	@$(RUN_PROJECT) $@ $(if $(service),--service $(call quote,$(service)),) $(if $(filter 1,$(follow)),--follow,) $(if $(tail),--tail $(call quote,$(tail)),)
+	@$(RUN_PROJECT) $@ $(if $(service),--service $(call quote,$(service)),) $(if $(filter 1,$(follow)),--follow,) $(if $(tail),--tail $(call quote,$(tail)),) $(if $(day),--day $(call quote,$(day)),)
 
 composer npm:
 	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(dir),--workdir $(call quote,$(dir)),)

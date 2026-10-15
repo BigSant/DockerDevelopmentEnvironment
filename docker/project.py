@@ -396,6 +396,7 @@ def main():
     parser.add_argument('--service', help='One enabled service for logs/restart')
     parser.add_argument('--follow', action='store_true')
     parser.add_argument('--tail', type=int, default=100)
+    parser.add_argument('--day', help='logs: the log collector\'s files of one day (YYYY-MM-DD, today, yesterday)')
     parser.add_argument('--apply', action='store_true', help='Apply the pruning plan')
     parser.add_argument('--cache', action='store_true', help='image-prune: include the Docker build cache')
     args = parser.parse_args()
@@ -437,7 +438,7 @@ def main():
         elif args.action in ('restart', 'logs', 'composer', 'npm', 'cache-clear'):
             from project_commands import restart, logs, composer, npm, cache_clear
             if args.action == 'restart': restart(project, args.service, args.timeout)
-            elif args.action == 'logs': logs(project, args.service, args.follow, args.tail)
+            elif args.action == 'logs': logs(project, args.service, args.follow, args.tail, args.day)
             elif args.action == 'composer': composer(project, args.command, args.workdir)
             elif args.action == 'npm': npm(project, args.command, args.workdir)
             else: cache_clear(project)
