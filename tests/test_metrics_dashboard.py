@@ -112,6 +112,32 @@ class TabRefreshTest(DashboardServer, unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class ProblemsTest(DashboardServer, unittest.TestCase):
+    def test_the_sampler_s_reasons_say_what_is_missing(self):
+        data = snapshot(setup_metrics_group_up=family([({"group": "database"}, 0), ({"group": "php"}, 0), ({"group": "containers"}, 1)]))
+        for name in [name for name in data["families"] if name.startswith("database_")]:
+            del data["families"][name]
+        data["problems"] = {"database": ["database: DATABASE_MONITOR_PASSWORD is not set: run make db-monitor-user ENV=prod"],
+                            "php": ["cannot reach php-fpm at php-fpm:9000: <refused & gone>"]}
+        self.write(data)
+        overview = fetch(self.base, "/")[2]
+        self.assertIn("<li><b>database</b>: database: DATABASE_MONITOR_PASSWORD is not set: run make db-monitor-user ENV=prod</li>", overview)
+        # Escaped like every other value.
+        self.assertIn("&lt;refused &amp; gone&gt;", overview)
+        self.assertNotIn("<refused", overview)
+        # A tab shows its own group's reasons instead of the general hint.
+        tab = fetch(self.base, "/database")[2]
+        self.assertIn("DATABASE_MONITOR_PASSWORD is not set", tab)
+        self.assertNotIn("php-fpm", tab)
+        self.assertNotIn("No data: the DB monitor account", tab)
+        # A snapshot without reasons (taken before the sampler kept them): the general hint, no callout.
+        del data["problems"]
+        self.write(data)
+        self.assertNotIn("data-problems", fetch(self.base, "/")[2])
+        self.assertIn("No data: the DB monitor account gives no statistics", fetch(self.base, "/database")[2])
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
 class OverviewTest(DashboardServer, unittest.TestCase):
 
     def cards(self, path="/"):

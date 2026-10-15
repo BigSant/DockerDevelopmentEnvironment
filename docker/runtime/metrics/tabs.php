@@ -170,10 +170,14 @@ function tabs_route($path)
     }
     $body = call_user_func($render, $families);
     $empty = strpos($body, '<table') === false;
+    // The sampler's own reasons when it kept them; the general hint otherwise (an older snapshot, a group with no part
+    // that failed, such as cron without the service).
+    $problems = dashboard_problems($snapshot, array($group));
     if ($empty) {
-        $body = '<div class="empty">' . h(tabs_missing($group)) . '</div>';
+        $body = $problems !== '' ? $problems : '<div class="empty">' . h(tabs_missing($group)) . '</div>';
     } elseif (!$up) {
-        $body = '<div class="callout wait">Part of the ' . h($group) . ' group was not collected (see the metrics service\'s docker logs).</div>' . $body;
+        $body = ($problems !== '' ? $problems
+            : '<div class="callout wait">Part of the ' . h($group) . ' group was not collected (see the metrics service\'s docker logs).</div>') . $body;
     }
     dashboard_page($path, $title, $body . '<p class="stamp">Snapshot ' . h(date('Y-m-d H:i:s', (int) $snapshot['taken'])) . '</p>');
 }

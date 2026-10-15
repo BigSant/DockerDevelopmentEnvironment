@@ -24,14 +24,16 @@ function metrics_sample($now)
 {
     $started = microtime(true);
     $metrics = new Metrics();
+    $problems = array();
     foreach (metrics_groups() as $group) {
-        metrics_collect($metrics, $group);
+        $found = metrics_collect($metrics, $group);
+        if ($found) $problems[$group] = $found;
     }
     $metrics->add('setup_metrics_sample_duration_seconds', 'How long the sampler took to collect every group',
         round(microtime(true) - $started, 3));
     $directory = metrics_snapshot_directory();
     metrics_write_json($directory . '/snapshot.json',
-        array('taken' => $now, 'interval' => metrics_sampler_interval(), 'families' => $metrics->families()));
+        array('taken' => $now, 'interval' => metrics_sampler_interval(), 'families' => $metrics->families(), 'problems' => $problems));
     metrics_history($directory . '/history', $now, $metrics);
 }
 

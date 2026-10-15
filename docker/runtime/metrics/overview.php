@@ -171,6 +171,7 @@ function overview_body($now)
         $body .= '<div class="callout error">The latest snapshot is ' . h(round($age / 60)) . ' minutes old: the sampler has stopped '
             . '(see the metrics service\'s docker logs). These are its last figures; /metrics reports every group as down.</div>';
     }
+    $body .= dashboard_problems($snapshot, isset($snapshot['problems']) && is_array($snapshot['problems']) ? array_keys($snapshot['problems']) : array());
     $body .= '<div class="cards">';
     foreach ($cards as $key => $card) {
         $state = call_user_func($card[1], $values);

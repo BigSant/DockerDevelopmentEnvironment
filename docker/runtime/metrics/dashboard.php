@@ -103,6 +103,7 @@ nav.tabs a.on{color:var(--amber);border-color:var(--amber)}
 main{padding:22px 28px 60px;max-width:1400px;margin:0 auto}
 .callout{border:1px solid var(--rule);border-left:4px solid var(--go);background:var(--panel);padding:10px 14px;margin:0 0 16px;border-radius:3px}
 .callout.error{border-left-color:var(--stop)}.callout.wait{border-left-color:var(--amber)}
+.callout ul{margin:6px 0 0;padding-left:18px}.callout li{word-break:break-word}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
 .card{border:1px solid var(--rule);border-top:4px solid var(--faint);background:var(--panel);border-radius:3px;padding:10px 14px 8px}
 .card.ok{border-top-color:var(--go)}.card.warn{border-top-color:var(--amber)}.card.bad{border-top-color:var(--stop)}
@@ -128,6 +129,20 @@ table.list{width:100%;border-collapse:collapse}
 .list td.key{word-break:break-all}
 pre.log{margin:0;padding:10px 12px;background:var(--panel);border:1px solid var(--rule);border-radius:3px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45}
 CSS;
+}
+
+// What the sampler could not collect for these groups and why (the snapshot's problems, the parts' own messages,
+// which say what to set or run), as one callout; '' when nothing failed.
+function dashboard_problems($snapshot, $groups)
+{
+    $items = '';
+    foreach ($groups as $group) {
+        if (!isset($snapshot['problems'][$group]) || !is_array($snapshot['problems'][$group])) continue;
+        foreach ($snapshot['problems'][$group] as $problem) {
+            $items .= '<li><b>' . h($group) . '</b>: ' . h((string) $problem) . '</li>';
+        }
+    }
+    return $items === '' ? '' : '<div class="callout error" data-problems>Not collected, and what it needs:<ul>' . $items . '</ul></div>';
 }
 
 // The page around a tab's body. The body refreshes itself from ?fragment=1 every $refresh seconds (0: never).

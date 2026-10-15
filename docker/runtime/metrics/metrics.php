@@ -137,19 +137,24 @@ function metrics_snapshot($now)
     return $now - (int) $snapshot['taken'] <= 3 * max(1, (int) $snapshot['interval']) ? $snapshot : null;
 }
 
-// Collect one group: each part is independent, a failed part only clears the group's up flag.
+// Collect one group: each part is independent, a failed part only clears the group's up flag. Returns why parts
+// failed, each reason once: the sampler keeps them in the snapshot, so the dashboard says what is missing.
 function metrics_collect(Metrics $metrics, $group)
 {
     require_once __DIR__ . '/' . $group . '.php';
     $complete = true;
+    $problems = array();
     foreach (call_user_func('metrics_' . $group . '_parts') as $part) {
         try {
             call_user_func($part, $metrics);
         } catch (Throwable $error) {
             $complete = false;
             error_log('metrics ' . $part . ': ' . $error->getMessage());
+            // Printable ASCII and bounded: the snapshot must encode whatever a driver put in its message.
+            $problems[] = substr(preg_replace('/[^\x20-\x7e]+/', ' ', $error->getMessage()), 0, 500);
         }
     }
     $metrics->add('setup_metrics_group_up', 'Whether every part of the metrics group was collected', $complete ? 1 : 0,
         array('group' => $group));
+    return array_values(array_unique($problems));
 }
