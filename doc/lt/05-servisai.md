@@ -485,6 +485,8 @@ Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER
 
 Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi.
 
+**Log'ai** (`/logs/`) – [log'ų istorijos](#logų-istorija) failai pagal servisą ir dieną su dydžiais. Paspaudus failą rodomos paskutinės 100, 500 ar 2000 eilučių (ir suspaustų dienų), filtruojant pagal lygį (klaidos, įspėjimai, 5xx ar 4xx atsakymai) ir tekstą; filtras rodo tik atitinkančias eilutes, be jų tęsinių (pvz. stack trace). „download“ atsiunčia failą tokį, koks jis yra (`.gz` – skaityk `zless`). Dideli failai skaitomi dalimis, todėl puslapis neviršija metrikų serviso atminties.
+
 1. `env/<ENV>.env`:
 
 ```dotenv

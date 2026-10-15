@@ -73,6 +73,8 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   setup's fixed limits and with a 24-hour line from the sampler's history; it refreshes every minute. It reads only
   the sampler's snapshot, so opening it costs the server nothing. Same access as before: the allowlist and the
   optional `METRICS_HTPASSWD`. Limits: `doc/lt/05-servisai.md`.
+  Its **Logs** tab lists the kept log files by service and day, shows the end of one (gzipped days too) filtered by
+  level (errors, warnings, 5xx, 4xx) and text, and downloads it as it is.
 
 ## 2.11.1
 
