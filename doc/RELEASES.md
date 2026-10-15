@@ -109,6 +109,11 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   `_memory_limit_bytes`, `_memory_limit_ratio` (use against `<SERVICE>_MEMORY`; 1 means at the limit, OOM next) and
   `setup_container_io_read_bytes_total` / `_write_bytes_total`; the Containers tab shows which service uses what.
 
+- **Redis and memcached figures** when the project runs them with metrics: memory used against its limit, hit rate,
+  hits and misses, evictions (a rising `setup_redis_evicted_keys_total` / `setup_memcached_evictions_total` means the
+  limit is too small), keys or items and connections. The cache joins the metrics network; without it the group is not
+  served at all.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

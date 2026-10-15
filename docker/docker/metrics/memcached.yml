@@ -1,0 +1,9 @@
+services:
+  # With SERVICES="memcached metrics": the cache group reads memcached's stats; memcached joins the metrics network.
+  metrics:
+    environment:
+      METRICS_MEMCACHED: "memcached:11211"
+
+  memcached:
+    networks:
+      network_metrics: {}

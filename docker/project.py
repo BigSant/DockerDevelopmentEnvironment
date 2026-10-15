@@ -248,6 +248,10 @@ class Project:
         # ... and what the last backup found about the table registry, with database as code.
         if 'metrics' in services and settings['SCHEMA_DIRECTORY']:
             self.command += ["-f", str(DOCKER_ROOT / "docker/metrics/registry.yml")]
+        # ... and the cache group, with Redis or memcached.
+        for cache in ('redis', 'memcached'):
+            if 'metrics' in services and cache in services:
+                self.command += ["-f", str(DOCKER_ROOT / "docker/metrics" / f"{cache}.yml")]
         # Stage/prod keep their Deployment variables for the commands run outside a pipeline.
         from project_secret_store import secret_store, store_names
         self.command += secret_store(self, store_names(self.directory, environment))
