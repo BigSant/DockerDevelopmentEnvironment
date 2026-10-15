@@ -20,9 +20,18 @@ def restart(project, service=None, timeout=90):
     ensure_htaccess(project)
 
 
-def logs(project, service=None, follow=False, tail=100):
+def logs(project, service=None, follow=False, tail=100, day=None):
+    """docker logs of the running containers; with day (YYYY-MM-DD, today, yesterday) the log collector's files of
+    that day instead, which outlive the containers (SERVICES=metrics)."""
     selected = selected_service(project, service)
-    project.run(['logs', '--tail', str(tail)] + (['--follow'] if follow else []) + selected)
+    if not day:
+        project.run(['logs', '--tail', str(tail)] + (['--follow'] if follow else []) + selected)
+        return
+    if 'metrics-logs' not in project.active_model()['services']:
+        raise ValueError('make logs day=... reads the log collector, which runs with SERVICES=metrics')
+    if follow:
+        raise ValueError('make logs day=... prints a day; follow=1 is for docker logs')
+    project.run(['exec', '-T', 'metrics-logs', 'php', '/opt/setup/runtime/metrics/log-collector.php', '--print', day] + selected)
 
 
 def package_command(project, tool, command=None, directory='.'):

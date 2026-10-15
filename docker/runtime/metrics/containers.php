@@ -1,5 +1,5 @@
 <?php
-// Containers group: state, health, restarts and OOM kills of each container of this project, per service.
+// Containers group: state, health, restarts, OOM kills and resources of each container of this project, per service.
 // The metrics service has no Docker access: the collector (docker-collector.php, service metrics-docker) writes
 // a snapshot into a volume this service mounts read-only.
 
@@ -55,6 +55,26 @@ function metrics_containers_states(Metrics $metrics)
         if ($container['started'] > 0) {
             $metrics->add('setup_container_started_timestamp_seconds', 'When the container last started', (int) $container['started'], $labels);
         }
+        $limit = isset($container['memory_limit']) ? (int) $container['memory_limit'] : 0;
+        if ($limit > 0) {
+            $metrics->add('setup_container_memory_limit_bytes', 'The container\'s memory limit (mem_limit)', $limit, $labels);
+        }
+        if (empty($container['resources'])) continue;
+        $resources = $container['resources'];
+        $metrics->add('setup_container_cpu_seconds_total', 'CPU time the running container used since it started',
+            (float) $resources['cpu_seconds'], $labels, 'counter');
+        if ($resources['cpu_percent'] !== null) {
+            $metrics->add('setup_container_cpu_percent', 'CPU use between the Docker collector\'s last two reads (percent of one CPU)',
+                (float) $resources['cpu_percent'], $labels);
+        }
+        $metrics->add('setup_container_memory_bytes', 'Memory the running container uses, without the inactive page cache (as docker stats)',
+            (int) $resources['memory_bytes'], $labels);
+        if ($limit > 0) {
+            $metrics->add('setup_container_memory_limit_ratio', 'Memory use as a share of mem_limit (1 = at the limit)',
+                round($resources['memory_bytes'] / $limit, 4), $labels);
+        }
+        $metrics->add('setup_container_io_read_bytes_total', 'Bytes the running container read from block devices', (int) $resources['io_read_bytes'], $labels, 'counter');
+        $metrics->add('setup_container_io_write_bytes_total', 'Bytes the running container wrote to block devices', (int) $resources['io_write_bytes'], $labels, 'counter');
     }
     foreach ($oom as $service => $count) $services[(string) $service] = true;
     ksort($services);

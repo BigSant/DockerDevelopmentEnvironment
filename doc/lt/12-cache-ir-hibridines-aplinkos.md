@@ -189,7 +189,7 @@ Neprivalomas `config/environment.json` leidžia `make check` patikrinti, ar serv
 | `MIN_FREE_DISK_MB` | `1024` | Laisvos vietos rezervas, kurį tikrina `doctor`, importas, kopija ir testinė kopija. |
 | `BACKUP_KEEP_LAST` | `5` | Kiek naujausių automatiškai pavadintų kopijų palieka `make db-backup-prune`. |
 
-Docker log'ų rotacija riboja tik konteinerio stdout/stderr. Aplikacijos rašomiems failams (`var/logs`) reikia atskiros rotacijos.
+Docker log'ų rotacija riboja tik konteinerio stdout/stderr, ir jie dingsta perkuriant konteinerį. Su `SERVICES=metrics` jie dar saugomi dienomis 14 d., žr. [Log'ų istorija](05-servisai.md#logų-istorija). Aplikacijos rašomiems failams (`var/logs`) reikia atskiros rotacijos.
 
 **Kas kur rašo.** Užklausos eina į konteinerio stdout, klaidos – į stderr, todėl `docker logs` (ir `make logs`) jas laiko atskirai; failų konteinerio viduje nėra:
 
@@ -197,7 +197,7 @@ Docker log'ų rotacija riboja tik konteinerio stdout/stderr. Aplikacijos rašomi
 | --- | --- | --- |
 | `nginx-proxy` | kiekviena užklausa: `combined`, tada `rt=` (visas laikas, s), `urt=` (Apache/PHP laikas, s; `-`, jei nieko neperduota) ir `host=` | nginx klaidos |
 | `webserver` (Apache) | nieko: užklausas jau rašo nginx-proxy su tikru kliento IP | Apache klaidos (pvz. nepasiekiamas php-fpm) |
-| `php-fpm` | kiekviena PHP užklausa: kliento IP, URL, būsena, `ms=` (trukmė), `kb=` (didžiausia PHP atmintis), `cpu=` | PHP pranešimai (`error_log`, warning'ai, fatal) ir FPM pranešimai |
+| `php-fpm` | kiekviena PHP užklausa: kliento IP, URL, būsena, `ms=` (trukmė), `kb=` (didžiausia PHP atmintis), `cpu=` | PHP pranešimai su laiku (`[15-Oct-2026 10:28:02 Europe/Vilnius] PHP Warning: …`) ir FPM pranešimai |
 
 Pvz. php-fpm eilutė: `203.0.113.7 -  15/Oct/2026:10:00:00 +0300 "GET /lt/10-lovos" 200 ms=184.512 kb=24576 cpu=91.23%`. Lėtas puslapis matomas iš `ms=`, atminties šuoliai – iš `kb=`; nginx `rt=` ir `urt=` skirtumas rodo, kiek laiko užėmė tinklas ir klientas, o ne PHP.
 

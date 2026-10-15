@@ -227,6 +227,12 @@ class Project:
         self.command += ["-f", str(DOCKER_ROOT / "docker/network.yml")]
         for name in ("nginx-proxy", "apache", engine, "php-fpm"):
             self.command += ["-f", str(DOCKER_ROOT / "docker" / name / "docker-compose.yml")]
+        # The FPM slowlog needs ptrace: SYS_PTRACE only when PHP_FPM_SLOWLOG_SECONDS asks for it.
+        slowlog = str(settings.get('PHP_FPM_SLOWLOG_SECONDS') or '')
+        if slowlog:
+            if not re.fullmatch(r'\d+', slowlog) or not 1 <= int(slowlog) <= 600:
+                raise ValueError('PHP_FPM_SLOWLOG_SECONDS must be 1 to 600 seconds (empty: off)')
+            self.command += ["-f", str(DOCKER_ROOT / "docker/php-fpm/slowlog.yml")]
         # The application's own settings (APP_ENVIRONMENT) for the services that run its code; before
         # the project's sources, so a name a project still lists itself keeps the project's definition.
         from project_app_environment import application_environment
@@ -242,6 +248,10 @@ class Project:
         # ... and what the last backup found about the table registry, with database as code.
         if 'metrics' in services and settings['SCHEMA_DIRECTORY']:
             self.command += ["-f", str(DOCKER_ROOT / "docker/metrics/registry.yml")]
+        # ... and the cache group, with Redis or memcached.
+        for cache in ('redis', 'memcached'):
+            if 'metrics' in services and cache in services:
+                self.command += ["-f", str(DOCKER_ROOT / "docker/metrics" / f"{cache}.yml")]
         # Stage/prod keep their Deployment variables for the commands run outside a pipeline.
         from project_secret_store import secret_store, store_names
         self.command += secret_store(self, store_names(self.directory, environment))
@@ -396,6 +406,7 @@ def main():
     parser.add_argument('--service', help='One enabled service for logs/restart')
     parser.add_argument('--follow', action='store_true')
     parser.add_argument('--tail', type=int, default=100)
+    parser.add_argument('--day', help='logs: the log collector\'s files of one day (YYYY-MM-DD, today, yesterday)')
     parser.add_argument('--apply', action='store_true', help='Apply the pruning plan')
     parser.add_argument('--cache', action='store_true', help='image-prune: include the Docker build cache')
     args = parser.parse_args()
@@ -437,7 +448,7 @@ def main():
         elif args.action in ('restart', 'logs', 'composer', 'npm', 'cache-clear'):
             from project_commands import restart, logs, composer, npm, cache_clear
             if args.action == 'restart': restart(project, args.service, args.timeout)
-            elif args.action == 'logs': logs(project, args.service, args.follow, args.tail)
+            elif args.action == 'logs': logs(project, args.service, args.follow, args.tail, args.day)
             elif args.action == 'composer': composer(project, args.command, args.workdir)
             elif args.action == 'npm': npm(project, args.command, args.workdir)
             else: cache_clear(project)

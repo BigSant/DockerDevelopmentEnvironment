@@ -445,16 +445,76 @@ Prieigą saugo IP sąrašas: ne iš jo – `403`. Token'as neprivalomas: tušči
 Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `metrics.<domain>/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Atiduodami **visi** dashboard'ų ir alert'ų naudojami vardai (išskyrus parduotuvės `monitoring_*` – PrestaShop modulio, ir PageSpeed `pagespeed_insight_*` – stebėjimo programos), grupėmis:
 
 - **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`, `active_connections`;
-- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas);
-- **HTTP** (paskutinių pilnų minučių log'ai, žr. [HTTP log'ai](#http-logai)): `http_response_codes{code}`, `http_bytes_transferred_total`, `http_request_ips{ip}`, `http_error_type{type}`, nauji `http_request_user_agents{user_agent}`, `http_requests_per_minute` ir `http_requests_per_minute_max`;
+- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, nauji `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas) ir `setup_website_probe_timestamp_seconds` (kada puslapiai tikrinti paskutinį kartą);
+- **HTTP** (paskutinių pilnų minučių log'ai, žr. [HTTP log'ai](#http-logai)): `http_response_codes{code}`, `http_bytes_transferred_total`, `http_request_ips{ip}`, `http_error_type{type}`, nauji `http_request_user_agents{user_agent}`, `http_requests_per_minute` ir `http_requests_per_minute_max`; to paties lango srautų analizė (žr. Srautai): `setup_http_class_requests{class}` (`human`, `bot`, `asset`, `attack`), `setup_http_bot_requests{bot}` (20 dažniausių), `setup_http_attack_requests{type}` (`sqli`, `traversal`, `probe`, `xss`), `setup_http_url_requests{url}` ir `setup_http_url_5xx_requests{url}` (po 10, URL be query), `setup_http_slow_requests` (lėtesnės nei `METRICS_SLOW_REQUEST_SECONDS`, numatyta 2 s), `setup_http_response_time_p50_seconds` ir `setup_http_response_time_p95_seconds` (be statinių failų);
 - **saugumas**: `ddos_most_connections_ip_count{ip}` – penki adresai su daugiausiai TCP jungčių į 80 ir 443 portus;
 - **DB** (per [DB monitoriaus paskyrą](#db-metrikos)): buffer pool (`sql_*`), lėtos užklausos, lentelių skenavimai ir užklausos pagal bendrą laiką (`database_slow_query_*`, `database_table_scan_query_*`, `database_total_time_query_*`), lėčiausia užklausa, lentelių lock'ai ir I/O, vykdomi sakiniai, prisijungimai;
 - **serveris** (`host`): daugiausiai CPU ir RAM naudojantys procesai (`processes_consuming_cpu`, `processes_consuming_memory` ir jų `_total`), nauji I/O wait skaitikliai ir `setup_server_info` (OS, branduolys, Docker, DB versijos);
+- **PHP** (nauja): php-fpm worker'iai (`setup_php_fpm_processes{state="active"|"idle"}`), eilė (`setup_php_fpm_listen_queue`, `_max`), kiek kartų visi worker'iai buvo užimti (`setup_php_fpm_max_children_reached_total` – kyla, vadinasi, trūksta `pm.max_children`), lėtos užklausos ir priimtos užklausos; OPcache: `setup_php_opcache_hit_rate` (%), atmintis (`setup_php_opcache_memory_bytes{state="used"|"free"|"wasted"}`), scriptai (`setup_php_opcache_cached_scripts`, `_max_cached_keys`), restart'ai pagal priežastį (`setup_php_opcache_restarts_total{reason}` – `oom` reiškia, kad trūksta `opcache.memory_consumption`). Metrikų servisas klausia php-fpm per FastCGI; status kelias lankytojams nepasiekiamas. Apžvalgos kortelė „PHP workers“ rodo užimtumą;
+- **cache** (nauja, tik su `redis` ar `memcached` servisu): Redis – naudojama atmintis ir riba (`setup_redis_memory_used_bytes`, `_max_bytes`), hit rate (`setup_redis_hit_rate`, %), hit'ai ir miss'ai, išmesti dėl ribos raktai (`setup_redis_evicted_keys_total` – kyla, vadinasi, mažas `REDIS_MAXMEMORY_MB`), raktų ir klientų skaičius; memcached – tas pats (`setup_memcached_*`, riba `MEMCACHED_CACHE_MB`). Išjungus servisą grupė dingsta be klaidų;
 - **konteineriai** ir **cron** (naujos): kiekvieno projekto konteinerio būsena, health, restart'ai ir OOM; kiekvienos cron užduoties paskutinis paleidimas, exit kodas ir trukmė. Žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai).
 
 `setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e).
 
-Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER_WORKERS`, PHP 7.4+): lėtas svetainės ar DB patikrinimas neblokuoja kito scrape'o. Su senesniu PHP užklausos aptarnaujamos po vieną.
+**Kaip renkama.** Metrikų konteineryje veikia sampler'is: kiekvienos minutės pradžioje (+5 s) jis surenka visas grupes ir įrašo nuotrauką (snapshot) į `data/<ENV>/metrics`. `/metrics` tik atiduoda paskutinę nuotrauką ir `setup_metrics_snapshot_timestamp_seconds` (kada ji paimta), todėl:
+
+- scrape'ų skaičius (Prometheus, keli Prometheus, rankinis `curl`) nebekeičia serverio apkrovos ir HTTP langų;
+- jei sampler'is sustojo ir nuotrauka senesnė nei 3 min. (ar jos dar nėra), atiduodama tik `setup_metrics_group_up 0` kiekvienai grupei – alert'as „metrikos nerenkamos“ suveikia, o ne rodomi seni skaičiai;
+- mažos grupės (be IP, user-agent, užklausų, lentelių ir procesų sąrašų) saugomos 48 val. istorijoje `data/<ENV>/metrics/history/` – iš jos braižomi dashboard'o grafikai.
+
+**Puslapių patikrinimai** (`METRICS_URLS`) vyksta atskirame cikle kas 5 min.: ilgiausiai 30 s vienam puslapiui; neatsakęs per 30 s puslapis rodomas kaip `website_response_time` 30 ir `website_response_status` 0. Lėtas puslapis nevėlina kitų grupių. Jei patikrinimų nebuvo ilgiau nei 15 min., svetainės grupė `0`.
+
+**HTTP langas** numatytai 1 min. (`METRICS_HTTP_WINDOW_MINUTES`): tiek pat, kiek sampler'io intervalas ir Prometheus `scrape_interval` (1m).
+
+Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER_WORKERS`, PHP 7.4+): lėtas dashboard'o puslapis neblokuoja scrape'o.
+
+**Dashboard'as** – `https://metrics.<domain>/` (IP sąrašas ir, jei nustatytas, `METRICS_HTPASSWD` slaptažodis). Jis pats nieko neskaičiuoja: rodo sampler'io nuotrauką ir istoriją, todėl atidarytas puslapis serverio neapkrauna. Puslapis atsinaujina kas minutę.
+
+**Apžvalga** – po kortelę kiekvienai sričiai, su dabartine reikšme, spalva ir 24 val. grafiku (kiekvienų 10 min. didžiausia reikšmė, kad trumpas šuolis nedingtų):
+
+| Kortelė | Reikšmė | Geltona | Raudona |
+| --- | --- | --- | --- |
+| Load | 1 min. apkrova, branduolių skaičius | > 0,7 × branduoliai | > branduolių skaičius |
+| I/O wait | CPU laikas, laukiant disko | > 5 % | > 15 % |
+| Memory | užimta RAM (be cache) | > 80 % | > 90 % |
+| Disk | projekto duomenų disko užimtumas | > 80 % | > 90 % |
+| 5xx / min | serverio klaidos per minutę ir užklausos per minutę | > 0 | ≥ 10 |
+| Response p95 | 95 % užklausų atsakymo laikas (kai yra srautų analizė) | > 1 s | > 3 s |
+| Database | prisijungimai ir limitas | > 60 % limito | > 80 % ar DB nepasiekiama |
+| Containers | veikiantys / visi | – | bent vienas sustojęs ar ne `healthy` |
+| Cron | užduotys (tik su `cron` servisu) | vėluoja paleidimas | paskutinis paleidimas nepavyko |
+| Page checks | `METRICS_URLS` patikrinimai | 4xx ar > 3 s | neatsakė (0) ar 5xx |
+
+Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi.
+
+**Srautai** (`/traffic`) – nginx-proxy užklausų analizė (seno `scan_access_file.sh` įpėdinis) pasirinktam langui: 15 min., 1 val., 24 val., 7 d. ar konkreti diena. Kiekviena užklausa priskiriama vienai klasei:
+
+| Klasė | Kas | Pavyzdžiai |
+| --- | --- | --- |
+| Attacks | užklausa atitinka atakos šabloną (net jei agentas – botas) | SQLi (`select%20`, `union%20` … kaip scripte), path traversal (`../`, `/etc/passwd`), zondai (`/.env`, `/wp-login.php`, `/.git/`, `/phpmyadmin`), XSS (`<script`, `onerror=`) |
+| Bots | agentas įvardija žinomą robotą: setup sąrašas (scripto sąrašas ir dar ~30) ir projekto `METRICS_BOTS` | `Googlebot`, `bingbot/2.0`, `GPTBot` |
+| Static files | `GET` paveikslėlio, JS, CSS ar šrifto | `/themes/…/theme.css?v=3` |
+| People | visa kita | |
+
+Rodoma: kiekis pagal klasę, atsakymo laiko p95 ir mediana, atakos pagal tipą su eilutėmis, botai, įtartini IP (bent viena ataka) ir įprasti IP (kaip scripte – be statinių failų ir botų užklausų), top IP, user-agent'ai ir URL (be query), 4xx ir 5xx pagal URL, lėčiausi URL (`rt=`). Botų skaičiai sutampa su scripto (kiekvienas vardas skaičiuojamas atskirai pagal agentą).
+
+Projekto botai (be setup pakeitimo), `env/common.env`:
+
+```dotenv
+METRICS_BOTS="ShopCrawler/1.0, Inhouse Monitor"
+```
+
+Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Klasės, botai, atakos ir atsakymo laikai tikslūs; sąrašai laiko po 500 dažniausių kiekvienos valandos įrašų, todėl judriame lange retesnių įrašų skaičiai apytiksliai. Valanda į cache įrašoma tik tada, kai log'ų kolektorius veikė po jos pabaigos: kol jis sustojęs, valandos skaičiuojamos iš naujo ir, jam grįžus, papildomos.
+
+**Database**, **Containers**, **Cron** – tos pačios reikšmės kaip `/metrics`, lentelėmis: DB – talpa ir prisijungimai, lėtos, table-scan ir daugiausiai laiko užimančios užklausos, lėčiausias vykdymas, dabar vykdomos, lentelių lock'ai ir I/O; Konteineriai – kiekvieno projekto konteinerio būsena, health, restart'ai, OOM, paskutinis exit kodas, paleidimo laikas ir resursai (CPU %, atmintis ir dalis nuo `mem_limit`, disko I/O) – matosi, kuris servisas valgo resursus; Cron – kiekviena užduotis (id, failas, eilutė, grafikas), paskutinis paleidimas, exit kodas, trukmė, paskutinė sėkmė ir kitas laukiamas paleidimas (komanda nerodoma – joje būna token'ų). Kai duomenų nėra, skirtukas parašo kodėl (pvz. `cron` servisas neįjungtas).
+
+**`/feed`** – tekstinė ataskaita žmogui ar LLM (pvz. įklijuoti į pokalbį ar pridėti prie užduoties): paskutinė nuotrauka seno `monitoring.sh` `results.txt` sekcijomis su tomis pačiomis antraštėmis (`Uptime:`, `RAM Usage:`, … `Top RAM-consuming Processes:`, kiekviena baigiasi brūkšnių eilute) ir paskutinių 24 val. srautų analizė (`Traffic classes:`, `Traffic bot requests:`, `Traffic attacks:` su eilutėmis, top IP, user-agent'ai, URL, 4xx/5xx, lėčiausi URL). Turinys – setup reikšmės, ne senų komandų (`df`, `free`, …) išvestis; server_stats_viewer jos neskaito. Apsauga kaip `/metrics`: IP sąrašas ir token'as, be `METRICS_HTPASSWD`.
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://metrics.demo.lt/feed
+```
+
+**Log'ai** (`/logs/`) – [log'ų istorijos](#logų-istorija) failai pagal servisą ir dieną su dydžiais. Paspaudus failą rodomos paskutinės 100, 500 ar 2000 eilučių (ir suspaustų dienų), filtruojant pagal lygį (klaidos, įspėjimai, 5xx ar 4xx atsakymai) ir tekstą; filtras rodo tik atitinkančias eilutes, be jų tęsinių (pvz. stack trace). „download“ atsiunčia failą tokį, koks jis yra (`.gz` – skaityk `zless`). Dideli failai skaitomi dalimis, todėl puslapis neviršija metrikų serviso atminties.
 
 1. `env/<ENV>.env`:
 
@@ -480,7 +540,7 @@ curl https://metrics.demo.lt/metrics                                            
 curl -H "Authorization: Bearer $METRICS_TOKEN" https://metrics.demo.lt/metrics   # su token'u
 ```
 
-Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is). Kiti `metrics.<domain>` puslapiai (pradžios puslapis, vėliau dashboard'as) token'o neprašo; juos papildomai gali saugoti `METRICS_HTPASSWD` ([slaptažodžiai įrankiams](#slaptažodžiai-įrankiams-htpasswd)).
+Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is). Kiti `metrics.<domain>` puslapiai (dashboard'as) token'o neprašo; juos papildomai gali saugoti `METRICS_HTPASSWD` ([slaptažodžiai įrankiams](#slaptažodžiai-įrankiams-htpasswd)).
 
 **Kaip Prometheus skaito.** Metrikos yra atskirame subdomene `metrics.<domain>` (kaip `cron.` ir `backup.`), todėl taikinyje jį reikia paruošti:
 
@@ -506,7 +566,7 @@ Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat
 
 - serverio `/proc` → `/host/proc`: CPU, RAM, apkrova ir uptime `/proc` yra viso serverio; tinklo skaitikliai skaitomi iš `/host/proc/1/net/dev` (serverio tinklo vardų erdvė, ne konteinerio). Release'as šį prijungimą palieka, nes `/proc` yra kiekviename Linux taikinyje;
 - projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi;
-- HTTP log'ų tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
+- log'ų istorijos tomas `<PROJECT_NAME>-<ENV>-logs` → `/host/logs` ir nginx-proxy TCP nuotraukos tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
 
 Su `cron` servisu prisijungia dar du katalogai, taip pat tik skaitymui: cron istorija (`data/cron`) ir crontab (`app/config/cron`, jei yra). Docker socket'o metrikų servisas negauna – konteinerius skaito atskiras kolektorius, žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai).
 
@@ -537,22 +597,49 @@ Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra t
 
 ### HTTP log'ai
 
-Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'us. Setup v2 tų pačių skaičių šaltiniai yra konteineriuose, todėl su `SERVICES=metrics` jie papildomai rašomi į bendrą Docker tomą `<PROJECT_NAME>-<ENV>-http-logs`; metrikų servisas jį prijungia tik skaitymui:
+Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'us. Setup v2 HTTP grupė skaito [log'ų istorijos](#logų-istorija) dienos failus (tomas `<PROJECT_NAME>-<ENV>-logs`, prijungtas tik skaitymui):
 
-| Failas tome | Kas rašo | Kodėl šis |
+| Failas | Kas rašo | Pastabos |
 | --- | --- | --- |
-| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas su `rt=`, `urt=`, `host=` gale | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje; Apache už jo mato tik proxy adresą |
-| `error.log` (+ `error.log.1`) | Apache per `rotatelogs` (svetainės `ErrorLog`) | PHP pranešimai ateina per FastCGI: su `metrics` php-fpm paleidžiamas su `fastcgi.logging=1` |
-| `proxy-net/` | nginx-proxy kas 10 s (`/proc/net/tcp`, `tcp6`, `route`) | jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje, ne metrikų konteinerio |
+| `nginx-proxy/access-<diena>.log` | nginx-proxy, visos jo svetainės, `combined` su `rt=`, `urt=`, `host=` gale | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje. Įrankių svetainių (`metrics.`, `cron.`, `pma.`, … ir `PROXY_TOOLS` vardų `<vardas>.<DOMAIN>`) eilutės neskaičiuojamos – Prometheus ir komanda nėra lankytojai |
+| `webserver/error-<diena>.log` | Apache | pvz. nepasiekiamas php-fpm, segfault |
+| `php-fpm/error-<diena>.log` | PHP ir php-fpm | PHP pranešimai su savo laiku (`[09-Oct-2026 12:30:00 Europe/Vilnius] PHP Warning: …`) |
 
-- **`docker logs` nesikeičia**: nginx-proxy, Apache ir php-fpm toliau rašo viską į savo `docker logs` (su `CONTAINER_LOG_*` rotacija; Apache klaidas `rotatelogs` pakartoja į stderr), tomas – tik papildoma kopija. `/metrics` užklausos lieka `docker logs`, bet į tomą nepatenka, kad Prometheus nebūtų skaičiuojamas kaip lankytojas.
-- **Dydis ribotas**: kiekvienas log'as tome turi daugiausiai du failus po `METRICS_HTTP_LOG_MB` (numatyta 32): nginx-proxy perkelia `access.log` į `access.log.1` ir atidaro naują, Apache `rotatelogs -n 2` daro tą patį.
-- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 5) **pilnos** minutės iki einamosios, kaip seno scripto `5 minutes ago` … dabartinė minutė. Nustatyk lygų Prometheus `scrape_interval`, kad kiekviena užklausa būtų suskaičiuota vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`).
-- **Skaitymas**: log'ai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis log'as į atmintį nekraunamas. Eilutės be laiko (pvz. tęsinys) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
-- **Laikas**: prieigos log'e laikas su zona, klaidų log'e – konteinerio `TZ` laikas (visi projekto konteineriai turi tą patį `TZ`).
-- Kol Apache nieko neparašė, `error.log` nėra – tai reiškia nulį klaidų. Be `access.log` (tomas neprijungtas) HTTP grupės `setup_metrics_group_up` yra `0`.
+Tomas `<PROJECT_NAME>-<ENV>-http-logs` liko tik nginx-proxy TCP lentelės nuotraukai (`proxy-net/`, kas 10 s), nes jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje.
+
+- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 1) **pilnos** minutės iki einamosios (senas scriptas skaitė 5). Sampler'is skaičiuoja kas minutę, Prometheus nuskaito kas minutę, todėl kiekviena užklausa suskaičiuojama vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`). Jei Prometheus `scrape_interval` ilgesnis, nustatyk langą lygų jam. Po vidurnakčio skaitomas ir vakar dienos failas (jis suspaudžiamas tik po 2 val.).
+- **Skaitymas**: failai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis failas į atmintį nekraunamas. Eilutės be laiko (pvz. stack trace) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
+- **Laikas**: prieigos log'e laikas su zona, PHP eilutėse – zona, kurią nurodo PHP, Apache ir php-fpm pranešimuose – konteinerio `TZ` (visi projekto konteineriai turi tą patį `TZ`).
+- Dienos be užklausų ar klaidų failo nėra – tai nulis. Jei log'ų istorijos tomas neprijungtas, HTTP grupės `setup_metrics_group_up` yra `0`.
 
 **Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytojo maršruto vartai (Docker tinklo vartai – per juos ateina priekinio web serverio ir paties serverio persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
+
+### Log'ų istorija
+
+`docker logs` dingsta kartu su konteineriu (kiekvienas `make deploy-images` konteinerius perkuria) ir laiko tik `CONTAINER_LOG_MAX_SIZE` × `CONTAINER_LOG_MAX_FILES`. Su `SERVICES=metrics` trečias konteineris `<PROJECT_NAME>-<ENV>-metrics-logs` seka visų projekto konteinerių stdout ir stderr ir rašo eilutes (tokias, kokias parašė konteineris) į tomą `<PROJECT_NAME>-<ENV>-logs`, po failą kiekvienam servisui, srautui ir dienai:
+
+```
+nginx-proxy/access-2026-10-15.log      šiandien, rašomas
+nginx-proxy/access-2026-10-14.log.gz   praėjusi diena, suspausta
+nginx-proxy/error-2026-10-15.log
+php-fpm/access-…   php-fpm/error-…   webserver/error-…   database/error-…   cron/output-…
+```
+
+- **Pavadinimas**: stdout yra `access` nginx-proxy, Apache ir php-fpm (jų užklausų eilutės, žr. [kas kur rašo](12-cache-ir-hibridines-aplinkos.md#logai-diskas-ir-kopijos)), kitiems servisams `output`; stderr visada `error`. Diena – eilutės laikas pagal `TZ`.
+- **Suspaudimas**: pasibaigusios dienos failas suspaudžiamas (`.log.gz`, skaito `zcat`, `zless`, `zgrep`) praėjus 2 val. po paskutinės eilutės; vėliau atėjusi tos dienos eilutė pridedama prie `.gz`.
+- **Saugojimas**: `LOGS_RETENTION_DAYS` dienų (numatyta 14), o jei visi failai užima daugiau nei `LOGS_MAX_MB` (numatyta 2048), pirmi trinami seniausi. Šiandienos failai netrinami niekada.
+- **Niekas nedingsta perkuriant**: kolektorius saugo, iki kurios eilutės perskaitė kiekvieną konteinerį, todėl po savo perkrovimo ar naujam konteineriui tęsia nuo ten. Prarandama tik tai, ko `docker logs` jau nebeturi (kolektorius ilgai neveikė).
+- **Saugumas**: kaip Docker kolektoriaus (žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai)): be tinklo, be capabilities, tik `GET` užklausos ir tik šio projekto konteineriams; savo paties log'ų nerenka.
+
+Peržiūra:
+
+```bash
+make logs service=php-fpm day=today        # šiandienos php-fpm access ir error failai
+make logs service=nginx-proxy day=2026-10-14
+make logs day=yesterday                    # visi servisai
+```
+
+Stage/prod su `DEPLOY_CONTEXT` komanda vykdoma serveryje. Senesnėms nei saugojimo terminas dienoms – `No logs of … on …`.
 
 ### DB metrikos
 
@@ -625,6 +712,9 @@ Kodėl ne socket proxy (pvz. `docker-socket-proxy`): jam reikia to paties socket
 | `setup_container_oom_killed{…}`, `setup_container_exit_code{…}` | `State.OOMKilled`, `State.ExitCode` | paskutinio išėjimo priežastis ir kodas; po perkrovimo Docker `OOMKilled` išvalo |
 | `setup_container_oom_kills_total{project,service}` | Docker `oom` įvykiai | counter: OOM nužudymai nuo kolektoriaus pirmo paleidimo (skaičius laikomas nuotraukoje, todėl išlieka per kolektoriaus perkrovimą) |
 | `setup_container_started_timestamp_seconds{…}`, `setup_containers_collected_timestamp_seconds` | `State.StartedAt`, nuotraukos laikas | Unix laikas |
+| `setup_container_cpu_percent{…}`, `setup_container_cpu_seconds_total{…}` | Docker stats | CPU naudojimas tarp dviejų kolektoriaus nuskaitymų (% vieno branduolio) ir viso CPU laikas nuo paleidimo |
+| `setup_container_memory_bytes{…}`, `setup_container_memory_limit_bytes{…}`, `setup_container_memory_limit_ratio{…}` | Docker stats, `mem_limit` | atmintis kaip `docker stats` (be neaktyvaus cache), riba (`<SERVISAS>_MEMORY`) ir dalis nuo jos (1 – riba pasiekta, toliau OOM) |
+| `setup_container_io_read_bytes_total{…}`, `setup_container_io_write_bytes_total{…}` | Docker stats | disko skaitymas ir rašymas nuo paleidimo |
 
 Jei nuotraukos nėra ar ji senesnė nei trys intervalai (+30 s), konteinerių metrikų nėra, o `setup_metrics_group_up{group="containers"} 0`.
 

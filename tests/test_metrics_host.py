@@ -19,7 +19,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_metrics as base
-from test_metrics import TOKEN, docker_container, fetch, labelled, parse, write_docker_state
+from test_metrics import TOKEN, docker_container, fetch, labelled, parse, tab_rows, write_docker_state
 
 ROOT = base.ROOT
 COLLECTOR = ROOT / "docker/runtime/metrics/docker-collector.php"
@@ -194,7 +194,15 @@ class ContainersGroupTest(base.EndpointMixin, unittest.TestCase):
         time.sleep(1.1)
         self.collect()
 
-        metrics = parse(fetch(self.start(METRICS_DOCKER_DIR=str(self.collected)), token=TOKEN)[2])
+        base_url = self.start(METRICS_DOCKER_DIR=str(self.collected))
+        metrics = parse(fetch(base_url, token=TOKEN)[2])
+        # The Containers tab shows the same snapshot: one row per container.
+        rows = {row[1]: row for row in tab_rows(fetch(base_url, "/containers")[2], "Containers")}
+        self.assertEqual({name: (row[2], row[3], row[4], row[5], row[6], row[7], row[8]) for name, row in rows.items()}, {
+            "demo-stage-cron": ("exited", "none", "no", "–", "0", "yes", "137"),
+            "demo-stage-database": ("running", "healthy", "yes", "yes", "0", "no", "0"),
+            "demo-stage-php-fpm": ("running", "unhealthy", "yes", "no", "3", "no", "0"),
+            "demo-stage-webserver": ("restarting", "none", "no", "–", "7", "no", "1")})
         key = lambda service: f'{{project="demo-stage",service="{service}",container="demo-stage-{service}"}}'
         self.assertEqual(metrics["setup_container_running"],
                          {key("cron"): 0, key("database"): 1, key("php-fpm"): 1, key("webserver"): 0})
@@ -211,6 +219,45 @@ class ContainersGroupTest(base.EndpointMixin, unittest.TestCase):
         self.assertEqual(group_up(metrics, "containers"), 1)
         self.assertEqual(list(metrics["setup_server_info"]),
                          ['{os="Ubuntu 22.04.5 LTS",kernel="6.8.0-45-generic",docker="28.5.1",database="8.4.0"}'])
+
+    def test_resources_of_each_running_container_against_its_memory_limit(self):
+        def stats(cpu_ns, memory, inactive, read, write, cgroup2=True):
+            return {"cpu_stats": {"cpu_usage": {"total_usage": cpu_ns}}, "precpu_stats": {},
+                    "memory_stats": {"usage": memory, "limit": 16 << 30,
+                                     "stats": {"inactive_file" if cgroup2 else "total_inactive_file": inactive}},
+                    "blkio_stats": {"io_service_bytes_recursive": [{"major": 259, "minor": 0, "op": "read" if cgroup2 else "Read", "value": read},
+                                                                    {"major": 259, "minor": 0, "op": "write" if cgroup2 else "Write", "value": write}]}}
+        # php-fpm with mem_limit 512 MiB (cgroup v2), the database without a limit (cgroup v1 field names).
+        self.api.answers["/containers/a1/json"]["HostConfig"] = {"Memory": 512 << 20}
+        self.api.answers["/containers/a1/stats"] = stats(10 * 10**9, 300 << 20, 44 << 20, 5 << 20, 7 << 20)
+        self.api.answers["/containers/b2/stats"] = stats(50 * 10**9, 900 << 20, 100 << 20, 1 << 30, 2 << 30, cgroup2=False)
+        first = self.collect()
+        resources = {c["name"]: c["resources"] for c in first["containers"]}
+        self.assertIsNone(resources["demo-stage-cron"], "a stopped container has no stats")
+        self.assertIsNone(resources["demo-stage-php-fpm"]["cpu_percent"], "no CPU % before a second read")
+        stats_queries = [path for _, path in self.api.requests if "/stats" in path]
+        self.assertEqual(sorted(stats_queries), ["/containers/a1/stats?stream=false&one-shot=true", "/containers/b2/stats?stream=false&one-shot=true"])
+        # Two seconds and one CPU second later: 50 % of one CPU.
+        time.sleep(2)
+        self.api.answers["/containers/a1/stats"] = stats(11 * 10**9, 300 << 20, 44 << 20, 5 << 20, 7 << 20)
+        second = self.collect()
+        elapsed = second["collected"] - first["collected"]
+        metrics = parse(fetch(self.start(METRICS_DOCKER_DIR=str(self.collected)), token=TOKEN)[2])
+        key = lambda service: f'{{project="demo-stage",service="{service}",container="demo-stage-{service}"}}'
+        self.assertAlmostEqual(metrics["setup_container_cpu_percent"][key("php-fpm")], 100 / elapsed, delta=0.01)
+        self.assertEqual(metrics["setup_container_cpu_seconds_total"][key("php-fpm")], 11)
+        # Memory without the inactive page cache, as docker stats shows it; against mem_limit where there is one.
+        self.assertEqual(metrics["setup_container_memory_bytes"], {key("php-fpm"): 256 << 20, key("database"): 800 << 20})
+        self.assertEqual(metrics["setup_container_memory_limit_bytes"], {key("php-fpm"): 512 << 20})
+        self.assertEqual(metrics["setup_container_memory_limit_ratio"], {key("php-fpm"): 0.5})
+        self.assertEqual(metrics["setup_container_io_read_bytes_total"][key("database")], 1 << 30)
+        self.assertEqual(metrics["setup_container_io_write_bytes_total"][key("php-fpm")], 7 << 20)
+        self.assertEqual({method for method, _ in self.api.requests}, {"GET"})
+        # A container whose stats fail keeps its state in the snapshot.
+        del self.api.answers["/containers/b2/stats"]
+        third = self.collect()
+        self.assertEqual({c["name"]: c["state"] for c in third["containers"]}["demo-stage-database"], "running")
+        self.assertIsNone({c["name"]: c["resources"] for c in third["containers"]}["demo-stage-database"])
 
     def test_an_unreachable_api_keeps_the_last_snapshot_which_then_ages(self):
         self.collect()
@@ -237,6 +284,11 @@ class ContainersGroupTest(base.EndpointMixin, unittest.TestCase):
         self.assertEqual(group_up(metrics, "containers"), 1)
         (self.docker_state / "state.json").write_text("{")
         self.assertEqual(group_up(parse(fetch(base_url, token=TOKEN)[2]), "containers"), 0)
+
+
+def base_samplers():
+    """The test servers in start order (test_metrics.SAMPLERS)."""
+    return base.SAMPLERS
 
 
 def job_id(command, occurrence=1):
@@ -274,6 +326,24 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         series = [line.rsplit(" ", 1)[0] for line in body.splitlines() if line and not line.startswith("#")]
         self.assertEqual(len(series), len(set(series)), "a series is served twice")
         return body, parse(body)
+
+    def test_the_cron_tab_shows_the_jobs_of_metrics_and_says_when_cron_is_off(self):
+        self.assertEqual(self.run_job(FAILING), 3)
+        _, metrics = self.scrape()
+        base = list(base_samplers())[-1]
+        page = fetch(base, "/cron")[2]
+        # job, file, line, then schedule, last run, exit, duration, last success, next expected.
+        jobs = {tuple(row[:3]): row for row in tab_rows(page, "Jobs")}
+        failing = jobs[(job_id(FAILING), "crontab", "3")]
+        self.assertEqual((failing[3], failing[5]), ("*/5 * * * *", "3"))
+        # The nightly job is in two files: two rows with their own schedules and the job's one history.
+        nightly, stage = jobs[(job_id("true"), "crontab", "4")], jobs[(job_id("true"), "crontab.stage", "1")]
+        self.assertEqual((nightly[3], stage[3]), ("0 3 * * *", "15 * * * *"))
+        self.assertEqual(nightly[4:8], stage[4:8])
+        self.assertEqual(len(jobs), len(metrics["setup_cron_job_info"]))
+        self.assertNotIn("cron-secret-value", page)
+        _, metrics = self.scrape(METRICS_CRON="0")
+        self.assertIn("No data: the cron service is not enabled", fetch(list(base_samplers())[-1], "/cron")[2])
 
     def test_a_failed_job_shows_its_exit_code_and_a_job_without_runs_its_expected_time(self):
         self.assertEqual(self.run_job("true"), 0)
@@ -387,13 +457,15 @@ class ContainersIntegrationTest(unittest.TestCase):
                     "-v", f"{work}:/host/disk:ro", "-v", f"{state}:/host/docker:ro",
                     "-v", f"{work}/history:/host/cron-history:ro", "-v", f"{work}/config:/host/cron-config:ro",
                     "-e", f"METRICS_TOKEN={TOKEN}", "-e", "METRICS_CRON=1", "-e", "ENV=prod", "-e", "METRICS_DISK_WRITE_MB=0",
-                    "-e", "TZ=UTC", "--entrypoint", "php", PHP, "-S", "127.0.0.1:9100", "/opt/setup/runtime/metrics/index.php")
+                    "-e", "TZ=UTC", "--tmpfs", "/var/lib/setup-metrics:mode=1777", "-e", "METRICS_SAMPLER_INTERVAL=2", "-e", "METRICS_PROBE_INTERVAL=5",
+                    "--entrypoint", "sh", PHP, "/opt/setup/runtime/metrics/start.sh")
         scrape = ("$c = stream_context_create(['http' => ['header' => 'Authorization: Bearer " + TOKEN + "', 'timeout' => 60]]);"
                   " echo file_get_contents('http://127.0.0.1:9100/metrics', false, $c);")
         body = ""
         for _ in range(30):
             body = subprocess.run(["docker", "exec", endpoint, "php", "-r", scrape], capture_output=True, text=True, timeout=120).stdout
-            if body:
+            # Until the sampler's first snapshot every group is down.
+            if "setup_metrics_snapshot_timestamp_seconds" in body and 'setup_metrics_group_up{group="containers"} 1' in body:
                 break
             time.sleep(0.5)
         metrics = parse(body)
@@ -402,6 +474,11 @@ class ContainersIntegrationTest(unittest.TestCase):
         self.assertEqual(metrics["setup_container_running"][key("sick", sick)], 1)
         self.assertGreaterEqual(metrics["setup_container_restarts_total"][key("crashing", crashing)], 1)
         self.assertEqual(set(metrics["setup_container_running"]), {key("sick", sick), key("crashing", crashing)})
+        # The real daemon's stats: memory of the running container, against its 32 MiB limit.
+        self.assertGreater(metrics["setup_container_memory_bytes"][key("sick", sick)], 0)
+        self.assertEqual(metrics["setup_container_memory_limit_bytes"][key("sick", sick)], 32 << 20)
+        self.assertLess(metrics["setup_container_memory_limit_ratio"][key("sick", sick)], 1)
+        self.assertGreater(metrics["setup_container_cpu_seconds_total"][key("sick", sick)], 0)
         self.assertEqual(labelled(metrics, "setup_cron_job_last_exit_code", "job"), {job_id(command): 5})
         self.assertNotIn("failing", body)
         info = list(metrics["setup_server_info"])[0]

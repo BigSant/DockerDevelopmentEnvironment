@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -20,7 +21,7 @@ from database_grants import MONITOR
 import grafana_names
 from project import Project
 from project_release import release_model
-from test_metrics import REMOTE, TOKEN, EndpointMixin, fetch, parse
+from test_metrics import REMOTE, TOKEN, EndpointMixin, fetch, parse, tab_rows
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures/metrics-database.json"
 CUSTOMER = 'SELECT * FROM `customer` WHERE `email` = ?'
@@ -157,6 +158,21 @@ class DatabaseGroupTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(sorted(grafana_names.VIEWER_ONLY - set(metrics)), [])
 
 
+    def test_the_database_tab_shows_the_values_of_metrics(self):
+        body, metrics = self.scrape()
+        page = fetch(self.base, "/database")[2]
+        # The sample /metrics served, unchanged: the tab reads the same snapshot.
+        slow = {row[0]: row[1:] for row in tab_rows(page, "Slow statements (by average time)")}
+        for labels, runs in metrics["database_slow_query_total"].items():
+            query = re.search(r'query="(.*)"', labels)[1].replace('\\"', '"').replace("\\\\", "\\")
+            self.assertEqual(slow[query][0], f"{int(runs):,}".replace(",", " "), query)
+        capacity = tab_rows(page, "Capacity and connections")
+        self.assertEqual(capacity[0][0], str(int(metrics["sql_buffer_pool_size"][""])))
+        io = {tuple(row[:2]): row[2:] for row in tab_rows(page, "Table I/O")}
+        self.assertTrue(io, page)
+        self.assertIn('class="on">Database</a>', page)
+
+
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
 class DatabaseUnavailableTest(EndpointMixin, unittest.TestCase):
     def test_without_the_monitor_account_only_the_database_group_is_down(self):
@@ -168,6 +184,7 @@ class DatabaseUnavailableTest(EndpointMixin, unittest.TestCase):
         self.assertIn('setup_metrics_group_up{group="system"} 1', body)
         self.assertNotIn("sql_buffer_pool_size", body)
         self.assertNotIn("database_performance_schema", body)
+        self.assertIn("No data: the DB monitor account gives no statistics", fetch(base, "/database")[2])
 
 
 class DatabaseComposeTest(unittest.TestCase):
@@ -232,7 +249,9 @@ class DatabaseMetricsIntegrationTest(unittest.TestCase):
                         "-v", "/proc:/host/proc:ro", "-e", f"METRICS_TOKEN={TOKEN}", "-e", "METRICS_URLS=",
                         "-e", "METRICS_DISK_WRITE_MB=0", "-e", "DATABASE_MONITOR_USER=shop_monitor",
                         "-e", "DATABASE_MONITOR_PASSWORD=monitor-test-password",
-                        "--entrypoint", "php", PHP, "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php"],
+                        # The service's loops (start.sh), sampling every 2 s.
+                        "--tmpfs", "/var/lib/setup-metrics:mode=1777", "-e", "METRICS_SAMPLER_INTERVAL=2", "-e", "METRICS_PROBE_INTERVAL=5",
+                        "--entrypoint", "sh", PHP, "/opt/setup/runtime/metrics/start.sh"],
                        check=True, capture_output=True)
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", self.endpoint], capture_output=True)
 
@@ -243,13 +262,16 @@ class DatabaseMetricsIntegrationTest(unittest.TestCase):
     def scrape(self):
         fetch_script = ("$o = array('http' => array('ignore_errors' => true, 'timeout' => 60, 'header' => 'Authorization: Bearer ' . $argv[1]));"
                         "echo file_get_contents('http://127.0.0.1:9100/metrics', false, stream_context_create($o));")
-        for _ in range(30):
+        # A snapshot the sampler took after this call: what the test did before it shows.
+        after = int(time.time())
+        for _ in range(60):
             body = subprocess.run(["docker", "exec", self.endpoint, "php", "-r", fetch_script, TOKEN],
                                   capture_output=True, text=True, timeout=90).stdout
-            if body.strip():
-                return body, parse(body)
+            metrics = parse(body) if body.strip() else {}
+            if metrics.get("setup_metrics_snapshot_timestamp_seconds", {}).get("", 0) > after:
+                return body, metrics
             time.sleep(0.5)
-        self.fail("no response from the metrics service")
+        self.fail("no new snapshot from the metrics service")
 
     def test_statistics_appear_and_the_monitor_reads_no_project_data(self):
         self.start_database("on")

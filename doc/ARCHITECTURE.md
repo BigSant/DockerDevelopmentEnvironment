@@ -116,21 +116,84 @@ fingerprint is outdated; it removes only with `apply=1`.
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
   An empty or missing web directory (no checkout yet) skips every PrestaShop step and writes nothing there.
 - **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): the tool site `metrics.<domain>` (`sites.metrics.conf`,
-  HTTP and HTTPS servers like `cron.`/`backup.`; the main site has no `/metrics`). Prometheus `/metrics` there is
-  guarded by the allowlist and the service's optional bearer token; every other page by the allowlist and the optional
-  `METRICS_HTPASSWD` Basic-auth, which `location = /metrics` turns off because both use the `Authorization` header.
-  The service is `php -S` with `PHP_CLI_SERVER_WORKERS=4` (PHP >= 7.4), so a slow probe does not block scrapes.
+  HTTP and HTTPS servers like `cron.`/`backup.`; the main site has no `/metrics`). Prometheus `/metrics` and the text
+  report `/feed` there are guarded by the allowlist and the service's optional bearer token; every other page by the
+  allowlist and the optional `METRICS_HTPASSWD` Basic-auth, which `location ~ ^/(metrics|feed)$` turns off because
+  both use the `Authorization` header.
+  Collection is the sampler's (`sampler.php`, started with `php -S` by `start.sh`): its minute loop collects every
+  group a few seconds after each minute starts into `snapshot.json` in `data/<env>/metrics` (bind mount
+  `/var/lib/setup-metrics`, kept when the container is recreated) and appends the families of up to 16 samples,
+  without per-client, per-query, per-table or per-process lists, to `history/<UTC hour>.jsonl`, whole hours kept 48 h.
+  `/metrics` only serves the latest snapshot plus `setup_metrics_snapshot_timestamp_seconds`, so scrapes change
+  neither the load nor the windows; a snapshot older than three sampler intervals (or none) is served as every
+  `setup_metrics_group_up` 0 and nothing else. The website probes are the sampler's second loop (`--probes`, every
+  `METRICS_PROBE_INTERVAL` = 300 s, curl `--max-time` 30; a timeout is time 30, status 0) into `probes.json`, which
+  the minute's sample reads with `setup_website_probe_timestamp_seconds`; older than three intervals fails the group.
+  A loop that stops is restarted by `start.sh`. `PHP_CLI_SERVER_WORKERS=4` keeps a slow page from blocking a scrape.
+  The HTTP window defaults to one minute, as often as the sampler samples and Prometheus scrapes.
+  Dashboard (`dashboard.php`, the pages other than `/metrics`): PHP rendering plus a few lines of vanilla JS, self-
+  contained like the cron and backup UIs, and computing nothing: tabs read the snapshot, the history or the log
+  collector's files. Overview (`overview.php`): one card per area from the flat `name{labels}` map of the snapshot,
+  coloured by fixed limits (load > 0.7 x cores warns, > cores is bad; I/O wait 5/15 %; RAM and disk 80/90 %; any 5xx
+  warns, 10/min is bad; p95 1/3 s; DB connections 60/80 % of max; any container stopped or not healthy; a failing or
+  overdue cron job; a page check at 0, >= 400 or over 3 s), the same function giving each point of its 24-hour line
+  (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute. A card without its
+  figures is not shown (p95 until the traffic analysis, cron without the service).
+  Logs (`logs.php`, `/logs/`): the collector's files by service and day, the last 100/500/2000 lines of one matching a
+  level (errors, warnings, 5xx, 4xx: fixed patterns) and a text, and the file itself to download (`.gz` as it is). A
+  file is named only by `<service>/<kind>-<day>.log[.gz]` matched against that pattern and found among the listed
+  regular files under the collector's directory (no symbolic links, `realpath` inside it). A plain file is read
+  backwards in 64 KiB chunks until enough lines match, a gzipped one forwards keeping only the last matches, a shown
+  line cut at 4 KiB: memory stays bounded whatever the size.
+  Traffic (`traffic.php`, `traffic-tab.php`, `/traffic` and `/traffic.json`), scan_access_file.sh's successor: each
+  nginx-proxy access line (tool sites left out) is one class, `attack` (fixed patterns: the script's SQLi `<word>%20`,
+  path traversal, probes such as `/.env`, `/wp-login`, `/.git/`, XSS) before `bot` (agent names one of setup's
+  crawlers or `METRICS_BOTS`) before `asset` (GET of a static file) before `human`; bots are counted per name by agent
+  like the script (an attack's too), suspicious IPs (an attack) and regular IPs by their non-asset, non-bot requests.
+  Tested against the script's own result.txt on `tests/fixtures/traffic`. A window (15 min, 1 h, 24 h and 7 d from a
+  whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
+  only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
+  every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
+  is cached once it ended 2 minutes ago and the log collector has saved its state since (so a back-fill after the
+  collector was down still counts); a failed JSON encoding writes no file. A cached hour keeps the 500 busiest entries
+  of each list (the suspicious IPs' counts always) and response times per millisecond (percentiles of any window);
+  lists are trimmed while a file is read and while hours merge, so memory stays bounded and counts below the top
+  of a busy hour are approximate. Agents stay as nginx escaped them (ASCII), so they always encode.
+  Database, Containers and Cron (`tabs.php`): the snapshot's families of the group as tables whose rows are label
+  sets (a query, a schema and table, a container, a job with its file and line) and columns families or an info
+  family's labels; a sample with only some of the row labels fills every row that agrees with it. Without figures
+  the tab says why (cron not enabled, no Docker collector snapshot, no DB monitor account).
+  `/feed` (`feed.php`): the latest snapshot as the old monitoring script's results.txt sections, under its headers
+  in its order ("Header:", the body, a line of dashes; families as `name{labels} value`, the website probes as the
+  script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`
+  sections of the last 24 hours' analysis. Text for people and LLMs; server_stats_viewer does not parse it.
+  PHP group (`php.php`): with metrics php-fpm joins the metrics network, and the service asks it over FastCGI
+  (`METRICS_PHP_FPM_ADDRESS`, php-fpm:9000) for the pool's `pm.status_path = /setup-fpm-status` (zz-setup-global.conf;
+  Apache's `FilesMatch \.php$` passes php-fpm only existing .php files, so visitors never reach it) and runs
+  `runtime/metrics/fpm-opcache.php` there, because OPcache's statistics live in the php-fpm master's shared memory.
+  The FPM slowlog (`request_slowlog_timeout = ${SETUP_FPM_SLOWLOG_TIMEOUT}`, default 0, to stderr) needs ptrace:
+  `docker/php-fpm/slowlog.yml`, loaded only with `PHP_FPM_SLOWLOG_SECONDS`, adds `SYS_PTRACE`.
+  Cache group (`cache.php`), only with `SERVICES` holding redis or memcached and metrics: `docker/metrics/redis.yml`
+  / `memcached.yml` put the cache on the metrics network and set `METRICS_REDIS` / `METRICS_MEMCACHED`; the service
+  sends Redis's `INFO` (RESP) and memcached's `stats` itself. Without either the group is absent, not down.
+  The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class, the 20
+  busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
+  `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
+  would be over its lifetime, and promtool rejects `quantile` on a gauge).
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
-  `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
+  `metrics_<group>_parts()`, listed in `metrics_groups()` (metrics.php) and in `IMPLEMENTED` (test_metrics). Host numbers come from
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
-  HTTP figures come from the named volume `<project>-<env>-http-logs`, mounted read-only: nginx-proxy writes a
-  second copy of the site's access log there (client IPs after the real-IP handling; `metrics.<domain>` is not the site) and a
-  TCP table snapshot, Apache its site error log through `rotatelogs`, and php-fpm sends PHP messages to Apache
-  (`fastcgi.logging=1`). `docker logs` keep everything; each log holds two files of `METRICS_HTTP_LOG_MB`.
-  Logs are read backwards in chunks only until the window has passed, never loaded whole.
+  HTTP figures come from the log collector's day files (below), its volume mounted read-only at `/host/logs`:
+  `nginx-proxy/access-<day>.log` (client IPs after the real-IP handling; lines whose `host=` is a tool site,
+  `<tool>.DOMAIN` of setup's tools or `PROXY_TOOLS`, are left out) and `webserver/` and `php-fpm/error-<day>.log`
+  (PHP's messages carry their own time because `php-policy/70-errors.ini` sets `error_log` to stderr; without it
+  php-fpm passes them untimed). Only today's and yesterday's plain files are read: the collector gzips a day two
+  hours after its last line, after the longest window. No collector directory means the group is down; no file
+  means no requests or errors. The `<project>-<env>-http-logs` volume holds only nginx-proxy's TCP table snapshot.
+  Files are read backwards in chunks only until the window has passed, never loaded whole.
   The database joins the metrics network for the database group, which reads statistics only with the DB monitor
   account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
   Containers: the web-facing metrics service has no Docker access. `metrics-docker` (`docker-collector.php`,
@@ -139,14 +202,30 @@ fingerprint is outdated; it removes only with `apply=1`.
   a read-only root and code that sends GET requests only for the project's own containers (`com.docker.compose.project`) and writes a snapshot
   (state, health, restart count, last exit/OOM, `oom` events as a persisted counter, OS/Docker versions) into
   the `<project>-<env>-metrics-docker` volume the metrics service mounts read-only; a snapshot older than three
-  `METRICS_DOCKER_INTERVAL`s clears the group. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
+  `METRICS_DOCKER_INTERVAL`s clears the group. For each running container it also GETs
+  `/containers/{id}/stats?stream=false&one-shot=true` (no wait for a second sample): CPU time (CPU % from the
+  change since its previous snapshot of the same container id), memory without the inactive page cache (as
+  `docker stats`) against `HostConfig.Memory` (mem_limit), block I/O; a container whose stats fail keeps its state. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
   cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command.
   The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.
+  Logs: `metrics-logs` (`log-collector.php`, the same guards as `metrics-docker`) follows the stdout and stderr of
+  every project container except itself through `GET /containers/{id}/logs?follow=1&timestamps=1` and appends the
+  lines as written to the `<project>-<env>-logs` volume: `<service>/<access|output|error>-YYYY-MM-DD.log` (stdout is
+  `access` for nginx-proxy, webserver and php-fpm, `output` for the rest; the day is the Docker time in `TZ`). Each
+  container's last Docker time (and how many lines shared it) is kept in `.collector-state.json`, so `since=`
+  re-reads after a collector restart or for a recreated container skip exactly what was written; lines are never
+  dropped for arriving out of time order (stdout and stderr reach the daemon's file side by side), and parts docker
+  split over 16 KiB are joined. A finished day is gzipped two hours after its last write (a late line becomes
+  another gzip member); days past `LOGS_RETENTION_DAYS` go, then the oldest while the files exceed `LOGS_MAX_MB`,
+  never today's. `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
+  saved every second lines were written; the three metrics containers run with `init: true`, because PHP as PID 1
+  ignores SIGTERM. A stopped container is read again when its `StartedAt` changed (it ran between two looks); a
+  compression that fails (disk full) keeps the plain file, and stale `*.log.gz.<pid>` temporaries are removed.
 - **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
   keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
   `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy
-  logs the request with the client address); with metrics `rotatelogs -e` writes the volume copy and its echo goes
-  to stderr. php-fpm points its own stdout at /dev/null, so `start.sh` keeps the container's stdout as fd 3 and sets
+  logs the request with the client address). PHP writes its messages to stderr itself, timed
+  (`php-policy/70-errors.ini`). php-fpm points its own stdout at /dev/null, so `start.sh` keeps the container's stdout as fd 3 and sets
   `SETUP_FPM_ACCESS_LOG=/proc/self/fd/3` for `zz-setup-global.conf`'s `access.log` (URL, status, `ms=`, `kb=`,
   `cpu=`); php-fpm started any other way gets the image's `/proc/self/fd/2`. The `%{mili}d` spelling is the one
   PHP before 8 accepts.
@@ -224,7 +303,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 `make release ENV=stage|prod` builds the images here from committed setup and writes
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
 installed). A release keeps no host path except the read-only `/proc` of the metrics service and the read-only
-Docker socket of its network-less collector (named volumes, such as its HTTP log volume, pass through unchanged).
+Docker socket of its network-less collectors (named volumes, such as its HTTP log volume, pass through unchanged).
 `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of

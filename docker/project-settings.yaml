@@ -87,6 +87,7 @@ services:
       PHP_APCU: ${PHP_APCU-auto}
       PHP_OPCACHE_VALIDATE_TIMESTAMPS: ${PHP_OPCACHE_VALIDATE_TIMESTAMPS-auto}
       PHP_OPCACHE_REVALIDATE_FREQ: ${PHP_OPCACHE_REVALIDATE_FREQ-0}
+      PHP_FPM_SLOWLOG_SECONDS: ${PHP_FPM_SLOWLOG_SECONDS-}
       PS_SMARTY_CACHE: ${PS_SMARTY_CACHE-auto}
       PS_SMARTY_COMPILE: ${PS_SMARTY_COMPILE-auto}
       PS_ASSET_CACHE: ${PS_ASSET_CACHE-auto}
@@ -140,8 +141,8 @@ services:
       DATABASE_MONITOR_PASSWORD: ${DATABASE_MONITOR_PASSWORD-}
       DBMONITOR_TOKEN: ${DBMONITOR_TOKEN-}
       # Target /metrics (SERVICES=metrics): token, probed URLs, probe address, interface, support level, disk test size,
-      # HTTP log window (minutes), the size of each HTTP log file the metrics service reads and how often (seconds)
-      # the Docker collector reads the containers.
+      # HTTP log window (minutes) and how often (seconds) the Docker collector reads the containers; the log
+      # collector's days kept and size limit.
       METRICS_TOKEN: ${METRICS_TOKEN-}
       METRICS_URLS: ${METRICS_URLS-}
       METRICS_PROBE_ADDRESS: ${METRICS_PROBE_ADDRESS-}
@@ -149,8 +150,11 @@ services:
       METRICS_SUPPORT_LEVEL: ${METRICS_SUPPORT_LEVEL-}
       METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB-}
       METRICS_HTTP_WINDOW_MINUTES: ${METRICS_HTTP_WINDOW_MINUTES-}
-      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB-}
       METRICS_DOCKER_INTERVAL: ${METRICS_DOCKER_INTERVAL-}
+      METRICS_BOTS: ${METRICS_BOTS-}
+      METRICS_SLOW_REQUEST_SECONDS: ${METRICS_SLOW_REQUEST_SECONDS-}
+      LOGS_RETENTION_DAYS: ${LOGS_RETENTION_DAYS-}
+      LOGS_MAX_MB: ${LOGS_MAX_MB-}
       MEMCACHED_CACHE_MB: ${MEMCACHED_CACHE_MB-}
       REDIS_MAXMEMORY_MB: ${REDIS_MAXMEMORY_MB-}
       REDIS_MEMORY: ${REDIS_MEMORY-}

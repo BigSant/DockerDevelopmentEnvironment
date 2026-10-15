@@ -7,7 +7,10 @@ services:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-metrics
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    entrypoint: ["php", "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php"]
+    # The sampler's minute and probe loops and php -S in front (runtime/metrics/start.sh).
+    entrypoint: ["sh", "/opt/setup/runtime/metrics/start.sh"]
+    # PHP as PID 1 ignores SIGTERM: Docker's init forwards it, so a stop or a deploy does not wait 10 s.
+    init: true
     # Own network: the project network aliases DOMAIN to nginx-proxy, while the website probe must
     # reach the public front (DirectAdmin) or METRICS_PROBE_ADDRESS like the old script's curl did.
     networks:
@@ -23,8 +26,10 @@ services:
     environment:
       TZ: ${TZ}
       ENV: ${ENV}
-      # php -S serves one request at a time; workers (PHP >= 7.4, ignored before) keep a slow probe
-      # (website, database) from blocking the next scrape. The DB digest snapshot is flock()ed.
+      # The dashboard's title.
+      PROJECT_NAME: ${PROJECT_NAME}
+      # php -S serves one request at a time; workers (PHP >= 7.4, ignored before) keep a slow page of the
+      # dashboard from blocking a scrape.
       PHP_CLI_SERVER_WORKERS: "4"
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       METRICS_URLS: ${METRICS_URLS}
@@ -33,12 +38,23 @@ services:
       METRICS_SUPPORT_LEVEL: ${METRICS_SUPPORT_LEVEL}
       METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB}
       METRICS_HTTP_WINDOW_MINUTES: ${METRICS_HTTP_WINDOW_MINUTES}
+      # The access log holds every site of this proxy: the HTTP group leaves out the tool sites (<tool>.DOMAIN).
+      DOMAIN: ${DOMAIN}
+      PROXY_TOOLS: ${PROXY_TOOLS:-}
+      # The traffic analysis's crawlers beyond setup's list, comma-separated user-agent words.
+      METRICS_BOTS: ${METRICS_BOTS:-}
+      # A request slower than this counts in setup_http_slow_requests (seconds).
+      METRICS_SLOW_REQUEST_SECONDS: ${METRICS_SLOW_REQUEST_SECONDS}
       METRICS_DOCKER_INTERVAL: ${METRICS_DOCKER_INTERVAL}
       # Database group: statistics only, through the DB monitor account (make db-monitor-user).
       DATABASE_MONITOR_USER: ${DATABASE_MONITOR_USER:-${DATABASE_NAME}_monitor}
       DATABASE_MONITOR_PASSWORD: ${DATABASE_MONITOR_PASSWORD:-}
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      # The sampler's snapshot, website probes and 48-hour history; kept when the container is recreated.
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}/metrics
+        target: /var/lib/setup-metrics
       # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
       # the host network counters are read from /proc/1/net (the host's network namespace).
       - type: bind
@@ -50,11 +66,16 @@ services:
         source: ${PROJECT_DATA_DIRECTORY}
         target: /host/disk
         read_only: true
-      # The site's access log (nginx-proxy, client IPs after the real-IP handling), the webserver's error
-      # log and nginx-proxy's TCP table snapshot; docker logs keep their own copies.
+      # nginx-proxy's TCP table snapshot (security group).
       - type: volume
         source: http_logs
         target: /host/http-logs
+        read_only: true
+      # The log collector's files: nginx-proxy's access log (client IPs after the real-IP handling), the
+      # webserver's and php-fpm's error logs (HTTP group).
+      - type: volume
+        source: logs
+        target: /host/logs
         read_only: true
       # The Docker collector's snapshot (containers group); this service has no Docker access itself.
       - type: volume
@@ -72,6 +93,8 @@ services:
     # Root only to open the root-owned socket; nothing else is granted.
     user: "0:0"
     entrypoint: ["php", "/opt/setup/runtime/metrics/docker-collector.php"]
+    # PHP as PID 1 ignores SIGTERM: Docker's init forwards it, so a stop or a deploy does not wait 10 s.
+    init: true
     network_mode: none
     read_only: true
     cap_drop:
@@ -103,35 +126,70 @@ services:
         source: docker_state
         target: /var/lib/setup-docker
 
-  # Writers of the HTTP log volume, each file bounded to two of METRICS_HTTP_LOG_MB (current and rotated).
+  # Log collector: follows the stdout and stderr of this project's containers through the Docker API and keeps
+  # them in the log volume past the containers' life, one file per service, stream and day, gzipped once the day is
+  # over, LOGS_RETENTION_DAYS days and LOGS_MAX_MB at most. It holds the socket, so it has the same guards as
+  # metrics-docker: GET requests for the project's own containers only, no network, capabilities or writable root.
+  metrics-logs:
+    image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
+    container_name: ${PROJECT_NAME}-${ENV}-metrics-logs
+    # Root only to open the root-owned socket; the files it writes are readable by the project account.
+    user: "0:0"
+    entrypoint: ["php", "/opt/setup/runtime/metrics/log-collector.php"]
+    # PHP as PID 1 ignores SIGTERM: Docker's init forwards it, so a stop or a deploy does not wait 10 s.
+    init: true
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${METRICS_MEMORY}
+    cpus: ${METRICS_CPUS}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${CONTAINER_LOG_MAX_SIZE:-10m}
+        max-file: "${CONTAINER_LOG_MAX_FILES:-3}"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      METRICS_DOCKER_PROJECT: ${PROJECT_NAME}-${ENV}
+      LOGS_DIR: /var/lib/setup-logs
+      LOGS_RETENTION_DAYS: ${LOGS_RETENTION_DAYS}
+      LOGS_MAX_MB: ${LOGS_MAX_MB}
+    volumes:
+      - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - type: volume
+        source: logs
+        target: /var/lib/setup-logs
+
+  # nginx-proxy writes its TCP table snapshot to the HTTP log volume (security group).
   nginx-proxy:
     networks:
       network_metrics: {}
-    environment:
-      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB}
     volumes:
       - http_logs:/var/log/setup-http
-
-  webserver:
-    environment:
-      SETUP_ENABLE_METRICS: "1"
-      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB}
-    volumes:
-      - http_logs:/var/log/setup-http
-
-  # PHP's messages also reach the webserver's error log (FastCGI stderr), not only docker logs.
-  php-fpm:
-    environment:
-      SETUP_ENABLE_METRICS: "1"
 
   # The database joins the metrics network, so the metrics service stays off the project network.
   database:
     networks:
       network_metrics: {}
 
+  # php-fpm too: the metrics service asks it for the pool status and OPcache figures over FastCGI.
+  php-fpm:
+    networks:
+      network_metrics: {}
+
 volumes:
   http_logs:
     name: ${PROJECT_NAME}-${ENV}-http-logs
+  logs:
+    name: ${PROJECT_NAME}-${ENV}-logs
   docker_state:
     name: ${PROJECT_NAME}-${ENV}-metrics-docker
 

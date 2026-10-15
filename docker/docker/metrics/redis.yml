@@ -1,0 +1,9 @@
+services:
+  # With SERVICES="redis metrics": the cache group reads Redis's INFO; redis joins the metrics network.
+  metrics:
+    environment:
+      METRICS_REDIS: "redis:6379"
+
+  redis:
+    networks:
+      network_metrics: {}

@@ -1,0 +1,3 @@
+[Fri Oct 09 12:27:00.000001 2026] [core:notice] [pid 1:tid 1] AH00094: Command line: 'httpd -D FOREGROUND'
+[Fri Oct 09 12:31:00.000000 2026] [core:notice] [pid 1:tid 1] AH00052: child pid 99 exit signal Segmentation fault (11)
+[Fri Oct 09 12:32:00.000000 2026] [proxy:error] [pid 10:tid 14] (104)Connection reset by peer: [client 198.51.100.2:5003] AH01102: error reading status line from remote server php-fpm:9000

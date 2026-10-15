@@ -35,6 +35,85 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
     stderr. php-fpm started without setup's `start.sh` keeps writing them to stderr.
   `make build` rebuilds the three images; nothing to set.
 
+- **Container logs are kept for 14 days, one file per service, stream and day** (`SERVICES=metrics`). docker logs
+  lose a container's lines whenever it is recreated (every `make deploy-images`). A new collector container,
+  `<project>-<env>-metrics-logs`, follows every project container's stdout and stderr and writes the lines to the
+  volume `<project>-<env>-logs`: `php-fpm/access-2026-10-15.log`, `php-fpm/error-…`, `nginx-proxy/access-…`,
+  `database/error-…`, `cron/output-…`. A finished day is gzipped; `LOGS_RETENTION_DAYS` (default 14) and
+  `LOGS_MAX_MB` (default 2048, oldest first, never today) bound it. It continues where it stopped after its own
+  restart and for recreated containers. Like the Docker collector it holds the Docker socket, so it has no network
+  and no capabilities and sends GET requests for the project's own containers only.
+  New **`make logs day=2026-10-14|today|yesterday [service=php-fpm]`** prints a day from there.
+  `make build` and `make deploy-images` start it; history begins then (plus what docker logs still hold).
+
+- **The metrics HTTP group reads the log collector's files; the log copies are gone.** `http_*` and `http_error_type`
+  (same names and labels) now come from `nginx-proxy/access-<day>.log` and the `webserver/` and `php-fpm/` error
+  files. nginx-proxy no longer writes a second access log, Apache no longer pipes its errors through `rotatelogs`
+  and php-fpm no longer sends PHP's messages to Apache (`fastcgi.logging`). The proxy's log holds its tool sites
+  too; their lines (`metrics.`, `cron.`, … and `PROXY_TOOLS` names) are left out of the figures.
+  PHP now writes its own messages to stderr with their time (`error_log = /proc/self/fd/2` in setup's PHP policy;
+  a project's `config/php` can still set another `error_log`), so PHP errors are counted where they happen.
+  `METRICS_HTTP_LOG_MB` is gone (an env file that still sets it is ignored); the old copies in the
+  `<project>-<env>-http-logs` volume are removed at the proxy's next start, and the volume keeps only its TCP snapshot.
+
+- **`/metrics` serves a snapshot the metrics service takes every minute.** Collection moved from the scrape into a
+  sampler in the metrics container: a few seconds after each minute it collects every group into
+  `data/<env>/metrics/snapshot.json` (and a 48-hour history of the small groups for the coming dashboard);
+  `/metrics` serves the latest one plus `setup_metrics_snapshot_timestamp_seconds`. More scrapes no longer mean more
+  load or shifted windows. A snapshot older than three minutes is served as every `setup_metrics_group_up` 0.
+  The `METRICS_URLS` probes run in their own loop every 5 minutes with a 30 s limit (was 20 s on every scrape): a
+  page over it reports `website_response_time` 30 and `website_response_status` 0, and never delays the other
+  groups. New `setup_website_probe_timestamp_seconds`.
+  **The HTTP window now defaults to 1 minute** (`METRICS_HTTP_WINDOW_MINUTES`, was 5), matching a 1-minute
+  Prometheus `scrape_interval`; set it to your interval if Prometheus scrapes less often, or `sum_over_time` alerts
+  count each request several times. `make build` and `make deploy-images`; `data/<env>/metrics` is created by them.
+
+- **Dashboard at `metrics.<domain>/`** (`SERVICES=metrics`): the page that listed `/metrics` is now an Overview of
+  cards (load, I/O wait, memory, disk, 5xx per minute, database, containers, cron, page checks), each coloured by
+  setup's fixed limits and with a 24-hour line from the sampler's history; it refreshes every minute. It reads only
+  the sampler's snapshot, so opening it costs the server nothing. Same access as before: the allowlist and the
+  optional `METRICS_HTPASSWD`. Limits: `doc/lt/05-servisai.md`.
+  Its **Logs** tab lists the kept log files by service and day, shows the end of one (gzipped days too) filtered by
+  level (errors, warnings, 5xx, 4xx) and text, and downloads it as it is.
+  Its **Traffic** tab replaces `scan_access_file.sh`: for the last 15 minutes, hour, 24 hours, 7 days or a day, each
+  request is an attack (SQL injection as the script found it, path traversal, probes such as `/.env` or `/wp-login`,
+  XSS), a bot (the script's list, about 30 more crawlers and the project's `METRICS_BOTS`), a static file or a
+  person; with the bots and suspicious and regular IPs as the script counted them, attacks by type with their lines,
+  top IPs, agents and URLs, 4xx and 5xx by URL, the slowest URLs and the p95 response time. Closed hours are analysed
+  once and cached in `data/<env>/metrics/traffic` (8 days).
+  **Database**, **Containers** and **Cron** tabs show the figures `/metrics` already served (slow and table-scan
+  statements, table locks and I/O, buffer pool; each container's state, health, restarts and OOM kills; each cron job's
+  last run, exit code and duration) as tables, and say why when a group has none.
+
+- **Traffic figures in `/metrics`** (new names only, label sets bounded): `setup_http_class_requests{class}`,
+  `setup_http_bot_requests{bot}` (top 20), `setup_http_attack_requests{type}`, `setup_http_url_requests{url}` and
+  `setup_http_url_5xx_requests{url}` (top 10), `setup_http_slow_requests` (over `METRICS_SLOW_REQUEST_SECONDS`,
+  default 2) and `setup_http_response_time_p50_seconds` / `_p95_seconds`, all over the HTTP window. The dashboard's
+  Overview shows the p95 card from them.
+
+- **`metrics.<domain>/feed`**: a text report for people and LLMs with the old monitoring script's results.txt
+  sections and headers, filled from the latest snapshot, then the last 24 hours' traffic analysis (classes, bots,
+  attacks with their lines, top IPs, agents and URLs, 4xx/5xx, the slowest URLs). Guarded like `/metrics`: the
+  allowlist and `METRICS_TOKEN`, no `METRICS_HTPASSWD`. Not byte-for-byte the old commands' output; server_stats_viewer
+  does not read it.
+
+- **PHP-FPM and OPcache figures** (`SERVICES=metrics`): workers active and idle, the listen queue, how often every
+  worker was busy (`setup_php_fpm_max_children_reached_total`), OPcache's hit rate, memory, scripts and restarts by
+  reason, and a "PHP workers" card on the Overview. php-fpm joins the metrics network; the metrics service asks it over
+  FastCGI for `pm.status_path` (visitors cannot reach it: Apache passes php-fpm only `.php` files). New optional
+  **`PHP_FPM_SLOWLOG_SECONDS`**: requests slower than that write their PHP stack trace to php-fpm's docker logs;
+  only then does php-fpm get `SYS_PTRACE`, which the slowlog needs. `make build` (the pool settings are in the image).
+
+- **Each container's CPU, memory and I/O**: the Docker collector (still GET only, no network) also reads each
+  running container's stats. New `setup_container_cpu_percent`, `_cpu_seconds_total`, `setup_container_memory_bytes`,
+  `_memory_limit_bytes`, `_memory_limit_ratio` (use against `<SERVICE>_MEMORY`; 1 means at the limit, OOM next) and
+  `setup_container_io_read_bytes_total` / `_write_bytes_total`; the Containers tab shows which service uses what.
+
+- **Redis and memcached figures** when the project runs them with metrics: memory used against its limit, hit rate,
+  hits and misses, evictions (a rising `setup_redis_evicted_keys_total` / `setup_memcached_evictions_total` means the
+  limit is too small), keys or items and connections. The cache joins the metrics network; without it the group is not
+  served at all.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

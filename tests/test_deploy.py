@@ -485,6 +485,8 @@ class PhpReloadIntegrationTest(unittest.TestCase):
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
         self.docker("run", "-d", "--name", name, "--network", "none", "--memory", "128m", "--user", "1000:1000",
                     "-v", f"{conf}:/usr/local/etc/php-fpm.d/zz-setup-global.conf:ro", "-e", "SETUP_FPM_ACCESS_LOG=/proc/self/fd/2",
+                    # The CORE image's defaults of zz-setup-global.conf's variables.
+                    "-e", "SETUP_FPM_SLOWLOG_TIMEOUT=0",
                     "--entrypoint", "php-fpm", os.environ["PHP_TEST_IMAGE"], "-F", "-R")
         self.listening(name)
         self.assertIn("process_control_timeout = 30s", subprocess.run(

@@ -12,12 +12,10 @@ if [[ "${SETUP_ENABLE_MAILPIT:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-
 if [[ "${SETUP_ENABLE_CRON:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-cron.conf >> /etc/nginx/conf.d/sites_env.conf; fi
 if [[ "${SETUP_ENABLE_DBMONITOR:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-dbmonitor.conf >> /etc/nginx/conf.d/sites_env.conf; fi
 if [[ "${SETUP_ENABLE_BACKUP:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-backup.conf >> /etc/nginx/conf.d/sites_env.conf; fi
-mkdir -p /etc/nginx/setup-site.d && rm -f /etc/nginx/setup-site.d/*.conf
 if [[ "${SETUP_ENABLE_METRICS:-0}" == 1 ]]; then
     cat /etc/nginx/templates/setup-metrics.conf >> /etc/nginx/conf.d/sites_env.conf
-    # A second copy of the site's access log for the metrics service; docker logs keep theirs.
+    # This proxy's TCP table for the metrics service's security group (the log collector keeps the access log).
     mkdir -p /var/log/setup-http
-    echo 'access_log /var/log/setup-http/access.log setup buffer=32k flush=5s;' > /etc/nginx/setup-site.d/http-log.conf
     /usr/local/bin/http-logs.sh &
 fi
 if [[ "${CACHE_MODE:-off}" == off ]]; then
