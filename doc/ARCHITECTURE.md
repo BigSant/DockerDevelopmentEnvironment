@@ -144,6 +144,17 @@ fingerprint is outdated; it removes only with `apply=1`.
   regular files under the collector's directory (no symbolic links, `realpath` inside it). A plain file is read
   backwards in 64 KiB chunks until enough lines match, a gzipped one forwards keeping only the last matches, a shown
   line cut at 4 KiB: memory stays bounded whatever the size.
+  Traffic (`traffic.php`, `traffic-tab.php`, `/traffic` and `/traffic.json`), scan_access_file.sh's successor: each
+  nginx-proxy access line (tool sites left out) is one class, `attack` (fixed patterns: the script's SQLi `<word>%20`,
+  path traversal, probes such as `/.env`, `/wp-login`, `/.git/`, XSS) before `bot` (agent names one of setup's
+  crawlers or `METRICS_BOTS`) before `asset` (GET of a static file) before `human`; bots are counted per name by agent
+  like the script (an attack's too), suspicious IPs (an attack) and regular IPs by their non-asset, non-bot requests.
+  Tested against the script's own result.txt on `tests/fixtures/traffic`. A window (15 min, 1 h, 24 h and 7 d from a
+  whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
+  only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
+  every 5 minutes) caches every missing closed hour of 7 days and removes those past 8. A cached hour keeps the 500
+  busiest entries of each list and response times per millisecond (percentiles of any window); lists are trimmed
+  while a file is read, so a busy day stays within the service's memory.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with

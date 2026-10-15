@@ -485,6 +485,25 @@ Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER
 
 Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi.
 
+**Srautai** (`/traffic`) – nginx-proxy užklausų analizė (seno `scan_access_file.sh` įpėdinis) pasirinktam langui: 15 min., 1 val., 24 val., 7 d. ar konkreti diena. Kiekviena užklausa priskiriama vienai klasei:
+
+| Klasė | Kas | Pavyzdžiai |
+| --- | --- | --- |
+| Attacks | užklausa atitinka atakos šabloną (net jei agentas – botas) | SQLi (`select%20`, `union%20` … kaip scripte), path traversal (`../`, `/etc/passwd`), zondai (`/.env`, `/wp-login.php`, `/.git/`, `/phpmyadmin`), XSS (`<script`, `onerror=`) |
+| Bots | agentas įvardija žinomą robotą: setup sąrašas (scripto sąrašas ir dar ~30) ir projekto `METRICS_BOTS` | `Googlebot`, `bingbot/2.0`, `GPTBot` |
+| Static files | `GET` paveikslėlio, JS, CSS ar šrifto | `/themes/…/theme.css?v=3` |
+| People | visa kita | |
+
+Rodoma: kiekis pagal klasę, atsakymo laiko p95 ir mediana, atakos pagal tipą su eilutėmis, botai, įtartini IP (bent viena ataka) ir įprasti IP (kaip scripte – be statinių failų ir botų užklausų), top IP, user-agent'ai ir URL (be query), 4xx ir 5xx pagal URL, lėčiausi URL (`rt=`). Botų skaičiai sutampa su scripto (kiekvienas vardas skaičiuojamas atskirai pagal agentą).
+
+Projekto botai (be setup pakeitimo), `env/common.env`:
+
+```dotenv
+METRICS_BOTS="ShopCrawler/1.0, Inhouse Monitor"
+```
+
+Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Ilgo lango sąrašai tikslūs iki 500 kiekvienos valandos dažniausių įrašų.
+
 **Log'ai** (`/logs/`) – [log'ų istorijos](#logų-istorija) failai pagal servisą ir dieną su dydžiais. Paspaudus failą rodomos paskutinės 100, 500 ar 2000 eilučių (ir suspaustų dienų), filtruojant pagal lygį (klaidos, įspėjimai, 5xx ar 4xx atsakymai) ir tekstą; filtras rodo tik atitinkančias eilutes, be jų tęsinių (pvz. stack trace). „download“ atsiunčia failą tokį, koks jis yra (`.gz` – skaityk `zless`). Dideli failai skaitomi dalimis, todėl puslapis neviršija metrikų serviso atminties.
 
 1. `env/<ENV>.env`:

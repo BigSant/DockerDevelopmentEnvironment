@@ -1,0 +1,56 @@
+# BOT requests
+   12 - Googlebot
+    5 - bingbot/2.0
+    3 - AhrefsBot
+    1 - GPTBot
+    0 - yandex.com/bots
+    0 - YandexBot
+    0 - YaK/1.0
+    0 - TwitterBot
+    0 - Twitterbot
+    0 - TelegramBot
+    0 - SeznamBot
+    0 - SemrushBot
+    0 - SBIntuitionsBot
+    0 - PetalBot
+    0 - PerplexityBot/1.0
+    0 - Orbbot/1.1
+    0 - openai.com/searchbot
+    0 - mj12bot.com
+    0 - meta-externalagent
+    0 - Mail.RU_Bot/2.0
+    0 - keys-so-bot
+    0 - ImagesiftBot
+    0 - GoogleOther
+    0 - GeedoProductSearch
+    0 - Facebot
+    0 - facebookexternalhit/1.1
+    0 - DuckDuckBot
+    0 - DotBot
+    0 - DataForSeoBot/1.0
+    0 - Cookiebot/1.0
+    0 - coccocbot-web/1.0
+    0 - coccocbot
+    0 - ClaudeBot
+    0 - ChatGPT-User/1.0
+    0 - Bytespider
+    0 - bytedance
+    0 - BacklinksExtendedBot
+    0 - AwarioBot
+    0 - archive.org_bot
+    0 - Applebot/0.1
+    0 - Amazonbot/0.1
+    0 - AdsBot-Google
+
+# Potential SQL injections
+185.220.101.44 - - [14/Oct/2026:10:20:00 +0300] "GET /lt/paieska?s=1%27%20union%20select%20password%20from%20ps_employee-- HTTP/1.1" 200 4000 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36" rt=0.900 urt=0.900 host=demo.local
+185.220.101.44 - - [14/Oct/2026:10:20:02 +0300] "GET /index.php?id_product=1%20AND%20SLEEP(5)%20UNION%20SELECT%201 HTTP/1.1" 200 4000 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36" rt=5.100 urt=5.100 host=demo.local
+45.148.10.77 - - [14/Oct/2026:10:25:00 +0300] "GET /module/x/ajax.php?q=1;drop%20table%20ps_orders HTTP/1.1" 403 150 "-" "python-requests/2.31.0" rt=0.010 urt=0.010 host=demo.local
+
+# Suspicious IPS
+    4 - 185.220.101.44
+    1 - 45.148.10.77
+
+# Regular IPS
+   27 - 198.51.100.21
+   12 - 198.51.100.37

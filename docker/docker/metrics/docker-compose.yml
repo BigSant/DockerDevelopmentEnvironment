@@ -39,6 +39,8 @@ services:
       # The access log holds every site of this proxy: the HTTP group leaves out the tool sites (<tool>.DOMAIN).
       DOMAIN: ${DOMAIN}
       PROXY_TOOLS: ${PROXY_TOOLS:-}
+      # The traffic analysis's crawlers beyond setup's list, comma-separated user-agent words.
+      METRICS_BOTS: ${METRICS_BOTS:-}
       METRICS_DOCKER_INTERVAL: ${METRICS_DOCKER_INTERVAL}
       # Database group: statistics only, through the DB monitor account (make db-monitor-user).
       DATABASE_MONITOR_USER: ${DATABASE_MONITOR_USER:-${DATABASE_NAME}_monitor}

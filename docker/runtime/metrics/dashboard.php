@@ -4,10 +4,10 @@
 // (sampler.php) or, for the logs, from the log collector's files. Self-contained like the cron and backup UIs: no web
 // fonts, scripts or styles from elsewhere.
 
-// The tabs, each a file of its own (overview.php, logs.php).
+// The tabs, each a file of its own (overview.php, traffic-tab.php, logs.php).
 function dashboard_tabs()
 {
-    return array('/' => 'Overview', '/logs/' => 'Logs');
+    return array('/' => 'Overview', '/traffic' => 'Traffic', '/logs/' => 'Logs');
 }
 
 function h($value)
@@ -117,6 +117,13 @@ button{cursor:pointer;text-transform:uppercase;font-size:11px;font-weight:700;le
 table.list{width:100%;border-collapse:collapse}
 .list th{text-align:left;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--rule)}
 .list td{padding:3px 8px;border-bottom:1px solid var(--line)}.list .num{text-align:right;color:var(--dim)}a.quiet{color:var(--dim)}
+.btn{padding:4px 10px;border:1px solid var(--rule);border-radius:3px;color:var(--dim);text-transform:uppercase;font-size:11px;font-weight:700}
+.btn.on{color:var(--amber);border-color:var(--amber)}
+.panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;margin-top:14px}
+.panel{border:1px solid var(--rule);background:var(--panel);border-radius:3px;padding:10px 14px;min-width:0}.panel.wide{grid-column:1/-1}
+.panel h2{margin:0 0 6px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.panel h3{margin:8px 0 4px;font-size:12px;color:var(--stop)}
+.list td.key{word-break:break-all}
 pre.log{margin:0;padding:10px 12px;background:var(--panel);border:1px solid var(--rule);border-radius:3px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45}
 CSS;
 }

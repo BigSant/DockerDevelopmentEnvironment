@@ -6,6 +6,7 @@
 // Files in METRICS_SNAPSHOT_DIR (data/<env>/metrics): snapshot.json, probes.json, history/<UTC hour>.jsonl.
 // Usage: php sampler.php [--once]            the minute loop (one sample with --once)
 //        php sampler.php --probes [--once]   the probe loop (one round with --once)
+//        php sampler.php --traffic [--once]  the traffic loop: caches the closed hours' analysis (traffic.php)
 require_once __DIR__ . '/metrics.php';
 
 // The history keeps the families of up to this many samples, without lists of clients, queries, tables or
@@ -57,6 +58,13 @@ function metrics_history($directory, $now, Metrics $metrics)
     }
 }
 
+function metrics_traffic_round($now)
+{
+    require_once __DIR__ . '/http.php';
+    require_once __DIR__ . '/traffic.php';
+    traffic_prepare($now);
+}
+
 function metrics_probe_round($now)
 {
     require_once __DIR__ . '/website.php';
@@ -67,6 +75,19 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
     umask(022);
     $once = in_array('--once', $argv, true);
     $probes = in_array('--probes', $argv, true);
+    if (in_array('--traffic', $argv, true)) {
+        // Every 5 minutes: the hour that has closed is cached within minutes.
+        do {
+            try {
+                metrics_traffic_round(time());
+            } catch (Throwable $error) {
+                fwrite(STDERR, 'metrics-sampler: traffic: ' . $error->getMessage() . "\n");
+                if ($once) exit(1);
+            }
+            if (!$once) sleep(300);
+        } while (!$once);
+        exit(0);
+    }
     if ($probes) {
         require_once __DIR__ . '/website.php';
         if (!metrics_website_urls() && !$once) {

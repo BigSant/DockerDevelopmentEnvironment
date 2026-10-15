@@ -75,6 +75,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   optional `METRICS_HTPASSWD`. Limits: `doc/lt/05-servisai.md`.
   Its **Logs** tab lists the kept log files by service and day, shows the end of one (gzipped days too) filtered by
   level (errors, warnings, 5xx, 4xx) and text, and downloads it as it is.
+  Its **Traffic** tab replaces `scan_access_file.sh`: for the last 15 minutes, hour, 24 hours, 7 days or a day, each
+  request is an attack (SQL injection as the script found it, path traversal, probes such as `/.env` or `/wp-login`,
+  XSS), a bot (the script's list, about 30 more crawlers and the project's `METRICS_BOTS`), a static file or a
+  person; with the bots and suspicious and regular IPs as the script counted them, attacks by type with their lines,
+  top IPs, agents and URLs, 4xx and 5xx by URL, the slowest URLs and the p95 response time. Closed hours are analysed
+  once and cached in `data/<env>/metrics/traffic` (8 days).
 
 ## 2.11.1
 
