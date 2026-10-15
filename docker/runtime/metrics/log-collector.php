@@ -6,9 +6,10 @@
 //   <LOGS_DIR>/<service>/<access|output|error>-YYYY-MM-DD.log
 // stdout is "access" for the web services (their request lines), "output" for the others; stderr is "error".
 // The day is the line's Docker time in TZ. A finished day is gzipped (<name>.log.gz, zcat/zless read it); files older
-// than LOGS_RETENTION_DAYS days go, and the oldest go first while all of them exceed LOGS_MAX_MB. The time of the last
-// line read from each container is kept, so a restarted collector or a recreated container loses nothing docker logs
-// still hold.
+// than LOGS_RETENTION_DAYS days go, and the oldest go first while all of them exceed LOGS_MAX_MB. A day's files are
+// bounded as they are written (LogWriter): one file takes a quarter of LOGS_MAX_MB at most, all of a day's files
+// LOGS_MAX_MB. The time of the last line read from each container is kept, so a restarted collector or a recreated
+// container loses nothing docker logs still hold.
 // Like metrics-docker it holds the root-equivalent Docker socket, so it sends GET requests only, for the project's
 // own containers, without network, capabilities or a writable root; it writes only the log volume.
 // Usage: php log-collector.php                       follow the containers (the service)
@@ -25,6 +26,8 @@ const LOGS_LINE_LIMIT = 1048576;
 // A finished day is compressed this long after its last line: late lines may still arrive, and the metrics HTTP
 // group reads the plain file of yesterday while its window (60 minutes at most) reaches back before midnight.
 const LOGS_COMPRESS_AFTER = 7200;
+// The end of the note a day's file gets when it reaches its bound (LogWriter).
+const LOGS_FULL_END = ' are only in docker logs';
 
 function logs_directory()
 {
@@ -60,14 +63,72 @@ function logs_after($a, $b)
     return (int) $as === (int) $bs ? strcmp($an, $bn) > 0 : (int) $as > (int) $bs;
 }
 
+// LOGS_MAX_MB in bytes.
+function logs_limit()
+{
+    return max(1, (int) collector_setting('LOGS_MAX_MB', '2048')) * 1048576;
+}
+
 final class LogWriter
 {
     private $handles = array();
+    // Per day lines arrive for: [sizes => [path => bytes], total => bytes, full => [path => true]].
+    private $days = array();
 
     public function write($service, $stream, $time, $line)
     {
         $seconds = (int) explode('.', $time)[0];
-        $path = logs_directory() . '/' . $service . '/' . logs_kind($service, $stream) . '-' . date('Y-m-d', $seconds) . '.log';
+        $day = date('Y-m-d', $seconds);
+        $path = logs_directory() . '/' . $service . '/' . logs_kind($service, $stream) . '-' . $day . '.log';
+        $full = $this->full($day, $path, strlen($line) + 1);
+        if ($full === null) {
+            $this->append($path, $line);
+        } elseif (!isset($this->days[$day]['full'][$path])) {
+            // The first line past the bound leaves a note; the rest of the day's lines stay in docker logs only.
+            $this->days[$day]['full'][$path] = true;
+            $note = 'metrics-logs: ' . $full . ' reached, further lines of ' . $day . LOGS_FULL_END;
+            $this->append($path, $note);
+            fwrite(STDERR, 'metrics-logs: ' . $service . '/' . basename($path) . ': ' . $full . " reached, its lines are dropped\n");
+        }
+    }
+
+    // The maintenance deletes past days only, so a crash loop or a message on every request would fill the disk
+    // within a day: a file takes a quarter of LOGS_MAX_MB at most (one noisy stream leaves room for the others),
+    // all of a day's files LOGS_MAX_MB. Null while the line fits, else which bound it passes.
+    private function full($day, $path, $bytes)
+    {
+        if (!isset($this->days[$day])) {
+            // A day first seen here (or a restarted collector): the files it has already.
+            $sizes = $full = array();
+            foreach (glob(logs_directory() . '/*/*-' . $day . '.log*') ?: array() as $file) {
+                if (!preg_match('/\.log(\.gz)?$/', $file)) continue;
+                $plain = preg_replace('/\.gz$/', '', $file);
+                $size = (int) @filesize($file);
+                $sizes[$plain] = (isset($sizes[$plain]) ? $sizes[$plain] : 0) + $size;
+                // A file that ends with the note has it already.
+                if ($plain === $file && $size > 0 && substr((string) @file_get_contents($file, false, null, max(0, $size - 256)), -strlen(LOGS_FULL_END) - 1)
+                        === LOGS_FULL_END . "\n") {
+                    $full[$plain] = true;
+                }
+            }
+            $this->days[$day] = array('sizes' => $sizes, 'total' => array_sum($sizes), 'full' => $full);
+            // Today's and the days late lines still come for.
+            ksort($this->days);
+            while (count($this->days) > 3) array_shift($this->days);
+            if (!isset($this->days[$day])) return null;
+        }
+        $state = &$this->days[$day];
+        $limit = logs_limit();
+        $size = isset($state['sizes'][$path]) ? $state['sizes'][$path] : 0;
+        if ($state['total'] + $bytes > $limit) return 'LOGS_MAX_MB for the day';
+        if ($size + $bytes > $limit / 4) return 'a quarter of LOGS_MAX_MB for one file';
+        $state['sizes'][$path] = $size + $bytes;
+        $state['total'] += $bytes;
+        return null;
+    }
+
+    private function append($path, $line)
+    {
         if (is_file($path . '.gz')) {
             // A late line of a day already compressed: one more gzip member, which zcat reads as part of the file.
             $this->close($path);
@@ -383,7 +444,8 @@ function logs_files()
 }
 
 // Gzips the files of finished days, deletes those past the retention, then the oldest while over the size limit.
-// Today's files are never deleted.
+// Today's files are never deleted (LogWriter bounds them). A day that cannot be compressed (a full disk, a directory
+// it cannot write) is reported and tried again next time; the deletions still run, they are what frees the disk.
 function logs_maintain(LogWriter $writer, $now)
 {
     $today = date('Y-m-d', $now);
@@ -395,7 +457,11 @@ function logs_maintain(LogWriter $writer, $now)
         list($path, , $day) = $file;
         if ($day >= $today || substr($path, -3) === '.gz' || $now - (int) @filemtime($path) < LOGS_COMPRESS_AFTER) continue;
         $writer->close($path);
-        logs_compress($path);
+        try {
+            logs_compress($path);
+        } catch (RuntimeException $error) {
+            fwrite(STDERR, 'metrics-logs: ' . $error->getMessage() . "\n");
+        }
     }
     $keep = date('Y-m-d', strtotime($today . ' -' . max(1, (int) collector_setting('LOGS_RETENTION_DAYS', '14')) . ' days'));
     $files = array();
@@ -407,7 +473,7 @@ function logs_maintain(LogWriter $writer, $now)
             $files[] = $file;
         }
     }
-    $limit = max(1, (int) collector_setting('LOGS_MAX_MB', '2048')) * 1048576;
+    $limit = logs_limit();
     $total = array_sum(array_map(function ($file) { return $file[3]; }, $files));
     foreach ($files as $file) {
         if ($total <= $limit || $file[2] >= $today) break;
@@ -512,8 +578,10 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
                 $next['save'] = $now + 5;
             }
             if ($now >= $next['maintain'] || ($once && !$open)) {
-                $collector->maintain($now);
+                // Set first: a maintenance that fails is retried in a minute, not on every pass of the loop (each
+                // failure sleeps 5 s, which would leave the streams one read per pass behind Docker's rotation).
                 $next['maintain'] = $now + 60;
+                $collector->maintain($now);
             }
         } catch (RuntimeException $error) {
             fwrite(STDERR, 'metrics-logs: ' . $error->getMessage() . "\n");

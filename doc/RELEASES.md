@@ -18,6 +18,13 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   took 20 s longer. php-fpm now serves them on a status listener of its own (`pm.status_listen = 9001`,
   `zz-setup-status.conf`); the metrics service tries 9001, then 9000 (PHP before 8.0, or an image not built yet). An
   idle shop no longer shows one busy worker either (the status request itself was counted).
+- **The log collector bounds today's files and keeps deleting when a compression fails.** Only past days were
+  deleted for `LOGS_MAX_MB`, so a crash-looping service or a warning on every request could fill the disk within a
+  day. One file now takes a quarter of `LOGS_MAX_MB` a day, all of a day's files `LOGS_MAX_MB`; past that the file
+  gets a note line and the rest stays in docker logs only. A compression that failed (full disk, a directory it
+  cannot write) stopped the retention and size deletions of the same pass and was retried on every loop, which
+  slowed the reading of the containers until lines were lost to Docker's rotation; it is now reported, retried in a
+  minute, and the deletions run.
 
 ## 2.12.0
 

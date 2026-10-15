@@ -220,12 +220,17 @@ class LogCollectorTest(unittest.TestCase):
         stale = self.logs / f"webserver/error-{y}.log.gz.4242"
         stale.write_bytes(b"partial")
         os.utime(stale, (old, old))
+        # Past the retention in another service: the failed compression must not keep it (the deletions free the disk).
+        (self.logs / "php-fpm").mkdir()
+        expired = self.logs / f"php-fpm/error-{(self.today - datetime.timedelta(days=44)).isoformat()}.log.gz"
+        expired.write_bytes(b"old")
         (self.logs / "webserver").chmod(0o555)
         self.addCleanup((self.logs / "webserver").chmod, 0o755)
         result = self.run_collector("--once")
         self.assertIn("cannot", result.stderr)
         self.assertEqual(plain.read_text(), "line of yesterday\n")
         self.assertFalse((self.logs / f"webserver/error-{y}.log.gz").exists())
+        self.assertFalse(expired.exists())
         (self.logs / "webserver").chmod(0o755)
         self.collect()
         self.assertFalse(stale.exists())
@@ -279,6 +284,34 @@ class LogCollectorTest(unittest.TestCase):
         self.assertIn("over LOGS_MAX_MB", result.stderr)
         self.collect(LOGS_MAX_MB="1")
         self.assertEqual(self.files(), [f"php-fpm/access-{day(0)}.log.gz"])
+
+    def test_a_day_is_bounded_as_it_is_written(self):
+        t = self.today.isoformat()
+        at = self.midnight + datetime.timedelta(hours=2)
+        line = "x" * 999
+        # LOGS_MAX_MB=1: one file takes 256 KiB at most. A crash-looping php-fpm writes 400 KB; the webserver's few
+        # errors still go to their file.
+        self.api.containers = [
+            {"id": "f1", "service": "php-fpm", "state": "running", "lines": [(2, at, line) for _ in range(400)]},
+            {"id": "w1", "service": "webserver", "state": "running", "lines": [(2, at, "[proxy:error] kept")]}]
+        result = self.collect(LOGS_MAX_MB="1")
+        noisy = self.read(f"php-fpm/error-{t}.log").splitlines()
+        self.assertEqual(noisy[:-1], [line] * (262144 // 1000))
+        self.assertIn("a quarter of LOGS_MAX_MB for one file reached", noisy[-1])
+        self.assertIn("php-fpm/error-" + t + ".log", result.stderr)
+        self.assertEqual(self.read(f"webserver/error-{t}.log"), "[proxy:error] kept\n")
+        # The next run counts the files already there: no line more, no second note.
+        self.api.containers[0]["lines"].append((2, at + datetime.timedelta(minutes=1), line))
+        self.collect(LOGS_MAX_MB="1")
+        self.assertEqual(len(self.read(f"php-fpm/error-{t}.log").splitlines()), len(noisy))
+        # All of the day's files together take LOGS_MAX_MB: 900 KB of the proxy already today leaves no room.
+        (self.logs / "nginx-proxy").mkdir()
+        (self.logs / f"nginx-proxy/access-{t}.log").write_bytes(b"p" * 900000)
+        self.api.containers[1]["lines"].append((2, at + datetime.timedelta(minutes=2), "[proxy:error] " + "y" * 200000))
+        self.collect(LOGS_MAX_MB="1")
+        kept = self.read(f"webserver/error-{t}.log").splitlines()
+        self.assertEqual(kept[0], "[proxy:error] kept")
+        self.assertIn("LOGS_MAX_MB for the day reached", kept[1])
 
     def test_make_logs_prints_one_day_of_a_service(self):
         after = self.midnight + datetime.timedelta(hours=3)

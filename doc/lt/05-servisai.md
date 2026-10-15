@@ -627,7 +627,7 @@ php-fpm/access-…   php-fpm/error-…   webserver/error-…   database/error-�
 
 - **Pavadinimas**: stdout yra `access` nginx-proxy, Apache ir php-fpm (jų užklausų eilutės, žr. [kas kur rašo](12-cache-ir-hibridines-aplinkos.md#logai-diskas-ir-kopijos)), kitiems servisams `output`; stderr visada `error`. Diena – eilutės laikas pagal `TZ`.
 - **Suspaudimas**: pasibaigusios dienos failas suspaudžiamas (`.log.gz`, skaito `zcat`, `zless`, `zgrep`) praėjus 2 val. po paskutinės eilutės; vėliau atėjusi tos dienos eilutė pridedama prie `.gz`.
-- **Saugojimas**: `LOGS_RETENTION_DAYS` dienų (numatyta 14), o jei visi failai užima daugiau nei `LOGS_MAX_MB` (numatyta 2048), pirmi trinami seniausi. Šiandienos failai netrinami niekada.
+- **Saugojimas**: `LOGS_RETENTION_DAYS` dienų (numatyta 14), o jei visi failai užima daugiau nei `LOGS_MAX_MB` (numatyta 2048), pirmi trinami seniausi. Šiandienos failai netrinami niekada, bet rašant ribojami: vienas failas – iki ketvirčio `LOGS_MAX_MB`, visi dienos failai – iki `LOGS_MAX_MB`. Pasiekus ribą faile atsiranda viena pastabos eilutė, o likusios tos dienos eilutės lieka tik `docker logs`.
 - **Niekas nedingsta perkuriant**: kolektorius saugo, iki kurios eilutės perskaitė kiekvieną konteinerį, todėl po savo perkrovimo ar naujam konteineriui tęsia nuo ten. Prarandama tik tai, ko `docker logs` jau nebeturi (kolektorius ilgai neveikė).
 - **Saugumas**: kaip Docker kolektoriaus (žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai)): be tinklo, be capabilities, tik `GET` užklausos ir tik šio projekto konteineriams; savo paties log'ų nerenka.
 

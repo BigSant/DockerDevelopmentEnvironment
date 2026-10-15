@@ -221,10 +221,14 @@ fingerprint is outdated; it removes only with `apply=1`.
   dropped for arriving out of time order (stdout and stderr reach the daemon's file side by side), and parts docker
   split over 16 KiB are joined. A finished day is gzipped two hours after its last write (a late line becomes
   another gzip member); days past `LOGS_RETENTION_DAYS` go, then the oldest while the files exceed `LOGS_MAX_MB`,
-  never today's. `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
+  never today's. Today's are bounded as they are written instead (`LogWriter`): one file takes a quarter of
+  `LOGS_MAX_MB`, all of a day's files `LOGS_MAX_MB`; past that the file gets one note line and the rest of the day's
+  lines stay only in docker logs (a crash loop or a warning on every request filled the disk within a day otherwise;
+  Docker's own cap is `CONTAINER_LOG_MAX_SIZE` × `CONTAINER_LOG_MAX_FILES`). `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
   saved every second lines were written; the three metrics containers run with `init: true`, because PHP as PID 1
   ignores SIGTERM. A stopped container is read again when its `StartedAt` changed (it ran between two looks); a
-  compression that fails (disk full) keeps the plain file, and stale `*.log.gz.<pid>` temporaries are removed.
+  compression that fails (disk full) keeps the plain file, is reported and tried again in a minute, while the
+  deletions of that maintenance still run; stale `*.log.gz.<pid>` temporaries are removed.
 - **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
   keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
   `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy
