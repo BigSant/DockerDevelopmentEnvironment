@@ -154,6 +154,50 @@ class TrafficTest(unittest.TestCase):
         self.assertEqual({k: v for k, v in second["ips"].items() if k.startswith("198.51.100.")},
                          {k: v for k, v in first["ips"].items() if k.startswith("198.51.100.")})
 
+    def test_an_agent_with_escaped_bytes_is_cached_and_served(self):
+        moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)
+        name = f"access-{moment.astimezone(ZoneInfo(ZONE)):%Y-%m-%d}.log"
+        # nginx writes bytes outside ASCII as \\xHH text.
+        (self.logs / "nginx-proxy" / name).write_text(line("198.51.100.1", moment, "GET /lt/ HTTP/1.1", agent="bad\\xFF\\xFEagent"))
+        subprocess.run(["php", str(SAMPLER), "--traffic", "--once"], env=self.environment, check=True, timeout=120)
+        hour = int(moment.timestamp()) // 3600 * 3600
+        cached = json.loads((self.snapshots / f"traffic/{hour}.json").read_text())
+        self.assertEqual(cached["agents"], {"bad\\xFF\\xFEagent": 1})
+        self.assertEqual(self.report("window=24h")["agents"], {"bad\\xFF\\xFEagent": 1})
+
+    def test_hours_are_not_cached_while_the_log_collector_is_stopped(self):
+        moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)
+        name = f"access-{moment.astimezone(ZoneInfo(ZONE)):%Y-%m-%d}.log"
+        (self.logs / "nginx-proxy" / name).write_text(line("198.51.100.1", moment, "GET /lt/ HTTP/1.1"))
+        state = self.logs / ".collector-state.json"
+        state.write_text("{}")
+        stopped = time.time() - 4 * 3600
+        os.utime(state, (stopped, stopped))
+        subprocess.run(["php", str(SAMPLER), "--traffic", "--once"], env=self.environment, check=True, timeout=120)
+        hour = int(moment.timestamp()) // 3600 * 3600
+        # The hours that ended before the collector stopped are cached; the line's hour, after it stopped, is not.
+        self.assertTrue((self.snapshots / f"traffic/{hour - 2 * 3600}.json").is_file())
+        self.assertFalse((self.snapshots / f"traffic/{hour}.json").exists())
+        # The window still counts the hour, read from the file.
+        self.assertEqual(self.report("window=24h")["requests"], 1)
+        self.assertFalse((self.snapshots / f"traffic/{hour}.json").exists())
+        # Running again (its state saved now): every closed hour is cached.
+        os.utime(state, None)
+        subprocess.run(["php", str(SAMPLER), "--traffic", "--once"], env=self.environment, check=True, timeout=120)
+        self.assertEqual(json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["requests"], 1)
+        self.assertEqual(len(list((self.snapshots / "traffic").glob("*.json"))), 7 * 24)
+
+    def test_a_window_after_midnight_reads_no_gzipped_yesterday(self):
+        script = ("require $argv[1]; require $argv[2]; require $argv[3]; $d = new DateTime('2026-10-15 00:10:00', new DateTimeZone('Europe/Vilnius'));"
+                  " echo json_encode(traffic_files($d->getTimestamp() - 60, $d->getTimestamp()));")
+        with gzip.open(self.logs / "nginx-proxy/access-2026-10-14.log.gz", "wt") as handle:
+            handle.write("x\n")
+        (self.logs / "nginx-proxy/access-2026-10-15.log").write_text("x\n")
+        runtime = ROOT / "docker/runtime/metrics"
+        result = subprocess.run(["php", "-r", script, str(runtime / "metrics.php"), str(runtime / "http.php"), str(runtime / "traffic.php")],
+                                env=self.environment, capture_output=True, text=True, check=True)
+        self.assertEqual([Path(entry[0]).name for entry in json.loads(result.stdout)], ["access-2026-10-15.log"])
+
     def test_the_sampler_prepares_the_closed_hours(self):
         moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)
         name = f"access-{moment.astimezone(ZoneInfo(ZONE)):%Y-%m-%d}.log"
@@ -189,11 +233,27 @@ class TrafficMemoryTest(TrafficTest):
         self.assertEqual(len(report["ips"]), 20)
         self.assertIsNotNone(report["p95"])
 
+    def test_preparing_busy_days_stays_within_the_memory_limit(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for days in (6, 4, 2):
+            moment = (now - datetime.timedelta(days=days)).astimezone(ZoneInfo(ZONE)).replace(hour=1, minute=0, second=0)
+            with gzip.open(self.logs / f"nginx-proxy/access-{moment:%Y-%m-%d}.log.gz", "wt", compresslevel=1) as handle:
+                for number in range(60000):
+                    at = moment + datetime.timedelta(seconds=number)
+                    handle.write(line(f"10.{days}.{number // 250 % 250}.{number % 250}", at, f"GET /p/{number} HTTP/1.1", agent=f"a{number}"))
+        result = subprocess.run(["php", "-d", "memory_limit=64M", str(SAMPLER), "--traffic", "--once"], env=self.environment,
+                                capture_output=True, text=True, timeout=600)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(list((self.snapshots / "traffic").glob("*.json"))), 7 * 24)
+
     # The other tests need no second run under the limit.
     test_a_known_log_gives_the_scripts_bots_injections_and_ips = None
     test_attack_types_bots_of_the_project_and_tool_sites = None
     test_closed_hours_are_read_once_and_a_7_day_window_merges_them = None
     test_the_sampler_prepares_the_closed_hours = None
+    test_an_agent_with_escaped_bytes_is_cached_and_served = None
+    test_hours_are_not_cached_while_the_log_collector_is_stopped = None
+    test_a_window_after_midnight_reads_no_gzipped_yesterday = None
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")

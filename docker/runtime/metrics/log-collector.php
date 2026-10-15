@@ -168,9 +168,15 @@ final class LogStream
             $this->headers = false;
         }
         if ($this->tty) {
-            // A terminal's output has no frames: everything is stdout.
-            $this->payload(1, $this->buffer, $line);
-            $this->buffer = '';
+            // A terminal's output has no frames: everything is stdout, read a whole line at a time (an unfinished one,
+            // even its timestamp, waits for the rest). Docker's 16 KiB parts of a long terminal line are not joined.
+            $end = strrpos($this->buffer, "\n");
+            if ($end === false) {
+                if (strlen($this->buffer) > LOGS_LINE_LIMIT) $this->buffer = substr($this->buffer, 0, LOGS_LINE_LIMIT);
+                return;
+            }
+            $this->payload(1, substr($this->buffer, 0, $end + 1), $line);
+            $this->buffer = (string) substr($this->buffer, $end + 1);
             return;
         }
         // Frames: stream (1 stdout, 2 stderr), three zero bytes, the payload's size (big-endian), the payload.
@@ -225,6 +231,7 @@ final class LogCollector
     private $writer;
     private $streams = array();
     private $state = array();
+    private $changed = false;
 
     // $follow false (--once): read what each container holds now; every answer then ends.
     public function __construct($project, $follow)
@@ -257,11 +264,22 @@ final class LogCollector
             if (!logs_valid_service($service) || $service === LOGS_SELF) continue;
             $present[$id] = true;
             $running = isset($container['State']) && $container['State'] === 'running';
-            $known = isset($this->state[$id]) ? $this->state[$id] : array('service' => $service, 'last' => null, 'same' => 0, 'ended' => false);
-            if (isset($this->streams[$id]) || (!$running && $known['ended'])) continue;
-            $inspect = collector_json('/containers/' . rawurlencode($id) . '/json');
+            $known = isset($this->state[$id]) ? $this->state[$id]
+                : array('service' => $service, 'last' => null, 'same' => 0, 'ended' => false, 'started' => '');
+            if (isset($this->streams[$id])) continue;
+            try {
+                $inspect = collector_json('/containers/' . rawurlencode($id) . '/json');
+            } catch (RuntimeException $error) {
+                // Removed between the list and this call.
+                continue;
+            }
+            // A stopped container read to its end has nothing new, unless it ran again between two looks (a restart
+            // that ended within the 5 seconds): its start time tells.
+            $started = isset($inspect['State']['StartedAt']) ? (string) $inspect['State']['StartedAt'] : '';
+            if (!$running && $known['ended'] && isset($known['started']) && $known['started'] === $started) continue;
             $tty = !empty($inspect['Config']['Tty']);
             $known['service'] = $service;
+            $known['started'] = $started;
             $known['ended'] = false;
             $this->state[$id] = $known;
             $this->streams[$id] = new LogStream($id, $service, $tty, $known['last'], $this->follow);
@@ -284,13 +302,18 @@ final class LogCollector
             $read[] = $stream->socket;
         }
         $write = $except = null;
-        if (@stream_select($read, $write, $except, (int) $seconds, (int) (fmod($seconds, 1) * 1000000)) === false) return true;
+        if (@stream_select($read, $write, $except, (int) $seconds, (int) (fmod($seconds, 1) * 1000000)) === false) {
+            // Interrupted (a signal): wait a little rather than spin.
+            usleep(200000);
+            return true;
+        }
         foreach ($this->streams as $id => $stream) {
             if (!in_array($stream->socket, $read, true)) continue;
             $state = &$this->state[$id];
             $writer = $this->writer;
             try {
-                $open = $stream->read(function ($kind, $time, $text) use (&$state, $writer, $stream) {
+                $changed = &$this->changed;
+                $open = $stream->read(function ($kind, $time, $text) use (&$state, $writer, $stream, &$changed) {
                     // since= sends the lines of the saved time again. Lines can share a time (stdout and stderr
                     // of one write), so the state counts the ones written and exactly that many are skipped.
                     if ($time === $stream->replay[0] && $stream->replay[1] > 0) {
@@ -300,6 +323,7 @@ final class LogCollector
                     // Everything else is written: stdout and stderr reach the daemon's file side by side, so a
                     // line may follow one with a later time.
                     $writer->write($stream->service, $kind, $time, $text);
+                    $changed = true;
                     if ($state['last'] === null || logs_after($time, $state['last'])) {
                         $state['last'] = $time;
                         $state['same'] = 1;
@@ -323,8 +347,15 @@ final class LogCollector
         return (bool) $this->streams;
     }
 
+    // Whether lines were written since the last save.
+    public function changed()
+    {
+        return $this->changed;
+    }
+
     public function save()
     {
+        $this->changed = false;
         $file = $this->stateFile();
         $temporary = $file . '.' . getmypid();
         if (@file_put_contents($temporary, json_encode(array('project' => $this->project, 'containers' => $this->state))) === false) {
@@ -356,6 +387,10 @@ function logs_files()
 function logs_maintain(LogWriter $writer, $now)
 {
     $today = date('Y-m-d', $now);
+    // A compression a crash interrupted leaves <name>.log.gz.<pid>; the plain file is still there.
+    foreach (glob(logs_directory() . '/*/*.log.gz.*') ?: array() as $temporary) {
+        if ($now - (int) @filemtime($temporary) > 3600) @unlink($temporary);
+    }
     foreach (logs_files() as $file) {
         list($path, , $day) = $file;
         if ($day >= $today || substr($path, -3) === '.gz' || $now - (int) @filemtime($path) < LOGS_COMPRESS_AFTER) continue;
@@ -392,16 +427,29 @@ function logs_compress($path)
     $existing = is_file($target);
     $source = @fopen($path, 'rb');
     if ($source === false) return;
-    if ($existing && !@copy($target, $temporary)) throw new RuntimeException('cannot copy ' . $target);
-    $gzip = gzopen($temporary, $existing ? 'ab6' : 'wb6');
-    if ($gzip === false) throw new RuntimeException('cannot write ' . $temporary);
-    while (!feof($source)) {
+    if ($existing && !@copy($target, $temporary)) {
+        fclose($source);
+        @unlink($temporary);
+        throw new RuntimeException('cannot copy ' . $target);
+    }
+    $gzip = @gzopen($temporary, $existing ? 'ab6' : 'wb6');
+    if ($gzip === false) {
+        fclose($source);
+        @unlink($temporary);
+        throw new RuntimeException('cannot write ' . $temporary);
+    }
+    // A short write (a full disk) keeps the plain file: the day stays readable and is compressed next time.
+    $written = true;
+    while ($written && !feof($source)) {
         $chunk = fread($source, 1048576);
         if ($chunk === false) break;
-        gzwrite($gzip, $chunk);
+        $written = $chunk === '' || @gzwrite($gzip, $chunk) === strlen($chunk);
     }
     fclose($source);
-    gzclose($gzip);
+    if (!@gzclose($gzip) || !$written) {
+        @unlink($temporary);
+        throw new RuntimeException('cannot compress ' . basename($path) . ' (disk full?)');
+    }
     chmod($temporary, 0644);
     if (!@rename($temporary, $target)) throw new RuntimeException('cannot replace ' . $target);
     @touch($target, (int) @filemtime($path));
@@ -457,7 +505,9 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
             }
             // --once: until every answer has ended.
             $open = $collector->pump(1);
-            if ($now >= $next['save'] || ($once && !$open)) {
+            // Saved every second lines were written (at least every 5 s): after a stop, at most a second of lines is
+            // written again.
+            if ($now >= $next['save'] || ($once && !$open) || $collector->changed()) {
                 $collector->save();
                 $next['save'] = $now + 5;
             }

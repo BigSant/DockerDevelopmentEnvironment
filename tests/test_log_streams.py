@@ -90,6 +90,8 @@ class PhpFpmStreamsTest(unittest.TestCase):
                "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro",
                # setup's PHP policy as the php-fpm service reads it (its files expect these variables).
                "-e", "PHP_INI_SCAN_DIR=:/opt/setup/runtime/php-policy", "-e", "TZ=Europe/Vilnius", "-e", "PHP_OPCACHE=0",
+               # The CORE image's default of zz-setup-global.conf's slowlog variable.
+               "-e", "SETUP_FPM_SLOWLOG_TIMEOUT=0",
                "-e", "PHP_APCU=0", "-e", "PHP_OPCACHE_VALIDATE_TIMESTAMPS=1", "-e", "PHP_OPCACHE_REVALIDATE_FREQ=0",
                # The CORE image creates these; a plain php-fpm image does not.
                "--tmpfs", "/usr/local/etc/php/project.r:mode=1777", "--tmpfs", "/usr/local/etc/php/project.r.env:mode=1777",
