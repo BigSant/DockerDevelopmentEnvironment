@@ -4,7 +4,11 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.12.1
+
+Fixes of the 2.12.0 monitoring. Projects with metrics: `make build` and `make deploy-images` (a pipeline deploy with
+`IMAGES=auto` does it, because setup moved); the PHP group's status listener needs the rebuilt php-fpm image, the
+rest comes with the recreated metrics containers. Nothing to change in the project.
 
 - **`make up` prepares the data directories a newer setup adds.** After the update to 2.12.0, `make up` with
   `SERVICES=metrics` let Docker create `data/<env>/metrics` as root; the metrics service (the project account) could
