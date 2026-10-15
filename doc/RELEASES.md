@@ -4,7 +4,12 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.12.0
+
+Monitoring for `SERVICES=metrics` projects, replacing the server's `monitoring.sh` and `scan_access_file.sh`. Every
+project: `make build` (new log lines in nginx-proxy, Apache and php-fpm). Projects with metrics: the per-server
+steps of the first item (DNS, DirectAdmin subdomain with TLS, the Prometheus target), then `make build` and
+`make deploy-images`; the metric names stay, so the Grafana dashboards and alerts keep working.
 
 - **Breaking for `SERVICES=metrics`: the metrics move from `<domain>/metrics` to their own tool site
   `metrics.<domain>`** (like `cron.` and `backup.`). The main site no longer has a `/metrics` path: from the first
