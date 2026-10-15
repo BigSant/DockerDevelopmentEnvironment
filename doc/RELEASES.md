@@ -35,6 +35,17 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
     stderr. php-fpm started without setup's `start.sh` keeps writing them to stderr.
   `make build` rebuilds the three images; nothing to set.
 
+- **Container logs are kept for 14 days, one file per service, stream and day** (`SERVICES=metrics`). docker logs
+  lose a container's lines whenever it is recreated (every `make deploy-images`). A new collector container,
+  `<project>-<env>-metrics-logs`, follows every project container's stdout and stderr and writes the lines to the
+  volume `<project>-<env>-logs`: `php-fpm/access-2026-10-15.log`, `php-fpm/error-…`, `nginx-proxy/access-…`,
+  `database/error-…`, `cron/output-…`. A finished day is gzipped; `LOGS_RETENTION_DAYS` (default 14) and
+  `LOGS_MAX_MB` (default 2048, oldest first, never today) bound it. It continues where it stopped after its own
+  restart and for recreated containers. Like the Docker collector it holds the Docker socket, so it has no network
+  and no capabilities and sends GET requests for the project's own containers only.
+  New **`make logs day=2026-10-14|today|yesterday [service=php-fpm]`** prints a day from there.
+  `make build` and `make deploy-images` start it; history begins then (plus what docker logs still hold).
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

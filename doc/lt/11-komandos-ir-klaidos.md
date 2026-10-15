@@ -25,6 +25,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make restart [service=php-fpm]` | Perkuria servisą (be `service` – visus) su dabartinėmis env reikšmėmis. |
 | `make ps` | Parodo konteinerius. |
 | `make logs [service=database] [follow=1] [tail=100]` | Parodo log'us. |
+| `make logs [service=php-fpm] day=2026-10-14\|today\|yesterday` | Tos dienos log'ų failai iš log'ų istorijos (`SERVICES=metrics`), ir jau perkurtų konteinerių. |
 | `make shell` | Terminalas PHP konteineryje. |
 | `make check` | Patikrina visą konfigūraciją nieko nepaleisdamas (įskaitant PS ir PHP suderinamumą). |
 | `make config` | Įrašo galutinį Compose modelį į `.generated/compose.<ENV>.yaml`. |

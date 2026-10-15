@@ -554,6 +554,33 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 
 **Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytojo maršruto vartai (Docker tinklo vartai – per juos ateina priekinio web serverio ir paties serverio persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
 
+### Log'ų istorija
+
+`docker logs` dingsta kartu su konteineriu (kiekvienas `make deploy-images` konteinerius perkuria) ir laiko tik `CONTAINER_LOG_MAX_SIZE` × `CONTAINER_LOG_MAX_FILES`. Su `SERVICES=metrics` trečias konteineris `<PROJECT_NAME>-<ENV>-metrics-logs` seka visų projekto konteinerių stdout ir stderr ir rašo eilutes (tokias, kokias parašė konteineris) į tomą `<PROJECT_NAME>-<ENV>-logs`, po failą kiekvienam servisui, srautui ir dienai:
+
+```
+nginx-proxy/access-2026-10-15.log      šiandien, rašomas
+nginx-proxy/access-2026-10-14.log.gz   praėjusi diena, suspausta
+nginx-proxy/error-2026-10-15.log
+php-fpm/access-…   php-fpm/error-…   webserver/error-…   database/error-…   cron/output-…
+```
+
+- **Pavadinimas**: stdout yra `access` nginx-proxy, Apache ir php-fpm (jų užklausų eilutės, žr. [kas kur rašo](12-cache-ir-hibridines-aplinkos.md#logai-diskas-ir-kopijos)), kitiems servisams `output`; stderr visada `error`. Diena – eilutės laikas pagal `TZ`.
+- **Suspaudimas**: pasibaigusios dienos failas suspaudžiamas (`.log.gz`, skaito `zcat`, `zless`, `zgrep`) praėjus 10 min. po paskutinės eilutės; vėliau atėjusi tos dienos eilutė pridedama prie `.gz`.
+- **Saugojimas**: `LOGS_RETENTION_DAYS` dienų (numatyta 14), o jei visi failai užima daugiau nei `LOGS_MAX_MB` (numatyta 2048), pirmi trinami seniausi. Šiandienos failai netrinami niekada.
+- **Niekas nedingsta perkuriant**: kolektorius saugo, iki kurios eilutės perskaitė kiekvieną konteinerį, todėl po savo perkrovimo ar naujam konteineriui tęsia nuo ten. Prarandama tik tai, ko `docker logs` jau nebeturi (kolektorius ilgai neveikė).
+- **Saugumas**: kaip Docker kolektoriaus (žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai)): be tinklo, be capabilities, tik `GET` užklausos ir tik šio projekto konteineriams; savo paties log'ų nerenka.
+
+Peržiūra:
+
+```bash
+make logs service=php-fpm day=today        # šiandienos php-fpm access ir error failai
+make logs service=nginx-proxy day=2026-10-14
+make logs day=yesterday                    # visi servisai
+```
+
+Stage/prod su `DEPLOY_CONTEXT` komanda vykdoma serveryje. Senesnėms nei saugojimo terminas dienoms – `No logs of … on …`.
+
 ### DB metrikos
 
 DB grupė skaito tik statistiką per [DB monitoriaus](#db-monitorius) paskyrą (`PROCESS`, `performance_schema`, `sys`): skaitiklius ir užklausų šablonus, kuriuose reikšmės jau pakeistos `?`. Projekto lentelių eilučių ji skaityti negali (tai tikrina B testas), o vykdomų sakinių tekstas (`SQL_TEXT`, su reikšmėmis) nenaudojamas. Grupė generic – PrestaShop lentelių neliečia.

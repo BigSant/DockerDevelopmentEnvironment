@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 TOKEN_MINIMUM = 24
 # Container-side defaults; the collector itself lives in runtime/metrics/.
 DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRICS_HTTP_WINDOW_MINUTES': '5',
-            'METRICS_HTTP_LOG_MB': '32', 'METRICS_DOCKER_INTERVAL': '15'}
+            'METRICS_HTTP_LOG_MB': '32', 'METRICS_DOCKER_INTERVAL': '15', 'LOGS_RETENTION_DAYS': '14', 'LOGS_MAX_MB': '2048'}
 
 
 def resolve_metrics(settings):
@@ -47,6 +47,11 @@ def resolve_metrics(settings):
     # How often the Docker collector reads the containers; a snapshot older than three intervals is stale.
     if not re.fullmatch(r'\d+', values['METRICS_DOCKER_INTERVAL']) or not 5 <= int(values['METRICS_DOCKER_INTERVAL']) <= 300:
         raise ValueError('METRICS_DOCKER_INTERVAL must be 5 to 300 seconds')
+    # The log collector (metrics-logs): days kept and the size of all kept files; today's files always stay.
+    if not re.fullmatch(r'\d+', values['LOGS_RETENTION_DAYS']) or not 1 <= int(values['LOGS_RETENTION_DAYS']) <= 366:
+        raise ValueError('LOGS_RETENTION_DAYS must be 1 to 366 days')
+    if not re.fullmatch(r'\d+', values['LOGS_MAX_MB']) or not 64 <= int(values['LOGS_MAX_MB']) <= 1048576:
+        raise ValueError('LOGS_MAX_MB must be 64 to 1048576')
     return values
 
 

@@ -189,7 +189,7 @@ Neprivalomas `config/environment.json` leidžia `make check` patikrinti, ar serv
 | `MIN_FREE_DISK_MB` | `1024` | Laisvos vietos rezervas, kurį tikrina `doctor`, importas, kopija ir testinė kopija. |
 | `BACKUP_KEEP_LAST` | `5` | Kiek naujausių automatiškai pavadintų kopijų palieka `make db-backup-prune`. |
 
-Docker log'ų rotacija riboja tik konteinerio stdout/stderr. Aplikacijos rašomiems failams (`var/logs`) reikia atskiros rotacijos.
+Docker log'ų rotacija riboja tik konteinerio stdout/stderr, ir jie dingsta perkuriant konteinerį. Su `SERVICES=metrics` jie dar saugomi dienomis 14 d., žr. [Log'ų istorija](05-servisai.md#logų-istorija). Aplikacijos rašomiems failams (`var/logs`) reikia atskiros rotacijos.
 
 **Kas kur rašo.** Užklausos eina į konteinerio stdout, klaidos – į stderr, todėl `docker logs` (ir `make logs`) jas laiko atskirai; failų konteinerio viduje nėra:
 

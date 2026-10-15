@@ -142,6 +142,16 @@ fingerprint is outdated; it removes only with `apply=1`.
   `METRICS_DOCKER_INTERVAL`s clears the group. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
   cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command.
   The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.
+  Logs: `metrics-logs` (`log-collector.php`, the same guards as `metrics-docker`) follows the stdout and stderr of
+  every project container except itself through `GET /containers/{id}/logs?follow=1&timestamps=1` and appends the
+  lines as written to the `<project>-<env>-logs` volume: `<service>/<access|output|error>-YYYY-MM-DD.log` (stdout is
+  `access` for nginx-proxy, webserver and php-fpm, `output` for the rest; the day is the Docker time in `TZ`). Each
+  container's last Docker time (and how many lines shared it) is kept in `.collector-state.json`, so `since=`
+  re-reads after a collector restart or for a recreated container skip exactly what was written; lines are never
+  dropped for arriving out of time order (stdout and stderr reach the daemon's file side by side), and parts docker
+  split over 16 KiB are joined. A finished day is gzipped ten minutes after its last write (a late line becomes
+  another gzip member); days past `LOGS_RETENTION_DAYS` go, then the oldest while the files exceed `LOGS_MAX_MB`,
+  never today's. `make logs day=` prints a day through `log-collector.php --print` in that container.
 - **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
   keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
   `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy
@@ -224,7 +234,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 `make release ENV=stage|prod` builds the images here from committed setup and writes
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
 installed). A release keeps no host path except the read-only `/proc` of the metrics service and the read-only
-Docker socket of its network-less collector (named volumes, such as its HTTP log volume, pass through unchanged).
+Docker socket of its network-less collectors (named volumes, such as its HTTP log volume, pass through unchanged).
 `make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of
