@@ -78,11 +78,11 @@ function overview_cards()
                 overview_number(overview_value($v, 'http_requests_per_minute')) . ' requests / min');
         }, $errors),
         'p95' => array('Response p95', function ($v) {
-            $p95 = overview_value($v, 'setup_http_request_duration_seconds{quantile="0.95"}');
+            $p95 = overview_value($v, 'setup_http_response_time_p95_seconds');
             if ($p95 === null) return null;
             return array(overview_level($p95, 1, 3), overview_number($p95, 2) . ' s',
-                'median ' . overview_number(overview_value($v, 'setup_http_request_duration_seconds{quantile="0.5"}'), 2) . ' s');
-        }, function ($v) { return overview_value($v, 'setup_http_request_duration_seconds{quantile="0.95"}'); }),
+                'median ' . overview_number(overview_value($v, 'setup_http_response_time_p50_seconds'), 2) . ' s');
+        }, function ($v) { return overview_value($v, 'setup_http_response_time_p95_seconds'); }),
         'database' => array('Database', function ($v) {
             $connections = overview_value($v, 'database_connections');
             if (overview_value($v, 'setup_metrics_group_up{group="database"}') !== 1.0 && $connections === null) {

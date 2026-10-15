@@ -115,7 +115,8 @@ class OverviewTest(DashboardServer, unittest.TestCase):
         # Over the limits: load above the cores, I/O wait over 15 %, memory and disk over 90 %.
         self.write(snapshot(uptime_average_load_1min=family([({}, 4.5)]), cpu_usage_iowait=family([({"cpu": "all"}, 16)]),
                             ram_available=family([({}, 1048576)]), disk_available_percentage=family([({}, 85)]),
-                            setup_http_request_duration_seconds=family([({"quantile": "0.5"}, 0.3), ({"quantile": "0.95"}, 3.2)])))
+                            setup_http_response_time_p50_seconds=family([({}, 0.3)]),
+                            setup_http_response_time_p95_seconds=family([({}, 3.2)])))
         _, cards = self.cards()
         self.assertEqual((cards["load"][0], cards["iowait"][0], cards["ram"][0], cards["disk"][0]), ("bad", "bad", "bad", "warn"))
         self.assertEqual(cards["p95"][:3], ("bad", "3.20 s", "median 0.30 s"))

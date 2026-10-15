@@ -22,7 +22,7 @@ const METRICS_HTTP_ERROR_TYPES = array(
 
 function metrics_http_parts()
 {
-    return array('metrics_http_access', 'metrics_http_errors');
+    return array('metrics_http_access', 'metrics_http_errors', 'metrics_http_traffic');
 }
 
 // nginx-proxy's TCP table snapshot (security group).
@@ -235,5 +235,50 @@ function metrics_http_errors(Metrics $metrics)
     });
     foreach ($counts as $type => $count) {
         $metrics->add('http_error_type', 'HTTP error types', $count, array('type' => $type));
+    }
+}
+
+// The traffic analysis (traffic.php) of the same window, as a bounded set: requests per class, the 20 busiest bots,
+// attacks per type, the 10 busiest URLs and those with the most 5xx, requests slower than
+// METRICS_SLOW_REQUEST_SECONDS (2 s) and the median and 95th percentile response time.
+function metrics_http_traffic(Metrics $metrics)
+{
+    require_once __DIR__ . '/traffic.php';
+    if (!is_dir(metrics_logs_directory())) throw new RuntimeException('no log collector files in ' . metrics_logs_directory());
+    list($start, $end) = metrics_http_window();
+    $collected = traffic_collect(array(array($start, $end)));
+    $aggregate = $collected[0];
+    foreach (TRAFFIC_CLASSES as $class) {
+        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, bot, asset (static file), attack',
+            $aggregate['classes'][$class], array('class' => $class));
+    }
+    foreach (metrics_http_top($aggregate['bots'], 20) as $bot => $count) {
+        $metrics->add('setup_http_bot_requests', 'Requests of the window per known bot (the 20 busiest)', $count, array('bot' => (string) $bot));
+    }
+    foreach (array_keys(TRAFFIC_ATTACKS) as $type) {
+        $metrics->add('setup_http_attack_requests', 'Requests of the window matching an attack pattern, per type',
+            isset($aggregate['attacks'][$type]) ? $aggregate['attacks'][$type] : 0, array('type' => $type));
+    }
+    $label = function ($url) { return substr((string) $url, 0, 200); };
+    foreach (metrics_http_top($aggregate['urls'], 10) as $url => $count) {
+        $metrics->add('setup_http_url_requests', 'Requests of the window per URL without its query (the 10 busiest, static files excluded)',
+            $count, array('url' => $label($url)));
+    }
+    foreach (metrics_http_top($aggregate['errors5'], 10) as $url => $count) {
+        $metrics->add('setup_http_url_5xx_requests', '5xx responses of the window per URL (the 10 with the most)', $count, array('url' => $label($url)));
+    }
+    $limit = (float) metrics_setting('METRICS_SLOW_REQUEST_SECONDS', '2');
+    $slow = 0;
+    foreach ($aggregate['durations'] as $milliseconds => $count) {
+        if ($milliseconds > $limit * 1000) $slow += $count;
+    }
+    $metrics->add('setup_http_slow_requests', 'Requests of the window that took longer than METRICS_SLOW_REQUEST_SECONDS (static files excluded)', $slow);
+    // Gauges of the window, not a summary: a summary's quantiles are over its own lifetime.
+    foreach (array('p50' => 0.5, 'p95' => 0.95) as $name => $share) {
+        $value = traffic_percentile($aggregate['durations'], $share);
+        if ($value !== null) {
+            $metrics->add('setup_http_response_time_' . $name . '_seconds',
+                ($name === 'p50' ? 'Median' : '95th percentile') . ' response time of the window\'s requests (nginx rt, static files excluded)', $value);
+        }
     }
 }

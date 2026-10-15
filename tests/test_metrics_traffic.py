@@ -17,7 +17,7 @@ import unittest
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_metrics import ENDPOINT, ROOT, SAMPLER, fetch, free_port
+from test_metrics import ENDPOINT, ROOT, SAMPLER, TOKEN, EndpointMixin, fetch, free_port, labelled, parse
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures/traffic"
 ZONE = "Europe/Vilnius"
@@ -194,6 +194,56 @@ class TrafficMemoryTest(TrafficTest):
     test_attack_types_bots_of_the_project_and_tool_sites = None
     test_closed_hours_are_read_once_and_a_7_day_window_merges_them = None
     test_the_sampler_prepares_the_closed_hours = None
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class TrafficMetricsTest(EndpointMixin, unittest.TestCase):
+    """/metrics: the bounded traffic set of the HTTP window (the fixture logs' [12:29, 12:34) of 2026-10-09)."""
+
+    def setUp(self):
+        self.prepare()
+
+    def scrape(self, **env):
+        status, _, body = fetch(self.start(**env), token=TOKEN)
+        self.assertEqual(status, 200, body)
+        return parse(body)
+
+    def test_classes_slow_requests_and_percentiles_of_the_window(self):
+        metrics = self.scrape()
+        # Nine site requests in the window (the scrape of metrics.demo.local is left out), none a bot or an attack.
+        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"), {"human": 9, "bot": 0, "asset": 0, "attack": 0})
+        self.assertEqual(labelled(metrics, "setup_http_attack_requests", "type"), {"sqli": 0, "traversal": 0, "probe": 0, "xss": 0})
+        self.assertNotIn("setup_http_bot_requests", metrics)
+        # Timed lines in the window: 0, 12, 250 and 30001 ms; one over 2 s.
+        self.assertEqual((metrics["setup_http_response_time_p50_seconds"][""], metrics["setup_http_response_time_p95_seconds"][""]),
+                         (0.012, 30.001))
+        self.assertEqual(metrics["setup_http_slow_requests"][""], 1)
+        self.assertEqual(self.scrape(METRICS_SLOW_REQUEST_SECONDS="0.2")["setup_http_slow_requests"][""], 2)
+        self.assertEqual(labelled(metrics, "setup_http_url_5xx_requests", "url"), {"/error": 1})
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+
+    def test_label_sets_are_bounded_to_the_busiest(self):
+        listed = json.loads(subprocess.run(["php", "-r", "require $argv[1]; echo json_encode(TRAFFIC_BOTS);",
+                                            str(ROOT / "docker/runtime/metrics/traffic.php")], capture_output=True, text=True, check=True).stdout)
+        # Thirty names none of which holds another (each agent names one bot).
+        bots = [bot for bot in listed if not any(other != bot and (other in bot or bot in other) for other in listed)][:30]
+        self.assertEqual(len(bots), 30)
+        moment = datetime.datetime(2026, 10, 9, 12, 30, 15, tzinfo=ZoneInfo(ZONE))
+        rows = []
+        for rank, bot in enumerate(bots):
+            rows += [line("192.0.2.1", moment, "GET /lt/ HTTP/1.1", agent=f"Mozilla/5.0 (compatible; {bot})")] * (rank + 1)
+        for rank in range(15):
+            rows += [line("198.51.100.9", moment, f"GET /lt/page-{rank}?q={rank} HTTP/1.1")] * (100 + rank)
+            rows += [line("198.51.100.9", moment, f"POST /lt/fail-{rank} HTTP/1.1", status=502)] * (rank + 1)
+        with (self.logs / "nginx-proxy/access-2026-10-09.log").open("a") as handle:
+            handle.write("\n" + "".join(rows))
+        metrics = self.scrape()
+        served = labelled(metrics, "setup_http_bot_requests", "bot")
+        self.assertEqual(len(served), 20)
+        self.assertEqual(set(served), set(bots[10:]))
+        # The bots' 465 requests of /lt/ make it the busiest URL; then the nine busiest pages.
+        self.assertEqual(set(labelled(metrics, "setup_http_url_requests", "url")), {"/lt/"} | {f"/lt/page-{rank}" for rank in range(6, 15)})
+        self.assertEqual(set(labelled(metrics, "setup_http_url_5xx_requests", "url")), {f"/lt/fail-{rank}" for rank in range(5, 15)})
 
 
 if __name__ == "__main__":

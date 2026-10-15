@@ -155,6 +155,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   every 5 minutes) caches every missing closed hour of 7 days and removes those past 8. A cached hour keeps the 500
   busiest entries of each list and response times per millisecond (percentiles of any window); lists are trimmed
   while a file is read, so a busy day stays within the service's memory.
+  The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class, the 20
+  busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
+  `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
+  would be over its lifetime, and promtool rejects `quantile` on a gauge).
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
