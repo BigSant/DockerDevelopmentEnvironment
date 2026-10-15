@@ -7,7 +7,8 @@ services:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-metrics
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    entrypoint: ["php", "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php"]
+    # The sampler's minute and probe loops and php -S in front (runtime/metrics/start.sh).
+    entrypoint: ["sh", "/opt/setup/runtime/metrics/start.sh"]
     # Own network: the project network aliases DOMAIN to nginx-proxy, while the website probe must
     # reach the public front (DirectAdmin) or METRICS_PROBE_ADDRESS like the old script's curl did.
     networks:
@@ -23,8 +24,8 @@ services:
     environment:
       TZ: ${TZ}
       ENV: ${ENV}
-      # php -S serves one request at a time; workers (PHP >= 7.4, ignored before) keep a slow probe
-      # (website, database) from blocking the next scrape. The DB digest snapshot is flock()ed.
+      # php -S serves one request at a time; workers (PHP >= 7.4, ignored before) keep a slow page of the
+      # dashboard from blocking a scrape.
       PHP_CLI_SERVER_WORKERS: "4"
       METRICS_TOKEN: ${METRICS_TOKEN:-}
       METRICS_URLS: ${METRICS_URLS}
@@ -42,6 +43,10 @@ services:
       DATABASE_MONITOR_PASSWORD: ${DATABASE_MONITOR_PASSWORD:-}
     volumes:
       - ${ROOT_DIRECTORY}/runtime/:/opt/setup/runtime/:ro
+      # The sampler's snapshot, website probes and 48-hour history; kept when the container is recreated.
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}/metrics
+        target: /var/lib/setup-metrics
       # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
       # the host network counters are read from /proc/1/net (the host's network namespace).
       - type: bind

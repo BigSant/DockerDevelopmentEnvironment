@@ -119,11 +119,21 @@ fingerprint is outdated; it removes only with `apply=1`.
   HTTP and HTTPS servers like `cron.`/`backup.`; the main site has no `/metrics`). Prometheus `/metrics` there is
   guarded by the allowlist and the service's optional bearer token; every other page by the allowlist and the optional
   `METRICS_HTPASSWD` Basic-auth, which `location = /metrics` turns off because both use the `Authorization` header.
-  The service is `php -S` with `PHP_CLI_SERVER_WORKERS=4` (PHP >= 7.4), so a slow probe does not block scrapes.
+  Collection is the sampler's (`sampler.php`, started with `php -S` by `start.sh`): its minute loop collects every
+  group a few seconds after each minute starts into `snapshot.json` in `data/<env>/metrics` (bind mount
+  `/var/lib/setup-metrics`, kept when the container is recreated) and appends the families of up to 16 samples,
+  without per-client, per-query, per-table or per-process lists, to `history/<UTC hour>.jsonl`, whole hours kept 48 h.
+  `/metrics` only serves the latest snapshot plus `setup_metrics_snapshot_timestamp_seconds`, so scrapes change
+  neither the load nor the windows; a snapshot older than three sampler intervals (or none) is served as every
+  `setup_metrics_group_up` 0 and nothing else. The website probes are the sampler's second loop (`--probes`, every
+  `METRICS_PROBE_INTERVAL` = 300 s, curl `--max-time` 30; a timeout is time 30, status 0) into `probes.json`, which
+  the minute's sample reads with `setup_website_probe_timestamp_seconds`; older than three intervals fails the group.
+  A loop that stops is restarted by `start.sh`. `PHP_CLI_SERVER_WORKERS=4` keeps a slow page from blocking a scrape.
+  The HTTP window defaults to one minute, as often as the sampler samples and Prometheus scrapes.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
-  `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
+  `metrics_<group>_parts()`, listed in `metrics_groups()` (metrics.php) and in `IMPLEMENTED` (test_metrics). Host numbers come from
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
   HTTP figures come from the log collector's day files (below), its volume mounted read-only at `/host/logs`:

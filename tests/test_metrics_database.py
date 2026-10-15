@@ -232,7 +232,9 @@ class DatabaseMetricsIntegrationTest(unittest.TestCase):
                         "-v", "/proc:/host/proc:ro", "-e", f"METRICS_TOKEN={TOKEN}", "-e", "METRICS_URLS=",
                         "-e", "METRICS_DISK_WRITE_MB=0", "-e", "DATABASE_MONITOR_USER=shop_monitor",
                         "-e", "DATABASE_MONITOR_PASSWORD=monitor-test-password",
-                        "--entrypoint", "php", PHP, "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php"],
+                        # The service's loops (start.sh), sampling every 2 s.
+                        "--tmpfs", "/var/lib/setup-metrics:mode=1777", "-e", "METRICS_SAMPLER_INTERVAL=2", "-e", "METRICS_PROBE_INTERVAL=5",
+                        "--entrypoint", "sh", PHP, "/opt/setup/runtime/metrics/start.sh"],
                        check=True, capture_output=True)
         self.addCleanup(subprocess.run, ["docker", "rm", "-f", self.endpoint], capture_output=True)
 
@@ -243,13 +245,16 @@ class DatabaseMetricsIntegrationTest(unittest.TestCase):
     def scrape(self):
         fetch_script = ("$o = array('http' => array('ignore_errors' => true, 'timeout' => 60, 'header' => 'Authorization: Bearer ' . $argv[1]));"
                         "echo file_get_contents('http://127.0.0.1:9100/metrics', false, stream_context_create($o));")
-        for _ in range(30):
+        # A snapshot the sampler took after this call: what the test did before it shows.
+        after = int(time.time())
+        for _ in range(60):
             body = subprocess.run(["docker", "exec", self.endpoint, "php", "-r", fetch_script, TOKEN],
                                   capture_output=True, text=True, timeout=90).stdout
-            if body.strip():
-                return body, parse(body)
+            metrics = parse(body) if body.strip() else {}
+            if metrics.get("setup_metrics_snapshot_timestamp_seconds", {}).get("", 0) > after:
+                return body, metrics
             time.sleep(0.5)
-        self.fail("no response from the metrics service")
+        self.fail("no new snapshot from the metrics service")
 
     def test_statistics_appear_and_the_monitor_reads_no_project_data(self):
         self.start_database("on")

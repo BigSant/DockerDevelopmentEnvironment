@@ -56,6 +56,18 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   `METRICS_HTTP_LOG_MB` is gone (an env file that still sets it is ignored); the old copies in the
   `<project>-<env>-http-logs` volume are removed at the proxy's next start, and the volume keeps only its TCP snapshot.
 
+- **`/metrics` serves a snapshot the metrics service takes every minute.** Collection moved from the scrape into a
+  sampler in the metrics container: a few seconds after each minute it collects every group into
+  `data/<env>/metrics/snapshot.json` (and a 48-hour history of the small groups for the coming dashboard);
+  `/metrics` serves the latest one plus `setup_metrics_snapshot_timestamp_seconds`. More scrapes no longer mean more
+  load or shifted windows. A snapshot older than three minutes is served as every `setup_metrics_group_up` 0.
+  The `METRICS_URLS` probes run in their own loop every 5 minutes with a 30 s limit (was 20 s on every scrape): a
+  page over it reports `website_response_time` 30 and `website_response_status` 0, and never delays the other
+  groups. New `setup_website_probe_timestamp_seconds`.
+  **The HTTP window now defaults to 1 minute** (`METRICS_HTTP_WINDOW_MINUTES`, was 5), matching a 1-minute
+  Prometheus `scrape_interval`; set it to your interval if Prometheus scrapes less often, or `sum_over_time` alerts
+  count each request several times. `make build` and `make deploy-images`; `data/<env>/metrics` is created by them.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

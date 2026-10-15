@@ -387,13 +387,15 @@ class ContainersIntegrationTest(unittest.TestCase):
                     "-v", f"{work}:/host/disk:ro", "-v", f"{state}:/host/docker:ro",
                     "-v", f"{work}/history:/host/cron-history:ro", "-v", f"{work}/config:/host/cron-config:ro",
                     "-e", f"METRICS_TOKEN={TOKEN}", "-e", "METRICS_CRON=1", "-e", "ENV=prod", "-e", "METRICS_DISK_WRITE_MB=0",
-                    "-e", "TZ=UTC", "--entrypoint", "php", PHP, "-S", "127.0.0.1:9100", "/opt/setup/runtime/metrics/index.php")
+                    "-e", "TZ=UTC", "--tmpfs", "/var/lib/setup-metrics:mode=1777", "-e", "METRICS_SAMPLER_INTERVAL=2", "-e", "METRICS_PROBE_INTERVAL=5",
+                    "--entrypoint", "sh", PHP, "/opt/setup/runtime/metrics/start.sh")
         scrape = ("$c = stream_context_create(['http' => ['header' => 'Authorization: Bearer " + TOKEN + "', 'timeout' => 60]]);"
                   " echo file_get_contents('http://127.0.0.1:9100/metrics', false, $c);")
         body = ""
         for _ in range(30):
             body = subprocess.run(["docker", "exec", endpoint, "php", "-r", scrape], capture_output=True, text=True, timeout=120).stdout
-            if body:
+            # Until the sampler's first snapshot every group is down.
+            if "setup_metrics_snapshot_timestamp_seconds" in body and 'setup_metrics_group_up{group="containers"} 1' in body:
                 break
             time.sleep(0.5)
         metrics = parse(body)
