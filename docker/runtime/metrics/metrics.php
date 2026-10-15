@@ -90,7 +90,7 @@ function metrics_proc($path)
 // follows database (it reuses the database group's connection for the version).
 function metrics_groups()
 {
-    return array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry');
+    return array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry', 'php');
 }
 
 // The sampler's directory: the snapshot /metrics serves, the history, the website probes.

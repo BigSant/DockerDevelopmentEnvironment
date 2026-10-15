@@ -97,6 +97,13 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   allowlist and `METRICS_TOKEN`, no `METRICS_HTPASSWD`. Not byte-for-byte the old commands' output; server_stats_viewer
   does not read it.
 
+- **PHP-FPM and OPcache figures** (`SERVICES=metrics`): workers active and idle, the listen queue, how often every
+  worker was busy (`setup_php_fpm_max_children_reached_total`), OPcache's hit rate, memory, scripts and restarts by
+  reason, and a "PHP workers" card on the Overview. php-fpm joins the metrics network; the metrics service asks it over
+  FastCGI for `pm.status_path` (visitors cannot reach it: Apache passes php-fpm only `.php` files). New optional
+  **`PHP_FPM_SLOWLOG_SECONDS`**: requests slower than that write their PHP stack trace to php-fpm's docker logs;
+  only then does php-fpm get `SYS_PTRACE`, which the slowlog needs. `make build` (the pool settings are in the image).
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

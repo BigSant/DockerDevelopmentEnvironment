@@ -293,7 +293,8 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         time.sleep(4.5)
         metrics = parse(fetch(base, token=TOKEN, fresh=False)[2])
         self.assertEqual(set(metrics["setup_metrics_group_up"].values()), {0})
-        self.assertEqual(len(metrics["setup_metrics_group_up"]), len(IMPLEMENTED) + 1)
+        # Every group metrics_groups() lists (the registry and php groups have no dashboard names).
+        self.assertEqual(len(metrics["setup_metrics_group_up"]), len(IMPLEMENTED) + 2)
         self.assertNotIn("ram_total", metrics)
         self.assertIn("setup_metrics_snapshot_timestamp_seconds", metrics)
         # Never sampled: the same, without a snapshot time.
@@ -1047,8 +1048,8 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.assertEqual(values["setup_metrics_group_up"],
                          {'{group="system"}': 1, '{group="website"}': 1, '{group="http"}': 1, '{group="security"}': 1,
                           '{group="database"}': 0, '{group="host"}': 1, '{group="containers"}': 0, '{group="cron"}': 1,
-                          '{group="registry"}': 1})
-        # No database and no Docker collector in this test; cron is not enabled (nothing to read).
+                          '{group="registry"}': 1, '{group="php"}': 0})
+        # No database, php-fpm or Docker collector in this test; cron is not enabled (nothing to read).
 
     def test_metrics_lives_on_its_own_host_and_its_pages_ask_for_the_password(self):
         entry = "ops:" + subprocess.run(["openssl", "passwd", "-apr1", "secret-ops"], capture_output=True, text=True,

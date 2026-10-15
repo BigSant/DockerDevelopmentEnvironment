@@ -29,6 +29,8 @@ RUN sh /tmp/profile/apply-php-profile.sh "${PROFILE}" "${ENV}" && rm -rf /tmp/pr
 COPY /docker/php-fpm/setup-global.conf /usr/local/etc/php-fpm.d/zz-setup-global.conf
 # Where that pool writes its access lines when php-fpm starts without start.sh (which sets fd 3, stdout).
 ENV SETUP_FPM_ACCESS_LOG=/proc/self/fd/2
+# The pool's slowlog threshold in seconds; 0 is off (PHP_FPM_SLOWLOG_SECONDS sets it for the php-fpm service).
+ENV SETUP_FPM_SLOWLOG_TIMEOUT=0
 
 # Rendered copies of the read-only project PHP drop-ins (written at start by any UID).
 RUN mkdir -m 0777 -p /usr/local/etc/php/project.r /usr/local/etc/php/project.r.env

@@ -164,6 +164,12 @@ fingerprint is outdated; it removes only with `apply=1`.
   in its order ("Header:", the body, a line of dashes; families as `name{labels} value`, the website probes as the
   script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`
   sections of the last 24 hours' analysis. Text for people and LLMs; server_stats_viewer does not parse it.
+  PHP group (`php.php`): with metrics php-fpm joins the metrics network, and the service asks it over FastCGI
+  (`METRICS_PHP_FPM_ADDRESS`, php-fpm:9000) for the pool's `pm.status_path = /setup-fpm-status` (zz-setup-global.conf;
+  Apache's `FilesMatch \.php$` passes php-fpm only existing .php files, so visitors never reach it) and runs
+  `runtime/metrics/fpm-opcache.php` there, because OPcache's statistics live in the php-fpm master's shared memory.
+  The FPM slowlog (`request_slowlog_timeout = ${SETUP_FPM_SLOWLOG_TIMEOUT}`, default 0, to stderr) needs ptrace:
+  `docker/php-fpm/slowlog.yml`, loaded only with `PHP_FPM_SLOWLOG_SECONDS`, adds `SYS_PTRACE`.
   The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class, the 20
   busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
   `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
