@@ -2,6 +2,7 @@
 logs, no database), colour by setup's fixed limits and draw 24-hour lines; the page refreshes its body. The Logs
 tab lists the log collector's files, shows a file's end filtered (gzipped too) and serves it whole, never a path
 outside the collector's directory."""
+import datetime
 import gzip
 import html
 import json
@@ -14,6 +15,7 @@ import tempfile
 import time
 import unittest
 import urllib.request
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_metrics import ENDPOINT, ROOT, fetch, free_port
@@ -53,6 +55,7 @@ def snapshot(**overrides):
 
 class DashboardServer:
     php = ()
+    zone = "UTC"
 
     def setUp(self):
         scratch = ROOT / ".test-work"
@@ -66,7 +69,7 @@ class DashboardServer:
         # Nothing to collect from: a page that read /proc, the logs or a database would show nothing.
         environment = {"PATH": "/usr/bin:/bin", "METRICS_SNAPSHOT_DIR": str(self.snapshots), "METRICS_PROC_ROOT": str(self.work / "none"),
                        "METRICS_LOGS_DIR": str(self.work / "none"), "METRICS_DATABASE_FIXTURE": str(self.work / "none.json"),
-                       "ENV": "prod", "PROJECT_NAME": "demo", "TZ": "UTC"}
+                       "ENV": "prod", "PROJECT_NAME": "demo", "TZ": self.zone}
         self.logs = self.work / "logs"
         environment["METRICS_LOGS_DIR"] = str(self.logs)
         server = subprocess.Popen(["php", *self.php, "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env=environment,
@@ -83,6 +86,29 @@ class DashboardServer:
 
     def write(self, data):
         (self.snapshots / "snapshot.json").write_text(json.dumps(data))
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class TabRefreshTest(DashboardServer, unittest.TestCase):
+    # Not UTC (and not the PHP CLI's default zone): the stamps must follow TZ.
+    zone = "Pacific/Chatham"
+
+    def test_every_tab_refreshes_its_body_alone_and_shows_times_in_tz(self):
+        data = snapshot()
+        self.write(data)
+        stamp = "Snapshot " + datetime.datetime.fromtimestamp(data["taken"], ZoneInfo(self.zone)).strftime("%Y-%m-%d %H:%M:%S")
+        for path in ("/", "/database", "/containers", "/cron"):
+            status, _, page = fetch(self.base, path)
+            self.assertEqual(status, 200, path)
+            self.assertIn("<!doctype html>", page, path)
+            self.assertIn(stamp, page, path)
+            status, _, fragment = fetch(self.base, path + "?fragment=1")
+            self.assertEqual(status, 200, path)
+            # The refresh puts this into <main>: no second page, top bar or nav inside it.
+            self.assertNotIn("<!doctype", fragment, path)
+            self.assertNotIn('class="top"', fragment, path)
+            self.assertNotIn("<main>", fragment, path)
+            self.assertIn(stamp, fragment, path)
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")

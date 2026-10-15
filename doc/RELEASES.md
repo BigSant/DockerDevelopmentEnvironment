@@ -12,6 +12,33 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   as the project account, replaces an empty root-owned one Docker made earlier and recreates the services bound to
   it. Nothing to do: the next `make up` fixes a project that has the root-owned directory. Servers were not affected
   (`make deploy-images` already prepared the directories).
+- **The PHP group answers while every php-fpm worker is busy** (PHP 8.0+, after `make build`). The pool status
+  and OPcache requests were served by a worker of the pool they measure, so at saturation they waited in its queue:
+  `setup_metrics_group_up{group="php"}` went to 0 exactly when `setup_php_fpm_listen_queue` mattered, and each sample
+  took 20 s longer. php-fpm now serves them on a status listener of its own (`pm.status_listen = 9001`,
+  `zz-setup-status.conf`); the metrics service tries 9001, then 9000 (PHP before 8.0, or an image not built yet). An
+  idle shop no longer shows one busy worker either (the status request itself was counted).
+- **The log collector bounds today's files and keeps deleting when a compression fails.** Only past days were
+  deleted for `LOGS_MAX_MB`, so a crash-looping service or a warning on every request could fill the disk within a
+  day. One file now takes a quarter of `LOGS_MAX_MB` a day, all of a day's files `LOGS_MAX_MB`; past that the file
+  gets a note line and the rest stays in docker logs only; the HTTP group is then down for the rest of the day
+  rather than counting fewer requests or errors (a flood would otherwise look like a drop), and a day that takes all
+  of `LOGS_MAX_MB` makes the maintenance delete the earlier days. A compression that failed (full disk, a directory it
+  cannot write) stopped the retention and size deletions of the same pass and was retried on every loop, which
+  slowed the reading of the containers until lines were lost to Docker's rotation; it is now reported, retried in a
+  minute, and the deletions run.
+- **The traffic analysis no longer caches hours the log collector has not read yet.** On a first deploy (no
+  collector state yet) and while the collector back-filled what docker logs held, the traffic loop cached the past
+  hours as empty: the Traffic tab's 24 h and 7 d windows and `/feed` showed 0 for them for up to 8 days. The collector
+  now saves `caught_up`, until when every line Docker held is written, and only hours before that are cached. Hours
+  already cached empty go when they are 8 days old; delete `data/<env>/metrics/traffic/` for them to be read again.
+- **The HTTP group is down when the log collector stopped or hangs.** It only checked that the logs volume was
+  there, so a hung `metrics-logs` kept `setup_metrics_group_up{group="http"}` at 1 with zero requests and zero 5xx,
+  and 5xx alerts went silent. The group now needs a collector state saved within 2 minutes.
+- **Dashboard: the Database, Containers and Cron tabs refresh their body only, and times follow `TZ`.** Their
+  minute refresh got the whole page back and put it inside the page, so a second top bar and nav appeared after a
+  minute. The snapshot stamps, the cron run times, the container start times and `/feed` used the image's php.ini
+  zone instead of `TZ` (an hour off in Europe/Vilnius with a Europe/Paris image; UTC without one).
 
 ## 2.12.0
 

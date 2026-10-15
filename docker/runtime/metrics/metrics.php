@@ -2,6 +2,11 @@
 // Shared helpers of the target /metrics service: families, Prometheus text exposition, host files.
 // Runs on every supported PHP image (7.0+): no typed properties, arrow functions or str_* helpers.
 
+// date() in TZ, like the files and the Traffic tab: this service does not load setup's php-policy
+// (80-timezone.ini), so the image's php.ini date.timezone (or UTC) applied, an hour off for the snapshot stamps,
+// the cron times and /feed.
+metrics_timezone();
+
 final class Metrics
 {
     private $families = array();
@@ -69,6 +74,12 @@ function metrics_respond($status, $body)
     header('Cache-Control: no-store');
     echo $body;
     exit;
+}
+
+function metrics_timezone()
+{
+    $zone = metrics_setting('TZ', '');
+    if ($zone !== '' && in_array($zone, timezone_identifiers_list(), true)) date_default_timezone_set($zone);
 }
 
 function metrics_setting($name, $default)

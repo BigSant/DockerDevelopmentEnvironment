@@ -1,7 +1,11 @@
 <?php
 // PHP group: php-fpm's pool status (pm.status_path) and OPcache's statistics, both asked from php-fpm over FastCGI
-// (METRICS_PHP_FPM_ADDRESS, php-fpm:9000 on the metrics network). The status path is served by php-fpm only;
-// visitors cannot reach it, because Apache passes php-fpm only existing .php files.
+// on the metrics network (METRICS_PHP_FPM_ADDRESS: addresses tried in order, the first that accepts a connection
+// answers). PHP 8.0+ images listen for the status on a pool of their own (setup-status.conf, pm.status_listen 9001):
+// a request there needs no worker of the www pool, so the figures come while every worker is busy, which is when
+// they matter, and the request is not counted as an active worker. Older PHP, or an image built before that file,
+// answer on the pool's 9000. The status path is served by php-fpm only; visitors cannot reach it, because Apache
+// passes php-fpm only existing .php files.
 
 function metrics_php_parts()
 {
@@ -11,8 +15,12 @@ function metrics_php_parts()
 // One FastCGI request (role responder, no body): the response's stdout without its headers.
 function metrics_php_fastcgi($params)
 {
-    $address = metrics_setting('METRICS_PHP_FPM_ADDRESS', 'php-fpm:9000');
-    $socket = @stream_socket_client('tcp://' . $address, $errno, $error, 5);
+    $socket = false;
+    foreach (explode(',', metrics_setting('METRICS_PHP_FPM_ADDRESS', 'php-fpm:9001,php-fpm:9000')) as $address) {
+        $address = trim($address);
+        $socket = @stream_socket_client('tcp://' . $address, $errno, $error, 5);
+        if ($socket) break;
+    }
     if (!$socket) throw new RuntimeException('cannot reach php-fpm at ' . $address . ': ' . $error);
     stream_set_timeout($socket, 10);
     $record = function ($type, $content) {

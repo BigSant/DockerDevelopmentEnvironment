@@ -7,15 +7,9 @@ require __DIR__ . '/metrics.php';
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 if ($path === '/') {
-    // The dashboard's Overview; ?fragment=1 is its body alone, which the page fetches every minute.
+    // The dashboard's Overview (dashboard_page answers its ?fragment=1 refresh with the body alone).
     require __DIR__ . '/overview.php';
-    $body = overview_body(time());
-    if (isset($_GET['fragment'])) {
-        header('Content-Type: text/html; charset=utf-8');
-        header('Cache-Control: no-store');
-        exit($body);
-    }
-    dashboard_page('/', 'Overview', $body);
+    dashboard_page('/', 'Overview', overview_body(time()));
 }
 if ($path === '/traffic' || $path === '/traffic.json') {
     require __DIR__ . '/http.php';

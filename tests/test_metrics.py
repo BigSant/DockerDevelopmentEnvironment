@@ -185,6 +185,13 @@ def write_docker_state(directory, collected=None, **state):
     (directory / "state.json").write_text(json.dumps(snapshot))
 
 
+def write_collector_state(logs, caught_up=None):
+    """The log collector's state as a running collector saves it: just now, every line Docker held written."""
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / ".collector-state.json").write_text(json.dumps(
+        {"project": "demo-stage", "containers": {}, "caught_up": int(time.time()) if caught_up is None else caught_up}))
+
+
 def free_port():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -233,6 +240,7 @@ class EndpointMixin:
         self.http.mkdir()
         self.logs = self.work / "logs"
         shutil.copytree(LOGS, self.logs, copy_function=shutil.copy)
+        write_collector_state(self.logs)
         write_connections(self.proc, self.http / "proxy-net")
         write_host(self.proc)
         self.docker_state = self.work / "docker"
@@ -577,12 +585,41 @@ class HttpGroupTest(EndpointMixin, unittest.TestCase):
         metrics = self.scrape()
         self.assertEqual(metrics["http_bytes_transferred_total"], {"": 0})
         self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+        # A collector that has not saved its state for minutes has stopped or hangs: down, not a quiet site.
+        state = self.logs / ".collector-state.json"
+        stale = time.time() - 600
+        os.utime(state, (stale, stale))
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_response_codes", metrics)
+        self.assertNotIn("http_error_type", metrics)
+        state.unlink()
+        self.assertEqual(self.scrape()["setup_metrics_group_up"]['{group="http"}'], 0)
         # Without the collector's volume (not mounted) the group is down and serves no request figures.
         shutil.rmtree(self.logs)
         metrics = self.scrape()
         self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
         self.assertNotIn("http_response_codes", metrics)
         self.assertNotIn("http_bytes_transferred_total", metrics)
+
+    def test_a_file_cut_at_its_bound_turns_the_group_down(self):
+        # The collector stopped writing the access file at its day's bound (LOGS_MAX_MB): the figures would miss
+        # the flood, so the group is down rather than counting fewer requests.
+        note = b"metrics-logs: a quarter of LOGS_MAX_MB for one file reached, further lines of 2026-10-09 are only in docker logs\n"
+        access = self.logs / "nginx-proxy/access-2026-10-09.log"
+        access.write_bytes(access.read_bytes() + note)
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_response_codes", metrics)
+        self.assertNotIn("setup_http_class_requests", metrics)
+        # The same for an error log: a crash loop would read as fewer errors.
+        access.write_bytes(access.read_bytes()[:-len(note)])
+        error = self.logs / "php-fpm/error-2026-10-09.log"
+        error.write_bytes(error.read_bytes() + note)
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_error_type", metrics)
+        self.assertIn("http_response_codes", metrics)
 
     def test_window_across_midnight_reads_both_days(self):
         day = lambda name: self.logs / "nginx-proxy" / name

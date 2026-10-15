@@ -137,8 +137,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   coloured by fixed limits (load > 0.7 x cores warns, > cores is bad; I/O wait 5/15 %; RAM and disk 80/90 %; any 5xx
   warns, 10/min is bad; p95 1/3 s; DB connections 60/80 % of max; any container stopped or not healthy; a failing or
   overdue cron job; a page check at 0, >= 400 or over 3 s), the same function giving each point of its 24-hour line
-  (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute. A card without its
-  figures is not shown (p95 until the traffic analysis, cron without the service).
+  (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute; `dashboard_page`
+  answers it with the body alone for every tab that refreshes (Overview, Database, Containers, Cron). A card without
+  its figures is not shown (p95 until the traffic analysis, cron without the service). `metrics.php` sets PHP's zone
+  from `TZ` (`metrics_timezone`): the service does not load `php-policy`, so `date()` followed the image's php.ini.
   Logs (`logs.php`, `/logs/`): the collector's files by service and day, the last 100/500/2000 lines of one matching a
   level (errors, warnings, 5xx, 4xx: fixed patterns) and a text, and the file itself to download (`.gz` as it is). A
   file is named only by `<service>/<kind>-<day>.log[.gz]` matched against that pattern and found among the listed
@@ -154,8 +156,11 @@ fingerprint is outdated; it removes only with `apply=1`.
   whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
   only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
   every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
-  is cached once it ended 2 minutes ago and the log collector has saved its state since (so a back-fill after the
-  collector was down still counts); a failed JSON encoding writes no file. A cached hour keeps the 500 busiest entries
+  is cached once it ended 2 minutes ago and the log collector's state says it has written every line Docker held
+  since then (`caught_up`: every open stream sent a line from after its opening, or was quiet for 2 s; kept across a
+  collector restart). Before the collector's first state, while it is down and while it back-fills, nothing is
+  cached, so those lines still count (a first deploy cached 7 days of empty hours otherwise). A state without
+  `caught_up` falls back to its save time; a failed JSON encoding writes no file. A cached hour keeps the 500 busiest entries
   of each list (the suspicious IPs' counts always) and response times per millisecond (percentiles of any window);
   lists are trimmed while a file is read and while hours merge, so memory stays bounded and counts below the top
   of a busy hour are approximate. Agents stay as nginx escaped them (ASCII), so they always encode.
@@ -168,9 +173,13 @@ fingerprint is outdated; it removes only with `apply=1`.
   script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`
   sections of the last 24 hours' analysis. Text for people and LLMs; server_stats_viewer does not parse it.
   PHP group (`php.php`): with metrics php-fpm joins the metrics network, and the service asks it over FastCGI
-  (`METRICS_PHP_FPM_ADDRESS`, php-fpm:9000) for the pool's `pm.status_path = /setup-fpm-status` (zz-setup-global.conf;
-  Apache's `FilesMatch \.php$` passes php-fpm only existing .php files, so visitors never reach it) and runs
-  `runtime/metrics/fpm-opcache.php` there, because OPcache's statistics live in the php-fpm master's shared memory.
+  (`METRICS_PHP_FPM_ADDRESS`, `php-fpm:9001,php-fpm:9000`: the first that accepts a connection) for the pool's
+  `pm.status_path = /setup-fpm-status` (zz-setup-global.conf; Apache's `FilesMatch \.php$` passes php-fpm only existing
+  .php files, so visitors never reach it) and runs `runtime/metrics/fpm-opcache.php` there, because OPcache's
+  statistics live in the php-fpm master's shared memory. PHP 8.0+ images also get `zz-setup-status.conf`
+  (`pm.status_listen = 9001`): php-fpm answers there from a hidden one-worker pool, so the figures come while every
+  www worker is busy (on 9000 the request waited in the very queue it reports, and the group went down at saturation)
+  and the request is not counted as an active worker. PHP before 8.0 has no such directive and answers on 9000.
   The FPM slowlog (`request_slowlog_timeout = ${SETUP_FPM_SLOWLOG_TIMEOUT}`, default 0, to stderr) needs ptrace:
   `docker/php-fpm/slowlog.yml`, loaded only with `PHP_FPM_SLOWLOG_SECONDS`, adds `SYS_PTRACE`.
   Cache group (`cache.php`), only with `SERVICES` holding redis or memcached and metrics: `docker/metrics/redis.yml`
@@ -180,6 +189,11 @@ fingerprint is outdated; it removes only with `apply=1`.
   busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
   `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
   would be over its lifetime, and promtool rejects `quantile` on a gauge).
+  The HTTP group's parts are down when the collector's state is missing or older than 2 minutes
+  (`metrics_logs_check`; it is saved at least every 5 s): a stopped or hung collector leaves files without the
+  latest lines, which would read as a quiet site with no 5xx. Likewise a part whose file in the window ends with the
+  collector's bound note (`metrics_logs_complete`): during a flood the access file stops at its share of
+  `LOGS_MAX_MB`, and the request figures would fall exactly when the alerts matter.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
@@ -217,10 +231,16 @@ fingerprint is outdated; it removes only with `apply=1`.
   dropped for arriving out of time order (stdout and stderr reach the daemon's file side by side), and parts docker
   split over 16 KiB are joined. A finished day is gzipped two hours after its last write (a late line becomes
   another gzip member); days past `LOGS_RETENTION_DAYS` go, then the oldest while the files exceed `LOGS_MAX_MB`,
-  never today's. `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
+  never today's. Today's are bounded as they are written instead (`LogWriter`): one file takes a quarter of
+  `LOGS_MAX_MB`, all of a day's files `LOGS_MAX_MB`; past that the file gets one note line and the rest of the day's
+  lines stay only in docker logs (a crash loop or a warning on every request filled the disk within a day otherwise;
+  Docker's own cap is `CONTAINER_LOG_MAX_SIZE` × `CONTAINER_LOG_MAX_FILES`). A day that takes all of `LOGS_MAX_MB`
+  makes the maintenance delete every earlier day, oldest first: the limit is the disk's, not a per-day budget. A late
+  line for a day older than the three the writer tracks is written uncounted (a collector down for days). `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
   saved every second lines were written; the three metrics containers run with `init: true`, because PHP as PID 1
   ignores SIGTERM. A stopped container is read again when its `StartedAt` changed (it ran between two looks); a
-  compression that fails (disk full) keeps the plain file, and stale `*.log.gz.<pid>` temporaries are removed.
+  compression that fails (disk full) keeps the plain file, is reported and tried again in a minute, while the
+  deletions of that maintenance still run; stale `*.log.gz.<pid>` temporaries are removed.
 - **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
   keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
   `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy

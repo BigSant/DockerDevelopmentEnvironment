@@ -133,6 +133,12 @@ CSS;
 // The page around a tab's body. The body refreshes itself from ?fragment=1 every $refresh seconds (0: never).
 function dashboard_page($current, $title, $body, $refresh = 60)
 {
+    if ($refresh > 0 && isset($_GET['fragment'])) {
+        // The refresh asks for the body alone: the page around it stays.
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: no-store');
+        exit($body);
+    }
     $environment = metrics_setting('ENV', 'local');
     $project = metrics_setting('PROJECT_NAME', metrics_setting('DOMAIN', ''));
     $sign = in_array($environment, array('stage', 'prod'), true) ? $environment : '';
