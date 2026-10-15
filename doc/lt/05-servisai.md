@@ -466,6 +466,25 @@ Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `m
 
 Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER_WORKERS`, PHP 7.4+): lėtas dashboard'o puslapis neblokuoja scrape'o.
 
+**Dashboard'as** – `https://metrics.<domain>/` (IP sąrašas ir, jei nustatytas, `METRICS_HTPASSWD` slaptažodis). Jis pats nieko neskaičiuoja: rodo sampler'io nuotrauką ir istoriją, todėl atidarytas puslapis serverio neapkrauna. Puslapis atsinaujina kas minutę.
+
+**Apžvalga** – po kortelę kiekvienai sričiai, su dabartine reikšme, spalva ir 24 val. grafiku (kiekvienų 10 min. didžiausia reikšmė, kad trumpas šuolis nedingtų):
+
+| Kortelė | Reikšmė | Geltona | Raudona |
+| --- | --- | --- | --- |
+| Load | 1 min. apkrova, branduolių skaičius | > 0,7 × branduoliai | > branduolių skaičius |
+| I/O wait | CPU laikas, laukiant disko | > 5 % | > 15 % |
+| Memory | užimta RAM (be cache) | > 80 % | > 90 % |
+| Disk | projekto duomenų disko užimtumas | > 80 % | > 90 % |
+| 5xx / min | serverio klaidos per minutę ir užklausos per minutę | > 0 | ≥ 10 |
+| Response p95 | 95 % užklausų atsakymo laikas (kai yra srautų analizė) | > 1 s | > 3 s |
+| Database | prisijungimai ir limitas | > 60 % limito | > 80 % ar DB nepasiekiama |
+| Containers | veikiantys / visi | – | bent vienas sustojęs ar ne `healthy` |
+| Cron | užduotys (tik su `cron` servisu) | vėluoja paleidimas | paskutinis paleidimas nepavyko |
+| Page checks | `METRICS_URLS` patikrinimai | 4xx ar > 3 s | neatsakė (0) ar 5xx |
+
+Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi.
+
 1. `env/<ENV>.env`:
 
 ```dotenv
@@ -490,7 +509,7 @@ curl https://metrics.demo.lt/metrics                                            
 curl -H "Authorization: Bearer $METRICS_TOKEN" https://metrics.demo.lt/metrics   # su token'u
 ```
 
-Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is). Kiti `metrics.<domain>` puslapiai (pradžios puslapis, vėliau dashboard'as) token'o neprašo; juos papildomai gali saugoti `METRICS_HTPASSWD` ([slaptažodžiai įrankiams](#slaptažodžiai-įrankiams-htpasswd)).
+Prieigą saugo IP sąrašas: ne iš jo – `403`. Stage/prod be `METRICS_ALLOWED_IPS` ar `ALLOWED_IPS` servisas nepasileidžia (`metrics on prod requires METRICS_ALLOWED_IPS or ALLOWED_IPS`). Token'as neprivalomas: tuščias – tikrinamas tik sąrašas; nurodytas – be jo ar su neteisingu `401`, o trumpesnis nei 24 simboliai stage/prod sustabdo komandą (`METRICS_TOKEN on prod must have 24+ characters`). Token'as naudingas, kai sąraše daugiau adresų nei Prometheus (pvz. visas VPN potinklis, kuriame yra ir programuotojų kompiuteriai ar to paties serverio runner'is). Kiti `metrics.<domain>` puslapiai (dashboard'as) token'o neprašo; juos papildomai gali saugoti `METRICS_HTPASSWD` ([slaptažodžiai įrankiams](#slaptažodžiai-įrankiams-htpasswd)).
 
 **Kaip Prometheus skaito.** Metrikos yra atskirame subdomene `metrics.<domain>` (kaip `cron.` ir `backup.`), todėl taikinyje jį reikia paruošti:
 

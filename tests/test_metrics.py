@@ -323,8 +323,8 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(fetch(base, "/other", TOKEN)[0], 404)
         # nginx-proxy guards the pages with METRICS_HTPASSWD, whose Basic-auth takes the Authorization header.
         status, kind, body = fetch(base, "/")
-        self.assertEqual((status, kind), (200, "text/plain; charset=utf-8"), body)
-        self.assertIn("/metrics", body)
+        self.assertEqual((status, kind), (200, "text/html; charset=utf-8"), body)
+        self.assertIn('href="/metrics"', body)
         status, kind, body = fetch(base, token=TOKEN)
         self.assertEqual(status, 200, body)
         self.assertEqual(kind, "text/plain; version=0.0.4; charset=utf-8")

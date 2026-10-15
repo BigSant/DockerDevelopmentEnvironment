@@ -24,6 +24,8 @@ services:
     environment:
       TZ: ${TZ}
       ENV: ${ENV}
+      # The dashboard's title.
+      PROJECT_NAME: ${PROJECT_NAME}
       # php -S serves one request at a time; workers (PHP >= 7.4, ignored before) keep a slow page of the
       # dashboard from blocking a scrape.
       PHP_CLI_SERVER_WORKERS: "4"

@@ -68,6 +68,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   Prometheus `scrape_interval`; set it to your interval if Prometheus scrapes less often, or `sum_over_time` alerts
   count each request several times. `make build` and `make deploy-images`; `data/<env>/metrics` is created by them.
 
+- **Dashboard at `metrics.<domain>/`** (`SERVICES=metrics`): the page that listed `/metrics` is now an Overview of
+  cards (load, I/O wait, memory, disk, 5xx per minute, database, containers, cron, page checks), each coloured by
+  setup's fixed limits and with a 24-hour line from the sampler's history; it refreshes every minute. It reads only
+  the sampler's snapshot, so opening it costs the server nothing. Same access as before: the allowlist and the
+  optional `METRICS_HTPASSWD`. Limits: `doc/lt/05-servisai.md`.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status
