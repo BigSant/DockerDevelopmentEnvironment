@@ -130,6 +130,14 @@ fingerprint is outdated; it removes only with `apply=1`.
   the minute's sample reads with `setup_website_probe_timestamp_seconds`; older than three intervals fails the group.
   A loop that stops is restarted by `start.sh`. `PHP_CLI_SERVER_WORKERS=4` keeps a slow page from blocking a scrape.
   The HTTP window defaults to one minute, as often as the sampler samples and Prometheus scrapes.
+  Dashboard (`dashboard.php`, the pages other than `/metrics`): PHP rendering plus a few lines of vanilla JS, self-
+  contained like the cron and backup UIs, and computing nothing: tabs read the snapshot, the history or the log
+  collector's files. Overview (`overview.php`): one card per area from the flat `name{labels}` map of the snapshot,
+  coloured by fixed limits (load > 0.7 x cores warns, > cores is bad; I/O wait 5/15 %; RAM and disk 80/90 %; any 5xx
+  warns, 10/min is bad; p95 1/3 s; DB connections 60/80 % of max; any container stopped or not healthy; a failing or
+  overdue cron job; a page check at 0, >= 400 or over 3 s), the same function giving each point of its 24-hour line
+  (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute. A card without its
+  figures is not shown (p95 until the traffic analysis, cron without the service).
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
