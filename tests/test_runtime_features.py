@@ -160,7 +160,8 @@ define('_DB_PREFIX_', 'custom_');
 
     def test_start_waits_for_containers_without_application_http_requests(self):
         project = SimpleNamespace(run=Mock(), capture=Mock(side_effect=AssertionError('No application probe')))
-        with patch('project_policy.preflight_php') as preflight:
+        with patch('project_policy.preflight_php') as preflight, \
+                patch('project_environment.runtime_directories', return_value=([], set())):
             start_project(project, timeout=12)
         preflight.assert_called_once_with(project)
         project.run.assert_called_once_with(['up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '12'])

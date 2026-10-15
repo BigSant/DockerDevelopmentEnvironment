@@ -20,7 +20,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make bootstrap` | Portai, vietinis DNS, TLS, kompiuterio Nginx maršrutas, PhpStorm. Tik local/test. |
 | `make build` | Sukuria image'us (tik tuos, kurių šaltiniai pasikeitė). |
 | `make pull` | Atsisiunčia išorinius image'us. |
-| `make up` | Patikrina konfigūraciją ir paleidžia servisus su esamais image'ais, laukia sveikatos patikrų. |
+| `make up` | Patikrina konfigūraciją, sukuria trūkstamus duomenų katalogus (pvz. naujo setup `data/metrics`) ir paleidžia servisus su esamais image'ais, laukia sveikatos patikrų. |
 | `make down` | Pašalina konteinerius ir tinklą. Duomenys lieka. |
 | `make restart [service=php-fpm]` | Perkuria servisą (be `service` – visus) su dabartinėmis env reikšmėmis. |
 | `make ps` | Parodo konteinerius. |

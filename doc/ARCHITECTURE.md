@@ -329,6 +329,10 @@ over ssh. Code push, removals, target-only module listing (directories only), `m
 runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with
 `BatchMode=yes` and `ConnectTimeout=15`, host keys checked as ssh is configured. The containers' Docker daemon is
 the separate `DEPLOY_CONTEXT`.
+Locally `make up` prepares the same runtime directories first (`project_environment.runtime_directories`): a bind
+source a newer setup adds (`data/<env>/metrics`) would otherwise be created by Docker as root, which the services
+running as the project account cannot write. An empty root-owned one Docker made earlier is replaced (the account
+owns the parent) and the services bound to it are recreated, because a running container keeps the old directory.
 
 `make pipeline-deploy` (`project_pipeline`) is the CI deploy step of both providers; projects keep only
 `bitbucket-pipelines.yml` or `.github/workflows/deploy.yml` (`templates/pipelines/`; `create-project --ci`

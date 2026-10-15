@@ -24,22 +24,38 @@ def initialize_env(directory, environment):
     print(f"Created {private}; set real credentials, domain and unused ports before starting.")
 
 
-def initialize_directories(project):
-    created = []
+def runtime_directories(project):
+    """Create the runtime data directories the model binds, as this account, and return them. Docker creates a
+    missing bind source as root, and the services that run as the project account (php-fpm, metrics) cannot write
+    it: an empty root-owned one Docker made earlier is replaced, which the parent directory (this account's) allows.
+    Returns the created directories and the services bound to a replaced one (they must be recreated: a running
+    container keeps the old directory)."""
+    created, replaced = [], set()
     # Runtime data only: configuration directories are optional and created by their owner.
     permitted = (project.root / "data", project.directory / ".generated/test/data")
-    for service in project.model()["services"].values():
+    for name, service in project.model()["services"].items():
         for mount in service.get("volumes", []):
             if mount["type"] != "bind":
                 continue
             path = Path(mount["source"])
             # File mounts and the application checkout must be supplied by the user.
-            if path.exists() or path.suffix or not any(path.is_relative_to(base) for base in permitted):
+            if path.suffix or not any(path.is_relative_to(base) for base in permitted):
+                continue
+            if path.is_dir() and not path.is_symlink() and path.stat().st_uid == 0 and os.getuid() != 0 \
+                    and not os.access(path, os.W_OK) and not any(path.iterdir()):
+                path.rmdir()
+                replaced.add(name)
+            if path.exists():
                 continue
             if not path.resolve().is_relative_to(project.root):
                 raise ValueError(f"Refusing a mount directory outside the project: {path}")
             path.mkdir(parents=True, exist_ok=True)
             created.append(path)
+    return created, replaced
+
+
+def initialize_directories(project):
+    created, _ = runtime_directories(project)
     print(f"Prepared {len(created)} runtime directories; existing files and application code preserved.")
 
 

@@ -2,7 +2,9 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -97,6 +99,38 @@ class PolicyTest(unittest.TestCase):
         (self.app/'compose/local.yaml').write_text('services:\n  php-fpm:\n    environment:\n      TOKEN: private-only\n      API: secret-only\n')
         with self.assertRaises(ValueError) as failure: validate_configuration(Project(self.app))
         self.assertIn('php-fpm/API',str(failure.exception));self.assertNotIn('secret-only',str(failure.exception))
+
+    def test_up_prepares_new_runtime_directories_and_replaces_an_empty_root_one(self):
+        root = Path(tempfile.mkdtemp(dir=self.app.parent))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        data = root / "data"
+        data.mkdir()
+        missing, kept = data / "metrics", data / "mysql"
+        kept.mkdir()
+        (kept / "ibdata1").write_text("keep")
+        model = {"services": {"metrics": {"volumes": [{"type": "bind", "source": str(missing)}, {"type": "bind", "source": str(kept)}]}}}
+        project = SimpleNamespace(run=Mock(), root=root, directory=root / "app", model=lambda: model, active_model=lambda: model)
+        with patch('project_policy.preflight_php'), patch('project_prestashop.ensure_htaccess'), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            start_project(project)
+        self.assertTrue(missing.is_dir())
+        self.assertEqual(missing.stat().st_uid, os.getuid())
+        self.assertEqual((kept / "ibdata1").read_text(), "keep")
+        self.assertIn("data/metrics", output.getvalue())
+        project.run.assert_called_once()
+        # Docker's root-owned empty directory (simulated: a root owner the account cannot write) is made again.
+        real_stat, real_access = Path.stat, os.access
+        def stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            return SimpleNamespace(st_uid=0, st_mode=result.st_mode) if Path(path) == missing else result
+        with patch.object(Path, 'stat', stat), patch('os.access', lambda path, mode: Path(path) != missing and real_access(path, mode)), \
+                patch('project_policy.preflight_php'), patch('project_prestashop.ensure_htaccess'), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            start_project(project)
+        self.assertTrue(missing.is_dir())
+        self.assertIn("data/metrics", output.getvalue())
+        # The service bound to it is recreated, so it uses the new directory.
+        self.assertEqual(project.run.call_args.args[0][-3:], ['--force-recreate', '--no-deps', 'metrics'])
 
     def test_failed_preflight_never_stops_existing_containers(self):
         project=SimpleNamespace(run=Mock())

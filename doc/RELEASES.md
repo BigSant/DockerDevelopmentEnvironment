@@ -4,6 +4,15 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **`make up` prepares the data directories a newer setup adds.** After the update to 2.12.0, `make up` with
+  `SERVICES=metrics` let Docker create `data/<env>/metrics` as root; the metrics service (the project account) could
+  not write its snapshot, so `/metrics` reported every group down. `make up` now creates missing runtime directories
+  as the project account, replaces an empty root-owned one Docker made earlier and recreates the services bound to
+  it. Nothing to do: the next `make up` fixes a project that has the root-owned directory. Servers were not affected
+  (`make deploy-images` already prepared the directories).
+
 ## 2.12.0
 
 Monitoring for `SERVICES=metrics` projects, replacing the server's `monitoring.sh` and `scan_access_file.sh`. Every
