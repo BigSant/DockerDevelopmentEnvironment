@@ -27,6 +27,10 @@ RUN sh /tmp/profile/apply-php-profile.sh "${PROFILE}" "${ENV}" && rm -rf /tmp/pr
 
 # Master and pool settings for every PHP version: a deploy's graceful reload, the access line format.
 COPY /docker/php-fpm/setup-global.conf /usr/local/etc/php-fpm.d/zz-setup-global.conf
+# The pool's status on its own listener (pm.status_listen, PHP 8.0+; older php-fpm would refuse to start).
+COPY /docker/php-fpm/setup-status.conf /tmp/setup-status.conf
+RUN if php -r 'exit(PHP_VERSION_ID >= 80000 ? 0 : 1);'; then mv /tmp/setup-status.conf /usr/local/etc/php-fpm.d/zz-setup-status.conf; \
+    else rm /tmp/setup-status.conf; fi
 # Where that pool writes its access lines when php-fpm starts without start.sh (which sets fd 3, stdout).
 ENV SETUP_FPM_ACCESS_LOG=/proc/self/fd/2
 # The pool's slowlog threshold in seconds; 0 is off (PHP_FPM_SLOWLOG_SECONDS sets it for the php-fpm service).

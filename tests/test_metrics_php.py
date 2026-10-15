@@ -172,8 +172,12 @@ class PhpFpmIntegrationTest(unittest.TestCase):
         conf = ROOT / "docker/docker/php-fpm/setup-global.conf"
         # OPcache as setup's images run it: loaded (official images before 8.5 do not load it) and on.
         loaded = "Zend OPcache" in docker("run", "--rm", "--entrypoint", "php", PHP, "-m").stdout
+        # The status listener as the Dockerfile adds it: PHP 8.0+ only.
+        status = ROOT / "docker/docker/php-fpm/setup-status.conf"
+        self.status_listener = docker("run", "--rm", "--entrypoint", "php", PHP, "-r", "echo PHP_VERSION_ID >= 80000 ? 1 : 0;").stdout.strip() == "1"
         docker("run", "-d", "--name", name, "--network", network, "--memory", "256m", *extra,
                "-v", f"{conf}:/usr/local/etc/php-fpm.d/zz-setup-global.conf:ro", "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro",
+               *(["-v", f"{status}:/usr/local/etc/php-fpm.d/zz-setup-status.conf:ro"] if self.status_listener else []),
                "-e", "SETUP_FPM_ACCESS_LOG=/proc/self/fd/2", "-e", "SETUP_FPM_SLOWLOG_TIMEOUT=0", *environment,
                "--entrypoint", "php-fpm", PHP, "-F", "-R", *([] if loaded else ["-d", "zend_extension=opcache.so"]), "-d", "opcache.enable=1")
         subprocess.run(["docker", "exec", "-i", name, "sh", "-c", "cat > /tmp/slow.php"], input=SLOW_SCRIPT, text=True, check=True)
@@ -185,7 +189,9 @@ class PhpFpmIntegrationTest(unittest.TestCase):
 
     def sample(self, name):
         docker("exec", name, "sh", "-c", "mkdir -p /tmp/snap /tmp/disk")
-        docker("exec", "-e", "METRICS_SNAPSHOT_DIR=/tmp/snap", "-e", "METRICS_PHP_FPM_ADDRESS=127.0.0.1:9000", "-e", "METRICS_DISK_PATH=/tmp/disk",
+        # The service's default order: the status listener, then the pool's own port.
+        docker("exec", "-e", "METRICS_SNAPSHOT_DIR=/tmp/snap", "-e", "METRICS_PHP_FPM_ADDRESS=127.0.0.1:9001,127.0.0.1:9000",
+               "-e", "METRICS_DISK_PATH=/tmp/disk",
                "-e", "METRICS_PROC_ROOT=/proc", "-e", "METRICS_DISK_WRITE_MB=0", "-e", "METRICS_URLS=", name,
                "php", "/opt/setup/runtime/metrics/sampler.php", "--once", check=False)
         families = json.loads(docker("exec", name, "cat", "/tmp/snap/snapshot.json").stdout)["families"]
@@ -217,6 +223,27 @@ class PhpFpmIntegrationTest(unittest.TestCase):
         # OPcache of the php-fpm master: scripts cached by the requests.
         self.assertEqual(during["setup_php_opcache_enabled"], {"{}": 1})
         self.assertGreaterEqual(during["setup_php_opcache_cached_scripts"]["{}"], 1)
+
+    def test_a_pool_with_every_worker_busy_still_answers_on_the_status_listener(self):
+        limits = ROOT / ".test-work" / f"pool-{uuid.uuid4().hex[:6]}.conf"
+        (ROOT / ".test-work").mkdir(exist_ok=True)
+        limits.write_text("[www]\npm = static\npm.max_children = 1\n")
+        self.addCleanup(limits.unlink)
+        name = self.fpm("-v", f"{limits}:/usr/local/etc/php-fpm.d/zzz-limits.conf:ro")
+        if not self.status_listener:
+            self.skipTest("pm.status_listen needs PHP 8.0+")
+        # Idle: the status request runs outside www, so no worker is counted active.
+        idle = self.sample(name)
+        self.assertEqual(idle["setup_php_fpm_processes"]['{"pool": "www", "state": "active"}'], 0)
+        # The only worker busy for 30 s: the status and OPcache still answer at once.
+        docker("exec", "-d", name, "php", "-r", REQUEST, "ms=30000")
+        time.sleep(1)
+        started = time.monotonic()
+        busy = self.sample(name)
+        self.assertLess(time.monotonic() - started, 8)
+        self.assertEqual(busy["setup_metrics_group_up"]['{"group": "php"}'], 1)
+        self.assertEqual(busy["setup_php_fpm_processes"]['{"pool": "www", "state": "active"}'], 1)
+        self.assertEqual(busy["setup_php_opcache_enabled"], {"{}": 1})
 
     def test_the_slowlog_writes_a_stack_trace_with_ptrace(self):
         name = self.fpm("--cap-add", "SYS_PTRACE", environment=("-e", "SETUP_FPM_SLOWLOG_TIMEOUT=1"))

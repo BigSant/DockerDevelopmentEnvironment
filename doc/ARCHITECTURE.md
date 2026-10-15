@@ -168,9 +168,13 @@ fingerprint is outdated; it removes only with `apply=1`.
   script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`
   sections of the last 24 hours' analysis. Text for people and LLMs; server_stats_viewer does not parse it.
   PHP group (`php.php`): with metrics php-fpm joins the metrics network, and the service asks it over FastCGI
-  (`METRICS_PHP_FPM_ADDRESS`, php-fpm:9000) for the pool's `pm.status_path = /setup-fpm-status` (zz-setup-global.conf;
-  Apache's `FilesMatch \.php$` passes php-fpm only existing .php files, so visitors never reach it) and runs
-  `runtime/metrics/fpm-opcache.php` there, because OPcache's statistics live in the php-fpm master's shared memory.
+  (`METRICS_PHP_FPM_ADDRESS`, `php-fpm:9001,php-fpm:9000`: the first that accepts a connection) for the pool's
+  `pm.status_path = /setup-fpm-status` (zz-setup-global.conf; Apache's `FilesMatch \.php$` passes php-fpm only existing
+  .php files, so visitors never reach it) and runs `runtime/metrics/fpm-opcache.php` there, because OPcache's
+  statistics live in the php-fpm master's shared memory. PHP 8.0+ images also get `zz-setup-status.conf`
+  (`pm.status_listen = 9001`): php-fpm answers there from a hidden one-worker pool, so the figures come while every
+  www worker is busy (on 9000 the request waited in the very queue it reports, and the group went down at saturation)
+  and the request is not counted as an active worker. PHP before 8.0 has no such directive and answers on 9000.
   The FPM slowlog (`request_slowlog_timeout = ${SETUP_FPM_SLOWLOG_TIMEOUT}`, default 0, to stderr) needs ptrace:
   `docker/php-fpm/slowlog.yml`, loaded only with `PHP_FPM_SLOWLOG_SECONDS`, adds `SYS_PTRACE`.
   Cache group (`cache.php`), only with `SERVICES` holding redis or memcached and metrics: `docker/metrics/redis.yml`

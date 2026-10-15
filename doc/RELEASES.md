@@ -12,6 +12,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   as the project account, replaces an empty root-owned one Docker made earlier and recreates the services bound to
   it. Nothing to do: the next `make up` fixes a project that has the root-owned directory. Servers were not affected
   (`make deploy-images` already prepared the directories).
+- **The PHP group answers while every php-fpm worker is busy** (PHP 8.0+, after `make build`). The pool status
+  and OPcache requests were served by a worker of the pool they measure, so at saturation they waited in its queue:
+  `setup_metrics_group_up{group="php"}` went to 0 exactly when `setup_php_fpm_listen_queue` mattered, and each sample
+  took 20 s longer. php-fpm now serves them on a status listener of its own (`pm.status_listen = 9001`,
+  `zz-setup-status.conf`); the metrics service tries 9001, then 9000 (PHP before 8.0, or an image not built yet). An
+  idle shop no longer shows one busy worker either (the status request itself was counted).
 
 ## 2.12.0
 
