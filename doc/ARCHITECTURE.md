@@ -170,6 +170,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   `runtime/metrics/fpm-opcache.php` there, because OPcache's statistics live in the php-fpm master's shared memory.
   The FPM slowlog (`request_slowlog_timeout = ${SETUP_FPM_SLOWLOG_TIMEOUT}`, default 0, to stderr) needs ptrace:
   `docker/php-fpm/slowlog.yml`, loaded only with `PHP_FPM_SLOWLOG_SECONDS`, adds `SYS_PTRACE`.
+  Cache group (`cache.php`), only with `SERVICES` holding redis or memcached and metrics: `docker/metrics/redis.yml`
+  / `memcached.yml` put the cache on the metrics network and set `METRICS_REDIS` / `METRICS_MEMCACHED`; the service
+  sends Redis's `INFO` (RESP) and memcached's `stats` itself. Without either the group is absent, not down.
   The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class, the 20
   busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
   `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
