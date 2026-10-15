@@ -21,7 +21,9 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 - **The log collector bounds today's files and keeps deleting when a compression fails.** Only past days were
   deleted for `LOGS_MAX_MB`, so a crash-looping service or a warning on every request could fill the disk within a
   day. One file now takes a quarter of `LOGS_MAX_MB` a day, all of a day's files `LOGS_MAX_MB`; past that the file
-  gets a note line and the rest stays in docker logs only. A compression that failed (full disk, a directory it
+  gets a note line and the rest stays in docker logs only; the HTTP group is then down for the rest of the day
+  rather than counting fewer requests or errors (a flood would otherwise look like a drop), and a day that takes all
+  of `LOGS_MAX_MB` makes the maintenance delete the earlier days. A compression that failed (full disk, a directory it
   cannot write) stopped the retention and size deletions of the same pass and was retried on every loop, which
   slowed the reading of the containers until lines were lost to Docker's rotation; it is now reported, retried in a
   minute, and the deletions run.

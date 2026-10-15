@@ -602,6 +602,25 @@ class HttpGroupTest(EndpointMixin, unittest.TestCase):
         self.assertNotIn("http_response_codes", metrics)
         self.assertNotIn("http_bytes_transferred_total", metrics)
 
+    def test_a_file_cut_at_its_bound_turns_the_group_down(self):
+        # The collector stopped writing the access file at its day's bound (LOGS_MAX_MB): the figures would miss
+        # the flood, so the group is down rather than counting fewer requests.
+        note = b"metrics-logs: a quarter of LOGS_MAX_MB for one file reached, further lines of 2026-10-09 are only in docker logs\n"
+        access = self.logs / "nginx-proxy/access-2026-10-09.log"
+        access.write_bytes(access.read_bytes() + note)
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_response_codes", metrics)
+        self.assertNotIn("setup_http_class_requests", metrics)
+        # The same for an error log: a crash loop would read as fewer errors.
+        access.write_bytes(access.read_bytes()[:-len(note)])
+        error = self.logs / "php-fpm/error-2026-10-09.log"
+        error.write_bytes(error.read_bytes() + note)
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_error_type", metrics)
+        self.assertIn("http_response_codes", metrics)
+
     def test_window_across_midnight_reads_both_days(self):
         day = lambda name: self.logs / "nginx-proxy" / name
         day("access-2026-10-09.log").write_text(

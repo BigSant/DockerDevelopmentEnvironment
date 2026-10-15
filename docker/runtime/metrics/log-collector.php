@@ -28,7 +28,8 @@ const LOGS_LINE_LIMIT = 1048576;
 const LOGS_COMPRESS_AFTER = 7200;
 // A stream without data this long after its last has sent the lines Docker held (LogStream::$caught).
 const LOGS_QUIET = 2;
-// The end of the note a day's file gets when it reaches its bound (LogWriter).
+// The end of the note a day's file gets when it reaches its bound (LogWriter); the metrics HTTP group looks for it
+// (METRICS_LOGS_FULL_END in http.php).
 const LOGS_FULL_END = ' are only in docker logs';
 
 function logs_directory()

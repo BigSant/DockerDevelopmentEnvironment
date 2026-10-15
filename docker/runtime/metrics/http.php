@@ -40,6 +40,22 @@ function metrics_logs_directory()
 // stopped or hangs (a Docker stream that never answers), its files miss the latest lines, and a window of zero
 // requests and zero 5xx would read as a quiet site: the HTTP group is down instead.
 const METRICS_LOGS_STALE = 120;
+// The end of the note the collector writes when a day's file reaches its bound (LOGS_FULL_END in log-collector.php).
+const METRICS_LOGS_FULL_END = ' are only in docker logs';
+
+// A file the collector stopped writing (its day's bound, LOGS_MAX_MB) misses the rest of the day's lines: during a
+// flood the request figures would drop to zero exactly when they matter, so the part reading it is down instead.
+function metrics_logs_complete($files)
+{
+    foreach ($files as $file) {
+        $size = (int) @filesize($file);
+        $end = $size > 0 ? (string) @file_get_contents($file, false, null, max(0, $size - 256)) : '';
+        if (substr($end, -strlen(METRICS_LOGS_FULL_END) - 1) === METRICS_LOGS_FULL_END . "\n") {
+            throw new RuntimeException(basename(dirname($file)) . '/' . basename($file) . ' reached its LOGS_MAX_MB bound; later lines are only in docker logs');
+        }
+    }
+    return $files;
+}
 
 function metrics_logs_check()
 {
@@ -208,7 +224,7 @@ function metrics_http_access(Metrics $metrics)
     $fields = null;
     $tools = metrics_http_tool_hosts();
     // The counter gets the line the clock has just parsed.
-    metrics_http_scan(metrics_http_files('nginx-proxy', 'access'), function ($line) use (&$fields) {
+    metrics_http_scan(metrics_logs_complete(metrics_http_files('nginx-proxy', 'access')), function ($line) use (&$fields) {
         $fields = metrics_http_access_fields($line);
         return $fields === null ? null : metrics_http_time('!d/M/Y:H:i:s O', $fields[2]);
     }, function ($line, $continuation, $at) use (&$fields, &$codes, &$ips, &$agents, &$minutes, &$bytes, $tools) {
@@ -244,7 +260,7 @@ function metrics_http_errors(Metrics $metrics)
 {
     metrics_logs_check();
     $counts = array_fill_keys(array_keys(METRICS_HTTP_ERROR_TYPES), 0);
-    $files = array_merge(metrics_http_files('webserver', 'error'), metrics_http_files('php-fpm', 'error'));
+    $files = metrics_logs_complete(array_merge(metrics_http_files('webserver', 'error'), metrics_http_files('php-fpm', 'error')));
     metrics_http_scan($files, 'metrics_http_error_time', function ($line, $continuation) use (&$counts) {
         $text = implode("\n", array_merge(array($line), $continuation));
         foreach (METRICS_HTTP_ERROR_TYPES as $type => $pattern) {
@@ -263,6 +279,7 @@ function metrics_http_traffic(Metrics $metrics)
 {
     require_once __DIR__ . '/traffic.php';
     metrics_logs_check();
+    metrics_logs_complete(metrics_http_files('nginx-proxy', 'access'));
     list($start, $end) = metrics_http_window();
     $collected = traffic_collect(array(array($start, $end)));
     $aggregate = $collected[0];

@@ -191,7 +191,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   would be over its lifetime, and promtool rejects `quantile` on a gauge).
   The HTTP group's parts are down when the collector's state is missing or older than 2 minutes
   (`metrics_logs_check`; it is saved at least every 5 s): a stopped or hung collector leaves files without the
-  latest lines, which would read as a quiet site with no 5xx.
+  latest lines, which would read as a quiet site with no 5xx. Likewise a part whose file in the window ends with the
+  collector's bound note (`metrics_logs_complete`): during a flood the access file stops at its share of
+  `LOGS_MAX_MB`, and the request figures would fall exactly when the alerts matter.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with
@@ -232,7 +234,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   never today's. Today's are bounded as they are written instead (`LogWriter`): one file takes a quarter of
   `LOGS_MAX_MB`, all of a day's files `LOGS_MAX_MB`; past that the file gets one note line and the rest of the day's
   lines stay only in docker logs (a crash loop or a warning on every request filled the disk within a day otherwise;
-  Docker's own cap is `CONTAINER_LOG_MAX_SIZE` × `CONTAINER_LOG_MAX_FILES`). `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
+  Docker's own cap is `CONTAINER_LOG_MAX_SIZE` × `CONTAINER_LOG_MAX_FILES`). A day that takes all of `LOGS_MAX_MB`
+  makes the maintenance delete every earlier day, oldest first: the limit is the disk's, not a per-day budget. A late
+  line for a day older than the three the writer tracks is written uncounted (a collector down for days). `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
   saved every second lines were written; the three metrics containers run with `init: true`, because PHP as PID 1
   ignores SIGTERM. A stopped container is read again when its `StartedAt` changed (it ran between two looks); a
   compression that fails (disk full) keeps the plain file, is reported and tried again in a minute, while the
