@@ -1,10 +1,46 @@
 <?php
 // Website group: response time and status per METRICS_URLS (the script's curl -L), the certificate
-// expiry per https host, and the project's support level that the alerts route by.
+// expiry per https host, and the project's support level that the alerts route by. The sampler's probe loop
+// (metrics_website_probe) checks the pages every METRICS_PROBE_INTERVAL seconds (5 minutes) into probes.json;
+// the minute's sample only reads that file, so a slow page never delays the other groups.
 
 function metrics_website_parts()
 {
-    return array('metrics_website_support', 'metrics_website_responses', 'metrics_website_certificates');
+    return array('metrics_website_support', 'metrics_website_probed');
+}
+
+function metrics_website_probe_interval()
+{
+    return max(1, (int) metrics_setting('METRICS_PROBE_INTERVAL', '300'));
+}
+
+// One round of probes, as the probe loop writes it to probes.json.
+function metrics_website_probe($now)
+{
+    $result = array('probed' => $now, 'responses' => metrics_website_responses(), 'certificates' => array(), 'failed' => array());
+    list($result['certificates'], $result['failed']) = metrics_website_certificates();
+    return $result;
+}
+
+// The latest probes: none configured is nothing to report, a round older than three intervals fails the group.
+function metrics_website_probed(Metrics $metrics)
+{
+    if (!metrics_website_urls()) return;
+    $probes = metrics_read_json(metrics_snapshot_directory() . '/probes.json');
+    if ($probes === null || time() - (int) $probes['probed'] > 3 * metrics_website_probe_interval()) {
+        throw new RuntimeException('no recent website probe');
+    }
+    $metrics->add('setup_website_probe_timestamp_seconds', 'When the pages of METRICS_URLS were last probed', (int) $probes['probed']);
+    foreach ($probes['responses'] as $response) {
+        $labels = array('url' => (string) $response['url']);
+        $metrics->add('website_response_time', 'Website request response time', (float) $response['time'], $labels);
+        $metrics->add('website_response_status', 'Website request status', (int) $response['status'], $labels);
+    }
+    foreach ($probes['certificates'] as $domain => $expiry) {
+        $metrics->add('website_ssl_expiry_timestamp_seconds', 'Unix time when the served TLS certificate expires',
+            (int) $expiry, array('domain' => (string) $domain));
+    }
+    if ($probes['failed']) throw new RuntimeException('no certificate from ' . implode(', ', $probes['failed']));
 }
 
 function metrics_website_urls()
@@ -27,28 +63,34 @@ function metrics_website_support(Metrics $metrics)
         (int) metrics_setting('METRICS_SUPPORT_LEVEL', '0'));
 }
 
-// The script's own probe: curl -L, total time in seconds and the final status (0 when nothing answered).
-function metrics_website_responses(Metrics $metrics)
+// The script's own probe: curl -L, total time in seconds and the final status (0 when nothing answered). A page
+// that has not answered within METRICS_PROBE_TIMEOUT (30 s) counts as that time with status 0.
+function metrics_website_responses()
 {
+    $timeout = max(1, (int) metrics_setting('METRICS_PROBE_TIMEOUT', '30'));
+    $responses = array();
     foreach (metrics_website_urls() as $url) {
-        $command = 'curl -sS -L --max-redirs 10 --connect-timeout 10 --max-time 20 --proto =http,https --proto-redir =http,https'
-            . ' -A setup-metrics -o /dev/null -w "%{time_total} %{http_code}"';
+        $command = 'curl -sS -L --max-redirs 10 --connect-timeout 10 --max-time ' . $timeout
+            . ' --proto =http,https --proto-redir =http,https -A setup-metrics -o /dev/null -w "%{time_total} %{http_code}"';
         if (metrics_setting('METRICS_PROBE_ADDRESS', '') !== '') {
             $command .= ' --connect-to ' . escapeshellarg('::' . metrics_website_address('') . ':');
         }
         $output = array();
-        exec($command . ' ' . escapeshellarg($url) . ' 2>/dev/null', $output);
+        exec($command . ' ' . escapeshellarg($url) . ' 2>/dev/null', $output, $code);
         $result = $output ? explode(' ', trim(end($output))) : array();
         if (count($result) !== 2 || !is_numeric($result[0])) throw new RuntimeException('curl is not available');
-        $labels = array('url' => $url);
-        $metrics->add('website_response_time', 'Website request response time', (float) $result[0], $labels);
-        $metrics->add('website_response_status', 'Website request status', (int) $result[1], $labels);
+        // curl's exit status 28: the time ran out.
+        $responses[] = $code === 28 ? array('url' => $url, 'time' => $timeout, 'status' => 0)
+            : array('url' => $url, 'time' => (float) $result[0], 'status' => (int) $result[1]);
     }
+    return $responses;
 }
 
-// The served certificate's notAfter, read without verification so an expired one is still reported.
-function metrics_website_certificates(Metrics $metrics)
+// The served certificate's notAfter, read without verification so an expired one is still reported:
+// [domain => expiry, ...] and the domains that served none.
+function metrics_website_certificates()
 {
+    $expiries = array();
     $hosts = array();
     foreach (metrics_website_urls() as $url) {
         $parts = parse_url($url);
@@ -70,8 +112,7 @@ function metrics_website_certificates(Metrics $metrics)
             $failed[] = $domain;
             continue;
         }
-        $metrics->add('website_ssl_expiry_timestamp_seconds', 'Unix time when the served TLS certificate expires',
-            (int) $certificate['validTo_time_t'], array('domain' => $domain));
+        $expiries[$domain] = (int) $certificate['validTo_time_t'];
     }
-    if ($failed) throw new RuntimeException('no certificate from ' . implode(', ', $failed));
+    return array($expiries, $failed);
 }

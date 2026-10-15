@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 TOKEN_MINIMUM = 24
 # Container-side defaults; the collector itself lives in runtime/metrics/.
-DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRICS_HTTP_WINDOW_MINUTES': '5',
+DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRICS_HTTP_WINDOW_MINUTES': '1',
             'METRICS_DOCKER_INTERVAL': '15', 'LOGS_RETENTION_DAYS': '14', 'LOGS_MAX_MB': '2048'}
 
 

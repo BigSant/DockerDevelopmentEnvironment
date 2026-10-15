@@ -132,7 +132,7 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | `METRICS_NETWORK_INTERFACE` | Numatytojo maršruto sąsaja | Serverio tinklo sąsaja `network_*` metrikoms (seno scripto `network_interface`). |
 | `METRICS_SUPPORT_LEVEL` | `0` | Projekto palaikymo lygis 0–9 (`support_level`), pagal jį alert'ai parenka, ką pranešti. |
 | `METRICS_DISK_WRITE_MB` | `100` | Disko rašymo testo dydis (`disk_write_speed`), kartą per valandą. `0` išjungia. |
-| `METRICS_HTTP_WINDOW_MINUTES` | `5` | Kelių paskutinių pilnų minučių HTTP log'ai skaičiuojami (1–60). Lygus Prometheus `scrape_interval`. |
+| `METRICS_HTTP_WINDOW_MINUTES` | `1` | Kelių paskutinių pilnų minučių HTTP log'ai skaičiuojami (1–60). Lygus Prometheus `scrape_interval`. |
 | `METRICS_DOCKER_INTERVAL` | `15` | Kas kiek sekundžių (5–300) Docker kolektorius nuskaito projekto konteinerius. Senesnė nei trys intervalai (+30 s) nuotrauka – `setup_metrics_group_up{group="containers"} 0`. Žr. [Konteineriai, cron ir procesai](05-servisai.md#konteineriai-cron-ir-procesai). |
 | `LOGS_RETENTION_DAYS` | `14` | Kiek dienų (1–366) laikyti konteinerių log'ų failus, žr. [Log'ų istorija](05-servisai.md#logų-istorija). |
 | `LOGS_MAX_MB` | `2048` | Visų log'ų failų riba MB (64–1048576): viršijus pirmi trinami seniausi, šiandienos – niekada. |

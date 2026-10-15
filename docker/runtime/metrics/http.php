@@ -41,7 +41,7 @@ function metrics_http_window()
 {
     $now = (int) metrics_setting('METRICS_HTTP_NOW', (string) time());
     $end = $now - $now % 60;
-    return array($end - 60 * max(1, (int) metrics_setting('METRICS_HTTP_WINDOW_MINUTES', '5')), $end);
+    return array($end - 60 * max(1, (int) metrics_setting('METRICS_HTTP_WINDOW_MINUTES', '1')), $end);
 }
 
 // The collector's files of one service and kind that the window reaches: today's and, near midnight, the day

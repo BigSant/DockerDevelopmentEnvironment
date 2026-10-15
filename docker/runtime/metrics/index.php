@@ -25,10 +25,20 @@ if ($token !== '') {
     }
 }
 
-// One file per group, runtime/metrics/<group>.php with metrics_<group>_parts(). host follows database
-// (it reuses the database group's connection for the version).
-$metrics = new Metrics();
-foreach (array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry') as $group) {
-    metrics_collect($metrics, $group);
+// The sampler's latest snapshot (sampler.php): a scrape collects nothing. Without a fresh one (the sampler has
+// stopped or not sampled yet) every group is down and no other figure is served.
+$now = time();
+$snapshot = metrics_snapshot($now);
+if ($snapshot !== null) {
+    $metrics = Metrics::fromFamilies($snapshot['families']);
+} else {
+    $metrics = new Metrics();
+    foreach (metrics_groups() as $group) {
+        $metrics->add('setup_metrics_group_up', 'Whether every part of the metrics group was collected', 0, array('group' => $group));
+    }
+}
+$taken = metrics_read_json(metrics_snapshot_directory() . '/snapshot.json');
+if ($taken !== null && isset($taken['taken'])) {
+    $metrics->add('setup_metrics_snapshot_timestamp_seconds', 'When the sampler took its latest snapshot', (int) $taken['taken']);
 }
 metrics_respond(200, $metrics->render());

@@ -445,7 +445,7 @@ Prieigą saugo IP sąrašas: ne iš jo – `403`. Token'as neprivalomas: tušči
 Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `metrics.<domain>/metrics` **tais pačiais vardais, etiketėmis ir vienetais**, kaip senas stebėjimo scriptas su tarpine programa. Esami Grafana dashboard'ai ir alert'ai veikia nepakeisti, o setup v2 projektui tarpinės programos nebereikia. Atiduodami **visi** dashboard'ų ir alert'ų naudojami vardai (išskyrus parduotuvės `monitoring_*` – PrestaShop modulio, ir PageSpeed `pagespeed_insight_*` – stebėjimo programos), grupėmis:
 
 - **sistema**: CPU (`cpu_usage_*{cpu="all"|"0"|…}`), RAM (`ram_*`), diskas ir inode'ai (`disk_*`, `disk_inodes_*`), I/O (`io_usage_*`, `iousage_usr`, `ip_usage_nice`), tinklas (`network_*`), `uptime` ir apkrova (`uptime_*`), `disk_write_speed`, `active_connections`;
-- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, naujas `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas);
+- **svetainė**: `website_response_time{url}`, `website_response_status{url}`, `support_level`, nauji `website_ssl_expiry_timestamp_seconds{domain}` (sertifikato galiojimo pabaiga, Unix laikas) ir `setup_website_probe_timestamp_seconds` (kada puslapiai tikrinti paskutinį kartą);
 - **HTTP** (paskutinių pilnų minučių log'ai, žr. [HTTP log'ai](#http-logai)): `http_response_codes{code}`, `http_bytes_transferred_total`, `http_request_ips{ip}`, `http_error_type{type}`, nauji `http_request_user_agents{user_agent}`, `http_requests_per_minute` ir `http_requests_per_minute_max`;
 - **saugumas**: `ddos_most_connections_ip_count{ip}` – penki adresai su daugiausiai TCP jungčių į 80 ir 443 portus;
 - **DB** (per [DB monitoriaus paskyrą](#db-metrikos)): buffer pool (`sql_*`), lėtos užklausos, lentelių skenavimai ir užklausos pagal bendrą laiką (`database_slow_query_*`, `database_table_scan_query_*`, `database_total_time_query_*`), lėčiausia užklausa, lentelių lock'ai ir I/O, vykdomi sakiniai, prisijungimai;
@@ -454,7 +454,17 @@ Taikinys (serveris, kuriame veikia projekto konteineriai) atiduoda Prometheus `m
 
 `setup_metrics_group_up{group}` yra `0`, jei kurios nors grupės dalies nepavyko surinkti (priežastis – serviso log'e).
 
-Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER_WORKERS`, PHP 7.4+): lėtas svetainės ar DB patikrinimas neblokuoja kito scrape'o. Su senesniu PHP užklausos aptarnaujamos po vieną.
+**Kaip renkama.** Metrikų konteineryje veikia sampler'is: kiekvienos minutės pradžioje (+5 s) jis surenka visas grupes ir įrašo nuotrauką (snapshot) į `data/<ENV>/metrics`. `/metrics` tik atiduoda paskutinę nuotrauką ir `setup_metrics_snapshot_timestamp_seconds` (kada ji paimta), todėl:
+
+- scrape'ų skaičius (Prometheus, keli Prometheus, rankinis `curl`) nebekeičia serverio apkrovos ir HTTP langų;
+- jei sampler'is sustojo ir nuotrauka senesnė nei 3 min. (ar jos dar nėra), atiduodama tik `setup_metrics_group_up 0` kiekvienai grupei – alert'as „metrikos nerenkamos“ suveikia, o ne rodomi seni skaičiai;
+- mažos grupės (be IP, user-agent, užklausų, lentelių ir procesų sąrašų) saugomos 48 val. istorijoje `data/<ENV>/metrics/history/` – iš jos braižomi dashboard'o grafikai.
+
+**Puslapių patikrinimai** (`METRICS_URLS`) vyksta atskirame cikle kas 5 min.: ilgiausiai 30 s vienam puslapiui; neatsakęs per 30 s puslapis rodomas kaip `website_response_time` 30 ir `website_response_status` 0. Lėtas puslapis nevėlina kitų grupių. Jei patikrinimų nebuvo ilgiau nei 15 min., svetainės grupė `0`.
+
+**HTTP langas** numatytai 1 min. (`METRICS_HTTP_WINDOW_MINUTES`): tiek pat, kiek sampler'io intervalas ir Prometheus `scrape_interval` (1m).
+
+Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER_WORKERS`, PHP 7.4+): lėtas dashboard'o puslapis neblokuoja scrape'o.
 
 1. `env/<ENV>.env`:
 
@@ -547,7 +557,7 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 
 Tomas `<PROJECT_NAME>-<ENV>-http-logs` liko tik nginx-proxy TCP lentelės nuotraukai (`proxy-net/`, kas 10 s), nes jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje.
 
-- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 5) **pilnos** minutės iki einamosios, kaip seno scripto `5 minutes ago` … dabartinė minutė. Nustatyk lygų Prometheus `scrape_interval`, kad kiekviena užklausa būtų suskaičiuota vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`). Po vidurnakčio skaitomas ir vakar dienos failas (jis suspaudžiamas tik po 2 val.).
+- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 1) **pilnos** minutės iki einamosios (senas scriptas skaitė 5). Sampler'is skaičiuoja kas minutę, Prometheus nuskaito kas minutę, todėl kiekviena užklausa suskaičiuojama vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`). Jei Prometheus `scrape_interval` ilgesnis, nustatyk langą lygų jam. Po vidurnakčio skaitomas ir vakar dienos failas (jis suspaudžiamas tik po 2 val.).
 - **Skaitymas**: failai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis failas į atmintį nekraunamas. Eilutės be laiko (pvz. stack trace) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
 - **Laikas**: prieigos log'e laikas su zona, PHP eilutėse – zona, kurią nurodo PHP, Apache ir php-fpm pranešimuose – konteinerio `TZ` (visi projekto konteineriai turi tą patį `TZ`).
 - Dienos be užklausų ar klaidų failo nėra – tai nulis. Jei log'ų istorijos tomas neprijungtas, HTTP grupės `setup_metrics_group_up` yra `0`.
