@@ -506,7 +506,7 @@ Viena užklausa trunka apie sekundę (CPU ir tinklas matuojami 1 s, kaip `mpstat
 
 - serverio `/proc` → `/host/proc`: CPU, RAM, apkrova ir uptime `/proc` yra viso serverio; tinklo skaitikliai skaitomi iš `/host/proc/1/net/dev` (serverio tinklo vardų erdvė, ne konteinerio). Release'as šį prijungimą palieka, nes `/proc` yra kiekviename Linux taikinyje;
 - projekto `data/` katalogas → `/host/disk`: tik failų sistemos dydžiui (`df -k`, `df -i`), failai neskaitomi;
-- HTTP log'ų tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
+- log'ų istorijos tomas `<PROJECT_NAME>-<ENV>-logs` → `/host/logs` ir nginx-proxy TCP nuotraukos tomas `<PROJECT_NAME>-<ENV>-http-logs` → `/host/http-logs`, žr. [HTTP log'ai](#http-logai).
 
 Su `cron` servisu prisijungia dar du katalogai, taip pat tik skaitymui: cron istorija (`data/cron`) ir crontab (`app/config/cron`, jei yra). Docker socket'o metrikų servisas negauna – konteinerius skaito atskiras kolektorius, žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai).
 
@@ -537,20 +537,20 @@ Portų servisas nepublikuoja ir projekto tinkle nėra: jo atskirame tinkle yra t
 
 ### HTTP log'ai
 
-Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'us. Setup v2 tų pačių skaičių šaltiniai yra konteineriuose, todėl su `SERVICES=metrics` jie papildomai rašomi į bendrą Docker tomą `<PROJECT_NAME>-<ENV>-http-logs`; metrikų servisas jį prijungia tik skaitymui:
+Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'us. Setup v2 HTTP grupė skaito [log'ų istorijos](#logų-istorija) dienos failus (tomas `<PROJECT_NAME>-<ENV>-logs`, prijungtas tik skaitymui):
 
-| Failas tome | Kas rašo | Kodėl šis |
+| Failas | Kas rašo | Pastabos |
 | --- | --- | --- |
-| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas su `rt=`, `urt=`, `host=` gale | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje; Apache už jo mato tik proxy adresą |
-| `error.log` (+ `error.log.1`) | Apache per `rotatelogs` (svetainės `ErrorLog`) | PHP pranešimai ateina per FastCGI: su `metrics` php-fpm paleidžiamas su `fastcgi.logging=1` |
-| `proxy-net/` | nginx-proxy kas 10 s (`/proc/net/tcp`, `tcp6`, `route`) | jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje, ne metrikų konteinerio |
+| `nginx-proxy/access-<diena>.log` | nginx-proxy, visos jo svetainės, `combined` su `rt=`, `urt=`, `host=` gale | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje. Įrankių svetainių (`metrics.`, `cron.`, `pma.`, … ir `PROXY_TOOLS` vardų `<vardas>.<DOMAIN>`) eilutės neskaičiuojamos – Prometheus ir komanda nėra lankytojai |
+| `webserver/error-<diena>.log` | Apache | pvz. nepasiekiamas php-fpm, segfault |
+| `php-fpm/error-<diena>.log` | PHP ir php-fpm | PHP pranešimai su savo laiku (`[09-Oct-2026 12:30:00 Europe/Vilnius] PHP Warning: …`) |
 
-- **`docker logs` nesikeičia**: nginx-proxy, Apache ir php-fpm toliau rašo viską į savo `docker logs` (su `CONTAINER_LOG_*` rotacija; Apache klaidas `rotatelogs` pakartoja į stderr), tomas – tik papildoma kopija. `/metrics` užklausos lieka `docker logs`, bet į tomą nepatenka, kad Prometheus nebūtų skaičiuojamas kaip lankytojas.
-- **Dydis ribotas**: kiekvienas log'as tome turi daugiausiai du failus po `METRICS_HTTP_LOG_MB` (numatyta 32): nginx-proxy perkelia `access.log` į `access.log.1` ir atidaro naują, Apache `rotatelogs -n 2` daro tą patį.
-- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 5) **pilnos** minutės iki einamosios, kaip seno scripto `5 minutes ago` … dabartinė minutė. Nustatyk lygų Prometheus `scrape_interval`, kad kiekviena užklausa būtų suskaičiuota vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`).
-- **Skaitymas**: log'ai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis log'as į atmintį nekraunamas. Eilutės be laiko (pvz. tęsinys) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
-- **Laikas**: prieigos log'e laikas su zona, klaidų log'e – konteinerio `TZ` laikas (visi projekto konteineriai turi tą patį `TZ`).
-- Kol Apache nieko neparašė, `error.log` nėra – tai reiškia nulį klaidų. Be `access.log` (tomas neprijungtas) HTTP grupės `setup_metrics_group_up` yra `0`.
+Tomas `<PROJECT_NAME>-<ENV>-http-logs` liko tik nginx-proxy TCP lentelės nuotraukai (`proxy-net/`, kas 10 s), nes jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje.
+
+- **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 5) **pilnos** minutės iki einamosios, kaip seno scripto `5 minutes ago` … dabartinė minutė. Nustatyk lygų Prometheus `scrape_interval`, kad kiekviena užklausa būtų suskaičiuota vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`). Po vidurnakčio skaitomas ir vakar dienos failas (jis suspaudžiamas tik po 2 val.).
+- **Skaitymas**: failai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis failas į atmintį nekraunamas. Eilutės be laiko (pvz. stack trace) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
+- **Laikas**: prieigos log'e laikas su zona, PHP eilutėse – zona, kurią nurodo PHP, Apache ir php-fpm pranešimuose – konteinerio `TZ` (visi projekto konteineriai turi tą patį `TZ`).
+- Dienos be užklausų ar klaidų failo nėra – tai nulis. Jei log'ų istorijos tomas neprijungtas, HTTP grupės `setup_metrics_group_up` yra `0`.
 
 **Saugumas** (`ddos_most_connections_ip_count`) skaičiuoja jungtis dviejose vietose: serverio tinklo vardų erdvėje (`/host/proc/1/net/tcp*`: DirectAdmin ar kitas priekinis web serveris priima klientus ten, kaip seno scripto `netstat`) ir nginx-proxy (`proxy-net/`: VPN taikinys, kur portai publikuoti tiesiai). nginx-proxy numatytojo maršruto vartai (Docker tinklo vartai – per juos ateina priekinio web serverio ir paties serverio persiųstos užklausos) nėra klientas. Jei nginx-proxy nuotrauka senesnė nei 2 min. ar jos nėra, serverio skaičiai vis tiek atiduodami, bet `setup_metrics_group_up{group="security"}` yra `0`.
 

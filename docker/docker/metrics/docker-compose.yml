@@ -33,6 +33,9 @@ services:
       METRICS_SUPPORT_LEVEL: ${METRICS_SUPPORT_LEVEL}
       METRICS_DISK_WRITE_MB: ${METRICS_DISK_WRITE_MB}
       METRICS_HTTP_WINDOW_MINUTES: ${METRICS_HTTP_WINDOW_MINUTES}
+      # The access log holds every site of this proxy: the HTTP group leaves out the tool sites (<tool>.DOMAIN).
+      DOMAIN: ${DOMAIN}
+      PROXY_TOOLS: ${PROXY_TOOLS:-}
       METRICS_DOCKER_INTERVAL: ${METRICS_DOCKER_INTERVAL}
       # Database group: statistics only, through the DB monitor account (make db-monitor-user).
       DATABASE_MONITOR_USER: ${DATABASE_MONITOR_USER:-${DATABASE_NAME}_monitor}
@@ -50,11 +53,16 @@ services:
         source: ${PROJECT_DATA_DIRECTORY}
         target: /host/disk
         read_only: true
-      # The site's access log (nginx-proxy, client IPs after the real-IP handling), the webserver's error
-      # log and nginx-proxy's TCP table snapshot; docker logs keep their own copies.
+      # nginx-proxy's TCP table snapshot (security group).
       - type: volume
         source: http_logs
         target: /host/http-logs
+        read_only: true
+      # The log collector's files: nginx-proxy's access log (client IPs after the real-IP handling), the
+      # webserver's and php-fpm's error logs (HTTP group).
+      - type: volume
+        source: logs
+        target: /host/logs
         read_only: true
       # The Docker collector's snapshot (containers group); this service has no Docker access itself.
       - type: volume
@@ -143,26 +151,12 @@ services:
         source: logs
         target: /var/lib/setup-logs
 
-  # Writers of the HTTP log volume, each file bounded to two of METRICS_HTTP_LOG_MB (current and rotated).
+  # nginx-proxy writes its TCP table snapshot to the HTTP log volume (security group).
   nginx-proxy:
     networks:
       network_metrics: {}
-    environment:
-      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB}
     volumes:
       - http_logs:/var/log/setup-http
-
-  webserver:
-    environment:
-      SETUP_ENABLE_METRICS: "1"
-      METRICS_HTTP_LOG_MB: ${METRICS_HTTP_LOG_MB}
-    volumes:
-      - http_logs:/var/log/setup-http
-
-  # PHP's messages also reach the webserver's error log (FastCGI stderr), not only docker logs.
-  php-fpm:
-    environment:
-      SETUP_ENABLE_METRICS: "1"
 
   # The database joins the metrics network, so the metrics service stays off the project network.
   database:
