@@ -138,6 +138,12 @@ fingerprint is outdated; it removes only with `apply=1`.
   overdue cron job; a page check at 0, >= 400 or over 3 s), the same function giving each point of its 24-hour line
   (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute. A card without its
   figures is not shown (p95 until the traffic analysis, cron without the service).
+  Logs (`logs.php`, `/logs/`): the collector's files by service and day, the last 100/500/2000 lines of one matching a
+  level (errors, warnings, 5xx, 4xx: fixed patterns) and a text, and the file itself to download (`.gz` as it is). A
+  file is named only by `<service>/<kind>-<day>.log[.gz]` matched against that pattern and found among the listed
+  regular files under the collector's directory (no symbolic links, `realpath` inside it). A plain file is read
+  backwards in 64 KiB chunks until enough lines match, a gzipped one forwards keeping only the last matches, a shown
+  line cut at 4 KiB: memory stays bounded whatever the size.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with

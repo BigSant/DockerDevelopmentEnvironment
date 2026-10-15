@@ -4,10 +4,10 @@
 // (sampler.php) or, for the logs, from the log collector's files. Self-contained like the cron and backup UIs: no web
 // fonts, scripts or styles from elsewhere.
 
-// The tabs; a page of its own file registers here when it exists.
+// The tabs, each a file of its own (overview.php, logs.php).
 function dashboard_tabs()
 {
-    return array('/' => 'Overview');
+    return array('/' => 'Overview', '/logs/' => 'Logs');
 }
 
 function h($value)
@@ -111,6 +111,13 @@ main{padding:22px 28px 60px;max-width:1400px;margin:0 auto}
 .card.warn .spark polyline{stroke:var(--amber)}.card.bad .spark polyline{stroke:var(--stop)}
 .card .nohistory{color:var(--faint);font-size:11px;margin-top:6px;height:40px}
 .empty{padding:40px;text-align:center;color:var(--dim);border:1px dashed var(--rule);border-radius:4px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+button,input,select{font:inherit;color:var(--ink);background:#191e14;border:1px solid var(--rule);padding:4px 8px;border-radius:3px}
+button{cursor:pointer;text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.06em}
+table.list{width:100%;border-collapse:collapse}
+.list th{text-align:left;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--rule)}
+.list td{padding:3px 8px;border-bottom:1px solid var(--line)}.list .num{text-align:right;color:var(--dim)}a.quiet{color:var(--dim)}
+pre.log{margin:0;padding:10px 12px;background:var(--panel);border:1px solid var(--rule);border-radius:3px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45}
 CSS;
 }
 

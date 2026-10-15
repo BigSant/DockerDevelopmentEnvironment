@@ -17,6 +17,11 @@ if ($path === '/') {
     }
     dashboard_page('/', 'Overview', $body);
 }
+if (strpos($path, '/logs') === 0) {
+    require __DIR__ . '/http.php';
+    require __DIR__ . '/logs.php';
+    logs_tab_route($path);
+}
 if ($path !== '/metrics') metrics_respond(404, "not found\n");
 
 $token = (string) getenv('METRICS_TOKEN');
