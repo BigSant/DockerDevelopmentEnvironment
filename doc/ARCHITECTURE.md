@@ -122,7 +122,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   both use the `Authorization` header.
   Collection is the sampler's (`sampler.php`, started with `php -S` by `start.sh`): its minute loop collects every
   group a few seconds after each minute starts into `snapshot.json` in `data/<env>/metrics` (bind mount
-  `/var/lib/setup-metrics`, kept when the container is recreated) and appends the families of up to 16 samples,
+  `/var/lib/setup-metrics`, kept when the container is recreated; `problems` holds, per group, why its failed parts
+  failed, each message once, printable ASCII, 500 characters at most) and appends the families of up to 16 samples,
   without per-client, per-query, per-table or per-process lists, to `history/<UTC hour>.jsonl`, whole hours kept 48 h.
   `/metrics` only serves the latest snapshot plus `setup_metrics_snapshot_timestamp_seconds`, so scrapes change
   neither the load nor the windows; a snapshot older than three sampler intervals (or none) is served as every
@@ -167,7 +168,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   Database, Containers and Cron (`tabs.php`): the snapshot's families of the group as tables whose rows are label
   sets (a query, a schema and table, a container, a job with its file and line) and columns families or an info
   family's labels; a sample with only some of the row labels fills every row that agrees with it. Without figures
-  the tab says why (cron not enabled, no Docker collector snapshot, no DB monitor account).
+  the tab says why: the snapshot's `problems` of its group (`dashboard_problems`), else a general hint (cron not
+  enabled, no Docker collector snapshot, no DB monitor account). The Overview lists every group's `problems` above
+  its cards. The parts' messages say what to set or run; the database part tells a missing
+  `DATABASE_MONITOR_PASSWORD` from an account that cannot log in (`[1045]`: `make db-monitor-user ENV=<env>`).
   `/feed` (`feed.php`): the latest snapshot as the old monitoring script's results.txt sections, under its headers
   in its order ("Header:", the body, a line of dashes; families as `name{labels} value`, the website probes as the
   script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`

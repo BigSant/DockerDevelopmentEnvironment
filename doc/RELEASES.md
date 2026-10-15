@@ -4,6 +4,14 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **The dashboard says what is missing.** A group the sampler could not collect showed a general hint ("No data:
+  the DB monitor account gives no statistics (make db-monitor-user)") whatever the cause. The snapshot now keeps
+  each group's reasons (`problems`), the Overview lists them above its cards and each tab shows its group's: e.g.
+  `DATABASE_MONITOR_PASSWORD is not set: …` or `the DB monitor account <user> cannot log in (access denied): make
+  db-monitor-user ENV=prod creates it …`. Nothing to do; the next sample after the update fills them.
+
 ## 2.12.1
 
 Fixes of the 2.12.0 monitoring. Projects with metrics: `make build` and `make deploy-images` (a pipeline deploy with

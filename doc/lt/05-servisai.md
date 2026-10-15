@@ -659,7 +659,7 @@ make up
 make db-monitor-user
 ```
 
-DB prisijungia prie metrikų serviso tinklo, todėl servisas DB randa vardu `database`, o pats lieka už projekto tinklo. Be `DATABASE_MONITOR_PASSWORD` ar nepasiekus DB – `setup_metrics_group_up{group="database"} 0`, kitos grupės veikia.
+DB prisijungia prie metrikų serviso tinklo, todėl servisas DB randa vardu `database`, o pats lieka už projekto tinklo. Be `DATABASE_MONITOR_PASSWORD` ar nepasiekus DB – `setup_metrics_group_up{group="database"} 0`, kitos grupės veikia. Dashboard'as (Overview ir Database tab'as) tada parašo tikrą priežastį ir ką daryti: ar trūksta `DATABASE_MONITOR_PASSWORD`, ar paskyra neprisijungia (tada `make db-monitor-user ENV=<env>`). Taip pat ir kitoms grupėms – rodomas jų dalių klaidos tekstas.
 
 **`performance_schema` išjungta** (numatyta `off`) – tai būsena, ne klaida: `database_performance_schema 0`, grupė `1`, atiduodami tik buffer pool ir prisijungimai. Užklausų, lentelių ir vykdomų sakinių metrikų tada nėra.
 

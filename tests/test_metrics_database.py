@@ -184,7 +184,12 @@ class DatabaseUnavailableTest(EndpointMixin, unittest.TestCase):
         self.assertIn('setup_metrics_group_up{group="system"} 1', body)
         self.assertNotIn("sql_buffer_pool_size", body)
         self.assertNotIn("database_performance_schema", body)
-        self.assertIn("No data: the DB monitor account gives no statistics", fetch(base, "/database")[2])
+        # The dashboard says what is missing and what to run, on the tab and on the Overview.
+        for path in ("/database", "/"):
+            page = fetch(base, path)[2]
+            self.assertIn("DATABASE_MONITOR_PASSWORD is not set", page, path)
+            self.assertIn("make db-monitor-user ENV=", page, path)
+        self.assertNotIn("DATABASE_MONITOR_PASSWORD", fetch(base, "/containers")[2])
 
 
 class DatabaseComposeTest(unittest.TestCase):
@@ -272,6 +277,16 @@ class DatabaseMetricsIntegrationTest(unittest.TestCase):
                 return body, metrics
             time.sleep(0.5)
         self.fail("no new snapshot from the metrics service")
+
+    def test_a_wrong_or_missing_account_says_to_run_db_monitor_user(self):
+        self.start_database("on")
+        script = ("require '/opt/setup/runtime/metrics/metrics.php'; $m = new Metrics(); "
+                  "echo json_encode(metrics_collect($m, 'database'));")
+        answer = subprocess.run(["docker", "exec", "-e", "DATABASE_MONITOR_PASSWORD=not-the-monitor-password", "-e", "ENV=prod",
+                                 self.endpoint, "php", "-r", script], capture_output=True, text=True, timeout=60)
+        problems = json.loads(answer.stdout)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("shop_monitor cannot log in (access denied): make db-monitor-user ENV=prod", problems[0])
 
     def test_statistics_appear_and_the_monitor_reads_no_project_data(self):
         self.start_database("on")

@@ -54,7 +54,12 @@ function metrics_database_connection()
     if ($connection !== null) return $connection;
     try {
         $password = metrics_setting('DATABASE_MONITOR_PASSWORD', '');
-        if ($password === '') throw new RuntimeException('DATABASE_MONITOR_PASSWORD is not set (see make db-monitor-user)');
+        $user = metrics_setting('DATABASE_MONITOR_USER', '');
+        $create = 'make db-monitor-user ENV=' . metrics_setting('ENV', 'local');
+        if ($password === '') {
+            throw new RuntimeException('DATABASE_MONITOR_PASSWORD is not set: give it 16+ characters (env/<env>.env, or a '
+                . 'Deployment variable on stage/prod, then deploy) and run ' . $create . ', which creates the account ' . $user);
+        }
         if (!class_exists('PDO') || !in_array('mysql', PDO::getAvailableDrivers(), true)) {
             throw new RuntimeException('the PHP image has no pdo_mysql');
         }
@@ -68,7 +73,13 @@ function metrics_database_connection()
         }
     } catch (Exception $error) {
         $connection = null;
-        $failure = new RuntimeException('database: ' . $error->getMessage());
+        $message = $error->getMessage();
+        if (strpos($message, '[1045]') !== false) {
+            // The account is missing or has another password than DATABASE_MONITOR_PASSWORD.
+            $message = 'the DB monitor account ' . $user . ' cannot log in (access denied): ' . $create
+                . ' creates it or sets its password to DATABASE_MONITOR_PASSWORD';
+        }
+        $failure = new RuntimeException('database: ' . $message);
         throw $failure;
     }
     return $connection;
