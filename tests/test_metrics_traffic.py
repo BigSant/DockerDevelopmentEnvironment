@@ -17,7 +17,8 @@ import unittest
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_metrics import ENDPOINT, ROOT, SAMPLER, TOKEN, EndpointMixin, fetch, free_port, labelled, parse
+from test_metrics import (ENDPOINT, ROOT, SAMPLER, TOKEN, EndpointMixin, fetch, free_port, labelled, parse,
+                          write_collector_state)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures/traffic"
 ZONE = "Europe/Vilnius"
@@ -54,6 +55,7 @@ class TrafficTest(unittest.TestCase):
         self.work = Path(temporary.name)
         self.logs = self.work / "logs"
         (self.logs / "nginx-proxy").mkdir(parents=True)
+        write_collector_state(self.logs)
         self.snapshots = self.work / "snapshots"
         self.snapshots.mkdir()
         self.environment = {"PATH": "/usr/bin:/bin", "METRICS_SNAPSHOT_DIR": str(self.snapshots), "METRICS_LOGS_DIR": str(self.logs),
@@ -186,6 +188,31 @@ class TrafficTest(unittest.TestCase):
         subprocess.run(["php", str(SAMPLER), "--traffic", "--once"], env=self.environment, check=True, timeout=120)
         self.assertEqual(json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["requests"], 1)
         self.assertEqual(len(list((self.snapshots / "traffic").glob("*.json"))), 7 * 24)
+
+    def test_hours_wait_until_the_log_collector_has_caught_up(self):
+        moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)
+        name = f"access-{moment.astimezone(ZoneInfo(ZONE)):%Y-%m-%d}.log"
+        (self.logs / "nginx-proxy" / name).write_text(line("198.51.100.1", moment, "GET /lt/ HTTP/1.1"))
+        hour = int(moment.timestamp()) // 3600 * 3600
+        state = self.logs / ".collector-state.json"
+        prepare = lambda: subprocess.run(["php", str(SAMPLER), "--traffic", "--once"], env=self.environment, check=True, timeout=120)
+        # A first deploy: the collector has saved nothing yet, then saves while it reads what Docker holds.
+        state.unlink()
+        prepare()
+        self.assertEqual(list((self.snapshots / "traffic").glob("*.json")), [])
+        state.write_text(json.dumps({"project": "demo-stage", "containers": {}, "caught_up": None}))
+        prepare()
+        self.assertEqual(list((self.snapshots / "traffic").glob("*.json")), [])
+        # Back-filling after a stop, caught up until 4 hours ago: the hours before are cached, the line's is not.
+        write_collector_state(self.logs, caught_up=int(time.time()) - 4 * 3600)
+        prepare()
+        self.assertTrue((self.snapshots / f"traffic/{hour - 3 * 3600}.json").is_file())
+        self.assertFalse((self.snapshots / f"traffic/{hour}.json").exists())
+        self.assertEqual(self.report("window=24h")["requests"], 1)
+        # Caught up now: the line's hour is cached with its request.
+        write_collector_state(self.logs)
+        prepare()
+        self.assertEqual(json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["requests"], 1)
 
     def test_a_window_after_midnight_reads_no_gzipped_yesterday(self):
         script = ("require $argv[1]; require $argv[2]; require $argv[3]; $d = new DateTime('2026-10-15 00:10:00', new DateTimeZone('Europe/Vilnius'));"

@@ -9,7 +9,7 @@
 // than LOGS_RETENTION_DAYS days go, and the oldest go first while all of them exceed LOGS_MAX_MB. A day's files are
 // bounded as they are written (LogWriter): one file takes a quarter of LOGS_MAX_MB at most, all of a day's files
 // LOGS_MAX_MB. The time of the last line read from each container is kept, so a restarted collector or a recreated
-// container loses nothing docker logs still hold.
+// container loses nothing docker logs still hold; so is caught_up, until when every line Docker held is written.
 // Like metrics-docker it holds the root-equivalent Docker socket, so it sends GET requests only, for the project's
 // own containers, without network, capabilities or a writable root; it writes only the log volume.
 // Usage: php log-collector.php                       follow the containers (the service)
@@ -26,6 +26,8 @@ const LOGS_LINE_LIMIT = 1048576;
 // A finished day is compressed this long after its last line: late lines may still arrive, and the metrics HTTP
 // group reads the plain file of yesterday while its window (60 minutes at most) reaches back before midnight.
 const LOGS_COMPRESS_AFTER = 7200;
+// A stream without data this long after its last has sent the lines Docker held (LogStream::$caught).
+const LOGS_QUIET = 2;
 // The end of the note a day's file gets when it reaches its bound (LogWriter).
 const LOGS_FULL_END = ' are only in docker logs';
 
@@ -179,6 +181,11 @@ final class LogStream
     public $socket;
     // since= sends the lines of the saved time again: [that time, how many of its lines were written].
     public $replay = array(null, 0);
+    // Whether the lines Docker held when the stream opened are read: a line from after the opening came, or the
+    // stream has been quiet for LOGS_QUIET seconds (Docker sends what it holds without pausing).
+    public $caught = false;
+    public $opened;
+    public $data;
     private $tty;
     private $buffer = '';
     private $headers = true;
@@ -189,6 +196,7 @@ final class LogStream
         $this->id = $id;
         $this->service = $service;
         $this->tty = $tty;
+        $this->opened = $this->data = microtime(true);
         $socket = collector_setting('METRICS_DOCKER_SOCKET', '/var/run/docker.sock');
         $this->socket = @stream_socket_client('unix://' . $socket, $errno, $error, 10);
         if (!$this->socket) throw new RuntimeException('cannot connect to ' . $socket . ': ' . $error);
@@ -203,6 +211,7 @@ final class LogStream
     {
         $data = fread($this->socket, 262144);
         if ($data !== false && $data !== '') {
+            $this->data = microtime(true);
             $this->buffer .= $data;
             $this->parse($line);
         }
@@ -293,6 +302,9 @@ final class LogCollector
     private $streams = array();
     private $state = array();
     private $changed = false;
+    // Until when every line Docker held has been written (null: not yet since the first start). The metrics traffic
+    // analysis caches an hour for good only once this is past it, so a back-fill after a stop still counts.
+    private $caughtUp = null;
 
     // $follow false (--once): read what each container holds now; every answer then ends.
     public function __construct($project, $follow)
@@ -303,6 +315,8 @@ final class LogCollector
         $saved = is_file($this->stateFile()) ? json_decode((string) @file_get_contents($this->stateFile()), true) : null;
         if (is_array($saved) && isset($saved['project'], $saved['containers']) && $saved['project'] === $project) {
             $this->state = $saved['containers'];
+            // Kept across a restart: the time the collector was stopped is read again before it moves on.
+            $this->caughtUp = isset($saved['caught_up']) ? (int) $saved['caught_up'] : null;
         }
     }
 
@@ -385,6 +399,7 @@ final class LogCollector
                     // line may follow one with a later time.
                     $writer->write($stream->service, $kind, $time, $text);
                     $changed = true;
+                    if ((int) $time >= (int) $stream->opened) $stream->caught = true;
                     if ($state['last'] === null || logs_after($time, $state['last'])) {
                         $state['last'] = $time;
                         $state['same'] = 1;
@@ -417,9 +432,16 @@ final class LogCollector
     public function save()
     {
         $this->changed = false;
+        $caught = true;
+        foreach ($this->streams as $stream) {
+            if (!$stream->caught && microtime(true) - $stream->data >= LOGS_QUIET) $stream->caught = true;
+            $caught = $caught && $stream->caught;
+        }
+        if ($caught) $this->caughtUp = time();
         $file = $this->stateFile();
         $temporary = $file . '.' . getmypid();
-        if (@file_put_contents($temporary, json_encode(array('project' => $this->project, 'containers' => $this->state))) === false) {
+        $state = array('project' => $this->project, 'containers' => $this->state, 'caught_up' => $this->caughtUp);
+        if (@file_put_contents($temporary, json_encode($state)) === false) {
             throw new RuntimeException('cannot write ' . $temporary);
         }
         if (!@rename($temporary, $file)) throw new RuntimeException('cannot replace ' . $file);

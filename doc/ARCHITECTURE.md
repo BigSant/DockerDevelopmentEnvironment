@@ -154,8 +154,11 @@ fingerprint is outdated; it removes only with `apply=1`.
   whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
   only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
   every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
-  is cached once it ended 2 minutes ago and the log collector has saved its state since (so a back-fill after the
-  collector was down still counts); a failed JSON encoding writes no file. A cached hour keeps the 500 busiest entries
+  is cached once it ended 2 minutes ago and the log collector's state says it has written every line Docker held
+  since then (`caught_up`: every open stream sent a line from after its opening, or was quiet for 2 s; kept across a
+  collector restart). Before the collector's first state, while it is down and while it back-fills, nothing is
+  cached, so those lines still count (a first deploy cached 7 days of empty hours otherwise). A state without
+  `caught_up` falls back to its save time; a failed JSON encoding writes no file. A cached hour keeps the 500 busiest entries
   of each list (the suspicious IPs' counts always) and response times per millisecond (percentiles of any window);
   lists are trimmed while a file is read and while hours merge, so memory stays bounded and counts below the top
   of a busy hour are approximate. Agents stay as nginx escaped them (ASCII), so they always encode.
@@ -184,6 +187,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
   `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
   would be over its lifetime, and promtool rejects `quantile` on a gauge).
+  The HTTP group's parts are down when the collector's state is missing or older than 2 minutes
+  (`metrics_logs_check`; it is saved at least every 5 s): a stopped or hung collector leaves files without the
+  latest lines, which would read as a quiet site with no 5xx.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
   `tests/grafana_names.py` assigns each to a group. A group is `runtime/metrics/<group>.php` with

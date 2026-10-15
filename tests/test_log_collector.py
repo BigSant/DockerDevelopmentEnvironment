@@ -245,7 +245,10 @@ class LogCollectorTest(unittest.TestCase):
                                 "lines": [(1, before + datetime.timedelta(minutes=5), "second")]}]
         self.collect()
         self.assertEqual(self.read(f"php-fpm/access-{self.today.isoformat()}.log"), "first\nsecond\n")
-        self.assertEqual(set(json.loads((self.logs / ".collector-state.json").read_text())["containers"]), {"new"})
+        state = json.loads((self.logs / ".collector-state.json").read_text())
+        self.assertEqual(set(state["containers"]), {"new"})
+        # Every answer read to its end: caught up now (the metrics traffic cache waits for it).
+        self.assertLessEqual(abs(state["caught_up"] - time.time()), 10)
 
     def test_a_finished_day_is_gzipped_and_a_late_line_is_appended_to_it(self):
         y = self.yesterday.isoformat()

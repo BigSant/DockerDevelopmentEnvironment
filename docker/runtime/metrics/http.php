@@ -36,6 +36,24 @@ function metrics_logs_directory()
     return rtrim(metrics_setting('METRICS_LOGS_DIR', '/host/logs'), '/');
 }
 
+// The log collector saves its state at least every 5 seconds while its loop runs. Without a recent one it has
+// stopped or hangs (a Docker stream that never answers), its files miss the latest lines, and a window of zero
+// requests and zero 5xx would read as a quiet site: the HTTP group is down instead.
+const METRICS_LOGS_STALE = 120;
+
+function metrics_logs_check()
+{
+    // A day without requests has no file; no directory means the collector's volume is not mounted.
+    if (!is_dir(metrics_logs_directory())) throw new RuntimeException('no log collector files in ' . metrics_logs_directory());
+    $state = metrics_logs_directory() . '/.collector-state.json';
+    clearstatcache(true, $state);
+    if (!is_file($state)) throw new RuntimeException('the log collector (metrics-logs) has saved no state yet');
+    $age = time() - (int) @filemtime($state);
+    if ($age > METRICS_LOGS_STALE) {
+        throw new RuntimeException('the log collector (metrics-logs) last saved its state ' . $age . ' s ago: stopped or hung');
+    }
+}
+
 // [start, end): METRICS_HTTP_WINDOW_MINUTES full minutes before the current one.
 function metrics_http_window()
 {
@@ -184,8 +202,7 @@ function metrics_http_top($counts, $limit)
 
 function metrics_http_access(Metrics $metrics)
 {
-    // A day without requests has no file; no directory means the collector's volume is not mounted.
-    if (!is_dir(metrics_logs_directory())) throw new RuntimeException('no log collector files in ' . metrics_logs_directory());
+    metrics_logs_check();
     $codes = $ips = $agents = $minutes = array();
     $bytes = 0;
     $fields = null;
@@ -225,6 +242,7 @@ function metrics_http_access(Metrics $metrics)
 // The webserver's and php-fpm's error logs (PHP's messages are php-fpm's); a day without errors has no file.
 function metrics_http_errors(Metrics $metrics)
 {
+    metrics_logs_check();
     $counts = array_fill_keys(array_keys(METRICS_HTTP_ERROR_TYPES), 0);
     $files = array_merge(metrics_http_files('webserver', 'error'), metrics_http_files('php-fpm', 'error'));
     metrics_http_scan($files, 'metrics_http_error_time', function ($line, $continuation) use (&$counts) {
@@ -244,7 +262,7 @@ function metrics_http_errors(Metrics $metrics)
 function metrics_http_traffic(Metrics $metrics)
 {
     require_once __DIR__ . '/traffic.php';
-    if (!is_dir(metrics_logs_directory())) throw new RuntimeException('no log collector files in ' . metrics_logs_directory());
+    metrics_logs_check();
     list($start, $end) = metrics_http_window();
     $collected = traffic_collect(array(array($start, $end)));
     $aggregate = $collected[0];

@@ -311,14 +311,31 @@ function traffic_collect_cached($pieces, $hours, $each)
     }
 }
 
-// Whether an hour can be cached for good: it ended TRAFFIC_SETTLE ago and the log collector has run since (its
-// state file is saved every few seconds), so it has read the hour's lines; while it is stopped, nothing is cached and
-// a back-fill after it restarts still counts. Without a collector state (no collector) the time alone decides.
+// Whether an hour can be cached for good: it ended TRAFFIC_SETTLE ago and the log collector has written every line
+// Docker held since then (its state's caught_up), so it has read the hour's lines. Before its first state (a first
+// deploy), while it is stopped and while it back-fills after a start, nothing is cached and the lines it brings
+// still count. A state without caught_up (a collector process started before setup wrote it) falls back to the
+// time the state was saved.
 function traffic_closed($hour, $now)
 {
     if ($hour + 3600 + TRAFFIC_SETTLE > $now) return false;
+    $read = traffic_collector_caught_up();
+    return $read !== null && $read >= $hour + 3600 + TRAFFIC_SETTLE;
+}
+
+function traffic_collector_caught_up()
+{
+    static $cache = array();
     $state = metrics_logs_directory() . '/.collector-state.json';
-    return !is_file($state) || (int) @filemtime($state) >= $hour + 3600 + TRAFFIC_SETTLE;
+    clearstatcache(true, $state);
+    if (!is_file($state)) return null;
+    $saved = (int) @filemtime($state);
+    if (!isset($cache[$state]) || $cache[$state][0] !== $saved) {
+        $data = metrics_read_json($state);
+        $read = is_array($data) && array_key_exists('caught_up', $data) ? $data['caught_up'] : $saved;
+        $cache[$state] = array($saved, $read === null ? null : (int) $read);
+    }
+    return $cache[$state][1];
 }
 
 // A cache file that is whole: a failed write leaves none (metrics_write_json), an empty one is not trusted.

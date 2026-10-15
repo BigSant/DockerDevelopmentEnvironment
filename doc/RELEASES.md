@@ -25,6 +25,14 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   cannot write) stopped the retention and size deletions of the same pass and was retried on every loop, which
   slowed the reading of the containers until lines were lost to Docker's rotation; it is now reported, retried in a
   minute, and the deletions run.
+- **The traffic analysis no longer caches hours the log collector has not read yet.** On a first deploy (no
+  collector state yet) and while the collector back-filled what docker logs held, the traffic loop cached the past
+  hours as empty: the Traffic tab's 24 h and 7 d windows and `/feed` showed 0 for them for up to 8 days. The collector
+  now saves `caught_up`, until when every line Docker held is written, and only hours before that are cached. Hours
+  already cached empty go when they are 8 days old; delete `data/<env>/metrics/traffic/` for them to be read again.
+- **The HTTP group is down when the log collector stopped or hangs.** It only checked that the logs volume was
+  there, so a hung `metrics-logs` kept `setup_metrics_group_up{group="http"}` at 1 with zero requests and zero 5xx,
+  and 5xx alerts went silent. The group now needs a collector state saved within 2 minutes.
 
 ## 2.12.0
 

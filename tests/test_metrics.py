@@ -185,6 +185,13 @@ def write_docker_state(directory, collected=None, **state):
     (directory / "state.json").write_text(json.dumps(snapshot))
 
 
+def write_collector_state(logs, caught_up=None):
+    """The log collector's state as a running collector saves it: just now, every line Docker held written."""
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / ".collector-state.json").write_text(json.dumps(
+        {"project": "demo-stage", "containers": {}, "caught_up": int(time.time()) if caught_up is None else caught_up}))
+
+
 def free_port():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -233,6 +240,7 @@ class EndpointMixin:
         self.http.mkdir()
         self.logs = self.work / "logs"
         shutil.copytree(LOGS, self.logs, copy_function=shutil.copy)
+        write_collector_state(self.logs)
         write_connections(self.proc, self.http / "proxy-net")
         write_host(self.proc)
         self.docker_state = self.work / "docker"
@@ -577,6 +585,16 @@ class HttpGroupTest(EndpointMixin, unittest.TestCase):
         metrics = self.scrape()
         self.assertEqual(metrics["http_bytes_transferred_total"], {"": 0})
         self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+        # A collector that has not saved its state for minutes has stopped or hangs: down, not a quiet site.
+        state = self.logs / ".collector-state.json"
+        stale = time.time() - 600
+        os.utime(state, (stale, stale))
+        metrics = self.scrape()
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 0)
+        self.assertNotIn("http_response_codes", metrics)
+        self.assertNotIn("http_error_type", metrics)
+        state.unlink()
+        self.assertEqual(self.scrape()["setup_metrics_group_up"]['{group="http"}'], 0)
         # Without the collector's volume (not mounted) the group is down and serves no request figures.
         shutil.rmtree(self.logs)
         metrics = self.scrape()
