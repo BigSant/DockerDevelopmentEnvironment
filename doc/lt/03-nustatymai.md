@@ -135,6 +135,7 @@ Galioja su `SERVICES=metrics`, žr. [Metrikos](05-servisai.md#metrikos-prometheu
 | `METRICS_HTTP_WINDOW_MINUTES` | `1` | Kelių paskutinių pilnų minučių HTTP log'ai skaičiuojami (1–60). Lygus Prometheus `scrape_interval`. |
 | `METRICS_DOCKER_INTERVAL` | `15` | Kas kiek sekundžių (5–300) Docker kolektorius nuskaito projekto konteinerius. Senesnė nei trys intervalai (+30 s) nuotrauka – `setup_metrics_group_up{group="containers"} 0`. Žr. [Konteineriai, cron ir procesai](05-servisai.md#konteineriai-cron-ir-procesai). |
 | `METRICS_SLOW_REQUEST_SECONDS` | `2` | Užklausa, lėtesnė nei tiek sekundžių (0,1–120), skaičiuojama `setup_http_slow_requests`. |
+| `PHP_FPM_SLOWLOG_SECONDS` | – (išjungta) | Užklausa, ilgesnė nei tiek sekundžių (1–600), įrašo savo PHP stack trace į `make logs service=php-fpm`. Įjungus php-fpm gauna `SYS_PTRACE` (to reikia slowlog'ui); be nustatymo – ne. |
 | `METRICS_BOTS` | – | Projekto robotai srautų analizei, agentų žodžiai per kablelį (pvz. `ShopCrawler/1.0, Inhouse Monitor`), be setup sąrašo. Žr. [Srautai](05-servisai.md#metrikos-prometheus). |
 | `LOGS_RETENTION_DAYS` | `14` | Kiek dienų (1–366) laikyti konteinerių log'ų failus, žr. [Log'ų istorija](05-servisai.md#logų-istorija). |
 | `LOGS_MAX_MB` | `2048` | Visų log'ų failų riba MB (64–1048576): viršijus pirmi trinami seniausi, šiandienos – niekada. |

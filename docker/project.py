@@ -227,6 +227,12 @@ class Project:
         self.command += ["-f", str(DOCKER_ROOT / "docker/network.yml")]
         for name in ("nginx-proxy", "apache", engine, "php-fpm"):
             self.command += ["-f", str(DOCKER_ROOT / "docker" / name / "docker-compose.yml")]
+        # The FPM slowlog needs ptrace: SYS_PTRACE only when PHP_FPM_SLOWLOG_SECONDS asks for it.
+        slowlog = str(settings.get('PHP_FPM_SLOWLOG_SECONDS') or '')
+        if slowlog:
+            if not re.fullmatch(r'\d+', slowlog) or not 1 <= int(slowlog) <= 600:
+                raise ValueError('PHP_FPM_SLOWLOG_SECONDS must be 1 to 600 seconds (empty: off)')
+            self.command += ["-f", str(DOCKER_ROOT / "docker/php-fpm/slowlog.yml")]
         # The application's own settings (APP_ENVIRONMENT) for the services that run its code; before
         # the project's sources, so a name a project still lists itself keeps the project's definition.
         from project_app_environment import application_environment

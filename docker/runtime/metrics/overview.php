@@ -83,6 +83,17 @@ function overview_cards()
             return array(overview_level($p95, 1, 3), overview_number($p95, 2) . ' s',
                 'median ' . overview_number(overview_value($v, 'setup_http_response_time_p50_seconds'), 2) . ' s');
         }, function ($v) { return overview_value($v, 'setup_http_response_time_p95_seconds'); }),
+        'php' => array('PHP workers', function ($v) {
+            $active = overview_value($v, 'setup_php_fpm_processes{pool="www",state="active"}');
+            if ($active === null) return null;
+            $total = $active + overview_value($v, 'setup_php_fpm_processes{pool="www",state="idle"}');
+            $queue = overview_value($v, 'setup_php_fpm_listen_queue{pool="www"}');
+            $reached = overview_value($v, 'setup_php_fpm_max_children_reached_total{pool="www"}');
+            $busy = $total ? $active / $total * 100 : 0;
+            return array($queue > 0 ? 'bad' : ($busy >= 80 || $reached > 0 ? 'warn' : 'ok'), overview_number($active, 0) . ' / ' . overview_number($total, 0),
+                ($queue > 0 ? overview_number($queue, 0) . ' waiting · ' : '') . 'all busy ' . overview_number($reached, 0) . ' times since start'
+                . (($rate = overview_value($v, 'setup_php_opcache_hit_rate')) !== null ? ' · OPcache ' . overview_number($rate) . ' %' : ''));
+        }, function ($v) { return overview_value($v, 'setup_php_fpm_processes{pool="www",state="active"}'); }),
         'database' => array('Database', function ($v) {
             $connections = overview_value($v, 'database_connections');
             if (overview_value($v, 'setup_metrics_group_up{group="database"}') !== 1.0 && $connections === null) {

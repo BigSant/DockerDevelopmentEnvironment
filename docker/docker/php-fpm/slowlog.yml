@@ -1,0 +1,8 @@
+services:
+  # PHP_FPM_SLOWLOG_SECONDS set: requests slower than that get their PHP stack trace in php-fpm's docker logs. The
+  # php-fpm master reads a worker's stack with ptrace, so the service gets SYS_PTRACE, only with this setting.
+  php-fpm:
+    cap_add:
+      - SYS_PTRACE
+    environment:
+      SETUP_FPM_SLOWLOG_TIMEOUT: ${PHP_FPM_SLOWLOG_SECONDS}
