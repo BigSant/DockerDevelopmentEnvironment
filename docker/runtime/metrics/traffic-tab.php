@@ -1,7 +1,7 @@
 <?php
 // Traffic tab (/traffic) and its JSON (/traffic.json): traffic.php's analysis of a window, the last 15 minutes, hour,
-// 24 hours or 7 days, or one local day. Windows of a day or longer start at a whole hour, so every hour but the
-// current one comes from the cache.
+// 24 hours or 7 days, or one local day. Windows of a day or longer start at the whole hour before, so every hour but
+// the current one comes from the cache.
 require_once __DIR__ . '/dashboard.php';
 require_once __DIR__ . '/traffic.php';
 
@@ -22,8 +22,10 @@ function traffic_tab_window($now)
     }
     $key = isset($_GET['window']) && is_string($_GET['window']) && isset(TRAFFIC_WINDOWS[$_GET['window']]) ? $_GET['window'] : '1h';
     $span = TRAFFIC_WINDOWS[$key][1];
+    // A day or longer starts at the whole hour before, so it covers at least the span and every hour but the current
+    // one is cached.
     $start = $now - $span;
-    if ($span >= 86400) $start += (3600 - $start % 3600) % 3600;
+    if ($span >= 86400) $start -= $start % 3600;
     return array($start, $now, TRAFFIC_WINDOWS[$key][0], $key);
 }
 
@@ -77,7 +79,8 @@ function traffic_tab_body($report, $start, $end, $label, $key)
         . traffic_tab_rows('4xx by URL', $report['errors4']) . traffic_tab_rows('5xx by URL', $report['errors5'])
         . traffic_tab_rows('Slowest URLs', $report['slowest'], $seconds) . '</div>'
         . '<p class="stamp">Classes: an attack pattern first, then a known bot, then a static file. Bots: setup\'s list and METRICS_BOTS. '
-        . 'Lists of a long window are exact down to the ' . TRAFFIC_TOP . ' busiest entries of each hour.</p>';
+        . 'Classes, bots, attacks and response times are exact; the lists keep each hour\'s ' . TRAFFIC_TOP . ' busiest entries, '
+        . 'so in a busy window the counts below the top ones are approximate.</p>';
 }
 
 function traffic_tab_route($path)

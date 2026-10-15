@@ -61,7 +61,10 @@ class DockerApi(http.server.BaseHTTPRequestHandler):
             container = next((c for c in containers if c["id"] == path.split("/")[2]), None)
             if container is None:
                 return self.answer(404, b"")
-            body = json.dumps({"Id": container["id"], "Config": {"Tty": False}}).encode()
+            if container.get("gone"):
+                return self.answer(404, b"")
+            body = json.dumps({"Id": container["id"], "Config": {"Tty": False},
+                               "State": {"StartedAt": container.get("started", "2026-10-15T08:00:00.000000000Z")}}).encode()
         elif path.startswith("/containers/") and path.endswith("/logs"):
             container = next((c for c in containers if c["id"] == path.split("/")[2]), None)
             if container is None:
@@ -186,6 +189,47 @@ class LogCollectorTest(unittest.TestCase):
         self.collect()
         t = self.today.isoformat()
         self.assertEqual((self.read(f"php-fpm/access-{t}.log"), self.read(f"php-fpm/error-{t}.log")), ("out\n", "err\n"))
+
+    def test_a_container_that_ran_again_between_two_looks_is_read_again(self):
+        at = self.midnight + datetime.timedelta(hours=4)
+        self.api.containers = [{"id": "j1", "service": "cron", "state": "exited", "lines": [(1, at, "first run")]}]
+        self.collect()
+        # Started and exited again between two looks: still "exited", a new start time and a new line.
+        self.api.containers[0]["lines"].append((1, at + datetime.timedelta(minutes=1), "second run"))
+        self.collect()
+        self.assertEqual(self.read(f"cron/output-{self.today.isoformat()}.log"), "first run\n", "same start: not read again")
+        self.api.containers[0]["started"] = "2026-10-15T08:01:00.000000000Z"
+        self.collect()
+        self.assertEqual(self.read(f"cron/output-{self.today.isoformat()}.log"), "first run\nsecond run\n")
+
+    def test_a_container_removed_between_the_list_and_its_inspect_is_skipped(self):
+        at = self.midnight + datetime.timedelta(hours=4)
+        self.api.containers = [{"id": "g1", "service": "php-fpm", "state": "running", "gone": True, "lines": [(1, at, "lost")]},
+                               {"id": "k1", "service": "webserver", "state": "running", "lines": [(2, at, "kept")]}]
+        self.collect()
+        self.assertEqual(self.read(f"webserver/error-{self.today.isoformat()}.log"), "kept\n")
+
+    def test_a_failed_compression_keeps_the_plain_file(self):
+        y = self.yesterday.isoformat()
+        (self.logs / "webserver").mkdir()
+        plain = self.logs / f"webserver/error-{y}.log"
+        plain.write_text("line of yesterday\n")
+        old = time.time() - 3 * 3600
+        os.utime(plain, (old, old))
+        # A stale temporary of an interrupted compression goes.
+        stale = self.logs / f"webserver/error-{y}.log.gz.4242"
+        stale.write_bytes(b"partial")
+        os.utime(stale, (old, old))
+        (self.logs / "webserver").chmod(0o555)
+        self.addCleanup((self.logs / "webserver").chmod, 0o755)
+        result = self.run_collector("--once")
+        self.assertIn("cannot", result.stderr)
+        self.assertEqual(plain.read_text(), "line of yesterday\n")
+        self.assertFalse((self.logs / f"webserver/error-{y}.log.gz").exists())
+        (self.logs / "webserver").chmod(0o755)
+        self.collect()
+        self.assertFalse(stale.exists())
+        self.assertEqual(self.read(f"webserver/error-{y}.log.gz"), "line of yesterday\n")
 
     def test_a_recreated_container_continues_the_same_files(self):
         before = self.midnight + datetime.timedelta(hours=1)

@@ -159,12 +159,18 @@ function logs_tab_download($asked)
 {
     $file = logs_tab_file($asked);
     if ($file === null) metrics_respond(404, "no such log file\n");
-    list($path, $info) = $file;
-    header('Content-Type: ' . ($info[4] ? 'application/gzip' : 'text/plain; charset=utf-8'));
+    list($path) = $file;
+    $handle = @fopen($path, 'rb');
+    if ($handle === false) metrics_respond(404, "no such log file\n");
+    // Today's file grows while it is sent: exactly the bytes it had when the download began.
+    $size = (int) fstat($handle)['size'];
+    header('Content-Type: ' . ($file[1][4] ? 'application/gzip' : 'text/plain; charset=utf-8'));
     header('Content-Disposition: attachment; filename="' . basename($asked) . '"');
-    header('Content-Length: ' . $info[3]);
+    header('Content-Length: ' . $size);
     header('Cache-Control: no-store');
-    readfile($path);
+    $output = fopen('php://output', 'wb');
+    stream_copy_to_stream($handle, $output, $size);
+    fclose($handle);
     exit;
 }
 

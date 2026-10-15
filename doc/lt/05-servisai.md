@@ -504,7 +504,7 @@ Projekto botai (be setup pakeitimo), `env/common.env`:
 METRICS_BOTS="ShopCrawler/1.0, Inhouse Monitor"
 ```
 
-Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Ilgo lango sąrašai tikslūs iki 500 kiekvienos valandos dažniausių įrašų.
+Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Klasės, botai, atakos ir atsakymo laikai tikslūs; sąrašai laiko po 500 dažniausių kiekvienos valandos įrašų, todėl judriame lange retesnių įrašų skaičiai apytiksliai. Valanda į cache įrašoma tik tada, kai log'ų kolektorius veikė po jos pabaigos: kol jis sustojęs, valandos skaičiuojamos iš naujo ir, jam grįžus, papildomos.
 
 **Database**, **Containers**, **Cron** – tos pačios reikšmės kaip `/metrics`, lentelėmis: DB – talpa ir prisijungimai, lėtos, table-scan ir daugiausiai laiko užimančios užklausos, lėčiausias vykdymas, dabar vykdomos, lentelių lock'ai ir I/O; Konteineriai – kiekvieno projekto konteinerio būsena, health, restart'ai, OOM, paskutinis exit kodas, paleidimo laikas ir resursai (CPU %, atmintis ir dalis nuo `mem_limit`, disko I/O) – matosi, kuris servisas valgo resursus; Cron – kiekviena užduotis (id, failas, eilutė, grafikas), paskutinis paleidimas, exit kodas, trukmė, paskutinė sėkmė ir kitas laukiamas paleidimas (komanda nerodoma – joje būna token'ų). Kai duomenų nėra, skirtukas parašo kodėl (pvz. `cron` servisas neįjungtas).
 
@@ -626,7 +626,7 @@ php-fpm/access-…   php-fpm/error-…   webserver/error-…   database/error-�
 ```
 
 - **Pavadinimas**: stdout yra `access` nginx-proxy, Apache ir php-fpm (jų užklausų eilutės, žr. [kas kur rašo](12-cache-ir-hibridines-aplinkos.md#logai-diskas-ir-kopijos)), kitiems servisams `output`; stderr visada `error`. Diena – eilutės laikas pagal `TZ`.
-- **Suspaudimas**: pasibaigusios dienos failas suspaudžiamas (`.log.gz`, skaito `zcat`, `zless`, `zgrep`) praėjus 10 min. po paskutinės eilutės; vėliau atėjusi tos dienos eilutė pridedama prie `.gz`.
+- **Suspaudimas**: pasibaigusios dienos failas suspaudžiamas (`.log.gz`, skaito `zcat`, `zless`, `zgrep`) praėjus 2 val. po paskutinės eilutės; vėliau atėjusi tos dienos eilutė pridedama prie `.gz`.
 - **Saugojimas**: `LOGS_RETENTION_DAYS` dienų (numatyta 14), o jei visi failai užima daugiau nei `LOGS_MAX_MB` (numatyta 2048), pirmi trinami seniausi. Šiandienos failai netrinami niekada.
 - **Niekas nedingsta perkuriant**: kolektorius saugo, iki kurios eilutės perskaitė kiekvieną konteinerį, todėl po savo perkrovimo ar naujam konteineriui tęsia nuo ten. Prarandama tik tai, ko `docker logs` jau nebeturi (kolektorius ilgai neveikė).
 - **Saugumas**: kaip Docker kolektoriaus (žr. [Konteineriai, cron ir procesai](#konteineriai-cron-ir-procesai)): be tinklo, be capabilities, tik `GET` užklausos ir tik šio projekto konteineriams; savo paties log'ų nerenka.

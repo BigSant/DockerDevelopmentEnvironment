@@ -112,7 +112,9 @@ function metrics_read_json($file)
 function metrics_write_json($file, $data)
 {
     $temporary = $file . '.' . getmypid();
-    if (@file_put_contents($temporary, json_encode($data)) === false) throw new RuntimeException('cannot write ' . $temporary);
+    $text = json_encode($data);
+    if ($text === false) throw new RuntimeException('cannot encode ' . basename($file) . ': ' . json_last_error_msg());
+    if (@file_put_contents($temporary, $text) === false) throw new RuntimeException('cannot write ' . $temporary);
     if (!@rename($temporary, $file)) throw new RuntimeException('cannot replace ' . $file);
 }
 

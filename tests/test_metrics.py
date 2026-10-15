@@ -496,6 +496,11 @@ class FeedTest(EndpointMixin, unittest.TestCase):
         self.assertIn("uptime_average_load_1min 0.5", body["Uptime"])
         self.assertIn('http_response_codes{code="200"} 5', body["HTTP response codes"])
         self.assertEqual(body["File I/O Hotspots"], "not collected by setup")
+        # Every header of the script, the website's too when no pages are configured.
+        bare = self.start(METRICS_URLS="")
+        fetch(bare, token=TOKEN)
+        without = feed_sections(fetch(bare, "/feed", TOKEN)[2])
+        self.assertIn(("Website Response Time", "no pages to check (METRICS_URLS)"), without)
         # The traffic of the last 24 hours after the script's sections.
         self.assertEqual([h for h in headers if h.startswith("Traffic")][:3], ["Traffic window", "Traffic classes", "Traffic bot requests"])
         self.assertIn("probe 1", body["Traffic attacks"])
@@ -811,6 +816,9 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual((sampler["type"], sampler["source"], sampler.get("read_only", False)),
                          ("bind", str(project.data_directory / "metrics"), False))
         self.assertEqual(metrics["entrypoint"], ["sh", "/opt/setup/runtime/metrics/start.sh"])
+        # PHP as PID 1 ignores SIGTERM: Docker's init stops the three metrics containers at once.
+        for name in ("metrics", "metrics-docker", "metrics-logs"):
+            self.assertIs(services[name].get("init"), True, name)
         # The release keeps /proc (the same on every Linux target), maps the data directory and keeps the volume.
         release = release_model(project, "/srv/demo")
         released = release["services"]["metrics"]["volumes"]

@@ -11,9 +11,10 @@ function dashboard_tabs()
         '/cron' => 'Cron', '/logs/' => 'Logs');
 }
 
+// Invalid UTF-8 (a log line's raw bytes) becomes U+FFFD instead of an empty string.
 function h($value)
 {
-    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
 // A snapshot's families as one flat map, "name{labels}" => value: the history's form, so one function reads both.

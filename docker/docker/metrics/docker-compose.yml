@@ -9,6 +9,8 @@ services:
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     # The sampler's minute and probe loops and php -S in front (runtime/metrics/start.sh).
     entrypoint: ["sh", "/opt/setup/runtime/metrics/start.sh"]
+    # PHP as PID 1 ignores SIGTERM: Docker's init forwards it, so a stop or a deploy does not wait 10 s.
+    init: true
     # Own network: the project network aliases DOMAIN to nginx-proxy, while the website probe must
     # reach the public front (DirectAdmin) or METRICS_PROBE_ADDRESS like the old script's curl did.
     networks:
@@ -91,6 +93,8 @@ services:
     # Root only to open the root-owned socket; nothing else is granted.
     user: "0:0"
     entrypoint: ["php", "/opt/setup/runtime/metrics/docker-collector.php"]
+    # PHP as PID 1 ignores SIGTERM: Docker's init forwards it, so a stop or a deploy does not wait 10 s.
+    init: true
     network_mode: none
     read_only: true
     cap_drop:
@@ -132,6 +136,8 @@ services:
     # Root only to open the root-owned socket; the files it writes are readable by the project account.
     user: "0:0"
     entrypoint: ["php", "/opt/setup/runtime/metrics/log-collector.php"]
+    # PHP as PID 1 ignores SIGTERM: Docker's init forwards it, so a stop or a deploy does not wait 10 s.
+    init: true
     network_mode: none
     read_only: true
     cap_drop:

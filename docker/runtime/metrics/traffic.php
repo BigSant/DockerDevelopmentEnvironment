@@ -9,7 +9,9 @@
 // too) and the requests per IP of the suspicious (an attack) and regular clients count their non-asset, non-bot lines. An hour that has closed is
 // aggregated once and cached (traffic/<hour>.json in the sampler's directory; the sampler prepares them, a page
 // builds what is missing), so a 7-day window merges 168 small files instead of reading a week of logs. A cached hour
-// keeps the busiest TRAFFIC_TOP entries of each list: a long window's lists are exact down to that depth.
+// keeps the busiest TRAFFIC_TOP entries of each list. Lists are also trimmed while a file is read (to 2 x TRAFFIC_TOP
+// when one reaches 4 x), so in an hour with more distinct IPs, agents or URLs than that, counts below the busiest are
+// approximate; the busiest, the classes, bots, attacks and response times are exact.
 
 const TRAFFIC_BOTS = array(
     // scan_access_file.sh's list.
@@ -74,7 +76,8 @@ function traffic_parse($line, $bots, $tools)
             break;
         }
     }
-    $agent = stripcslashes($fields[7]);
+    // As nginx wrote it: bytes outside ASCII stay \xHH escapes, so the agent is valid JSON (and HTML) text.
+    $agent = $fields[7];
     $named = array();
     foreach ($bots as $bot) {
         if (strpos($agent, $bot) !== false) $named[] = $bot;
@@ -125,11 +128,19 @@ function traffic_add(&$aggregate, $parsed)
     }
 }
 
-// The busiest $limit entries of each list (the slowest by total time for times); durations are kept whole.
+// The busiest $limit entries of each list (the slowest by total time for times); durations are kept whole, and the
+// suspicious IPs (at most $limit) keep their request counts.
 function traffic_trim(&$aggregate, $limit)
 {
     foreach (array('ips', 'agents', 'urls', 'errors4', 'errors5', 'ip_requests', 'bots') as $list) {
-        if (count($aggregate[$list]) > $limit) $aggregate[$list] = metrics_http_top($aggregate[$list], $limit);
+        if (count($aggregate[$list]) <= $limit) continue;
+        $kept = metrics_http_top($aggregate[$list], $limit);
+        if ($list === 'ip_requests') {
+            foreach ($aggregate['suspicious'] as $ip => $one) {
+                if (isset($aggregate[$list][$ip])) $kept[$ip] = $aggregate[$list][$ip];
+            }
+        }
+        $aggregate[$list] = $kept;
     }
     if (count($aggregate['times']) > $limit) {
         uasort($aggregate['times'], function ($a, $b) { return $b[1] <=> $a[1]; });
@@ -174,9 +185,11 @@ function traffic_files($start, $end)
     $files = array();
     foreach (array_keys($days) as $day) {
         $base = metrics_logs_directory() . '/nginx-proxy/access-' . $day . '.log';
-        $first = (new DateTime($day . ' 00:00:00', $zone))->getTimestamp();
-        // A day file holds lines of its own local day only.
-        if ($first >= $end || $first + 90000 <= $start) continue;
+        $date = new DateTime($day . ' 00:00:00', $zone);
+        $first = $date->getTimestamp();
+        $next = $date->modify('+1 day')->getTimestamp();
+        // A day file holds lines of its own local day (25 or 23 hours on a DST change), give or take a late second.
+        if ($first - METRICS_HTTP_SLACK >= $end || $next + METRICS_HTTP_SLACK <= $start) continue;
         if (is_file($base)) $files[] = array($base, false, $first);
         elseif (is_file($base . '.gz')) $files[] = array($base . '.gz', true, $first);
     }
@@ -205,7 +218,15 @@ function traffic_collect($pieces)
             }
         }
         if (++$seen % 20000 === 0) {
-            foreach ($aggregates as &$aggregate) traffic_trim($aggregate, 4 * TRAFFIC_TOP);
+            foreach ($aggregates as &$aggregate) {
+                foreach (array('ips', 'agents', 'urls', 'errors4', 'errors5', 'ip_requests') as $list) {
+                    if (count($aggregate[$list]) > 4 * TRAFFIC_TOP) {
+                        traffic_trim($aggregate, 2 * TRAFFIC_TOP);
+                        break;
+                    }
+                }
+            }
+            unset($aggregate);
         }
         return $parsed[0] >= $from - METRICS_HTTP_SLACK;
     };
@@ -231,15 +252,18 @@ function traffic_window($start, $end, $now)
     $total = traffic_empty();
     $pieces = array();
     $hours = array();
-    $directory = traffic_directory();
     $cursor = $start;
     while ($cursor < $end) {
         $hour = $cursor - $cursor % 3600;
         $next = min($end, $hour + 3600);
-        if ($cursor === $hour && $next === $hour + 3600 && $next + TRAFFIC_SETTLE <= $now) {
-            $cached = metrics_read_json($directory . '/' . $hour . '.json');
-            if ($cached !== null && isset($cached['requests'])) {
+        if ($cursor === $hour && $next === $hour + 3600 && traffic_closed($hour, $now)) {
+            $cached = traffic_cached($hour);
+            if ($cached !== null) {
                 traffic_merge($total, $cached);
+                // 168 cached hours of 500 entries each would be 84 000: keep the merged lists bounded.
+                if (count($total['ips']) > 8 * TRAFFIC_TOP || count($total['urls']) > 8 * TRAFFIC_TOP || count($total['agents']) > 8 * TRAFFIC_TOP) {
+                    traffic_trim($total, 4 * TRAFFIC_TOP);
+                }
             } else {
                 $hours[count($pieces)] = $hour;
                 $pieces[] = array($hour, $next);
@@ -249,33 +273,64 @@ function traffic_window($start, $end, $now)
         }
         $cursor = $next;
     }
-    foreach (traffic_collect_cached($pieces, $hours) as $aggregate) {
+    traffic_collect_cached($pieces, $hours, function ($aggregate) use (&$total) {
         traffic_merge($total, $aggregate);
-    }
+        // A long window's merged lists stay bounded too.
+        traffic_trim($total, 4 * TRAFFIC_TOP);
+    });
     return $total;
 }
 
-// traffic_collect, then the pieces that are whole closed hours ($hours: piece index => hour) written to the cache.
-function traffic_collect_cached($pieces, $hours)
+// traffic_collect in batches of one local day's pieces (a day file is read once per batch), the pieces that are whole
+// closed hours ($hours: piece index => hour) written to the cache and every batch handed to $each before the next is
+// read: at most a day of aggregates is in memory, however many hours are missing.
+function traffic_collect_cached($pieces, $hours, $each)
 {
     $directory = traffic_directory();
-    $collected = traffic_collect($pieces);
     if ($hours && !is_dir($directory)) @mkdir($directory, 0755, true);
-    foreach ($collected as $index => &$aggregate) {
-        if (!isset($hours[$index])) continue;
-        traffic_trim($aggregate, TRAFFIC_TOP);
-        try {
-            metrics_write_json($directory . '/' . $hours[$index] . '.json', $aggregate);
-        } catch (RuntimeException $error) {
-            // Read-only or full: the window is still right, only slower next time.
-        }
+    $zone = new DateTimeZone(metrics_setting('TZ', date_default_timezone_get()));
+    $batches = array();
+    foreach ($pieces as $index => $piece) {
+        $batches[(new DateTime('@' . $piece[0]))->setTimezone($zone)->format('Y-m-d')][$index] = $piece;
     }
-    return $collected;
+    foreach ($batches as $batch) {
+        $collected = traffic_collect(array_values($batch));
+        foreach (array_keys($batch) as $position => $index) {
+            $aggregate = $collected[$position];
+            if (isset($hours[$index])) {
+                traffic_trim($aggregate, TRAFFIC_TOP);
+                try {
+                    metrics_write_json($directory . '/' . $hours[$index] . '.json', $aggregate);
+                } catch (RuntimeException $error) {
+                    // Read-only or full: the window is still right, only slower next time.
+                }
+            }
+            $each($aggregate);
+        }
+        unset($collected);
+    }
 }
 
-// The sampler's traffic loop: every closed hour of the last TRAFFIC_KEEP_DAYS - 1 days not cached yet, in one pass
-// over the day files, and cached hours past TRAFFIC_KEEP_DAYS removed. After the first run only the hour that has
-// just closed is missing, so pages find every closed hour cached.
+// Whether an hour can be cached for good: it ended TRAFFIC_SETTLE ago and the log collector has run since (its
+// state file is saved every few seconds), so it has read the hour's lines; while it is stopped, nothing is cached and
+// a back-fill after it restarts still counts. Without a collector state (no collector) the time alone decides.
+function traffic_closed($hour, $now)
+{
+    if ($hour + 3600 + TRAFFIC_SETTLE > $now) return false;
+    $state = metrics_logs_directory() . '/.collector-state.json';
+    return !is_file($state) || (int) @filemtime($state) >= $hour + 3600 + TRAFFIC_SETTLE;
+}
+
+// A cache file that is whole: a failed write leaves none (metrics_write_json), an empty one is not trusted.
+function traffic_cached($hour)
+{
+    $cached = metrics_read_json(traffic_directory() . '/' . $hour . '.json');
+    return $cached !== null && isset($cached['requests'], $cached['classes']) ? $cached : null;
+}
+
+// The sampler's traffic loop: every closed hour of the last TRAFFIC_KEEP_DAYS - 1 days not cached yet, a local day
+// at a time, and cached hours past TRAFFIC_KEEP_DAYS removed. After the first run only the hour that has just closed
+// is missing, so pages find every closed hour cached.
 function traffic_prepare($now)
 {
     $directory = traffic_directory();
@@ -283,11 +338,11 @@ function traffic_prepare($now)
     $last -= $last % 3600;
     $pieces = $hours = array();
     for ($hour = $last - 3600; $hour >= $last - (TRAFFIC_KEEP_DAYS - 1) * 86400; $hour -= 3600) {
-        if (is_file($directory . '/' . $hour . '.json')) continue;
+        if (!traffic_closed($hour, $now) || traffic_cached($hour) !== null) continue;
         $hours[count($pieces)] = $hour;
         $pieces[] = array($hour, $hour + 3600);
     }
-    traffic_collect_cached($pieces, $hours);
+    traffic_collect_cached($pieces, $hours, function ($aggregate) {});
     foreach (glob($directory . '/*.json') ?: array() as $file) {
         if ((int) basename($file, '.json') < $now - TRAFFIC_KEEP_DAYS * 86400) @unlink($file);
     }

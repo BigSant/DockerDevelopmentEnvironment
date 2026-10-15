@@ -73,7 +73,7 @@ function feed_families($families, $names)
 function feed_website($families)
 {
     $text = '';
-    if (!isset($families['website_response_time'])) return $text;
+    if (!isset($families['website_response_time'])) return feed_section('Website Response Time', 'no pages to check (METRICS_URLS)');
     $statuses = array();
     foreach (isset($families['website_response_status']) ? $families['website_response_status']['samples'] : array() as $sample) {
         $statuses[$sample[0]['url']] = $sample[1];
@@ -136,9 +136,9 @@ function feed_text($now)
     }
     if (is_dir(metrics_logs_directory())) {
         require_once __DIR__ . '/traffic.php';
-        // The last 24 hours from a whole hour: closed hours come from the sampler's cache.
+        // The last 24 hours from the whole hour before: closed hours come from the sampler's cache.
         $start = $now - 86400;
-        $start += (3600 - $start % 3600) % 3600;
+        $start -= $start % 3600;
         $text .= feed_traffic(traffic_report(traffic_window($start, $now, $now)), $start, $now);
     }
     return $text;

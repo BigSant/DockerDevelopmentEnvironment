@@ -153,9 +153,12 @@ fingerprint is outdated; it removes only with `apply=1`.
   Tested against the script's own result.txt on `tests/fixtures/traffic`. A window (15 min, 1 h, 24 h and 7 d from a
   whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
   only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
-  every 5 minutes) caches every missing closed hour of 7 days and removes those past 8. A cached hour keeps the 500
-  busiest entries of each list and response times per millisecond (percentiles of any window); lists are trimmed
-  while a file is read, so a busy day stays within the service's memory.
+  every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
+  is cached once it ended 2 minutes ago and the log collector has saved its state since (so a back-fill after the
+  collector was down still counts); a failed JSON encoding writes no file. A cached hour keeps the 500 busiest entries
+  of each list (the suspicious IPs' counts always) and response times per millisecond (percentiles of any window);
+  lists are trimmed while a file is read and while hours merge, so memory stays bounded and counts below the top
+  of a busy hour are approximate. Agents stay as nginx escaped them (ASCII), so they always encode.
   Database, Containers and Cron (`tabs.php`): the snapshot's families of the group as tables whose rows are label
   sets (a query, a schema and table, a container, a job with its file and line) and columns families or an info
   family's labels; a sample with only some of the row labels fills every row that agrees with it. Without figures
@@ -212,9 +215,12 @@ fingerprint is outdated; it removes only with `apply=1`.
   container's last Docker time (and how many lines shared it) is kept in `.collector-state.json`, so `since=`
   re-reads after a collector restart or for a recreated container skip exactly what was written; lines are never
   dropped for arriving out of time order (stdout and stderr reach the daemon's file side by side), and parts docker
-  split over 16 KiB are joined. A finished day is gzipped ten minutes after its last write (a late line becomes
+  split over 16 KiB are joined. A finished day is gzipped two hours after its last write (a late line becomes
   another gzip member); days past `LOGS_RETENTION_DAYS` go, then the oldest while the files exceed `LOGS_MAX_MB`,
-  never today's. `make logs day=` prints a day through `log-collector.php --print` in that container.
+  never today's. `make logs day=` prints a day through `log-collector.php --print` in that container. The state is
+  saved every second lines were written; the three metrics containers run with `init: true`, because PHP as PID 1
+  ignores SIGTERM. A stopped container is read again when its `StartedAt` changed (it ran between two looks); a
+  compression that fails (disk full) keeps the plain file, and stale `*.log.gz.<pid>` temporaries are removed.
 - **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
   keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
   `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy
