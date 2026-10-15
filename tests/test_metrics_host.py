@@ -19,7 +19,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_metrics as base
-from test_metrics import TOKEN, docker_container, fetch, labelled, parse, write_docker_state
+from test_metrics import TOKEN, docker_container, fetch, labelled, parse, tab_rows, write_docker_state
 
 ROOT = base.ROOT
 COLLECTOR = ROOT / "docker/runtime/metrics/docker-collector.php"
@@ -194,7 +194,15 @@ class ContainersGroupTest(base.EndpointMixin, unittest.TestCase):
         time.sleep(1.1)
         self.collect()
 
-        metrics = parse(fetch(self.start(METRICS_DOCKER_DIR=str(self.collected)), token=TOKEN)[2])
+        base_url = self.start(METRICS_DOCKER_DIR=str(self.collected))
+        metrics = parse(fetch(base_url, token=TOKEN)[2])
+        # The Containers tab shows the same snapshot: one row per container.
+        rows = {row[1]: row for row in tab_rows(fetch(base_url, "/containers")[2], "Containers")}
+        self.assertEqual({name: (row[2], row[3], row[4], row[5], row[6], row[7], row[8]) for name, row in rows.items()}, {
+            "demo-stage-cron": ("exited", "none", "no", "–", "0", "yes", "137"),
+            "demo-stage-database": ("running", "healthy", "yes", "yes", "0", "no", "0"),
+            "demo-stage-php-fpm": ("running", "unhealthy", "yes", "no", "3", "no", "0"),
+            "demo-stage-webserver": ("restarting", "none", "no", "–", "7", "no", "1")})
         key = lambda service: f'{{project="demo-stage",service="{service}",container="demo-stage-{service}"}}'
         self.assertEqual(metrics["setup_container_running"],
                          {key("cron"): 0, key("database"): 1, key("php-fpm"): 1, key("webserver"): 0})
@@ -239,6 +247,11 @@ class ContainersGroupTest(base.EndpointMixin, unittest.TestCase):
         self.assertEqual(group_up(parse(fetch(base_url, token=TOKEN)[2]), "containers"), 0)
 
 
+def base_samplers():
+    """The test servers in start order (test_metrics.SAMPLERS)."""
+    return base.SAMPLERS
+
+
 def job_id(command, occurrence=1):
     """compose.php's job id: the command (and its occurrence in the same file)."""
     return hashlib.sha1((command if occurrence == 1 else f"{command}\0{occurrence}").encode()).hexdigest()[:12]
@@ -274,6 +287,24 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         series = [line.rsplit(" ", 1)[0] for line in body.splitlines() if line and not line.startswith("#")]
         self.assertEqual(len(series), len(set(series)), "a series is served twice")
         return body, parse(body)
+
+    def test_the_cron_tab_shows_the_jobs_of_metrics_and_says_when_cron_is_off(self):
+        self.assertEqual(self.run_job(FAILING), 3)
+        _, metrics = self.scrape()
+        base = list(base_samplers())[-1]
+        page = fetch(base, "/cron")[2]
+        # job, file, line, then schedule, last run, exit, duration, last success, next expected.
+        jobs = {tuple(row[:3]): row for row in tab_rows(page, "Jobs")}
+        failing = jobs[(job_id(FAILING), "crontab", "3")]
+        self.assertEqual((failing[3], failing[5]), ("*/5 * * * *", "3"))
+        # The nightly job is in two files: two rows with their own schedules and the job's one history.
+        nightly, stage = jobs[(job_id("true"), "crontab", "4")], jobs[(job_id("true"), "crontab.stage", "1")]
+        self.assertEqual((nightly[3], stage[3]), ("0 3 * * *", "15 * * * *"))
+        self.assertEqual(nightly[4:8], stage[4:8])
+        self.assertEqual(len(jobs), len(metrics["setup_cron_job_info"]))
+        self.assertNotIn("cron-secret-value", page)
+        _, metrics = self.scrape(METRICS_CRON="0")
+        self.assertIn("No data: the cron service is not enabled", fetch(list(base_samplers())[-1], "/cron")[2])
 
     def test_a_failed_job_shows_its_exit_code_and_a_job_without_runs_its_expected_time(self):
         self.assertEqual(self.run_job("true"), 0)

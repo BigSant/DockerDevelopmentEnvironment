@@ -504,6 +504,8 @@ METRICS_BOTS="ShopCrawler/1.0, Inhouse Monitor"
 
 Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Ilgo lango sąrašai tikslūs iki 500 kiekvienos valandos dažniausių įrašų.
 
+**Database**, **Containers**, **Cron** – tos pačios reikšmės kaip `/metrics`, lentelėmis: DB – talpa ir prisijungimai, lėtos, table-scan ir daugiausiai laiko užimančios užklausos, lėčiausias vykdymas, dabar vykdomos, lentelių lock'ai ir I/O; Konteineriai – kiekvieno projekto konteinerio būsena, health, restart'ai, OOM, paskutinis exit kodas, paleidimo laikas; Cron – kiekviena užduotis (id, failas, eilutė, grafikas), paskutinis paleidimas, exit kodas, trukmė, paskutinė sėkmė ir kitas laukiamas paleidimas (komanda nerodoma – joje būna token'ų). Kai duomenų nėra, skirtukas parašo kodėl (pvz. `cron` servisas neįjungtas).
+
 **`/feed`** – tekstinė ataskaita žmogui ar LLM (pvz. įklijuoti į pokalbį ar pridėti prie užduoties): paskutinė nuotrauka seno `monitoring.sh` `results.txt` sekcijomis su tomis pačiomis antraštėmis (`Uptime:`, `RAM Usage:`, … `Top RAM-consuming Processes:`, kiekviena baigiasi brūkšnių eilute) ir paskutinių 24 val. srautų analizė (`Traffic classes:`, `Traffic bot requests:`, `Traffic attacks:` su eilutėmis, top IP, user-agent'ai, URL, 4xx/5xx, lėčiausi URL). Turinys – setup reikšmės, ne senų komandų (`df`, `free`, …) išvestis; server_stats_viewer jos neskaito. Apsauga kaip `/metrics`: IP sąrašas ir token'as, be `METRICS_HTPASSWD`.
 
 ```bash

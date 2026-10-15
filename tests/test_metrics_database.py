@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -20,7 +21,7 @@ from database_grants import MONITOR
 import grafana_names
 from project import Project
 from project_release import release_model
-from test_metrics import REMOTE, TOKEN, EndpointMixin, fetch, parse
+from test_metrics import REMOTE, TOKEN, EndpointMixin, fetch, parse, tab_rows
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures/metrics-database.json"
 CUSTOMER = 'SELECT * FROM `customer` WHERE `email` = ?'
@@ -157,6 +158,21 @@ class DatabaseGroupTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(sorted(grafana_names.VIEWER_ONLY - set(metrics)), [])
 
 
+    def test_the_database_tab_shows_the_values_of_metrics(self):
+        body, metrics = self.scrape()
+        page = fetch(self.base, "/database")[2]
+        # The sample /metrics served, unchanged: the tab reads the same snapshot.
+        slow = {row[0]: row[1:] for row in tab_rows(page, "Slow statements (by average time)")}
+        for labels, runs in metrics["database_slow_query_total"].items():
+            query = re.search(r'query="(.*)"', labels)[1].replace('\\"', '"').replace("\\\\", "\\")
+            self.assertEqual(slow[query][0], f"{int(runs):,}".replace(",", " "), query)
+        capacity = tab_rows(page, "Capacity and connections")
+        self.assertEqual(capacity[0][0], str(int(metrics["sql_buffer_pool_size"][""])))
+        io = {tuple(row[:2]): row[2:] for row in tab_rows(page, "Table I/O")}
+        self.assertTrue(io, page)
+        self.assertIn('class="on">Database</a>', page)
+
+
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
 class DatabaseUnavailableTest(EndpointMixin, unittest.TestCase):
     def test_without_the_monitor_account_only_the_database_group_is_down(self):
@@ -168,6 +184,7 @@ class DatabaseUnavailableTest(EndpointMixin, unittest.TestCase):
         self.assertIn('setup_metrics_group_up{group="system"} 1', body)
         self.assertNotIn("sql_buffer_pool_size", body)
         self.assertNotIn("database_performance_schema", body)
+        self.assertIn("No data: the DB monitor account gives no statistics", fetch(base, "/database")[2])
 
 
 class DatabaseComposeTest(unittest.TestCase):

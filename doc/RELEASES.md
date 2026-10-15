@@ -81,6 +81,9 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   person; with the bots and suspicious and regular IPs as the script counted them, attacks by type with their lines,
   top IPs, agents and URLs, 4xx and 5xx by URL, the slowest URLs and the p95 response time. Closed hours are analysed
   once and cached in `data/<env>/metrics/traffic` (8 days).
+  **Database**, **Containers** and **Cron** tabs show the figures `/metrics` already served (slow and table-scan
+  statements, table locks and I/O, buffer pool; each container's state, health, restarts and OOM kills; each cron job's
+  last run, exit code and duration) as tables, and say why when a group has none.
 
 - **Traffic figures in `/metrics`** (new names only, label sets bounded): `setup_http_class_requests{class}`,
   `setup_http_bot_requests{bot}` (top 20), `setup_http_attack_requests{type}`, `setup_http_url_requests{url}` and
