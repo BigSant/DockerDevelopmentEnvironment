@@ -4,7 +4,11 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.12.2
+
+The dashboard of `SERVICES=metrics` projects says why a group was not collected and what it needs. Nothing to change
+in the project; the metrics service picks it up when its containers are recreated (a pipeline deploy with
+`IMAGES=auto` does it, because setup moved).
 
 - **The dashboard says what is missing.** A group the sampler could not collect showed a general hint ("No data:
   the DB monitor account gives no statistics (make db-monitor-user)") whatever the cause. The snapshot now keeps
