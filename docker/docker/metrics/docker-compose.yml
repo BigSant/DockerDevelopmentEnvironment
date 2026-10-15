@@ -1,7 +1,8 @@
 services:
   # Prometheus /metrics of the target (the server running this project's containers), names kept
   # from the existing monitoring script so the Grafana dashboards and alerts work unchanged.
-  # Reached as <domain>/metrics through nginx-proxy (METRICS_ALLOWED_IPS / ALLOWED_IPS), with an optional bearer token.
+  # Reached as metrics.<domain>/metrics through nginx-proxy (METRICS_ALLOWED_IPS / ALLOWED_IPS), with an optional
+  # bearer token; its other pages take the optional METRICS_HTPASSWD Basic-auth instead.
   metrics:
     image: ${PROJECT_NAME}-php-fpm-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
     container_name: ${PROJECT_NAME}-${ENV}-metrics

@@ -57,6 +57,9 @@ def parse(text):
     return samples
 
 
+METRICS_HOST = "metrics.demo.local"
+
+
 def fetch(base, path="/metrics", token=None):
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
@@ -246,16 +249,20 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
 
     def test_without_a_token_the_ip_allowlist_alone_guards_it(self):
         base = self.start(METRICS_TOKEN="")
-        self.assertEqual(fetch(base, "/")[0], 404)
+        self.assertEqual(fetch(base, "/other")[0], 404)
         status, _, body = fetch(base)
         self.assertEqual(status, 200, body)
 
-    def test_the_bearer_token_is_required_and_only_metrics_is_served(self):
+    def test_the_bearer_token_guards_metrics_and_not_the_pages_people_open(self):
         base = self.start()
         self.assertEqual(fetch(base)[0], 401)
         self.assertEqual(fetch(base, token="wrong" * 8)[0], 401)
         self.assertEqual(fetch(base, token=TOKEN.upper())[0], 401)
-        self.assertEqual(fetch(base, "/", TOKEN)[0], 404)
+        self.assertEqual(fetch(base, "/other", TOKEN)[0], 404)
+        # nginx-proxy guards the pages with METRICS_HTPASSWD, whose Basic-auth takes the Authorization header.
+        status, kind, body = fetch(base, "/")
+        self.assertEqual((status, kind), (200, "text/plain; charset=utf-8"), body)
+        self.assertIn("/metrics", body)
         status, kind, body = fetch(base, token=TOKEN)
         self.assertEqual(status, 200, body)
         self.assertEqual(kind, "text/plain; version=0.0.4; charset=utf-8")
@@ -725,7 +732,7 @@ class MetricsIntegrationTest(unittest.TestCase):
     def docker(self, *args, check=True):
         return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60, check=check).stdout.strip()
 
-    def stack(self, **metrics_env):
+    def stack(self, proxy_env=(), **metrics_env):
         """nginx-proxy (working tree configuration) and the metrics service sharing the HTTP log volume."""
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
@@ -759,18 +766,21 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.docker("run", "-d", "--name", proxy, "--network", network, "--memory", "128m", "-v", f"{CONF}:/conf:ro",
                     "-v", f"{certificates}:/etc/ssl/certs:ro", "-v", f"{logs}:/var/log/setup-http", "-e", "TZ=UTC",
                     "-e", "SETUP_ENABLE_METRICS=1", "-e", "SETUP_ENVIRONMENT=prod", "-e", "METRICS_ALLOWED_IPS=203.0.113.10",
-                    "-e", "TRUSTED_PROXIES=127.0.0.1", "-e", "SETUP_HTTP_SNAPSHOT_SECONDS=1", "--entrypoint", "sh", NGINX, "-c", install)
+                    "-e", "TRUSTED_PROXIES=127.0.0.1", "-e", "SETUP_HTTP_SNAPSHOT_SECONDS=1", *proxy_env,
+                    "--entrypoint", "sh", NGINX, "-c", install)
         return network, proxy, metrics
 
-    def request(self, proxy, path, client, token=None, agent="setup-test"):
-        """A request through the proxy from inside it (peer 127.0.0.1, a trusted proxy) for a forwarded client."""
+    def request(self, proxy, path, client, token=None, agent="setup-test", host=METRICS_HOST, user=None):
+        """A request through the proxy from inside it (peer 127.0.0.1, a trusted proxy) for a forwarded client;
+        metrics.<domain> by default, the site with host="demo.local" (its webserver does not answer: 502)."""
         args = ["exec", proxy, "curl", "-sS", "--max-time", "30", "-H", f"X-Forwarded-For: {client}", "-A", agent,
                 "-o", "/dev/stderr", "-w", "%{http_code}"]
         args += ["-H", f"Authorization: Bearer {token}"] if token else []
+        args += ["-u", user] if user else []
         for _ in range(50):
-            result = subprocess.run(["docker", *args, f"http://127.0.0.1{path}", "-H", "Host: demo.local"],
+            result = subprocess.run(["docker", *args, f"http://127.0.0.1{path}", "-H", f"Host: {host}"],
                                     capture_output=True, text=True, timeout=60)
-            if result.stdout not in ("", "000") and (path != "/metrics" or result.stdout != "502"):
+            if result.stdout not in ("", "000") and (host != METRICS_HOST or result.stdout != "502"):
                 return result.stdout, result.stderr
             time.sleep(0.2)
         self.fail(self.docker("logs", proxy) + self.docker("logs", proxy.replace("-proxy", "-metrics")))
@@ -796,12 +806,31 @@ class MetricsIntegrationTest(unittest.TestCase):
                           '{group="database"}': 0, '{group="host"}': 1, '{group="containers"}': 0, '{group="cron"}': 1})
         # No database and no Docker collector in this test; cron is not enabled (nothing to read).
 
+    def test_metrics_lives_on_its_own_host_and_its_pages_ask_for_the_password(self):
+        entry = "ops:" + subprocess.run(["openssl", "passwd", "-apr1", "secret-ops"], capture_output=True, text=True,
+                                        check=True).stdout.strip()
+        _, proxy, _ = self.stack(proxy_env=("-e", f"METRICS_HTPASSWD={entry}"))
+        # The page people open: allowlist and Basic-auth.
+        self.assertEqual(self.request(proxy, "/", "198.51.100.1", user="ops:secret-ops")[0], "403")
+        self.assertEqual(self.request(proxy, "/", "203.0.113.10")[0], "401")
+        self.assertEqual(self.request(proxy, "/", "203.0.113.10", user="ops:wrong")[0], "401")
+        status, body = self.request(proxy, "/", "203.0.113.10", user="ops:secret-ops")
+        self.assertEqual(status, "200", body)
+        self.assertIn("/metrics", body)
+        # /metrics: allowlist and its own bearer token, no Basic-auth.
+        self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10")[0], "401")
+        self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10", TOKEN)[0], "200")
+        # The site no longer has a /metrics of its own: the request goes to the webserver like any page.
+        status, body = self.request(proxy, "/metrics", "203.0.113.10", TOKEN, host="demo.local")
+        self.assertEqual(status, "502", body)
+        self.assertNotIn("# TYPE", body)
+
     def test_real_proxy_log_lines_and_connections(self):
         # The window ends after the current minute, so the requests made now are inside it.
         network, proxy, metrics = self.stack(METRICS_HTTP_NOW=str(int(time.time()) + 120))
         sent = [("/", "203.0.113.21", "agent-a")] * 3 + [("/missing", "203.0.113.22", "agent-b")]
-        codes = {self.request(proxy, path, client, agent=agent)[0] for path, client, agent in sent}
-        # Scrapes are not site traffic: /metrics stays in docker logs but out of the metrics copy.
+        codes = {self.request(proxy, path, client, agent=agent, host="demo.local")[0] for path, client, agent in sent}
+        # Scrapes are not site traffic: metrics.<domain> stays in docker logs but out of the metrics copy.
         self.request(proxy, "/metrics", "203.0.113.10", TOKEN)
         # Three connections held open from another container on the network (not the proxy's gateway).
         client = network + "-client"

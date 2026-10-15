@@ -70,7 +70,8 @@ class BootstrapHelperTest(unittest.TestCase):
             self.assertIsNone(project_bootstrap.route_exists('shop.local', '3041', nginx))
             self.assertIsNone(project_bootstrap.route_exists('other.local', '3039', nginx))
             (nginx / 'sites-enabled/shop.local.conf').write_text(
-                'server {\n  server_name shop.local pma.shop.local mailpit.shop.local cron.shop.local dbmonitor.shop.local backup.shop.local;\n'
+                'server {\n  server_name shop.local pma.shop.local mailpit.shop.local cron.shop.local dbmonitor.shop.local backup.shop.local'
+                ' metrics.shop.local;\n'
                 '  location / { proxy_pass http://127.0.0.1:3039; }\n}\n')
             self.assertEqual(project_bootstrap.route_exists('shop.local', '3039', nginx), 'complete')
 

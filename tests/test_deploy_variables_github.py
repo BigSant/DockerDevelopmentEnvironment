@@ -217,7 +217,7 @@ class GitHubDeployVariablesTest(unittest.TestCase):
         return path
 
     def test_plain_names_are_variables_and_the_rest_secrets(self):
-        self.assertEqual(len(self.names), 18)
+        self.assertEqual(len(self.names), 19)
         self.assertEqual([name for name, kind, *_ in self.names if kind == "variable"], ["ERP_EMPLOYEE_ID", "GRAFANA_BASE_URL"])
         self.assertEqual([name for name, _, need, _ in self.names if need == "required"],
                          ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "SEARCH_KEY", "HTPASSWD_WEB"])
@@ -225,8 +225,8 @@ class GitHubDeployVariablesTest(unittest.TestCase):
 
     def test_check_reads_every_page_of_both_lists(self):
         self.run_tool(0)
-        self.assertIn(f"GitHub {REPOSITORY}, environment production: 18 listed variables", self.output)
-        self.assertIn("18 present, 0 missing, 0 secret/variable mismatches", self.output)
+        self.assertIn(f"GitHub {REPOSITORY}, environment production: 19 listed variables", self.output)
+        self.assertIn("19 present, 0 missing, 0 secret/variable mismatches", self.output)
         gets = [f'{r["path"]}?{r["query"]}' for r in self.requests("GET")]
         self.assertEqual(gets, [f"{BASE}/environments/production/secrets?per_page=100&page=1",
                                 f"{BASE}/environments/production/secrets?per_page=100&page=2",
@@ -241,7 +241,7 @@ class GitHubDeployVariablesTest(unittest.TestCase):
         self.assertIn("  MISSING   ERP_EMPLOYEE_ID (variable)", self.output)
         self.assertIn("  present   GRAFANA_TOKEN: variable in GitHub, the list says secret", self.output)
         self.assertIn("  extra     OLD_TOKEN (not in the list)", self.output)
-        self.assertIn("16 present, 2 missing, 1 secret/variable mismatch\n", self.output)
+        self.assertIn("17 present, 2 missing, 1 secret/variable mismatch\n", self.output)
         self.server.state["production"]["variables"]["DATABASE_PASSWORD"] = "plain"
         self.run_tool(1)
         self.assertIn("  present   DATABASE_PASSWORD: both a secret and a variable in GitHub (the secret is used)",
@@ -285,8 +285,8 @@ class GitHubDeployVariablesTest(unittest.TestCase):
         for line in ("  created   DATABASE_PASSWORD (secret)", "  created   GRAFANA_BASE_URL (variable)",
                      "  MISSING   KEY_01 (its value ends with a line break, which gh would drop",
                      "  MISSING   KEY_02 (empty in", "  MISSING   ERP_EMPLOYEE_ID (not in",
-                     "  skipped   NOT_LISTED (in", "  12 existing variables kept",
-                     "Now: 15 present, 3 missing, 0 secret/variable mismatches"):
+                     "  skipped   NOT_LISTED (in", "  13 existing variables kept",
+                     "Now: 16 present, 3 missing, 0 secret/variable mismatches"):
             self.assertIn(line, self.output)
 
         more = self.private_file("more.env", "ERP_EMPLOYEE_ID=42-VALUE-7\nGRAFANA_BASE_URL=https://new-VALUE-8\n"
@@ -298,7 +298,7 @@ class GitHubDeployVariablesTest(unittest.TestCase):
                          [f"{BASE}/environments/production/variables/GRAFANA_BASE_URL"])
         self.assertIn("  replaced  ERP_API_KEY (secret)", self.output)
         self.assertIn("  replaced  GRAFANA_BASE_URL (variable)", self.output)
-        self.assertIn("Now: 18 present, 0 missing", self.output)
+        self.assertIn("Now: 19 present, 0 missing", self.output)
 
     def test_apply_needs_gh_for_secrets_before_any_write(self):
         self.state(missing=("DATABASE_PASSWORD", "GRAFANA_BASE_URL"))

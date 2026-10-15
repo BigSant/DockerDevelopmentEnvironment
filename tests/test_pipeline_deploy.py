@@ -252,7 +252,7 @@ class OneRepositoryTest(Fixture):
         self.run_step(0, ERP_API_KEY="", GRAFANA_TOKEN="")
         warning = next(line for line in self.output.splitlines() if line.startswith("Warning: empty Deployment variables"))
         self.assertEqual(warning.rsplit(":", 1)[1].split(),
-                         ["DATABASE_MONITOR_PASSWORD", "HTPASSWD_BUILDER", "ERP_API_KEY", "GRAFANA_TOKEN", "GRAFANA_BASE_URL"])
+                         ["DATABASE_MONITOR_PASSWORD", "METRICS_HTPASSWD", "HTPASSWD_BUILDER", "ERP_API_KEY", "GRAFANA_TOKEN", "GRAFANA_BASE_URL"])
         self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0 | head=C config=C env=C")
         every = {name: "set-VALUE" for name in deployment_variables(self.app, "prod")}
         self.run_step(0, **every)
@@ -525,11 +525,12 @@ class DeploymentVariablesListTest(unittest.TestCase):
                          ["DATABASE_MONITOR_PASSWORD", "DBMONITOR_TOKEN"])
         generic = deployment_variables(self.project("PROFILE=\nPS_VERSION=9.0.0\n", "SERVICES=metrics\n"), "prod")
         self.assertEqual(list(generic), ["DATABASE_PASSWORD", "DATABASE_ROOT_PASSWORD", "DATABASE_MONITOR_PASSWORD",
-                                         "METRICS_TOKEN"])
+                                         "METRICS_TOKEN", "METRICS_HTPASSWD"])
         self.assertFalse(generic["METRICS_TOKEN"]["required"])  # the IP allowlist guards /metrics
         tools = deployment_variables(self.project("PROFILE=\nSERVICES='pma mailpit cron backup dbmonitor metrics'\n"), "prod")
         passwords = [name for name in tools if name.endswith("_HTPASSWD")]
-        self.assertEqual(passwords, ["PMA_HTPASSWD", "MAILPIT_HTPASSWD", "CRON_HTPASSWD", "BACKUP_HTPASSWD"])
+        self.assertEqual(passwords, ["PMA_HTPASSWD", "MAILPIT_HTPASSWD", "CRON_HTPASSWD", "BACKUP_HTPASSWD",
+                                     "METRICS_HTPASSWD"])
         self.assertTrue(all(tools[name]["secured"] and not tools[name]["required"] for name in passwords),
                         "optional: an empty one leaves the tool to its IP allowlist")
 

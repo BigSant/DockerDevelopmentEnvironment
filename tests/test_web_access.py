@@ -75,10 +75,13 @@ class AccessRulesTest(unittest.TestCase):
         self.assertEqual(read('pma'), f'allow 10.8.0.0/24;\ndeny all;\nauth_basic "pma";\nauth_basic_user_file {users_file};\n')
         self.assertEqual(users_file.read_text(), 'alice:$apr1$Ab1/x$Zq0.hash\nbob:$2y$05$bcrypt/hash.value\n')
         # Bearer-token endpoints and the site keep their own guards: Basic-auth would take their Authorization header.
+        # metrics.<domain> asks for it on its pages; sites.metrics.conf turns it off for /metrics and its token.
         self.assertEqual(read('dbmonitor'), 'allow 10.8.0.0/24;\ndeny all;\n')
-        self.assertEqual(read('metrics'), 'deny all;\n')
+        self.assertEqual(read('metrics'), f'deny all;\nauth_basic "metrics";\n'
+                                          f'auth_basic_user_file {self.output}/access/metrics.htpasswd;\n')
         self.assertEqual(read('site'), '')
-        self.assertEqual(sorted(path.name for path in (self.output / 'access').glob('*.htpasswd')), ['pma.htpasswd'])
+        self.assertEqual(sorted(path.name for path in (self.output / 'access').glob('*.htpasswd')),
+                         ['metrics.htpasswd', 'pma.htpasswd'])
 
     def test_a_password_without_an_ip_rule_guards_a_local_tool_alone(self):
         result, read = self.rules('local', CRON_HTPASSWD='dev:{SHA}W6ph5Mm5Pz8GgiULbPgzG37mj9g=')

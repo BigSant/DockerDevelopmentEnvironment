@@ -102,11 +102,15 @@ class RoutingTest(unittest.TestCase):
         self.ssl.mkdir()
         for name in ('domain.crt', 'domain.key'):
             (self.ssl / name).write_text('test certificate placeholder')
+        # The helpers this checkout ships, not the copies install-host left on the machine running the tests.
+        helpers = patch('project_bootstrap.INSTALLED_HELPERS', self.root / 'no-installed-helpers')
+        helpers.start()
+        self.addCleanup(helpers.stop)
 
     def test_host_nginx_serves_every_hostname_and_the_primary_service_names(self):
         config = configuration('demo.local', '32001', self.ssl, ['lv.demo.local', 'demo-ee.local']).decode()
         self.assertIn('server_name demo.local lv.demo.local demo-ee.local pma.demo.local mailpit.demo.local '
-                      'cron.demo.local dbmonitor.demo.local backup.demo.local;', config)
+                      'cron.demo.local dbmonitor.demo.local backup.demo.local metrics.demo.local;', config)
         with self.assertRaises(ValueError):
             configuration('demo.local', '32001', self.ssl, ['lv.demo.local;evil'])
 

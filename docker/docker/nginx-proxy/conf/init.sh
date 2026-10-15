@@ -14,7 +14,7 @@ if [[ "${SETUP_ENABLE_DBMONITOR:-0}" == 1 ]]; then cat /etc/nginx/templates/setu
 if [[ "${SETUP_ENABLE_BACKUP:-0}" == 1 ]]; then cat /etc/nginx/templates/setup-backup.conf >> /etc/nginx/conf.d/sites_env.conf; fi
 mkdir -p /etc/nginx/setup-site.d && rm -f /etc/nginx/setup-site.d/*.conf
 if [[ "${SETUP_ENABLE_METRICS:-0}" == 1 ]]; then
-    cp /etc/nginx/templates/setup-metrics.conf /etc/nginx/setup-site.d/metrics.conf
+    cat /etc/nginx/templates/setup-metrics.conf >> /etc/nginx/conf.d/sites_env.conf
     # A second copy of the site's access log for the metrics service; docker logs keep theirs.
     mkdir -p /var/log/setup-http
     echo 'access_log /var/log/setup-http/access.log combined buffer=32k flush=5s;' > /etc/nginx/setup-site.d/http-log.conf

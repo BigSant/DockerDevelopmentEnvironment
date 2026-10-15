@@ -115,8 +115,10 @@ fingerprint is outdated; it removes only with `apply=1`.
 - **PrestaShop config** (`parameters.php` / `settings.inc.php`) is generated from env keys at PHP start;
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
   An empty or missing web directory (no checkout yet) skips every PrestaShop step and writes nothing there.
-- **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): Prometheus `/metrics` on the main domain
-  (`location = /metrics` rendered into both site servers), allowlist in nginx-proxy, optional token in the service.
+- **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): the tool site `metrics.<domain>` (`sites.metrics.conf`,
+  HTTP and HTTPS servers like `cron.`/`backup.`; the main site has no `/metrics`). Prometheus `/metrics` there is
+  guarded by the allowlist and the service's optional bearer token; every other page by the allowlist and the optional
+  `METRICS_HTPASSWD` Basic-auth, which `location = /metrics` turns off because both use the `Authorization` header.
   The service is `php -S` with `PHP_CLI_SERVER_WORKERS=4` (PHP >= 7.4), so a slow probe does not block scrapes.
   Names, labels and units are the old monitoring script's, because the Grafana dashboards and alerts
   query them; `tests/fixtures/grafana-metric-names.json` records every name they use and
@@ -125,7 +127,7 @@ fingerprint is outdated; it removes only with `apply=1`.
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
   HTTP figures come from the named volume `<project>-<env>-http-logs`, mounted read-only: nginx-proxy writes a
-  second copy of the site's access log there (client IPs after the real-IP handling; `/metrics` excluded) and a
+  second copy of the site's access log there (client IPs after the real-IP handling; `metrics.<domain>` is not the site) and a
   TCP table snapshot, Apache its site error log through `rotatelogs`, and php-fpm sends PHP messages to Apache
   (`fastcgi.logging=1`). `docker logs` keep everything; each log holds two files of `METRICS_HTTP_LOG_MB`.
   Logs are read backwards in chunks only until the window has passed, never loaded whole.
