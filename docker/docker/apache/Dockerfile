@@ -35,8 +35,7 @@ COPY /docker/apache/conf/init.sh /usr/local/bin/init.sh
 RUN chmod +x /usr/local/bin/init.sh
 
 # Create required directories
-RUN mkdir -p /var/log/apache2 \
-    && mkdir -p /etc/apache2/ssl \
+RUN mkdir -p /etc/apache2/ssl \
     && mkdir -p /var/www/html \
     && chown -R root:root /var/www/html/ \
     && find /var/www/html/ -type d -exec chmod 755 {} + \

@@ -17,7 +17,7 @@ if [[ "${SETUP_ENABLE_METRICS:-0}" == 1 ]]; then
     cat /etc/nginx/templates/setup-metrics.conf >> /etc/nginx/conf.d/sites_env.conf
     # A second copy of the site's access log for the metrics service; docker logs keep theirs.
     mkdir -p /var/log/setup-http
-    echo 'access_log /var/log/setup-http/access.log combined buffer=32k flush=5s;' > /etc/nginx/setup-site.d/http-log.conf
+    echo 'access_log /var/log/setup-http/access.log setup buffer=32k flush=5s;' > /etc/nginx/setup-site.d/http-log.conf
     /usr/local/bin/http-logs.sh &
 fi
 if [[ "${CACHE_MODE:-off}" == off ]]; then

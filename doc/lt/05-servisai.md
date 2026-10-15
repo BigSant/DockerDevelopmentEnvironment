@@ -541,12 +541,12 @@ Senas scriptas kas 5 minutes skaitė DirectAdmin domeno prieigos ir klaidų log'
 
 | Failas tome | Kas rašo | Kodėl šis |
 | --- | --- | --- |
-| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje; Apache už jo mato tik proxy adresą |
+| `access.log` (+ `access.log.1`) | nginx-proxy, pagrindinės svetainės HTTP ir HTTPS serveriai, `combined` formatas su `rt=`, `urt=`, `host=` gale | nginx-proxy mato tikrą kliento IP: priekinio web serverio `X-Forwarded-For` (tik iš patikimų, žr. [IP apribojimai](#ip-apribojimai)) arba tiesioginio kliento adresą VPN taikinyje; Apache už jo mato tik proxy adresą |
 | `error.log` (+ `error.log.1`) | Apache per `rotatelogs` (svetainės `ErrorLog`) | PHP pranešimai ateina per FastCGI: su `metrics` php-fpm paleidžiamas su `fastcgi.logging=1` |
 | `proxy-net/` | nginx-proxy kas 10 s (`/proc/net/tcp`, `tcp6`, `route`) | jungtys į publikuotus portus yra nginx-proxy tinklo vardų erdvėje, ne metrikų konteinerio |
 
-- **`docker logs` nesikeičia**: nginx-proxy ir php-fpm toliau rašo viską į savo `docker logs` (su `CONTAINER_LOG_*` rotacija), tomas – tik papildoma kopija. `/metrics` užklausos lieka `docker logs`, bet į tomą nepatenka, kad Prometheus nebūtų skaičiuojamas kaip lankytojas.
-- **Dydis ribotas**: kiekvienas log'as tome turi daugiausiai du failus po `METRICS_HTTP_LOG_MB` (numatyta 32): nginx-proxy perkelia `access.log` į `access.log.1` ir atidaro naują, Apache `rotatelogs -n 2` daro tą patį. Anksčiau Apache svetainės klaidų log'as augo konteinerio viduje be ribos.
+- **`docker logs` nesikeičia**: nginx-proxy, Apache ir php-fpm toliau rašo viską į savo `docker logs` (su `CONTAINER_LOG_*` rotacija; Apache klaidas `rotatelogs` pakartoja į stderr), tomas – tik papildoma kopija. `/metrics` užklausos lieka `docker logs`, bet į tomą nepatenka, kad Prometheus nebūtų skaičiuojamas kaip lankytojas.
+- **Dydis ribotas**: kiekvienas log'as tome turi daugiausiai du failus po `METRICS_HTTP_LOG_MB` (numatyta 32): nginx-proxy perkelia `access.log` į `access.log.1` ir atidaro naują, Apache `rotatelogs -n 2` daro tą patį.
 - **Langas**: paskutinės `METRICS_HTTP_WINDOW_MINUTES` (numatyta 5) **pilnos** minutės iki einamosios, kaip seno scripto `5 minutes ago` … dabartinė minutė. Nustatyk lygų Prometheus `scrape_interval`, kad kiekviena užklausa būtų suskaičiuota vieną kartą (alert'ai sumuoja `sum_over_time(http_response_codes[30m])`).
 - **Skaitymas**: log'ai skaitomi nuo galo dalimis ir tik kol pasiekiama eilutė, senesnė už langą (su 60 s atsarga vėliau įrašytoms eilutėms), todėl didelis log'as į atmintį nekraunamas. Eilutės be laiko (pvz. tęsinys) priskiriamos įrašui virš jų; nebaigta paskutinė eilutė ir ilgesnės nei 1 MiB praleidžiamos.
 - **Laikas**: prieigos log'e laikas su zona, klaidų log'e – konteinerio `TZ` laikas (visi projekto konteineriai turi tą patį `TZ`).

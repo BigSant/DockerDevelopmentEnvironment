@@ -761,7 +761,8 @@ class MetricsIntegrationTest(unittest.TestCase):
                     *[arg for key, value in settings.items() for arg in ("-e", f"{key}={value}")],
                     "--entrypoint", "php", PHP, "-S", "0.0.0.0:9100", "/opt/setup/runtime/metrics/index.php")
         # The image predates this change: start it with the working tree's proxy configuration.
-        install = ("cp /conf/sites.conf /etc/nginx/conf.d/sites.conf && cp /conf/sites.metrics.conf /etc/nginx/templates/setup-metrics.conf"
+        install = ("cp /conf/nginx.conf /etc/nginx/nginx.conf && cp /conf/sites.conf /etc/nginx/conf.d/sites.conf"
+                   " && cp /conf/sites.metrics.conf /etc/nginx/templates/setup-metrics.conf"
                    " && cp /conf/init.sh /conf/access.sh /conf/http-logs.sh /usr/local/bin/ && exec /usr/local/bin/init.sh demo.local 60")
         self.docker("run", "-d", "--name", proxy, "--network", network, "--memory", "128m", "-v", f"{CONF}:/conf:ro",
                     "-v", f"{certificates}:/etc/ssl/certs:ro", "-v", f"{logs}:/var/log/setup-http", "-e", "TZ=UTC",
@@ -853,6 +854,9 @@ class MetricsIntegrationTest(unittest.TestCase):
                  if '"GET ' in line]
         site = [line for line in lines if "/metrics" not in line]
         self.assertEqual(len(site), 4)
+        # combined, then the request's and the upstream's time and the host (the webserver does not answer: 502).
+        for line in site:
+            self.assertRegex(line, r'" rt=\d+\.\d{3} urt=(\d+\.\d{3}|-)(, \S+)* host=demo\.local$')
         self.assertGreater(len(lines), 4)
         fields = [line.split('" ')[1].split() for line in site]
         self.assertEqual(labelled(values, "http_response_codes", "code"), dict(collections.Counter(f[0] for f in fields)))
@@ -916,6 +920,8 @@ class WebserverErrorLogIntegrationTest(unittest.TestCase):
             time.sleep(0.5)
         self.assertRegex(logs, r"-rw-r--r-- .* error\.log")
         self.assertRegex(logs, r"(?m)^\[\w{3} \w{3} \d{2} [\d:.]+ \d{4}\] \[proxy")
+        # rotatelogs echoes the same lines to stderr, so docker logs keep them as without metrics.
+        self.assertRegex(docker("logs", name).stderr, r"(?m)^\[\w{3} \w{3} \d{2} [\d:.]+ \d{4}\] \[proxy")
 
 if __name__ == "__main__":
     unittest.main()

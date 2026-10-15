@@ -142,6 +142,14 @@ fingerprint is outdated; it removes only with `apply=1`.
   `METRICS_DOCKER_INTERVAL`s clears the group. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
   cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command.
   The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.
+- **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
+  keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
+  `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy
+  logs the request with the client address); with metrics `rotatelogs -e` writes the volume copy and its echo goes
+  to stderr. php-fpm points its own stdout at /dev/null, so `start.sh` keeps the container's stdout as fd 3 and sets
+  `SETUP_FPM_ACCESS_LOG=/proc/self/fd/3` for `zz-setup-global.conf`'s `access.log` (URL, status, `ms=`, `kb=`,
+  `cpu=`); php-fpm started any other way gets the image's `/proc/self/fd/2`. The `%{mili}d` spelling is the one
+  PHP before 8 accepts.
 - **Security defaults**: published ports bind to `PUBLISH_ADDRESS` (127.0.0.1 unless a server publishes on
   its VPN interface); nginx-proxy renders allow/deny per entry point and takes the client IP and scheme
   (`X-Forwarded-For`/`-Proto`) only from trusted peers: on loopback the Docker gateway the host proxy
