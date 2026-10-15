@@ -1,5 +1,6 @@
 """Where Apache, PHP-FPM and nginx-proxy write their logs: requests on stdout, errors on stderr (docker logs keep
-the two streams apart), nothing in files inside the containers, and the request timings on nginx's and FPM's lines.
+the two streams apart), nothing in files inside the containers, the request timings on nginx's and FPM's lines,
+and PHP's messages with their time.
 The B tests run with PHP_TEST_IMAGE (a php-fpm image) and SETUP_APACHE_TEST_IMAGE."""
 import os
 from pathlib import Path
@@ -43,7 +44,7 @@ class ConfigurationTest(unittest.TestCase):
         self.assertTrue(text.endswith("rt=$request_time urt=$upstream_response_time host=$host"), text)
         lines = [line.strip() for name in ("nginx.conf", "sites.conf", "init.sh")
                  for line in (conf / name).read_text().splitlines() if re.match(r"\s*(echo ')?access_log ", line)]
-        self.assertEqual(len(lines), 4, lines)
+        self.assertEqual(len(lines), 3, lines)
         for line in lines:
             self.assertRegex(line, r"access_log \S+ setup[ ;]", "every access log uses the setup format")
 
@@ -53,19 +54,13 @@ class ConfigurationTest(unittest.TestCase):
         self.assertIn("CustomLog /dev/null common\n", sites)
         self.assertNotIn("/var/log/apache2", sites + (DOCKER / "apache/Dockerfile").read_text())
 
-    def test_with_metrics_apache_errors_reach_both_stderr_and_the_http_log_volume(self):
-        script = (DOCKER / "apache/conf/init.sh").read_text()
-        block = script[script.index('if [[ "${SETUP_ENABLE_METRICS:-0}" == 1 ]]'):script.index("# ── Start Apache")]
-        with tempfile.TemporaryDirectory(dir=ROOT / ".test-work") as temporary:
-            conf = Path(temporary) / "sites.conf"
-            conf.write_text((DOCKER / "apache/conf/sites.conf").read_text())
-            subprocess.run(["bash", "-euo", "pipefail", "-c", f'sites_conf="{conf}"\n' + block.replace("mkdir -p /var/log/setup-http", f"mkdir -p {temporary}")],
-                           env={**os.environ, "SETUP_ENABLE_METRICS": "1", "METRICS_HTTP_LOG_MB": "8"},
-                           check=True, capture_output=True)
-            error_log = [line.strip() for line in conf.read_text().splitlines() if "ErrorLog" in line and not line.strip().startswith("#")]
-        # "|$" runs the logger through the shell, whose redirection sends rotatelogs' echo (-e) to stderr.
-        self.assertEqual(error_log, ['ErrorLog "|$exec /usr/local/apache2/bin/rotatelogs -e -n 2 '
-                                     '/var/log/setup-http/error.log 8M >&2"'])
+    def test_php_messages_go_to_stderr_with_their_time(self):
+        # Without error_log php-fpm passes a worker's message as "NOTICE: PHP message: ..." without a time; with it PHP
+        # writes "[15-Oct-2026 10:28:02 Europe/Vilnius] PHP Warning: ..." and the master hands that line on.
+        policy = (ROOT / "docker/runtime/php-policy/70-errors.ini").read_text()
+        self.assertIn("\nerror_log = /proc/self/fd/2\n", policy)
+        self.assertNotIn("fastcgi.logging", (ROOT / "docker/runtime/start.sh").read_text())
+        self.assertNotIn("rotatelogs", (DOCKER / "apache/conf/init.sh").read_text())
 
     def test_php_fpm_writes_requests_to_stdout_with_time_and_memory(self):
         conf = (DOCKER / "php-fpm/setup-global.conf").read_text()
@@ -80,7 +75,8 @@ class ConfigurationTest(unittest.TestCase):
 
 
 def docker(*args, check=True):
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60, check=check)
+    # The FastCGI answer carries binary record headers: decoded leniently.
+    return subprocess.run(["docker", *args], capture_output=True, text=True, errors="replace", timeout=60, check=check)
 
 
 @unittest.skipUnless(PHP, "Set PHP_TEST_IMAGE to a php-fpm image")
@@ -92,10 +88,15 @@ class PhpFpmStreamsTest(unittest.TestCase):
         docker("run", "-d", "--name", name, "--network", "none", "--memory", "128m", "--user", "1000:1000",
                "-v", f"{DOCKER}/php-fpm/setup-global.conf:/usr/local/etc/php-fpm.d/zz-setup-global.conf:ro",
                "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro",
+               # setup's PHP policy as the php-fpm service reads it (its files expect these variables).
+               "-e", "PHP_INI_SCAN_DIR=:/opt/setup/runtime/php-policy", "-e", "TZ=Europe/Vilnius", "-e", "PHP_OPCACHE=0",
+               "-e", "PHP_APCU=0", "-e", "PHP_OPCACHE_VALIDATE_TIMESTAMPS=1", "-e", "PHP_OPCACHE_REVALIDATE_FREQ=0",
                # The CORE image creates these; a plain php-fpm image does not.
                "--tmpfs", "/usr/local/etc/php/project.r:mode=1777", "--tmpfs", "/usr/local/etc/php/project.r.env:mode=1777",
-               "--entrypoint", "/bin/sh", PHP, "/opt/setup/runtime/start.sh", "php-fpm", "-F", "-R")
-        docker("exec", name, "sh", "-c", "printf '<?php error_log(\"setup-test message\"); echo \"ok\";' > /tmp/front.php")
+               # log_errors as setup's php.ini sets it (a plain image leaves it off).
+               "--entrypoint", "/bin/sh", PHP, "/opt/setup/runtime/start.sh", "php-fpm", "-F", "-R", "-d", "log_errors=1")
+        docker("exec", name, "sh", "-c", "printf '<?php error_log(\"setup-test message\"); trigger_error(\"setup-test warning\", "
+                                         "E_USER_WARNING); echo \"ok\";' > /tmp/front.php")
         answer = ""
         for _ in range(50):
             answer = docker("exec", name, "php", "-r", FASTCGI_REQUEST, check=False).stdout
@@ -114,6 +115,7 @@ class PhpFpmStreamsTest(unittest.TestCase):
         self.assertEqual(len(request), 1, stdout)
         self.assertRegex(request[0], r'^203\.0\.113\.7 - +\S* \S+ "GET /pretty/url\?page=2" 200 ms=\d+\.\d+ kb=\d+ cpu=\d+\.\d+%$')
         self.assertIn("setup-test message", stderr)
+        self.assertRegex(stderr, r"(?m)\[\d{2}-\w{3}-\d{4} \d{2}:\d{2}:\d{2} Europe/Vilnius\] PHP Warning:  setup-test warning")
         self.assertNotIn("/pretty/url", stderr)
 
 

@@ -46,6 +46,16 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   New **`make logs day=2026-10-14|today|yesterday [service=php-fpm]`** prints a day from there.
   `make build` and `make deploy-images` start it; history begins then (plus what docker logs still hold).
 
+- **The metrics HTTP group reads the log collector's files; the log copies are gone.** `http_*` and `http_error_type`
+  (same names and labels) now come from `nginx-proxy/access-<day>.log` and the `webserver/` and `php-fpm/` error
+  files. nginx-proxy no longer writes a second access log, Apache no longer pipes its errors through `rotatelogs`
+  and php-fpm no longer sends PHP's messages to Apache (`fastcgi.logging`). The proxy's log holds its tool sites
+  too; their lines (`metrics.`, `cron.`, … and `PROXY_TOOLS` names) are left out of the figures.
+  PHP now writes its own messages to stderr with their time (`error_log = /proc/self/fd/2` in setup's PHP policy;
+  a project's `config/php` can still set another `error_log`), so PHP errors are counted where they happen.
+  `METRICS_HTTP_LOG_MB` is gone (an env file that still sets it is ignored); the old copies in the
+  `<project>-<env>-http-logs` volume are removed at the proxy's next start, and the volume keeps only its TCP snapshot.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

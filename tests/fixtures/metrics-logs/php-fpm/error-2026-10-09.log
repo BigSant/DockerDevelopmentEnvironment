@@ -1,0 +1,10 @@
+[09-Oct-2026 12:28:30 Europe/Vilnius] PHP Fatal error:  before the window in /var/www/html/a.php on line 2
+PHP Warning:  a continuation line of the entry before the window
+[09-Oct-2026 12:29:10 Europe/Vilnius] PHP Warning:  Undefined variable $x in /var/www/html/a.php on line 3
+[09-Oct-2026 09:30:00 UTC] PHP Fatal error:  Uncaught Exception: boom in /var/www/html/b.php:2
+Stack trace:
+#0 {main}
+  thrown in /var/www/html/b.php on line 2
+[09-Oct-2026 12:33:30] WARNING: [pool www] child 12 said into stderr: "[09-Oct-2026 12:33:30 Europe/Vilnius] PHP Warning:  in the window in /var/www/html/c.php on line 9"
+[09-Oct-2026 12:34:05 Europe/Vilnius] PHP Fatal error:  in the current minute in /var/www/html/d.php on line 1
+NOTICE: PHP message: PHP Warning:  without a time, part of the entry above

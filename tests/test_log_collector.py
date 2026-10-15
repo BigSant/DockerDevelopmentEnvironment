@@ -205,9 +205,9 @@ class LogCollectorTest(unittest.TestCase):
                                 "lines": [(2, evening, "[proxy:error] first")]}]
         self.collect()
         plain = self.logs / f"webserver/error-{y}.log"
-        # Written just now: a day's last lines may still come, so it waits.
+        # Written just now: a day's last lines may still come (and the metrics HTTP group reads it), so it waits.
         self.assertTrue(plain.is_file())
-        old = time.time() - 3600
+        old = time.time() - 3 * 3600
         os.utime(plain, (old, old))
         self.collect()
         self.assertEqual(self.files(), [f"webserver/error-{y}.log.gz"])

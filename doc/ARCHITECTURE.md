@@ -126,11 +126,14 @@ fingerprint is outdated; it removes only with `apply=1`.
   `metrics_<group>_parts()`, listed in `index.php` and in `IMPLEMENTED` (test_metrics). Host numbers come from
   the read-only host `/proc` (network from `/proc/1/net`) and `statfs` of the project data directory; the
   service is on its own network with nginx-proxy, because the project network aliases `DOMAIN` to the proxy.
-  HTTP figures come from the named volume `<project>-<env>-http-logs`, mounted read-only: nginx-proxy writes a
-  second copy of the site's access log there (client IPs after the real-IP handling; `metrics.<domain>` is not the site) and a
-  TCP table snapshot, Apache its site error log through `rotatelogs`, and php-fpm sends PHP messages to Apache
-  (`fastcgi.logging=1`). `docker logs` keep everything; each log holds two files of `METRICS_HTTP_LOG_MB`.
-  Logs are read backwards in chunks only until the window has passed, never loaded whole.
+  HTTP figures come from the log collector's day files (below), its volume mounted read-only at `/host/logs`:
+  `nginx-proxy/access-<day>.log` (client IPs after the real-IP handling; lines whose `host=` is a tool site,
+  `<tool>.DOMAIN` of setup's tools or `PROXY_TOOLS`, are left out) and `webserver/` and `php-fpm/error-<day>.log`
+  (PHP's messages carry their own time because `php-policy/70-errors.ini` sets `error_log` to stderr; without it
+  php-fpm passes them untimed). Only today's and yesterday's plain files are read: the collector gzips a day two
+  hours after its last line, after the longest window. No collector directory means the group is down; no file
+  means no requests or errors. The `<project>-<env>-http-logs` volume holds only nginx-proxy's TCP table snapshot.
+  Files are read backwards in chunks only until the window has passed, never loaded whole.
   The database joins the metrics network for the database group, which reads statistics only with the DB monitor
   account; the digest numbers are windowed against the previous scrape (the monitor cannot truncate them).
   Containers: the web-facing metrics service has no Docker access. `metrics-docker` (`docker-collector.php`,
@@ -155,8 +158,8 @@ fingerprint is outdated; it removes only with `apply=1`.
 - **Container logs**: requests go to stdout, errors to stderr, nothing to files inside a container, so `docker logs`
   keep the two streams apart. nginx-proxy: every access log in the `setup` format (combined, then `rt=` request time,
   `urt=` upstream time, `host=`). Apache: `ErrorLog /proc/self/fd/2`, no access log (`CustomLog /dev/null`; the proxy
-  logs the request with the client address); with metrics `rotatelogs -e` writes the volume copy and its echo goes
-  to stderr. php-fpm points its own stdout at /dev/null, so `start.sh` keeps the container's stdout as fd 3 and sets
+  logs the request with the client address). PHP writes its messages to stderr itself, timed
+  (`php-policy/70-errors.ini`). php-fpm points its own stdout at /dev/null, so `start.sh` keeps the container's stdout as fd 3 and sets
   `SETUP_FPM_ACCESS_LOG=/proc/self/fd/3` for `zz-setup-global.conf`'s `access.log` (URL, status, `ms=`, `kb=`,
   `cpu=`); php-fpm started any other way gets the image's `/proc/self/fd/2`. The `%{mili}d` spelling is the one
   PHP before 8 accepts.

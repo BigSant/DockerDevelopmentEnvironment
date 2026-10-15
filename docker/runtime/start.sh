@@ -14,11 +14,6 @@ for script in /opt/setup/project/startup/*.sh; do
     [ ! -L "$script" ] || { echo 'Startup hooks must not be symlinks.' >&2; exit 1; }
     sh "$script"
 done
-# SERVICES=metrics: PHP's messages also go to the webserver over FastCGI, so its error log in the HTTP log
-# volume counts them (http_error_type); php-fpm still logs them to docker logs.
-if [ "${SETUP_ENABLE_METRICS:-0}" = 1 ] && [ "${1:-}" = php-fpm ]; then
-    set -- "$@" -d fastcgi.logging=1
-fi
 # php-fpm points its own stdout at /dev/null; fd 3 keeps the container's stdout for the request lines
 # (zz-setup-global.conf), so docker logs hold requests on stdout and PHP's messages on stderr.
 if [ "${1:-}" = php-fpm ]; then

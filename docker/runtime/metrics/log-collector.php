@@ -22,8 +22,9 @@ const LOGS_ACCESS_SERVICES = array('nginx-proxy', 'webserver', 'php-fpm');
 const LOGS_SELF = 'metrics-logs';
 // A line longer than this is cut (docker sends lines over 16 KiB in parts; a runaway one must not fill memory).
 const LOGS_LINE_LIMIT = 1048576;
-// Lines of a finished day may still arrive (written at 23:59:59, read after midnight): compress it this much later.
-const LOGS_COMPRESS_AFTER = 600;
+// A finished day is compressed this long after its last line: late lines may still arrive, and the metrics HTTP
+// group reads the plain file of yesterday while its window (60 minutes at most) reaches back before midnight.
+const LOGS_COMPRESS_AFTER = 7200;
 
 function logs_directory()
 {
