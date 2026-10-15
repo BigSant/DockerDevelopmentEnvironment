@@ -91,6 +91,17 @@ def fetch(base, path="/metrics", token=None, fresh=True):
         return error.code, error.headers.get("Content-Type", ""), error.read().decode()
 
 
+def tab_rows(page, title):
+    """The rows of the dashboard table titled title, each a list of its cells' text."""
+    import html as markup
+    section = re.search(r"<h2>" + re.escape(title) + r"</h2>(.*?)</section>", page, re.S)
+    if not section or "<tbody>" not in section[1]:
+        return []
+    body = section[1].split("<tbody>", 1)[1]
+    return [[markup.unescape(cell) for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+            for row in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
+
+
 def tcp_table(rows, ipv6=False):
     """A /proc/net/tcp(6) table: rows of (local address, local port, remote address, remote port, state hex)."""
     def address(text):

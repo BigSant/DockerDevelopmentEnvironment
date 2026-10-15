@@ -22,6 +22,10 @@ if ($path === '/traffic' || $path === '/traffic.json') {
     require __DIR__ . '/traffic-tab.php';
     traffic_tab_route($path);
 }
+if (in_array($path, array('/database', '/containers', '/cron'), true)) {
+    require __DIR__ . '/tabs.php';
+    tabs_route($path);
+}
 if (strpos($path, '/logs') === 0) {
     require __DIR__ . '/http.php';
     require __DIR__ . '/logs.php';

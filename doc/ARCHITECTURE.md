@@ -156,6 +156,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   every 5 minutes) caches every missing closed hour of 7 days and removes those past 8. A cached hour keeps the 500
   busiest entries of each list and response times per millisecond (percentiles of any window); lists are trimmed
   while a file is read, so a busy day stays within the service's memory.
+  Database, Containers and Cron (`tabs.php`): the snapshot's families of the group as tables whose rows are label
+  sets (a query, a schema and table, a container, a job with its file and line) and columns families or an info
+  family's labels; a sample with only some of the row labels fills every row that agrees with it. Without figures
+  the tab says why (cron not enabled, no Docker collector snapshot, no DB monitor account).
   `/feed` (`feed.php`): the latest snapshot as the old monitoring script's results.txt sections, under its headers
   in its order ("Header:", the body, a line of dashes; families as `name{labels} value`, the website probes as the
   script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`

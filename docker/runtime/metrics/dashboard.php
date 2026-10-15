@@ -4,10 +4,11 @@
 // (sampler.php) or, for the logs, from the log collector's files. Self-contained like the cron and backup UIs: no web
 // fonts, scripts or styles from elsewhere.
 
-// The tabs, each a file of its own (overview.php, traffic-tab.php, logs.php).
+// The tabs, each a file of its own (overview.php, traffic-tab.php, tabs.php, logs.php).
 function dashboard_tabs()
 {
-    return array('/' => 'Overview', '/traffic' => 'Traffic', '/logs/' => 'Logs');
+    return array('/' => 'Overview', '/traffic' => 'Traffic', '/database' => 'Database', '/containers' => 'Containers',
+        '/cron' => 'Cron', '/logs/' => 'Logs');
 }
 
 function h($value)
