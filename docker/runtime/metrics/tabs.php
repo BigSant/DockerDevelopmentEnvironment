@@ -119,6 +119,14 @@ function tabs_containers($families)
             array('setup_container_restarts_total', 'restarts'), array('setup_container_oom_killed', 'OOM killed', $yes),
             array('setup_container_exit_code', 'last exit'), array('setup_container_started_timestamp_seconds', 'started', 'tabs_time'),
             array('setup_container_info:image', 'image')))
+        . tabs_table($families, 'Resources', array('service', 'container'), array(
+            array('setup_container_cpu_percent', 'CPU %', function ($value) { return tabs_number($value, 1); }),
+            array('setup_container_memory_bytes', 'memory MB', function ($value) { return tabs_number($value / 1048576, 1); }),
+            array('setup_container_memory_limit_bytes', 'limit MB', function ($value) { return tabs_number($value / 1048576, 0); }),
+            array('setup_container_memory_limit_ratio', 'of limit', function ($value) { return tabs_number($value * 100, 1) . ' %'; }),
+            array('setup_container_io_read_bytes_total', 'read MB', function ($value) { return tabs_number($value / 1048576, 1); }),
+            array('setup_container_io_write_bytes_total', 'written MB', function ($value) { return tabs_number($value / 1048576, 1); })),
+            'CPU % between the Docker collector\'s last two reads; I/O since the container started.')
         . tabs_table($families, 'OOM kills per service', array('service'), array(array('setup_container_oom_kills_total', 'kills')),
             'Since the Docker collector first ran.')
         . tabs_table($families, 'Docker collector', array(), array(array('setup_containers_collected_timestamp_seconds', 'snapshot', 'tabs_time')));

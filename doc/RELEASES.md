@@ -104,6 +104,11 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   **`PHP_FPM_SLOWLOG_SECONDS`**: requests slower than that write their PHP stack trace to php-fpm's docker logs;
   only then does php-fpm get `SYS_PTRACE`, which the slowlog needs. `make build` (the pool settings are in the image).
 
+- **Each container's CPU, memory and I/O**: the Docker collector (still GET only, no network) also reads each
+  running container's stats. New `setup_container_cpu_percent`, `_cpu_seconds_total`, `setup_container_memory_bytes`,
+  `_memory_limit_bytes`, `_memory_limit_ratio` (use against `<SERVICE>_MEMORY`; 1 means at the limit, OOM next) and
+  `setup_container_io_read_bytes_total` / `_write_bytes_total`; the Containers tab shows which service uses what.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

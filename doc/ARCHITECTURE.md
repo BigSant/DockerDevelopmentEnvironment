@@ -196,7 +196,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   a read-only root and code that sends GET requests only for the project's own containers (`com.docker.compose.project`) and writes a snapshot
   (state, health, restart count, last exit/OOM, `oom` events as a persisted counter, OS/Docker versions) into
   the `<project>-<env>-metrics-docker` volume the metrics service mounts read-only; a snapshot older than three
-  `METRICS_DOCKER_INTERVAL`s clears the group. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
+  `METRICS_DOCKER_INTERVAL`s clears the group. For each running container it also GETs
+  `/containers/{id}/stats?stream=false&one-shot=true` (no wait for a second sample): CPU time (CPU % from the
+  change since its previous snapshot of the same container id), memory without the inactive page cache (as
+  `docker stats`) against `HostConfig.Memory` (mem_limit), block I/O; a container whose stats fail keeps its state. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
   cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command.
   The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.
   Logs: `metrics-logs` (`log-collector.php`, the same guards as `metrics-docker`) follows the stdout and stderr of
