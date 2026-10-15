@@ -137,8 +137,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   coloured by fixed limits (load > 0.7 x cores warns, > cores is bad; I/O wait 5/15 %; RAM and disk 80/90 %; any 5xx
   warns, 10/min is bad; p95 1/3 s; DB connections 60/80 % of max; any container stopped or not healthy; a failing or
   overdue cron job; a page check at 0, >= 400 or over 3 s), the same function giving each point of its 24-hour line
-  (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute. A card without its
-  figures is not shown (p95 until the traffic analysis, cron without the service).
+  (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute; `dashboard_page`
+  answers it with the body alone for every tab that refreshes (Overview, Database, Containers, Cron). A card without
+  its figures is not shown (p95 until the traffic analysis, cron without the service). `metrics.php` sets PHP's zone
+  from `TZ` (`metrics_timezone`): the service does not load `php-policy`, so `date()` followed the image's php.ini.
   Logs (`logs.php`, `/logs/`): the collector's files by service and day, the last 100/500/2000 lines of one matching a
   level (errors, warnings, 5xx, 4xx: fixed patterns) and a text, and the file itself to download (`.gz` as it is). A
   file is named only by `<service>/<kind>-<day>.log[.gz]` matched against that pattern and found among the listed

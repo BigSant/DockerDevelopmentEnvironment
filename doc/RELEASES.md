@@ -33,6 +33,10 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 - **The HTTP group is down when the log collector stopped or hangs.** It only checked that the logs volume was
   there, so a hung `metrics-logs` kept `setup_metrics_group_up{group="http"}` at 1 with zero requests and zero 5xx,
   and 5xx alerts went silent. The group now needs a collector state saved within 2 minutes.
+- **Dashboard: the Database, Containers and Cron tabs refresh their body only, and times follow `TZ`.** Their
+  minute refresh got the whole page back and put it inside the page, so a second top bar and nav appeared after a
+  minute. The snapshot stamps, the cron run times, the container start times and `/feed` used the image's php.ini
+  zone instead of `TZ` (an hour off in Europe/Vilnius with a Europe/Paris image; UTC without one).
 
 ## 2.12.0
 

@@ -42,8 +42,7 @@ function metrics_cron_jobs(Metrics $metrics)
         $jobs = array_merge($jobs, cronJobs((string) file_get_contents($path), $name));
     }
     // Schedules are read in the container time zone, as supercronic does (TZ).
-    $zone = metrics_setting('TZ', '');
-    if ($zone !== '' && in_array($zone, timezone_identifiers_list(), true)) date_default_timezone_set($zone);
+    metrics_timezone();
     $now = time();
     // CRON_SCHEDULE=off (the cron service runs nothing on schedule): no expected time, so no missing-run alert.
     $scheduled = metrics_setting('METRICS_CRON_SCHEDULE', 'on') !== 'off';
