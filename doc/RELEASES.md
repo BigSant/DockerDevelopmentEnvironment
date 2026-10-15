@@ -88,6 +88,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   default 2) and `setup_http_response_time_p50_seconds` / `_p95_seconds`, all over the HTTP window. The dashboard's
   Overview shows the p95 card from them.
 
+- **`metrics.<domain>/feed`**: a text report for people and LLMs with the old monitoring script's results.txt
+  sections and headers, filled from the latest snapshot, then the last 24 hours' traffic analysis (classes, bots,
+  attacks with their lines, top IPs, agents and URLs, 4xx/5xx, the slowest URLs). Guarded like `/metrics`: the
+  allowlist and `METRICS_TOKEN`, no `METRICS_HTPASSWD`. Not byte-for-byte the old commands' output; server_stats_viewer
+  does not read it.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status

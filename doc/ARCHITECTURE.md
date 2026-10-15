@@ -116,9 +116,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   a missing key is an error. `bootstrap` generates local/test keys only. `PS_VERSION` must match the code.
   An empty or missing web directory (no checkout yet) skips every PrestaShop step and writes nothing there.
 - **Target metrics** (`SERVICES=metrics`, `runtime/metrics/`): the tool site `metrics.<domain>` (`sites.metrics.conf`,
-  HTTP and HTTPS servers like `cron.`/`backup.`; the main site has no `/metrics`). Prometheus `/metrics` there is
-  guarded by the allowlist and the service's optional bearer token; every other page by the allowlist and the optional
-  `METRICS_HTPASSWD` Basic-auth, which `location = /metrics` turns off because both use the `Authorization` header.
+  HTTP and HTTPS servers like `cron.`/`backup.`; the main site has no `/metrics`). Prometheus `/metrics` and the text
+  report `/feed` there are guarded by the allowlist and the service's optional bearer token; every other page by the
+  allowlist and the optional `METRICS_HTPASSWD` Basic-auth, which `location ~ ^/(metrics|feed)$` turns off because
+  both use the `Authorization` header.
   Collection is the sampler's (`sampler.php`, started with `php -S` by `start.sh`): its minute loop collects every
   group a few seconds after each minute starts into `snapshot.json` in `data/<env>/metrics` (bind mount
   `/var/lib/setup-metrics`, kept when the container is recreated) and appends the families of up to 16 samples,
@@ -155,6 +156,10 @@ fingerprint is outdated; it removes only with `apply=1`.
   every 5 minutes) caches every missing closed hour of 7 days and removes those past 8. A cached hour keeps the 500
   busiest entries of each list and response times per millisecond (percentiles of any window); lists are trimmed
   while a file is read, so a busy day stays within the service's memory.
+  `/feed` (`feed.php`): the latest snapshot as the old monitoring script's results.txt sections, under its headers
+  in its order ("Header:", the body, a line of dashes; families as `name{labels} value`, the website probes as the
+  script wrote them, "not collected by setup" for its file I/O, CPU users and ping sections), then `Traffic …`
+  sections of the last 24 hours' analysis. Text for people and LLMs; server_stats_viewer does not parse it.
   The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class, the 20
   busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
   `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles

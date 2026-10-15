@@ -1,8 +1,8 @@
 <?php
 // metrics.<domain>: Prometheus text exposition at /metrics under the names the existing Grafana dashboards and
-// alerts use (from the old monitoring script), and the dashboard people open (dashboard.php). IP allowlist in
-// nginx-proxy, which also asks the METRICS_HTPASSWD users for every page except /metrics; an optional bearer token
-// here guards /metrics.
+// alerts use (from the old monitoring script), the text report /feed (feed.php) and the dashboard people open
+// (dashboard.php). IP allowlist in nginx-proxy, which also asks the METRICS_HTPASSWD users for every page except
+// /metrics and /feed; an optional bearer token here guards those two.
 require __DIR__ . '/metrics.php';
 
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -27,7 +27,7 @@ if (strpos($path, '/logs') === 0) {
     require __DIR__ . '/logs.php';
     logs_tab_route($path);
 }
-if ($path !== '/metrics') metrics_respond(404, "not found\n");
+if ($path !== '/metrics' && $path !== '/feed') metrics_respond(404, "not found\n");
 
 $token = (string) getenv('METRICS_TOKEN');
 if ($token !== '') {
@@ -37,6 +37,15 @@ if ($token !== '') {
         header('WWW-Authenticate: Bearer');
         metrics_respond(401, "unauthorized\n");
     }
+}
+
+if ($path === '/feed') {
+    require __DIR__ . '/http.php';
+    require __DIR__ . '/feed.php';
+    http_response_code(200);
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Cache-Control: no-store');
+    exit(feed_text(time()));
 }
 
 // The sampler's latest snapshot (sampler.php): a scrape collects nothing. Without a fresh one (the sampler has

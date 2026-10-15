@@ -3,6 +3,7 @@ B: real host scrape and real nginx-proxy log lines."""
 
 import collections
 import contextlib
+import datetime
 import gzip
 import http.server
 import io
@@ -22,6 +23,7 @@ import unittest
 import urllib.error
 import urllib.request
 import uuid
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "docker"), str(Path(__file__).resolve().parent)]
@@ -430,6 +432,71 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         body = fetch(self.start(METRICS_SUPPORT_LEVEL="0"), token=TOKEN)[2]
         self.assertIn("support_level 0\n", body)
         self.assertNotIn("website_response_status{", body)
+
+
+# The old monitoring script's results.txt headers in its order (monitoring.sh's write_stats_file calls); /feed keeps them.
+MONITORING_HEADERS = [
+    "Uptime", "Disk Space Usage", "Inode Usage", "RAM Usage", "I/O Statistics", "CPU Usage", "Network Usage",
+    "Website Response Time", "SSL Expiry Date", "Active Connections", "HTTP response codes", "HTTP requests per minute",
+    "HTTP bytes transferred", "HTTP top IP addresses", "HTTP top User agents", "HTTP error type counts", "SQL capacity monitoring",
+    "Top Slow SQL Statements (by Average Execution Time)", "Top Table scan Statements", "Queries by Total Time Consumption",
+    "Most Accessed Tables (I/O)", "Table Lock Contention", "File I/O Hotspots", "Current Running Statements", "CPU-Heavy Users",
+    "Top IPs with Most Connections (DDoS Check)", "Disk Write Speed", "Network Latency (Ping to 8.8.8.8)",
+    "Top CPU-consuming Processes", "Top RAM-consuming Processes"]
+
+
+def feed_sections(text):
+    """[(header, body)] of results.txt-style text: "Header:", the body, a line of dashes."""
+    sections = []
+    for block in text.split("---------------------------------\n"):
+        if block.strip():
+            header, _, body = block.partition(":\n")
+            sections.append((header, body.rstrip("\n")))
+    return sections
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class FeedTest(EndpointMixin, unittest.TestCase):
+    """/feed: the snapshot and the last 24 hours' traffic as results.txt sections, guarded like /metrics."""
+
+    def setUp(self):
+        self.prepare()
+
+    def test_the_scripts_sections_then_the_traffic(self):
+        plain = serve(self)
+        url = f"http://127.0.0.1:{plain}/"
+        # A request of the last hour in today's file, for the traffic sections.
+        moment = datetime.datetime.now(ZoneInfo("Europe/Vilnius")) - datetime.timedelta(minutes=10)
+        today = self.logs / f"nginx-proxy/access-{moment:%Y-%m-%d}.log"
+        today.write_text(f'203.0.113.9 - - [{moment:%d/%b/%Y:%H:%M:%S %z}] "GET /.env HTTP/1.1" 404 10 "-" "curl/8" rt=0.010 '
+                         'urt=0.010 host=demo.local\n')
+        base = self.start(METRICS_URLS=url)
+        fetch(base, token=TOKEN)
+        status, kind, text = fetch(base, "/feed", TOKEN)
+        self.assertEqual((status, kind), (200, "text/plain; charset=utf-8"), text)
+        sections = feed_sections(text)
+        headers = [header for header, _ in sections]
+        self.assertEqual(headers[0], "Snapshot")
+        script = [header for header in headers if not header.startswith("Traffic") and header != "Snapshot"]
+        self.assertEqual(script, MONITORING_HEADERS)
+        body = dict(sections)
+        self.assertEqual(body["Website Response Time"], f"Url: {url}\nResponse Time: {body['Website Response Time'].split('Response Time: ')[1].split('s')[0]}s\nStatus Code: 200")
+        self.assertIn("uptime_average_load_1min 0.5", body["Uptime"])
+        self.assertIn('http_response_codes{code="200"} 5', body["HTTP response codes"])
+        self.assertEqual(body["File I/O Hotspots"], "not collected by setup")
+        # The traffic of the last 24 hours after the script's sections.
+        self.assertEqual([h for h in headers if h.startswith("Traffic")][:3], ["Traffic window", "Traffic classes", "Traffic bot requests"])
+        self.assertIn("probe 1", body["Traffic attacks"])
+        self.assertIn("203.0.113.9", body["Traffic suspicious IPs"])
+
+    def test_the_token_guards_it_like_metrics(self):
+        base = self.start()
+        self.assertEqual(fetch(base, "/feed")[0], 401)
+        self.assertEqual(fetch(base, "/feed", "wrong" * 8)[0], 401)
+        self.assertEqual(fetch(base, "/feed", TOKEN)[0], 200)
+        # Before the first sample it says so.
+        (self.work / "snapshots/snapshot.json").unlink(missing_ok=True)
+        self.assertIn("none yet", fetch(base, "/feed", TOKEN)[2])
 
 
 MOZILLA = "Mozilla/5.0 (X11; Linux x86_64)"
@@ -983,9 +1050,11 @@ class MetricsIntegrationTest(unittest.TestCase):
         status, body = self.request(proxy, "/", "203.0.113.10", user="ops:secret-ops")
         self.assertEqual(status, "200", body)
         self.assertIn("/metrics", body)
-        # /metrics: allowlist and its own bearer token, no Basic-auth.
-        self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10")[0], "401")
-        self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10", TOKEN)[0], "200")
+        # /metrics and /feed: allowlist and their own bearer token, no Basic-auth.
+        for path in ("/metrics", "/feed"):
+            self.assertEqual(self.request(proxy, path, "198.51.100.1", TOKEN)[0], "403")
+            self.assertEqual(self.request(proxy, path, "203.0.113.10")[0], "401")
+            self.assertEqual(self.request(proxy, path, "203.0.113.10", TOKEN)[0], "200")
         # The site no longer has a /metrics of its own: the request goes to the webserver like any page.
         status, body = self.request(proxy, "/metrics", "203.0.113.10", TOKEN, host="demo.local")
         self.assertEqual(status, "502", body)

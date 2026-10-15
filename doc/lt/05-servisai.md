@@ -504,6 +504,12 @@ METRICS_BOTS="ShopCrawler/1.0, Inhouse Monitor"
 
 Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Ilgo lango sąrašai tikslūs iki 500 kiekvienos valandos dažniausių įrašų.
 
+**`/feed`** – tekstinė ataskaita žmogui ar LLM (pvz. įklijuoti į pokalbį ar pridėti prie užduoties): paskutinė nuotrauka seno `monitoring.sh` `results.txt` sekcijomis su tomis pačiomis antraštėmis (`Uptime:`, `RAM Usage:`, … `Top RAM-consuming Processes:`, kiekviena baigiasi brūkšnių eilute) ir paskutinių 24 val. srautų analizė (`Traffic classes:`, `Traffic bot requests:`, `Traffic attacks:` su eilutėmis, top IP, user-agent'ai, URL, 4xx/5xx, lėčiausi URL). Turinys – setup reikšmės, ne senų komandų (`df`, `free`, …) išvestis; server_stats_viewer jos neskaito. Apsauga kaip `/metrics`: IP sąrašas ir token'as, be `METRICS_HTPASSWD`.
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://metrics.demo.lt/feed
+```
+
 **Log'ai** (`/logs/`) – [log'ų istorijos](#logų-istorija) failai pagal servisą ir dieną su dydžiais. Paspaudus failą rodomos paskutinės 100, 500 ar 2000 eilučių (ir suspaustų dienų), filtruojant pagal lygį (klaidos, įspėjimai, 5xx ar 4xx atsakymai) ir tekstą; filtras rodo tik atitinkančias eilutes, be jų tęsinių (pvz. stack trace). „download“ atsiunčia failą tokį, koks jis yra (`.gz` – skaityk `zless`). Dideli failai skaitomi dalimis, todėl puslapis neviršija metrikų serviso atminties.
 
 1. `env/<ENV>.env`:
