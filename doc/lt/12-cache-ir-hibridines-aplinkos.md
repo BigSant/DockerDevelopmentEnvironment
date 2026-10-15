@@ -191,4 +191,14 @@ Neprivalomas `config/environment.json` leidžia `make check` patikrinti, ar serv
 
 Docker log'ų rotacija riboja tik konteinerio stdout/stderr. Aplikacijos rašomiems failams (`var/logs`) reikia atskiros rotacijos.
 
+**Kas kur rašo.** Užklausos eina į konteinerio stdout, klaidos – į stderr, todėl `docker logs` (ir `make logs`) jas laiko atskirai; failų konteinerio viduje nėra:
+
+| Servisas | stdout | stderr |
+| --- | --- | --- |
+| `nginx-proxy` | kiekviena užklausa: `combined`, tada `rt=` (visas laikas, s), `urt=` (Apache/PHP laikas, s; `-`, jei nieko neperduota) ir `host=` | nginx klaidos |
+| `webserver` (Apache) | nieko: užklausas jau rašo nginx-proxy su tikru kliento IP | Apache klaidos (pvz. nepasiekiamas php-fpm) |
+| `php-fpm` | kiekviena PHP užklausa: kliento IP, URL, būsena, `ms=` (trukmė), `kb=` (didžiausia PHP atmintis), `cpu=` | PHP pranešimai (`error_log`, warning'ai, fatal) ir FPM pranešimai |
+
+Pvz. php-fpm eilutė: `203.0.113.7 -  15/Oct/2026:10:00:00 +0300 "GET /lt/10-lovos" 200 ms=184.512 kb=24576 cpu=91.23%`. Lėtas puslapis matomas iš `ms=`, atminties šuoliai – iš `kb=`; nginx `rt=` ir `urt=` skirtumas rodo, kiek laiko užėmė tinklas ir klientas, o ne PHP.
+
 Šaltiniai: [PHP OPcache](https://www.php.net/manual/en/opcache.configuration.php), [Docker log'ų rotacija](https://docs.docker.com/engine/logging/configure/), [PrestaShop konfigūracija](https://devdocs.prestashop-project.org/8/development/configuration/configuring-prestashop/).

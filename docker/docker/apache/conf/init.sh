@@ -42,14 +42,15 @@ if [[ -n "$env" ]]; then
 fi
 
 # ── Error log for the metrics service (SERVICES=metrics) ─────────────────────
-# The site's error log goes to the shared HTTP log volume through rotatelogs: two files of
-# METRICS_HTTP_LOG_MB at most, instead of an unbounded file inside the container.
+# The site's error log also goes to the shared HTTP log volume through rotatelogs: two files of
+# METRICS_HTTP_LOG_MB at most. rotatelogs -e echoes every line, and the shell sends the echo to stderr,
+# so docker logs keep the errors on the same stream as without metrics.
 if [[ "${SETUP_ENABLE_METRICS:-0}" == 1 ]]; then
   log_mb="${METRICS_HTTP_LOG_MB:-32}"
   [[ "$log_mb" =~ ^[0-9]+$ ]] || { echo "[init] ERROR: METRICS_HTTP_LOG_MB must be a number" >&2; exit 1; }
   mkdir -p /var/log/setup-http
-  sed -i -E "s#^([[:space:]]*)ErrorLog[[:space:]].*#\1ErrorLog \"|/usr/local/apache2/bin/rotatelogs -n 2 /var/log/setup-http/error.log ${log_mb}M\"#" "$sites_conf"
-  echo "[init] Error log: /var/log/setup-http/error.log (metrics)"
+  sed -i -E "s#^([[:space:]]*)ErrorLog[[:space:]].*#\1ErrorLog \"|\$exec /usr/local/apache2/bin/rotatelogs -e -n 2 /var/log/setup-http/error.log ${log_mb}M >\&2\"#" "$sites_conf"
+  echo "[init] Error log: stderr and /var/log/setup-http/error.log (metrics)"
 fi
 
 # ── Start Apache ──────────────────────────────────────────────────────────────

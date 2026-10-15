@@ -25,8 +25,10 @@ ARG SETUP_IMAGE_SUFFIX=''
 COPY /profile/ /tmp/profile/
 RUN sh /tmp/profile/apply-php-profile.sh "${PROFILE}" "${ENV}" && rm -rf /tmp/profile
 
-# Master settings for every PHP version: a deploy's graceful reload (process_control_timeout).
+# Master and pool settings for every PHP version: a deploy's graceful reload, the access line format.
 COPY /docker/php-fpm/setup-global.conf /usr/local/etc/php-fpm.d/zz-setup-global.conf
+# Where that pool writes its access lines when php-fpm starts without start.sh (which sets fd 3, stdout).
+ENV SETUP_FPM_ACCESS_LOG=/proc/self/fd/2
 
 # Rendered copies of the read-only project PHP drop-ins (written at start by any UID).
 RUN mkdir -m 0777 -p /usr/local/etc/php/project.r /usr/local/etc/php/project.r.env

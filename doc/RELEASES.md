@@ -19,8 +19,21 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   1. DNS record `metrics.<domain>` (VPN target: the name pointing at the VPN address on the Prometheus server, e.g. `/etc/hosts`);
   2. DirectAdmin: subdomain `metrics.<domain>` proxied to nginx-proxy like the main domain, with a TLS certificate;
   3. Prometheus: target `metrics.<domain>`, `metrics_path: /metrics` (job name unchanged, so the dashboards keep working).
-  Locally the host Nginx helper changed: run `setup/install-host` once (sudo), as `make bootstrap` asks; it then
-  adds the `/etc/hosts` entry and the host Nginx name (the mkcert certificate already covers `*.<domain>`).
+  Locally the host Nginx helper changed: run `./install-host` in the setup checkout once (sudo), as `make bootstrap`
+  asks; it then adds the `/etc/hosts` entry and the host Nginx name (the mkcert certificate already covers
+  `*.<domain>`).
+
+- **Requests on stdout, errors on stderr, timings on the request lines.** `docker logs` now keep the two streams
+  apart for the three web services, the base for keeping logs past a container's life (next releases).
+  - nginx-proxy writes every access line as `combined` followed by `rt=` (the request's time), `urt=` (Apache and
+    PHP's time, `-` when nothing was proxied) and `host=`. Parsers of `combined` read the lines as before.
+  - Apache wrote its site access and error logs to files inside the container, which grew without a limit and were
+    lost with the container. Errors now go to stderr (with metrics also to the HTTP log volume, as before) and
+    Apache keeps no access log: nginx-proxy logs every request, with the client's address.
+  - php-fpm writes one line per request to stdout instead of stderr: the client, the URL the visitor asked for
+    (not `index.php`), the status, `ms=` (time), `kb=` (PHP's peak memory) and `cpu=`. PHP's messages stay on
+    stderr. php-fpm started without setup's `start.sh` keeps writing them to stderr.
+  `make build` rebuilds the three images; nothing to set.
 
 ## 2.11.1
 

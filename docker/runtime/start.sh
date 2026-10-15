@@ -19,4 +19,10 @@ done
 if [ "${SETUP_ENABLE_METRICS:-0}" = 1 ] && [ "${1:-}" = php-fpm ]; then
     set -- "$@" -d fastcgi.logging=1
 fi
+# php-fpm points its own stdout at /dev/null; fd 3 keeps the container's stdout for the request lines
+# (zz-setup-global.conf), so docker logs hold requests on stdout and PHP's messages on stderr.
+if [ "${1:-}" = php-fpm ]; then
+    exec 3>&1
+    export SETUP_FPM_ACCESS_LOG=/proc/self/fd/3
+fi
 exec docker-php-entrypoint "$@"

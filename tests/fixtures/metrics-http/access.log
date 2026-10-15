@@ -1,9 +1,9 @@
 198.51.100.1 - - [09/Oct/2026:12:30:05 +0300] "GET /category HTTP/2.0" 200 2000 "-" "Mozilla/5.0 (X11; Linux x86_64)"
 198.51.100.3 - - [09/Oct/2026:12:30:06 +0300] "\x16\x03\x01\x00\xF1\x01" 400 157 "-" "-"
 not an access log line
-2001:db8::5 - - [09/Oct/2026:12:31:10 +0300] "GET /feed?q=\x22a b\x22 HTTP/1.1" 200 500 "-" "Bot \x22quoted\x22 / 1.0"
-198.51.100.1 - - [09/Oct/2026:12:31:09 +0300] "GET /cached HTTP/1.1" 304 - "-" "Mozilla/5.0 (X11; Linux x86_64)"
-198.51.100.1 - - [09/Oct/2026:09:32:00 +0000] "POST /cart HTTP/1.1" 200 1 "-" "Mozilla/5.0 (X11; Linux x86_64)"
-198.51.100.2 - - [09/Oct/2026:12:33:59 +0300] "GET /error HTTP/1.1" 500 300 "-" "curl/8.5.0"
-198.51.100.1 - - [09/Oct/2026:12:34:00 +0300] "GET /current-minute HTTP/1.1" 200 99999 "-" "Mozilla/5.0 (X11; Linux x86_64)"
+2001:db8::5 - - [09/Oct/2026:12:31:10 +0300] "GET /feed?q=\x22a b\x22 HTTP/1.1" 200 500 "-" "Bot \x22quoted\x22 / 1.0" rt=0.012 urt=0.010 host=demo.local
+198.51.100.1 - - [09/Oct/2026:12:31:09 +0300] "GET /cached HTTP/1.1" 304 - "-" "Mozilla/5.0 (X11; Linux x86_64)" rt=0.000 urt=- host=demo.local
+198.51.100.1 - - [09/Oct/2026:09:32:00 +0000] "POST /cart HTTP/1.1" 200 1 "-" "Mozilla/5.0 (X11; Linux x86_64)" rt=0.250 urt=0.249 host=lv.demo.local
+198.51.100.2 - - [09/Oct/2026:12:33:59 +0300] "GET /error HTTP/1.1" 500 300 "-" "curl/8.5.0" rt=30.001 urt=30.000 host=demo.local
+198.51.100.1 - - [09/Oct/2026:12:34:00 +0300] "GET /current-minute HTTP/1.1" 200 99999 "-" "Mozilla/5.0 (X11; Linux x86_64)" rt=0.040 urt=0.038 host=demo.local
 198.51.100.1 - - [09/Oct/2026:12:34:10 +0300] "GET /partial
