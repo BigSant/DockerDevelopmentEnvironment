@@ -41,6 +41,8 @@ services:
       PROXY_TOOLS: ${PROXY_TOOLS:-}
       # The traffic analysis's crawlers beyond setup's list, comma-separated user-agent words.
       METRICS_BOTS: ${METRICS_BOTS:-}
+      # A request slower than this counts in setup_http_slow_requests (seconds).
+      METRICS_SLOW_REQUEST_SECONDS: ${METRICS_SLOW_REQUEST_SECONDS}
       METRICS_DOCKER_INTERVAL: ${METRICS_DOCKER_INTERVAL}
       # Database group: statistics only, through the DB monitor account (make db-monitor-user).
       DATABASE_MONITOR_USER: ${DATABASE_MONITOR_USER:-${DATABASE_NAME}_monitor}

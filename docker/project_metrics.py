@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 TOKEN_MINIMUM = 24
 # Container-side defaults; the collector itself lives in runtime/metrics/.
 DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRICS_HTTP_WINDOW_MINUTES': '1',
-            'METRICS_DOCKER_INTERVAL': '15', 'LOGS_RETENTION_DAYS': '14', 'LOGS_MAX_MB': '2048'}
+            'METRICS_DOCKER_INTERVAL': '15', 'METRICS_SLOW_REQUEST_SECONDS': '2', 'LOGS_RETENTION_DAYS': '14', 'LOGS_MAX_MB': '2048'}
 
 
 def resolve_metrics(settings):
@@ -44,6 +44,9 @@ def resolve_metrics(settings):
     # How often the Docker collector reads the containers; a snapshot older than three intervals is stale.
     if not re.fullmatch(r'\d+', values['METRICS_DOCKER_INTERVAL']) or not 5 <= int(values['METRICS_DOCKER_INTERVAL']) <= 300:
         raise ValueError('METRICS_DOCKER_INTERVAL must be 5 to 300 seconds')
+    # A request slower than this counts in setup_http_slow_requests.
+    if not re.fullmatch(r'\d+(\.\d+)?', values['METRICS_SLOW_REQUEST_SECONDS']) or not 0.1 <= float(values['METRICS_SLOW_REQUEST_SECONDS']) <= 120:
+        raise ValueError('METRICS_SLOW_REQUEST_SECONDS must be 0.1 to 120 seconds')
     # The log collector (metrics-logs): days kept and the size of all kept files; today's files always stay.
     if not re.fullmatch(r'\d+', values['LOGS_RETENTION_DAYS']) or not 1 <= int(values['LOGS_RETENTION_DAYS']) <= 366:
         raise ValueError('LOGS_RETENTION_DAYS must be 1 to 366 days')

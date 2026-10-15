@@ -82,6 +82,12 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
   top IPs, agents and URLs, 4xx and 5xx by URL, the slowest URLs and the p95 response time. Closed hours are analysed
   once and cached in `data/<env>/metrics/traffic` (8 days).
 
+- **Traffic figures in `/metrics`** (new names only, label sets bounded): `setup_http_class_requests{class}`,
+  `setup_http_bot_requests{bot}` (top 20), `setup_http_attack_requests{type}`, `setup_http_url_requests{url}` and
+  `setup_http_url_5xx_requests{url}` (top 10), `setup_http_slow_requests` (over `METRICS_SLOW_REQUEST_SECONDS`,
+  default 2) and `setup_http_response_time_p50_seconds` / `_p95_seconds`, all over the HTTP window. The dashboard's
+  Overview shows the p95 card from them.
+
 ## 2.11.1
 
 Nothing changes for projects. A pipeline-deploy test whose fixture clone fails now and then on CI (exit status
