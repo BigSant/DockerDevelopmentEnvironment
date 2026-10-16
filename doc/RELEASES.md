@@ -4,7 +4,7 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.12.3
 
 - **The metrics sampler no longer keeps a round's state.** Since 2.12.0 each loop of the metrics service was one
   long-running process, and the caches meant for one sample lived on: a database login that failed once (for example
