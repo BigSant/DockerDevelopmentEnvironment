@@ -4,7 +4,12 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.14.0
+
+The metrics dashboard of `SERVICES=metrics` projects fits its text on every screen, sorts its tables, tells a chart's
+values under the pointer and counts PHP workers against `pm.max_children`; the I/O wait and Cron cards get their
+lines on large servers. `make build` and `make deploy-images` (a pipeline deploy with `IMAGES=auto` does it, because
+setup moved); nothing to change in the project.
 
 - **The metrics dashboard fits its text.** Names were cut inside a word (`cronta|b`, `metrics-dock|er`, a job id
   across two lines), a unit left its number (`3.689 |s`, `OPcache 100.0 |%`, `2 |151`), a deploy of a commit put its
