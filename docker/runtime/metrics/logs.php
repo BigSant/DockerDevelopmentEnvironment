@@ -108,14 +108,14 @@ function logs_tab_list()
     }
     if (!$files) return '<div class="empty">No log files yet.</div>';
     // A table per service, so a file is never read as another service's.
-    $body = '<div class="panels">';
+    $body = '<div class="panels logs">';
     foreach ($files as $service => $list) {
         $body .= '<section class="panel"><h2>' . h($service) . '</h2><table class="list"><thead><tr><th>Day</th><th>File</th>'
             . '<th class="num">Size</th><th></th></tr></thead><tbody>';
         foreach ($list as $file) {
             list($name, $kind, $day, $bytes) = $file;
             $id = rawurlencode($service . '/' . $name);
-            $body .= '<tr><td class="id">' . h($day) . '</td><td class="id"><a href="/logs/view?file=' . $id . '">' . h($name) . '</a></td>'
+            $body .= '<tr><td class="id">' . h($day) . '</td><td class="id file"><a href="/logs/view?file=' . $id . '">' . h($name) . '</a></td>'
                 . '<td class="num" data-v="' . (int) $bytes . '">' . h(logs_tab_size($bytes)) . '</td>'
                 . '<td class="id"><a class="quiet" href="/logs/download?file=' . $id . '">download</a></td></tr>';
         }

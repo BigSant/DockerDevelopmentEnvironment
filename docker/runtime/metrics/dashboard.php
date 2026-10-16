@@ -151,7 +151,9 @@ table.list{width:100%;border-collapse:collapse}
 .btn{padding:4px 10px;border:1px solid var(--rule);border-radius:3px;color:var(--dim);text-transform:uppercase;font-size:11px;font-weight:700}
 .btn.on{color:var(--amber);border-color:var(--amber)}
 .panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr));gap:14px;margin-top:14px}
-.panel{border:1px solid var(--rule);background:var(--panel);border-radius:3px;padding:10px 14px;min-width:0;overflow-x:auto}.panel.wide{grid-column:1/-1}
+.panels.logs{grid-template-columns:repeat(2,minmax(0,1fr))}@media (max-width:1000px){.panels.logs{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:600px){.panels.logs .list td,.panels.logs .list th{padding:3px 5px}.panels.logs .list td.file{white-space:normal}}
+.panel{scrollbar-color:var(--rule) transparent;border:1px solid var(--rule);background:var(--panel);border-radius:3px;padding:10px 14px;min-width:0;overflow-x:auto}.panel.wide{grid-column:1/-1}
 .panel h2{margin:0 0 6px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);font-weight:600}
 .panel h3{margin:8px 0 4px;font-size:12px;color:var(--stop)}
 .list td.key{overflow-wrap:anywhere;min-width:24ch}.list td.num,.list td.id,.list td.text{white-space:nowrap}.list td.time{white-space:normal}.list td.time span{white-space:nowrap}
