@@ -294,6 +294,36 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         # The next sample takes the new figure.
         self.assertIn("uptime_average_load_1min 9.5\n", fetch(base, token=TOKEN)[2])
 
+    def test_each_round_of_the_loop_reads_afresh(self):
+        # The loop as start.sh runs it, sampling every second: what a round cached never reaches the next one.
+        fixture = self.work / "database.json"
+        data = json.loads(DATABASE_FIXTURE.read_text())
+        fixture.write_text(json.dumps(data))
+        base = self.start(METRICS_SAMPLER_INTERVAL="1", METRICS_DATABASE_FIXTURE=str(fixture), METRICS_DISK_WRITE_MB="0")
+        php, environment = SAMPLERS[base]
+        loop = subprocess.Popen(["php", str(SAMPLER)], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(loop.wait)
+        self.addCleanup(loop.terminate)
+        def snapshot_after(moment):
+            for _ in range(100):
+                metrics = parse(fetch(base, token=TOKEN, fresh=False)[2])
+                if metrics.get("setup_metrics_snapshot_timestamp_seconds", {}).get("", 0) > moment:
+                    return metrics
+                time.sleep(0.1)
+            self.fail("the loop wrote no new snapshot")
+        first = snapshot_after(int(time.time()))
+        self.assertEqual(first["database_connections"][""], 7)
+        healthy = list(first["setup_container_healthy"].values())
+        # The database and the Docker collector's snapshot change between two rounds.
+        data["status"] = [row if row["Variable_name"] != "Threads_connected" else {**row, "Value": "42"} for row in data["status"]]
+        fixture.write_text(json.dumps(data))
+        write_docker_state(self.docker_state, containers=[docker_container("demo-stage-php-fpm", "php-fpm", health="unhealthy")])
+        changed = int(time.time())
+        second = snapshot_after(changed)
+        self.assertEqual(second["database_connections"][""], 42)
+        self.assertEqual(list(second["setup_container_healthy"].values()), [0])
+        self.assertNotEqual(healthy, [0])
+
     def test_a_stopped_sampler_turns_every_group_down_after_three_intervals(self):
         base = self.start(METRICS_SAMPLER_INTERVAL="1")
         self.assertEqual(parse(fetch(base, token=TOKEN)[2])["setup_metrics_group_up"]['{group="system"}'], 1)
@@ -1073,13 +1103,15 @@ class MetricsIntegrationTest(unittest.TestCase):
         self.assertEqual(self.request(proxy, "/metrics", "198.51.100.1", TOKEN)[0], "403")
         self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10")[0], "401")
         self.assertEqual(self.request(proxy, "/metrics", "203.0.113.10", "wrong" * 8)[0], "401")
-        # A snapshot taken once the first round of probes and the proxy's first TCP snapshot are written.
+        # A snapshot taken once the first round of probes, the proxy's first TCP snapshot and the log collector's
+        # state are written (without the collector's state the HTTP group is down).
         for _ in range(60):
+            self.collect()
             status, body = self.request(proxy, "/metrics", "203.0.113.10", TOKEN)
             self.assertEqual(status, "200", body)
             values = parse(body)
             up = values["setup_metrics_group_up"]
-            if up.get('{group="website"}') == 1 and up.get('{group="security"}') == 1:
+            if up.get('{group="website"}') == 1 and up.get('{group="security"}') == 1 and up.get('{group="http"}') == 1:
                 break
             time.sleep(0.5)
         meminfo = dict(line.split(":", 1) for line in self.docker("run", "--rm", "--entrypoint", "cat", PHP, "/proc/meminfo").splitlines())
