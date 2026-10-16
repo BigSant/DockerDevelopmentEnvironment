@@ -4,6 +4,28 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **The metrics dashboard fits its text.** Names were cut inside a word (`cronta|b`, `metrics-dock|er`, a job id
+  across two lines), a unit left its number (`3.689 |s`, `OPcache 100.0 |%`, `2 |151`), a deploy of a commit put its
+  40-character hash over the next card, and below 420 px the menu, the cards and the tables ran past the page. Names
+  and figures now stay on one line, a time breaks only between its date and its time, a URL after a slash, a cron
+  job's name and an image between words; a table wider than the page scrolls inside its panel; the Release card
+  shows the short commit. Nothing to change: the metrics service picks it up when its containers are recreated.
+- **Dashboard tables sort and charts tell their values.** A click on a heading sorts any table (kept across the
+  minute's refresh), the row under the pointer lights up, an Overview chart shows the time and value under the
+  pointer. Traffic lists show a long agent or URL on two lines (the whole text under the pointer) and the slowest
+  URLs' average, longest time and requests one under another; Cron leaves out the job id (and the file while every
+  job is in one) and shows a job whose last run failed in red; Logs has a table per service.
+- **The I/O wait and Cron cards have their lines.** The history kept only families of up to 16 samples: a 16-core
+  server (17 CPU samples) or more than 16 cron jobs left both cards without a line, and more than 16 containers the
+  Containers card. It now keeps a large CPU family's `cpu="all"` and the cron and container states whole; the lines
+  fill in over the 24 hours after the deploy.
+- **PHP workers against `pm.max_children`.** The metrics service gets `PHP_FPM_MAX_CHILDREN` and serves
+  `setup_php_fpm_max_children{pool="www"}`; the card shows active of max (`0 / 15`, the started workers in the note)
+  and warns at 80 % of the maximum instead of the workers started at the moment. `make deploy-images` (the service's
+  environment changes).
+
 ## 2.13.0
 
 The metrics dashboard of `SERVICES=metrics` projects names its cron jobs, tells scripts from people in the traffic

@@ -92,14 +92,14 @@ def fetch(base, path="/metrics", token=None, fresh=True):
 
 
 def tab_rows(page, title):
-    """The rows of the dashboard table titled title, each a list of its cells' text."""
+    """The rows of the dashboard table titled title, each a list of its cells' text (a time's spans left out)."""
     import html as markup
     section = re.search(r"<h2>" + re.escape(title) + r"</h2>(.*?)</section>", page, re.S)
     if not section or "<tbody>" not in section[1]:
         return []
     body = section[1].split("<tbody>", 1)[1]
-    return [[markup.unescape(cell) for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
-            for row in re.findall(r"<tr>(.*?)</tr>", body, re.S)]
+    return [[markup.unescape(re.sub(r"<[^>]+>", "", cell)) for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+            for row in re.findall(r"<tr[^>]*>(.*?)</tr>", body, re.S)]
 
 
 def tcp_table(rows, ipv6=False):
@@ -376,6 +376,25 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(line["v"]['setup_metrics_group_up{group="system"}'], 1)
         # Per-client lists stay out: http_request_ips has more samples than the history keeps.
         self.assertFalse([key for key in line["v"] if key.startswith("http_request_ips")])
+
+    def test_the_history_keeps_the_overview_s_series_of_large_families(self):
+        # 16 cores and 20 cron jobs: over the history's sample limit, yet the I/O wait and cron lines need them.
+        code = r'''
+            require "sampler.php";
+            $m = new Metrics();
+            $m->add("cpu_usage_iowait", "x", 2.5, array("cpu" => "all"));
+            for ($c = 0; $c < 16; $c++) $m->add("cpu_usage_iowait", "x", 1, array("cpu" => $c));
+            for ($j = 0; $j < 20; $j++) $m->add("setup_cron_job_last_exit_code", "x", $j === 3 ? 2 : 0, array("job" => "j$j"));
+            for ($u = 0; $u < 20; $u++) $m->add("http_request_ips", "x", 1, array("ip" => "10.0.0.$u"));
+            metrics_history($argv[1], time(), $m);
+        '''
+        directory = self.work / "history"
+        subprocess.run(["php", "-r", code, str(directory)], cwd=ROOT / "docker/runtime/metrics", check=True)
+        line = json.loads(next(directory.iterdir()).read_text().splitlines()[-1])["v"]
+        self.assertEqual(line['cpu_usage_iowait{cpu="all"}'], 2.5)
+        self.assertNotIn('cpu_usage_iowait{cpu="0"}', line)
+        self.assertEqual(len([key for key in line if key.startswith("setup_cron_job_last_exit_code")]), 20)
+        self.assertFalse([key for key in line if key.startswith("http_request_ips")])
 
     def test_a_short_token_refuses_to_serve(self):
         base = self.start(METRICS_TOKEN="short")

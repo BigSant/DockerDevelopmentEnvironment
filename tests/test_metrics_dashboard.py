@@ -147,7 +147,8 @@ class OverviewTest(DashboardServer, unittest.TestCase):
         cards = {}
         for match in re.finditer(r'<section class="card (\w+)" data-card="(\w+)"><h2>[^<]*</h2><div class="value">([^<]*)</div>'
                                  r'<div class="note">([^<]*)</div>(<svg|<div class="nohistory")', body):
-            cards[match[2]] = (match[1], match[3], match[4], match[5] == "<svg")
+            # A note keeps a number with its unit (&nbsp;); compared here as the text it reads.
+            cards[match[2]] = (match[1], match[3], match[4].replace("&nbsp;", " "), match[5] == "<svg")
         return body, cards
 
     def test_cards_show_the_snapshot_and_colour_by_the_fixed_limits(self):
@@ -157,6 +158,8 @@ class OverviewTest(DashboardServer, unittest.TestCase):
         self.assertEqual(cards["load"][:3], ("ok", "2.00", "5 min 1.50 · 4 cores"))
         self.assertEqual(cards["iowait"][:2], ("ok", "3.0 %"))
         self.assertEqual(cards["ram"][:3], ("ok", "50.0 %", "8.0 GB available of 16.0 GB"))
+        # A narrow card breaks a note between words, never between a number and its unit.
+        self.assertIn('<div class="note">8.0&nbsp;GB available of 16.0&nbsp;GB</div>', body)
         self.assertEqual(cards["disk"][:3], ("ok", "70 %", "30.0 GB free"))
         self.assertEqual(cards["errors"][:3], ("warn", "3.0", "120.0 requests / min"))
         self.assertEqual(cards["database"][:2], ("ok", "10 conn."))
@@ -193,9 +196,34 @@ class OverviewTest(DashboardServer, unittest.TestCase):
         self.assertEqual(cards["release"][:3], ("none", "v1.4.0", "abc123def456 · setup 2.13.0 · deployed 2026-10-16 06:00"))
         # Each failing job once, by its name.
         self.assertEqual(cards["cron"][:3], ("bad", "2 failing", 'curl shop.example/&quot;cron&quot;, make ok · 3 with a recorded run'))
+        # A deploy of a commit (the ref is its full hash) shows the short commit, which fits the card.
+        self.write(snapshot(setup_release_info=family([(dict(info, ref="abc123def456" + "0" * 28), 1)])))
+        self.assertEqual(self.cards()[1]["release"][:3], ("none", "abc123def456", "setup 2.13.0"))
         # On a server without the release figures the card is not shown (the release group says what is missing).
         self.write(snapshot())
         self.assertNotIn("release", self.cards()[1])
+
+    def test_table_cells_break_only_where_they_read_well(self):
+        info = {"job": "6c0f1289fead", "source": "crontab", "line": "6", "schedule": "15 0-3,6-23 * * *", "name": "make run-tasks-daily"}
+        self.write(snapshot(setup_cron_job_info=family([(info, 1)]),
+                            setup_cron_job_last_run_timestamp_seconds=family([({"job": "6c0f1289fead"}, 1792130400)]),
+                            setup_cron_job_last_duration_seconds=family([({"job": "6c0f1289fead"}, 10181.157)])))
+        page = fetch(self.base, "/cron")[2]
+        # Names and figures on one line, a name wraps between words, a time only between its date and its time. The
+        # job id is left out, the file too while every job is in the same one; a figure keeps its raw value for sorting.
+        self.assertIn('<tr><td class="id">6</td><td class="text wrap">make run-tasks-daily</td><td class="text">15 0-3,6-23 * * *</td>', page)
+        self.assertNotIn('6c0f1289fead', page)
+        self.assertRegex(page, r'<td class="num time" data-v="1792130400"><span>2026-10-16</span> <span>\d\d:00:00</span></td>')
+        self.assertIn('<td class="num" data-v="10181.157">10 181.157 s</td>', page)
+
+    def test_a_cron_job_whose_last_run_failed_is_red_and_two_files_show_theirs(self):
+        jobs = [({"job": "aaa", "source": "crontab", "line": "1", "schedule": "* * * * *", "name": "make ok"}, 1),
+                ({"job": "bbb", "source": "crontab.prod", "line": "1", "schedule": "0 4 * * *", "name": "make broken"}, 1)]
+        self.write(snapshot(setup_cron_job_info=family(jobs),
+                            setup_cron_job_last_exit_code=family([({"job": "aaa"}, 0), ({"job": "bbb"}, 2)])))
+        page = fetch(self.base, "/cron")[2]
+        self.assertIn('<tr><td class="id">crontab</td><td class="id">1</td><td class="text wrap">make ok</td>', page)
+        self.assertIn('<tr class="bad"><td class="id">crontab.prod</td><td class="id">1</td><td class="text wrap">make broken</td>', page)
 
     def test_lines_come_from_the_last_24_hours_of_history(self):
         self.write(snapshot())
@@ -275,7 +303,9 @@ class LogsTabTest(DashboardServer, unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('href="/logs/view?file=php-fpm%2Ferror-2026-10-15.log"', body)
         self.assertIn('href="/logs/download?file=nginx-proxy%2Faccess-2026-10-14.log.gz"', body)
-        self.assertRegex(body, r"error-2026-10-15\.log</a></td><td class=\"num\">\d+ B<")
+        self.assertRegex(body, r"error-2026-10-15\.log</a></td><td class=\"num\" data-v=\"\d+\">\d+ B<")
+        # A table per service: a file is listed under its own service's heading.
+        self.assertRegex(body, r'<section class="panel"><h2>php-fpm</h2><table class="list">(?:(?!</table>).)*error-2026-10-15\.log')
         self.assertIn('class="on">Logs</a>', body)
 
     def test_the_end_of_a_file_filtered_by_level_and_text_gzipped_too(self):

@@ -332,15 +332,18 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         _, metrics = self.scrape()
         base = list(base_samplers())[-1]
         page = fetch(base, "/cron")[2]
-        # job, file, line, then name, schedule, last run, exit, duration, last success, next expected.
-        jobs = {tuple(row[:3]): row for row in tab_rows(page, "Jobs")}
-        failing = jobs[(job_id(FAILING), "crontab", "3")]
-        # Named without the cron URL's token.
-        self.assertEqual((failing[3], failing[4], failing[6]), ("echo shop.example/cron", "*/5 * * * *", "3"))
+        # file (the jobs are in two), line, then name, schedule, last run, exit, duration, last success, next expected;
+        # the job id is not shown.
+        jobs = {tuple(row[:2]): row for row in tab_rows(page, "Jobs")}
+        self.assertNotIn(job_id(FAILING), page)
+        failing = jobs[("crontab", "3")]
+        # Named without the cron URL's token; its failed last run makes the row red.
+        self.assertEqual((failing[2], failing[3], failing[5]), ("echo shop.example/cron", "*/5 * * * *", "3"))
+        self.assertIn('<tr class="bad"><td class="id">crontab</td><td class="id">3</td>', page)
         # The nightly job is in two files: two rows with their own schedules and the job's one history.
-        nightly, stage = jobs[(job_id("true"), "crontab", "4")], jobs[(job_id("true"), "crontab.stage", "1")]
-        self.assertEqual((nightly[3], nightly[4], stage[4]), ("true", "0 3 * * *", "15 * * * *"))
-        self.assertEqual(nightly[5:9], stage[5:9])
+        nightly, stage = jobs[("crontab", "4")], jobs[("crontab.stage", "1")]
+        self.assertEqual((nightly[2], nightly[3], stage[3]), ("true", "0 3 * * *", "15 * * * *"))
+        self.assertEqual(nightly[4:8], stage[4:8])
         self.assertEqual(len(jobs), len(metrics["setup_cron_job_info"]))
         self.assertNotIn("cron-secret-value", page)
         _, metrics = self.scrape(METRICS_CRON="0")

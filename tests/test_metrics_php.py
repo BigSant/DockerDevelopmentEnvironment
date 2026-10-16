@@ -115,6 +115,14 @@ class PhpGroupTest(EndpointMixin, unittest.TestCase):
         self.assertIn('data-card="php"><h2>PHP workers</h2><div class="value">4 / 5</div>', page)
         self.assertIn('<section class="card bad" data-card="php">', page)
 
+    def test_the_pool_s_max_children_comes_from_setup_s_setting(self):
+        base = self.start(METRICS_PHP_FPM_ADDRESS=f"127.0.0.1:{self.fpm.server_address[1]}", PHP_FPM_MAX_CHILDREN="8")
+        metrics = parse(fetch(base, token=TOKEN)[2])
+        self.assertEqual(metrics["setup_php_fpm_max_children"], {'{pool="www"}': 8})
+        # The card counts the active workers against it, the started ones in the note.
+        page = fetch(base, "/")[2]
+        self.assertIn('<div class="value">4 / 8</div><div class="note">active of max 8 · 5 started · 2 waiting', page)
+
     def test_without_php_fpm_only_the_php_group_is_down(self):
         metrics = parse(fetch(self.start(METRICS_PHP_FPM_ADDRESS="127.0.0.1:1"), token=TOKEN)[2])
         self.assertEqual(metrics["setup_metrics_group_up"]['{group="php"}'], 0)

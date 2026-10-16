@@ -29,12 +29,19 @@ function traffic_tab_window($now)
     return array($start, $now, TRAFFIC_WINDOWS[$key][0], $key);
 }
 
-function traffic_tab_rows($title, $rows, $format = null)
+// $columns: the headings of the name and the figure. A long name shows two lines (the whole text under the pointer);
+// a URL breaks after a slash before it breaks inside a name. $format(value) gives the figure's HTML and its value to
+// sort by; without it the value is a count.
+function traffic_tab_rows($title, $rows, $columns, $format = null)
 {
     if (!$rows) return '<section class="panel"><h2>' . h($title) . '</h2><p class="stamp">none</p></section>';
-    $body = '<section class="panel"><h2>' . h($title) . '</h2><table class="list"><tbody>';
+    $body = '<section class="panel"><h2>' . h($title) . '</h2><table class="list"><thead><tr><th>' . h($columns[0])
+        . '</th><th class="num">' . h($columns[1]) . '</th></tr></thead><tbody>';
     foreach ($rows as $key => $value) {
-        $body .= '<tr><td class="key">' . h($key) . '</td><td class="num">' . ($format ? $format($value) : h(number_format($value, 0, '.', ' '))) . '</td></tr>';
+        list($shown, $sort) = $format ? $format($value) : array(h(number_format($value, 0, '.', ' ')), $value);
+        $name = strpos((string) $key, '/') === 0 ? str_replace('/', '/<wbr>', h($key)) : h($key);
+        $body .= '<tr><td class="key"><div class="clamp" title="' . h($key) . '">' . $name . '</div></td>'
+            . '<td class="num" data-v="' . h($sort) . '">' . $shown . '</td></tr>';
     }
     return $body . '</tbody></table></section>';
 }
@@ -56,8 +63,8 @@ function traffic_tab_body($report, $start, $end, $label, $key)
         $count = isset($report['classes'][$class]) ? $report['classes'][$class] : 0;
         $classes .= '<section class="card' . ($class === 'attack' && $count ? ' bad' : '') . '" data-class="' . h($class) . '"><h2>' . h($title) . '</h2>'
             . '<div class="value">' . h(number_format($count, 0, '.', ' ')) . '</div>'
-            . '<div class="note">' . ($report['requests'] ? round($count / $report['requests'] * 100) : 0) . ' % of '
-            . h(number_format($report['requests'], 0, '.', ' ')) . ' requests</div></section>';
+            . '<div class="note">' . h_units(($report['requests'] ? round($count / $report['requests'] * 100) : 0) . ' % of '
+            . number_format($report['requests'], 0, '.', ' ') . ' requests') . '</div></section>';
     }
     $classes .= '<section class="card"><h2>Response time</h2><div class="value">'
         . ($report['p95'] === null ? '–' : h(number_format($report['p95'], 2)) . ' s') . '</div><div class="note">p95'
@@ -72,15 +79,21 @@ function traffic_tab_body($report, $start, $end, $label, $key)
         $attacks .= '</pre>';
     }
     $attacks .= '</section>';
+    // Average, longest and requests one under another; sorted by the average.
     $seconds = function ($value) {
-        return h(number_format($value['average'], 3)) . ' s avg · ' . h(number_format($value['max'], 3)) . ' s max · ' . h($value['requests']) . ' req.';
+        return array(h(number_format($value['average'], 3)) . ' s avg<br>' . h(number_format($value['max'], 3)) . ' s max<br>'
+            . h(number_format($value['requests'], 0, '.', ' ')) . ' req.', $value['average']);
     };
     return $bar . $classes . '<div class="panels">' . $attacks
-        . traffic_tab_rows('Bots', $report['bots']) . traffic_tab_rows('Suspicious IPs (an attack)', $report['suspicious_ips'])
-        . traffic_tab_rows('Top IPs', $report['ips']) . traffic_tab_rows('Regular IPs (people, no attack)', $report['regular_ips'])
-        . traffic_tab_rows('Top user agents', $report['agents']) . traffic_tab_rows('Top URLs', $report['urls'])
-        . traffic_tab_rows('4xx by URL', $report['errors4']) . traffic_tab_rows('5xx by URL', $report['errors5'])
-        . traffic_tab_rows('Slowest URLs', $report['slowest'], $seconds) . '</div>'
+        . traffic_tab_rows('Bots', $report['bots'], array('bot', 'requests'))
+        . traffic_tab_rows('Suspicious IPs (an attack)', $report['suspicious_ips'], array('IP', 'requests'))
+        . traffic_tab_rows('Top IPs', $report['ips'], array('IP', 'requests'))
+        . traffic_tab_rows('Regular IPs (people, no attack)', $report['regular_ips'], array('IP', 'requests'))
+        . traffic_tab_rows('Top user agents', $report['agents'], array('user agent', 'requests'))
+        . traffic_tab_rows('Top URLs', $report['urls'], array('URL', 'requests'))
+        . traffic_tab_rows('4xx by URL', $report['errors4'], array('URL', '4xx'))
+        . traffic_tab_rows('5xx by URL', $report['errors5'], array('URL', '5xx'))
+        . traffic_tab_rows('Slowest URLs', $report['slowest'], array('URL', 'time'), $seconds) . '</div>'
         . '<p class="stamp">Classes: an attack pattern first, then the project\'s own classes (config/metrics/traffic.php), then a '
         . 'known bot, then a static file, then scripts & API (curl, Wget, python, Guzzle, Java, Go and other HTTP clients, no '
         . 'agent). Bots: setup\'s list, METRICS_BOTS and the project file\'s. Regular and suspicious IPs count people and attacks. '

@@ -124,7 +124,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   group a few seconds after each minute starts into `snapshot.json` in `data/<env>/metrics` (bind mount
   `/var/lib/setup-metrics`, kept when the container is recreated; `problems` holds, per group, why its failed parts
   failed or what a part with complete figures warns about (`MetricsWarning`, the group stays up), each message once,
-  printable ASCII, 500 characters at most) and appends the families of up to 16 samples,
+  printable ASCII, 500 characters at most) and appends the families of up to 16 samples (of a larger one with a `cpu`
+  label only `cpu="all"`; the cron exit codes and container states whole, which the Overview's lines count),
   without per-client, per-query, per-table or per-process lists, to `history/<UTC hour>.jsonl`, whole hours kept 48 h.
   `/metrics` only serves the latest snapshot plus `setup_metrics_snapshot_timestamp_seconds`, so scrapes change
   neither the load nor the windows; a snapshot older than three sampler intervals (or none) is served as every
@@ -143,7 +144,15 @@ fingerprint is outdated; it removes only with `apply=1`.
   overdue cron job; a page check at 0, >= 400 or over 3 s), the same function giving each point of its 24-hour line
   (the highest value of each 10 minutes). The body refreshes from `?fragment=1` every minute; `dashboard_page`
   answers it with the body alone for every tab that refreshes (Overview, Database, Containers, Cron). A card without
-  its figures is not shown (p95 until the traffic analysis, cron without the service). `metrics.php` sets PHP's zone
+  its figures is not shown (p95 until the traffic analysis, cron without the service). Text fits without breaking a
+  word: table names and figures stay on one line (`tabs_table` cell classes `id`, `num`, `text`; only a query and
+  a `wrap` column, the cron name and the image, wrap), a time breaks between date and time, a traffic URL after a
+  slash (`<wbr>`), a card's note keeps a number with its unit (`h_units`); a table wider than the page scrolls in its
+  panel, and the grids take one column below their minimum width. A chart shows the time and value of the slot under
+  the pointer (`data-tips`); every table sorts by a click on a heading (a figure by its raw `data-v`), kept per page
+  and table for the session across the minute's refresh; a row lights up under the pointer. Cron leaves out the job
+  id and the file while every job is in the same one, and a job whose last run failed is red; Logs is a table per
+  service; the traffic lists show a name on two lines at most (the whole one as its title). `metrics.php` sets PHP's zone
   from `TZ` (`metrics_timezone`): the service does not load `php-policy`, so `date()` followed the image's php.ini.
   Logs (`logs.php`, `/logs/`): the collector's files by service and day, the last 100/500/2000 lines of one matching a
   level (errors, warnings, 5xx, 4xx: fixed patterns) and a text, and the file itself to download (`.gz` as it is). A
@@ -208,7 +217,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   (`METRICS_PHP_FPM_ADDRESS`, `php-fpm:9001,php-fpm:9000`: the first that accepts a connection) for the pool's
   `pm.status_path = /setup-fpm-status` (zz-setup-global.conf; Apache's `FilesMatch \.php$` passes php-fpm only existing
   .php files, so visitors never reach it) and runs `runtime/metrics/fpm-opcache.php` there, because OPcache's
-  statistics live in the php-fpm master's shared memory. PHP 8.0+ images also get `zz-setup-status.conf`
+  statistics live in the php-fpm master's shared memory. The status has no `pm.max_children`: the service gets
+  `PHP_FPM_MAX_CHILDREN` as php-fpm does and serves it as `setup_php_fpm_max_children`, which the PHP workers card
+  counts the active workers against. PHP 8.0+ images also get `zz-setup-status.conf`
   (`pm.status_listen = 9001`): php-fpm answers there from a hidden one-worker pool, so the figures come while every
   www worker is busy (on 9000 the request waited in the very queue it reports, and the group went down at saturation)
   and the request is not counted as an active worker. PHP before 8.0 has no such directive and answers on 9000.

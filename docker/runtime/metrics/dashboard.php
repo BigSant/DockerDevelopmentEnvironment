@@ -17,6 +17,13 @@ function h($value)
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+// h() for a short text that wraps (a card's note): a number stays with its unit and its thousands, so "100.0 %" or
+// "2 703" never ends one line and starts the next.
+function h_units($value)
+{
+    return preg_replace('/(?<=\d) (?=\d{3}(?!\d)|%|[KMG]?B\b|m?s\b)/', '&nbsp;', h($value));
+}
+
 // A snapshot's families as one flat map, "name{labels}" => value: the history's form, so one function reads both.
 function dashboard_flat($families)
 {
@@ -72,8 +79,9 @@ function dashboard_history($since, $each)
 }
 
 // An inline SVG line of [time => value] over [$from, $to]; the highest value of each slot is drawn, so a short
-// peak stays visible. Empty when there are fewer than two points.
-function dashboard_sparkline($points, $from, $to, $slots = 144)
+// peak stays visible. Empty when there are fewer than two points. With $format(value) each slot's time and value
+// go into data-tips, which the page shows under the pointer.
+function dashboard_sparkline($points, $from, $to, $slots = 144, $format = null)
 {
     $buckets = array();
     foreach ($points as $time => $value) {
@@ -88,10 +96,15 @@ function dashboard_sparkline($points, $from, $to, $slots = 144)
     $high = max($buckets);
     $span = $high - $low ?: 1;
     $path = array();
+    $tips = array_fill(0, $slots, '');
     foreach ($buckets as $slot => $value) {
         $path[] = round($slot / ($slots - 1) * 240, 1) . ',' . round(38 - ($value - $low) / $span * 34, 1);
+        if ($format !== null) {
+            $tips[$slot] = date('H:i', (int) round($from + $slot * ($to - $from) / ($slots - 1))) . ' · ' . call_user_func($format, $value);
+        }
     }
-    return '<svg class="spark" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="'
+    return '<svg class="spark" viewBox="0 0 240 40" preserveAspectRatio="none" aria-hidden="true"'
+        . ($format !== null ? ' data-tips="' . h(implode('|', $tips)) . '"' : '') . '><polyline points="'
         . implode(' ', $path) . '"/></svg>';
 }
 
@@ -106,18 +119,18 @@ a{color:var(--amber);text-decoration:none}code{color:var(--ink)}
 .mark{font-weight:800;letter-spacing:.32em;color:var(--amber)}.mark small{display:block;font-size:10px;letter-spacing:.18em;color:var(--dim);font-weight:400}
 .sign{padding:4px 12px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;font-size:12px;color:#fff;border-radius:3px;background:var(--steel)}
 .sign.stage{background:#b8740f}.sign.prod{background:#b3261e}.spacer{flex:1}
-nav.tabs{display:flex;gap:4px}nav.tabs a{padding:4px 10px;border:1px solid var(--rule);border-radius:3px;color:var(--dim);text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.06em}
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px}nav.tabs a{padding:4px 10px;border:1px solid var(--rule);border-radius:3px;color:var(--dim);text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.06em}
 nav.tabs a.on{color:var(--amber);border-color:var(--amber)}
 .stamp{color:var(--faint);font-size:11px}
 main{padding:22px 28px 60px;max-width:1400px;margin:0 auto}
 .callout{border:1px solid var(--rule);border-left:4px solid var(--go);background:var(--panel);padding:10px 14px;margin:0 0 16px;border-radius:3px}
 .callout.error{border-left-color:var(--stop)}.callout.wait{border-left-color:var(--amber)}
 .callout ul{margin:6px 0 0;padding-left:18px}.callout li{word-break:break-word}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:14px}
 .card{border:1px solid var(--rule);border-top:4px solid var(--faint);background:var(--panel);border-radius:3px;padding:10px 14px 8px}
 .card.ok{border-top-color:var(--go)}.card.warn{border-top-color:var(--amber)}.card.bad{border-top-color:var(--stop)}
 .card h2{margin:0;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);font-weight:600}
-.card .value{font-size:24px;font-weight:700;margin:2px 0 0}.card.warn .value{color:var(--amber)}.card.bad .value{color:var(--stop)}
+.card .value{font-size:24px;font-weight:700;margin:2px 0 0;overflow-wrap:anywhere}.card.warn .value{color:var(--amber)}.card.bad .value{color:var(--stop)}
 .card .note{color:var(--dim);font-size:11px;min-height:16px}
 .spark{display:block;width:100%;height:40px;margin-top:6px}.spark polyline{fill:none;stroke:var(--steel);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .card.warn .spark polyline{stroke:var(--amber)}.card.bad .spark polyline{stroke:var(--stop)}
@@ -128,16 +141,74 @@ button,input,select{font:inherit;color:var(--ink);background:#191e14;border:1px 
 button{cursor:pointer;text-transform:uppercase;font-size:11px;font-weight:700;letter-spacing:.06em}
 table.list{width:100%;border-collapse:collapse}
 .list th{text-align:left;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--rule)}
-.list td{padding:3px 8px;border-bottom:1px solid var(--line)}.list .num{text-align:right;color:var(--dim)}a.quiet{color:var(--dim)}
+.list td{padding:3px 8px;border-bottom:1px solid var(--line)}.list tbody tr:hover td{background:#1e2517}
+.list thead th{cursor:pointer;user-select:none}.list thead th:hover{color:var(--dim)}
+.list th.asc::after{content:" \25B2"}.list th.desc::after{content:" \25BC"}.list th.asc,.list th.desc{color:var(--amber)}
+.list tr.bad td{color:var(--stop)}.list tr.bad:hover td{background:#2a1714}
+.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.spark{cursor:crosshair}.spark .cursor{stroke:var(--ink);stroke-width:1;vector-effect:non-scaling-stroke;opacity:.5}
+#tip{position:fixed;z-index:9;pointer-events:none;padding:3px 8px;background:#20271a;border:1px solid var(--rule);border-radius:3px;font-size:12px;white-space:nowrap;display:none}.list .num{text-align:right;color:var(--dim)}a.quiet{color:var(--dim)}
 .btn{padding:4px 10px;border:1px solid var(--rule);border-radius:3px;color:var(--dim);text-transform:uppercase;font-size:11px;font-weight:700}
 .btn.on{color:var(--amber);border-color:var(--amber)}
-.panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;margin-top:14px}
-.panel{border:1px solid var(--rule);background:var(--panel);border-radius:3px;padding:10px 14px;min-width:0}.panel.wide{grid-column:1/-1}
+.panels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(420px,100%),1fr));gap:14px;margin-top:14px}
+.panel{border:1px solid var(--rule);background:var(--panel);border-radius:3px;padding:10px 14px;min-width:0;overflow-x:auto}.panel.wide{grid-column:1/-1}
 .panel h2{margin:0 0 6px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);font-weight:600}
 .panel h3{margin:8px 0 4px;font-size:12px;color:var(--stop)}
-.list td.key{word-break:break-all}
+.list td.key{overflow-wrap:anywhere;min-width:24ch}.list td.num,.list td.id,.list td.text{white-space:nowrap}.list td.time{white-space:normal}.list td.time span{white-space:nowrap}
+.list td.wrap{white-space:normal;min-width:24ch}.scroll{overflow-x:auto}
+@media (max-width:600px){.top{padding:10px 12px}main{padding:14px 12px 40px}}
 pre.log{margin:0;padding:10px 12px;background:var(--panel);border:1px solid var(--rule);border-radius:3px;white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45}
 CSS;
+}
+
+// The page's few lines of script: a chart's value under the pointer, and tables sorted by a click on a heading. A
+// sort is kept per page and table for the session, so the minute's refresh of the body keeps it. A cell's data-v is
+// its raw number; a column with any is sorted by those, the others as text (numbers within it in numeric order).
+function dashboard_script()
+{
+    return <<<'JS'
+(function(){
+var tip=document.createElement("div");tip.id="tip";document.body.appendChild(tip);
+document.addEventListener("mousemove",function(e){
+  var svg=e.target.closest&&e.target.closest("svg.spark[data-tips]");
+  if(!svg){tip.style.display="none";return}
+  var tips=svg.getAttribute("data-tips").split("|"),n=tips.length,r=svg.getBoundingClientRect();
+  var at=Math.round((e.clientX-r.left)/r.width*(n-1)),best=-1;
+  for(var d=0;d<n&&best<0;d++){if(at-d>=0&&tips[at-d])best=at-d;else if(at+d<n&&tips[at+d])best=at+d}
+  if(best<0)return;
+  var line=svg.querySelector("line.cursor");
+  if(!line){line=document.createElementNS("http://www.w3.org/2000/svg","line");line.setAttribute("class","cursor");
+    line.setAttribute("y1",0);line.setAttribute("y2",40);svg.appendChild(line)}
+  var x=best/(n-1)*240;line.setAttribute("x1",x);line.setAttribute("x2",x);
+  tip.textContent=tips[best];tip.style.display="block";
+  tip.style.left=Math.min(e.clientX+12,innerWidth-tip.offsetWidth-4)+"px";tip.style.top=(e.clientY-30)+"px";
+});
+document.addEventListener("mouseout",function(e){
+  var svg=e.target.closest&&e.target.closest("svg.spark");
+  if(svg&&!svg.contains(e.relatedTarget)){tip.style.display="none";var l=svg.querySelector("line.cursor");if(l)l.remove()}
+});
+function key(table){var p=table.closest("section");var h=p&&p.querySelector("h2");return "sort:"+location.pathname+":"+(h?h.textContent:"")}
+function sort(table,column,dir){
+  var body=table.tBodies[0];if(!body)return;
+  var rows=[].slice.call(body.rows),numeric=rows.some(function(r){var c=r.cells[column];return c&&c.hasAttribute("data-v")});
+  var value=function(r){var c=r.cells[column];if(!c)return numeric?-Infinity:"";
+    return numeric?(c.hasAttribute("data-v")?parseFloat(c.getAttribute("data-v")):-Infinity):c.textContent.trim()};
+  rows.sort(function(a,b){var x=value(a),y=value(b);
+    var o=numeric?(x<y?-1:x>y?1:0):String(x).localeCompare(String(y),undefined,{numeric:true});return dir==="asc"?o:-o});
+  rows.forEach(function(r){body.appendChild(r)});
+  [].forEach.call(table.tHead.rows[0].cells,function(th,i){th.classList.remove("asc","desc");if(i===column)th.classList.add(dir)});
+}
+document.addEventListener("click",function(e){
+  var th=e.target.closest&&e.target.closest("table.list thead th");if(!th)return;
+  var table=th.closest("table"),dir=th.classList.contains("desc")?"asc":"desc";
+  sort(table,th.cellIndex,dir);try{sessionStorage.setItem(key(table),th.cellIndex+":"+dir)}catch(x){}
+});
+window.dashboardSorts=function(){[].forEach.call(document.querySelectorAll("table.list"),function(table){
+  if(!table.tHead)return;var s=null;try{s=sessionStorage.getItem(key(table))}catch(x){}
+  if(s){var p=s.split(":");sort(table,+p[0],p[1])}})};
+dashboardSorts();
+})();
+JS;
 }
 
 // What the sampler could not collect for these groups and why (the snapshot's problems, the parts' own messages,
@@ -170,9 +241,9 @@ function dashboard_page($current, $title, $body, $refresh = 60)
     foreach (dashboard_tabs() as $path => $label) {
         $tabs .= '<a href="' . h($path) . '"' . ($path === $current ? ' class="on"' : '') . '>' . h($label) . '</a>';
     }
-    $script = $refresh > 0 ? '<script>setInterval(function(){fetch(location.pathname+(location.search?location.search+"&":"?")'
+    $script = '<script>' . dashboard_script() . '</script>' . ($refresh > 0 ? '<script>setInterval(function(){fetch(location.pathname+(location.search?location.search+"&":"?")'
         . '+"fragment=1",{cache:"no-store"}).then(function(r){return r.ok?r.text():null}).then(function(t){'
-        . 'if(t!==null)document.querySelector("main").innerHTML=t})},' . (int) $refresh * 1000 . ')</script>' : '';
+        . 'if(t!==null){document.querySelector("main").innerHTML=t;dashboardSorts()}})},' . (int) $refresh * 1000 . ')</script>' : '');
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store');
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'

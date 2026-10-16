@@ -113,6 +113,13 @@ class TrafficTest(TrafficBase):
         self.assertIn("Googlebot", page)
         self.assertIn("185.220.101.44", page)
         self.assertIn('class="on">Traffic</a>', page)
+        # A URL breaks after a slash, an agent between its words, both shown on two lines at most (the whole text
+        # under the pointer); a count keeps its raw value for sorting.
+        self.assertIn('<td class="key"><div class="clamp" title="/lt/krepselis">/<wbr>lt/<wbr>krepselis</div></td>'
+                      '<td class="num" data-v="10">10</td>', page)
+        self.assertIn('<div class="clamp" title="python-requests/2.31.0">python-requests/2.31.0</div>', page)
+        # The slowest URLs: average, longest and requests one under another.
+        self.assertRegex(page, r'<td class="num" data-v="17\.10\d*">17\.101 s avg<br>30\.001 s max<br>2 req\.</td>')
 
     def test_attack_types_bots_of_the_project_and_tool_sites(self):
         now = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)

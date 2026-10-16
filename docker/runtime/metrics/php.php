@@ -85,6 +85,12 @@ function metrics_php_pool(Metrics $metrics)
         (int) $status['slow requests'], $labels, 'counter');
     $metrics->add('setup_php_fpm_accepted_connections_total', 'Requests php-fpm accepted since it started', (int) $status['accepted conn'], $labels, 'counter');
     $metrics->add('setup_php_fpm_start_timestamp_seconds', 'When php-fpm started (a deploy reloads its workers, not this)', (int) $status['start time'], $labels);
+    // The status does not report pm.max_children: setup renders PHP_FPM_MAX_CHILDREN into the www pool, and the
+    // service gets the same value.
+    $limit = metrics_setting('PHP_FPM_MAX_CHILDREN', '');
+    if ($labels['pool'] === 'www' && preg_match('/^\d+$/', $limit)) {
+        $metrics->add('setup_php_fpm_max_children', 'Most workers the pool starts (pm.max_children, PHP_FPM_MAX_CHILDREN)', (int) $limit, $labels);
+    }
 }
 
 // opcache_get_status() inside php-fpm (fpm-opcache.php): hit rate, memory, cached scripts and restarts.

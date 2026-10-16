@@ -86,12 +86,17 @@ function overview_cards()
         'php' => array('PHP workers', function ($v) {
             $active = overview_value($v, 'setup_php_fpm_processes{pool="www",state="active"}');
             if ($active === null) return null;
-            $total = $active + overview_value($v, 'setup_php_fpm_processes{pool="www",state="idle"}');
+            $running = $active + overview_value($v, 'setup_php_fpm_processes{pool="www",state="idle"}');
+            // Busy against pm.max_children where the snapshot has it (the pool starts workers as it needs them).
+            $max = overview_value($v, 'setup_php_fpm_max_children{pool="www"}');
+            $total = $max ?: $running;
             $queue = overview_value($v, 'setup_php_fpm_listen_queue{pool="www"}');
             $reached = overview_value($v, 'setup_php_fpm_max_children_reached_total{pool="www"}');
             $busy = $total ? $active / $total * 100 : 0;
-            return array($queue > 0 ? 'bad' : ($busy >= 80 || $reached > 0 ? 'warn' : 'ok'), overview_number($active, 0) . ' / ' . overview_number($total, 0),
-                ($queue > 0 ? overview_number($queue, 0) . ' waiting · ' : '') . 'all busy ' . overview_number($reached, 0) . ' times since start'
+            return array($queue > 0 ? 'bad' : ($busy >= 80 || $reached > 0 ? 'warn' : 'ok'),
+                overview_number($active, 0) . ' / ' . overview_number($total, 0),
+                ($max ? 'active of max ' . overview_number($max, 0) . ' · ' . overview_number($running, 0) . ' started · ' : '')
+                . ($queue > 0 ? overview_number($queue, 0) . ' waiting · ' : '') . 'all busy ' . overview_number($reached, 0) . ' times since start'
                 . (($rate = overview_value($v, 'setup_php_opcache_hit_rate')) !== null ? ' · OPcache ' . overview_number($rate) . ' %' : ''));
         }, function ($v) { return overview_value($v, 'setup_php_fpm_processes{pool="www",state="active"}'); }),
         'database' => array('Database', function ($v) {
@@ -153,7 +158,9 @@ function overview_cards()
             $labels = dashboard_labels(key($info));
             $label = function ($name) use ($labels) { return isset($labels[$name]) ? $labels[$name] : ''; };
             $deployed = overview_value($v, 'setup_release_deployed_timestamp_seconds');
-            $value = $label('ref') !== '' ? $label('ref') : ($label('commit') !== '' ? $label('commit') : '–');
+            // A ref that is a commit's full hash (a deploy of a commit) shows as the short commit, which fits the card.
+            $ref = preg_match('/^[0-9a-f]{40}$/', $label('ref')) && $label('commit') !== '' ? '' : $label('ref');
+            $value = $ref !== '' ? $ref : ($label('commit') !== '' ? $label('commit') : '–');
             return array('none', $value, trim(($label('commit') !== '' && $label('commit') !== $value ? $label('commit') . ' · ' : '')
                 . 'setup ' . ($label('setup') !== '' ? $label('setup') : '?')
                 . ($deployed !== null ? ' · deployed ' . date('Y-m-d H:i', (int) $deployed) : '')));
@@ -169,6 +176,14 @@ function overview_cards()
                 'slowest ' . overview_number($slow, 2) . ' s');
         }, $slowest),
     );
+}
+
+// How a card's line shows a point's value under the pointer: decimals and unit.
+function overview_tips()
+{
+    return array('load' => array(2, ''), 'iowait' => array(1, ' %'), 'ram' => array(1, ' %'), 'disk' => array(0, ' %'),
+        'errors' => array(1, ' / min'), 'p95' => array(2, ' s'), 'php' => array(0, ' active'), 'database' => array(0, ' conn.'),
+        'containers' => array(0, ' running'), 'cron' => array(0, ' failing'), 'pages' => array(2, ' s'));
 }
 
 // The tab's body: the cards of the latest snapshot (a stale one too, with a warning) and their 24-hour lines.
@@ -199,9 +214,12 @@ function overview_body($now)
         $state = call_user_func($card[1], $values);
         if ($state === null) continue;
         list($level, $text, $note) = $state;
-        $line = dashboard_sparkline($points[$key], $from, $now);
+        $tip = isset(overview_tips()[$key]) ? overview_tips()[$key] : array(1, '');
+        $line = dashboard_sparkline($points[$key], $from, $now, 144, function ($value) use ($tip) {
+            return overview_number($value, $tip[0]) . $tip[1];
+        });
         $body .= '<section class="card ' . h($level) . '" data-card="' . h($key) . '"><h2>' . h($card[0]) . '</h2>'
-            . '<div class="value">' . h($text) . '</div><div class="note">' . h($note) . '</div>'
+            . '<div class="value">' . h($text) . '</div><div class="note">' . h_units($note) . '</div>'
             . ($line !== '' ? $line : '<div class="nohistory">24 h line once the history has two points</div>') . '</section>';
     }
     $body .= '</div><p class="stamp">Snapshot ' . h(date('Y-m-d H:i:s', (int) $snapshot['taken'])) . ' · refreshes every minute · '
