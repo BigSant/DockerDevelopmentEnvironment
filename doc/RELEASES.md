@@ -4,6 +4,11 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+- **Logs tab without scroll bars.** Three tables of log files side by side were narrower than their rows, and each
+  got a scroll bar. Two per row now (one below 1000 px), and on a phone a file name breaks at its hyphens.
+
 ## 2.14.0
 
 The metrics dashboard of `SERVICES=metrics` projects fits its text on every screen, sorts its tables, tells a chart's

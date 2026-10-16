@@ -152,7 +152,7 @@ fingerprint is outdated; it removes only with `apply=1`.
   the pointer (`data-tips`); every table sorts by a click on a heading (a figure by its raw `data-v`), kept per page
   and table for the session across the minute's refresh; a row lights up under the pointer. Cron leaves out the job
   id and the file while every job is in the same one, and a job whose last run failed is red; Logs is a table per
-  service; the traffic lists show a name on two lines at most (the whole one as its title). `metrics.php` sets PHP's zone
+  service, two side by side (one below 1000 px); the traffic lists show a name on two lines at most (the whole one as its title). `metrics.php` sets PHP's zone
   from `TZ` (`metrics_timezone`): the service does not load `php-policy`, so `date()` followed the image's php.ini.
   Logs (`logs.php`, `/logs/`): the collector's files by service and day, the last 100/500/2000 lines of one matching a
   level (errors, warnings, 5xx, 4xx: fixed patterns) and a text, and the file itself to download (`.gz` as it is). A
