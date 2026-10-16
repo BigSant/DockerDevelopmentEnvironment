@@ -360,6 +360,17 @@ return array(
             self.assertIn(reason, page.replace("&#039;", "'"))
             self.assertIn("The built-in classes apply until it is fixed.", page)
 
+    def test_a_closure_that_warns_or_throws_only_does_not_match(self):
+        self.write([("192.0.2.1", "GET /lt/ HTTP/1.1", 200, FIREFOX, "demo.local"),
+                    ("192.0.2.2", "GET /tea HTTP/1.1", 418, FIREFOX, "demo.local")],
+                   "<?php return array('classes' => array("
+                   "'noisy' => array('match' => function (array $r) { return $r['referer'] === 'x' || $r['status'] === 418; }),"
+                   "'failing' => array('match' => function (array $r) { throw new RuntimeException('no'); })));")
+        # The warnings stay out of the JSON (report() parses it) and the page.
+        self.assertEqual(self.report("window=1h")["classes"],
+                         {"human": 1, "noisy": 1, "failing": 0, "api": 0, "bot": 0, "asset": 0, "attack": 0})
+        self.assertNotIn("Warning", fetch(self.base, "/traffic?window=1h")[2])
+
     def test_cached_hours_are_built_again_when_the_classes_change(self):
         moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)
         name = f"access-{moment.astimezone(ZoneInfo(ZONE)):%Y-%m-%d}.log.gz"
@@ -392,9 +403,9 @@ class TrafficConfigCheckTest(unittest.TestCase):
         result = self.check("<?php return array('classes' => array('payment' => array('match' => array(array('path' => '#^/pay#')))),"
                             " 'bots' => array('X/1'));")
         self.assertEqual((result.returncode, result.stdout), (0, "Traffic classes: human, payment, api, bot, asset, attack\n"))
-        # A file is included once: it may declare the functions its closures call.
-        result = self.check("<?php function own_agent($r) { return $r['agent'] === 'x'; }\n"
-                            "return array('classes' => array('own' => array('match' => function (array $r) { return own_agent($r); })));")
+        # Class constants and anonymous classes are no declarations.
+        result = self.check("<?php $a = Closure::class; $b = new class {};\n"
+                            "return array('classes' => array('own' => array('match' => function (array $r) { return $r['agent'] === 'x'; })));")
         self.assertEqual((result.returncode, result.stdout), (0, "Traffic classes: human, own, api, bot, asset, attack\n"), result.stderr)
         result = self.check(None)
         self.assertEqual(result.returncode, 0)
@@ -422,6 +433,14 @@ class TrafficConfigCheckTest(unittest.TestCase):
                        "class 'fields' rule 1: status is a status code or a list of them", "class 'fields' rule 1: method is empty",
                        "class 'fields' rule 1: agent is not a valid regular expression",
                        "class 'fields' rule 1: unknown field 'size'", "class 'api': extend is true or false"):
+            self.assertIn(reason, result.stderr)
+
+    def test_what_would_break_the_service_is_refused_before_the_file_runs(self):
+        # The dashboard defines h(): a named function could already exist where the file is read, and exit ends it.
+        result = self.check("<?php\nfunction h($r) { return true; }\nclass Rules {}\nif (getenv('X')) exit(1);\n"
+                            "return array('classes' => array());")
+        self.assertEqual((result.returncode, result.stdout), (3, ""))
+        for reason in ("line 2: function 'h': use a closure", "line 3: no class declarations", "line 4: exit would end the analysis"):
             self.assertIn(reason, result.stderr)
 
     def test_eleven_classes_a_syntax_error_and_no_array_are_refused(self):

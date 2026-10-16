@@ -22,7 +22,7 @@ const METRICS_HTTP_ERROR_TYPES = array(
 
 function metrics_http_parts()
 {
-    return array('metrics_http_access', 'metrics_http_errors', 'metrics_http_traffic');
+    return array('metrics_http_access', 'metrics_http_errors', 'metrics_http_traffic', 'metrics_http_traffic_rules');
 }
 
 // nginx-proxy's TCP table snapshot (security group).
@@ -316,7 +316,13 @@ function metrics_http_traffic(Metrics $metrics)
                 ($name === 'p50' ? 'Median' : '95th percentile') . ' response time of the window\'s requests (nginx rt, static files excluded)', $value);
         }
     }
-    // Every figure is in (with the built-in classes); the dashboard says what is wrong with the project's file.
+}
+
+// The project's traffic classes (config/metrics/traffic.php): an invalid file leaves the built-in classes in effect,
+// so the figures are complete and the group stays up; the dashboard says what is wrong, whatever else failed.
+function metrics_http_traffic_rules(Metrics $metrics)
+{
+    require_once __DIR__ . '/traffic.php';
     $error = traffic_rules()['error'];
     if ($error !== null) throw new MetricsWarning($error);
 }

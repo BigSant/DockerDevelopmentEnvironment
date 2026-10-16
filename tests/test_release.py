@@ -310,6 +310,19 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual((second['ref'], second['commit'], second['deployed_at'], second['images_at']),
                          ('v1.4.0', 'a' * 40, '2026-10-16T06:05:00+00:00', first['images_at']))
         self.assertEqual(current.stat().st_mode & 0o777, 0o644, 'the metrics service reads it as the project account')
+        # make release alone ships nothing: a code-only deploy keeps the setup version of the images that run.
+        (directory / 'images.lock.json').write_text(json.dumps({'project': 'release-demo-stage', 'setup': 'v2.14.0', 'images': {}}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            project_release.publish_release_info(project, str(target))
+        self.assertEqual(json.loads(current.read_text())['setup'], 'v2.13.0')
+        # The deploy is done when it runs: a target that refuses the file is a warning, not a failed deploy.
+        class Refusing(LocalTarget):
+            def push(self, source, path, *options):
+                raise subprocess.CalledProcessError(255, ['rsync'])
+        with patch('project_release.deploy_target', lambda project: Refusing()), contextlib.redirect_stdout(io.StringIO()) as out:
+            project_release.publish_release_info(project, str(target), images=True)
+        self.assertIn('Warning: the release information for the dashboard was not written (CalledProcessError)', out.getvalue())
+        self.assertEqual(json.loads(current.read_text())['setup'], 'v2.13.0', 'the target keeps its previous file')
 
     def test_deploy_creates_the_code_and_data_directories_as_the_deploying_account(self):
         # Directories Docker creates for a missing bind source belong to root: php-fpm and MySQL, which run as

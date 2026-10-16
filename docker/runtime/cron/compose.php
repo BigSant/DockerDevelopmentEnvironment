@@ -55,11 +55,24 @@ function cronJobs($text, $source)
  */
 function cronJobName($command)
 {
-    $mask = function ($word) {
+    // The word after one that names a secret (token, password, key, Bearer …) is masked too.
+    $secret = false;
+    $mask = function ($word) use (&$secret) {
+        if ($secret) {
+            $secret = false;
+            return '…';
+        }
+        if (preg_match('/^(token|secret|key|api_?key|pass(word)?|pwd|auth\w*|bearer)$/i', rtrim($word, ':='))) {
+            $secret = true;
+            return $word;
+        }
         if (preg_match('#^[a-z][a-z0-9+.-]*://#i', $word)) {
             $parts = parse_url($word);
             return isset($parts['host']) ? $parts['host'] . (isset($parts['path']) ? rtrim($parts['path'], '/') : '') : '…';
         }
+        // A query or fragment is never shown, with a scheme or without (shop.example/cron.php?token=…).
+        $word = preg_replace('/[?#].*$/s', '', $word);
+        if ($word === '') return '…';
         if (preg_match('/^([A-Za-z_][A-Za-z0-9_.-]*)=/', $word, $match)) return $match[1] . '=…';
         if (strlen($word) >= 20 && preg_match('/[0-9]/', $word) && preg_match('/[A-Za-z]/', $word) && !preg_match('#[/:]#', $word)) return '…';
         return $word;
@@ -68,6 +81,7 @@ function cronJobName($command)
     if (preg_match('/(?:^|\s)#\s*(.*)$/', $command, $match)) {
         $comment = implode(' ', array_map($mask, preg_split('/\s+/', trim($match[1]), -1, PREG_SPLIT_NO_EMPTY)));
         $command = substr($command, 0, -strlen($match[0]));
+        $secret = false;
     }
     // Wrappers and the options that take the next word as their value (nice -n 10, flock -w 5, timeout -s KILL).
     $wrappers = array('flock', 'nice', 'ionice', 'timeout', 'nohup', 'env', 'sudo', 'chronic', 'time', 'exec');
@@ -128,7 +142,7 @@ function cronJobName($command)
             }
             $shown = $mask($word);
             // A path is named by its last part (the script), a URL by its host and path; a word with spaces is a text.
-            if ($shown === $word && strpos($word, '/') !== false) $shown = basename($word);
+            if (strpos($shown, '/') !== false && !preg_match('#^[a-z][a-z0-9+.-]*://#i', $word)) $shown = basename($shown);
             if (preg_match('/\s/', $shown)) $shown = '…';
             if ($shown !== '' && count($arguments) < 3) $arguments[] = $shown;
         }

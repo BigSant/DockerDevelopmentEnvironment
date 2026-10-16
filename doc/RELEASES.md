@@ -23,15 +23,18 @@ it, because setup moved); a project changes nothing unless it wants classes of i
   like `METRICS_BOTS`. They are checked after attacks and before setup's bot, asset, api and human. Each class gets
   a card on the Traffic tab, a line in `/feed` and a `setup_http_class_requests` label. `make up` checks the file
   (`config/metrics/traffic.php is not valid: …`); an invalid file on a server leaves the built-in classes in effect
-  and the dashboard says why. Changing it needs neither images nor a restart: `make deploy` copies it and the next
-  analysis reads it. The format is in `doc/ARCHITECTURE.md` and `doc/lt/05-servisai.md`.
+  and the dashboard says why. Helpers are closures: named functions, classes and `exit` are refused. Changing it
+  needs neither images nor a restart: `make deploy` copies it and the next analysis reads it (the first 7-day view
+  after a change can be slow while the cached hours are built again). The format is in `doc/ARCHITECTURE.md` and `doc/lt/05-servisai.md`.
 - **Cron jobs have names.** The Cron tab, the Overview card of failing jobs and `setup_cron_job_info{name=…}` name a
   job by its program and targets (`php console app:sync`, `curl shop.example/cron`, `make run-tasks-daily · nightly`);
-  option values, URL queries, `key=value` values and tokens are never shown.
+  option values, queries (of URLs and paths), `key=value` values, tokens and the word after `token`, `password`,
+  `key` or `Bearer` are never shown.
 - **What runs here.** `make deploy` and `make deploy-images` write `data/<env>/release/current.json` on the target;
   the Overview has a Release card (ref, commit, setup version, deploy time) and `/feed` a Release section, and
   `/metrics` serves `setup_release_info`, `setup_release_deployed_timestamp_seconds` and
-  `setup_release_images_timestamp_seconds`. Locally the card says there is no release. A server shows the release
+  `setup_release_images_timestamp_seconds`. Locally the card says there is no release. A failed write of the file is
+  a warning: the deploy itself is done. A server shows the release
   group down until the first `make deploy-images` with this version writes the file.
 - The dashboard's callout of a group's problems reads "Problems, and what they need" (a warning can come with
   complete figures).

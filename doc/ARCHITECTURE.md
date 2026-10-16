@@ -166,17 +166,22 @@ fingerprint is outdated; it removes only with `apply=1`.
   nor setup's Python parse YAML): it returns `classes` (name => `label`, `match`) and `bots`. `match` is a list of
   rules, any of which matches, each an array of fields that must all match (`path` and `url` regexes without and with
   the query, `agent` regex, `method`, `ip` addresses and CIDRs, `status`, `host`), or a closure that gets those
-  fields. At most 10 classes (`setup_http_class_requests` labels), names `^[a-z][a-z0-9_]{0,31}$`; `api` is the one
+  fields (its warnings are silenced and an exception is no match). Named functions, class declarations and
+  `exit`/`die` are refused before the file runs (token scan): the dashboard and the sampler include it, where a name
+  may already exist and no try/catch survives either. At most 10 classes (`setup_http_class_requests` labels), names
+  `^[a-z][a-z0-9_]{0,31}$`; `api` is the one
   built-in class a project changes (`'extend' => true` adds rules, without it they replace the agents, `false` turns
   it off). The file is refused whole for any mistake (syntax, unknown key or field, a regex that does not compile, a
-  bad CIDR, a built-in name): the built-in classes apply, the HTTP group throws a `MetricsWarning` after its figures
-  (the message reaches the snapshot's `problems`, the group stays up) and the Traffic tab and `/feed` say why.
+  bad CIDR, a built-in name): the built-in classes apply, the HTTP group's own part `metrics_http_traffic_rules` throws a
+  `MetricsWarning` (the message reaches the snapshot's `problems` whatever else failed, the group stays up) and the
+  Traffic tab and `/feed` say why.
   `make up` and `make restart` check it first with the metrics image's PHP (`compose run --rm --no-deps metrics php
   traffic-config.php`, exit 3 for an invalid file, whose errors are shown; another failure only says the check could
   not run, because compose output can hold interpolated secrets); `make deploy` runs the same check in the running
   service after copying the file and warns. A cached hour records the hash of the rules it was built with (setup's
   `TRAFFIC_RULES_VERSION`, the file, the bot words); a different hash is a missing hour, built again from the day
-  files. A window (15 min, 1 h, 24 h and 7 d from a
+  files: the next traffic round does it, and a page asking for one of those hours first builds it itself (the first
+  7-day view after a change reads the week's day files, as after a first deploy). A window (15 min, 1 h, 24 h and 7 d from a
   whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
   only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
   every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
@@ -251,12 +256,15 @@ fingerprint is outdated; it removes only with `apply=1`.
   cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command:
   `setup_cron_job_info` adds `name` (`cronJobName`: the program and up to three targets, wrappers such as flock, nice,
   timeout, env and `cd … &&` and every option with its value left out, words split as the shell does, a URL as host and
-  path, `key=…`, long tokens and texts with spaces as `…`, then the line's `#` comment), shown on the Cron tab and on
+  path, a query or fragment never (with a scheme or without), `key=…`, long tokens, texts with spaces and the word after
+  one naming a secret (token, password, key, Bearer …) as `…`, then the line's `#` comment, masked the same way),
+  shown on the Cron tab and on
   the Overview card for a failing job.
   Release group (`release.php`): `current.json` in `data/<env>/release` (mounted read-only at `/host/release`), which
   `make deploy` and `make deploy-images` write on `DEPLOY_PATH` through the deploy target
   (`project_release.publish_release_info`: the lock's setup version, when the images started, the last completed
-  deploy's ref, commit and time; `deployments.json` stays where make deploy runs). `setup_release_info{setup,ref,commit}`
+  deploy's ref, commit and time; `deployments.json` stays where make deploy runs; the setup version changes only with
+  deploy-images, and a failed write is a warning, since the deploy is done). `setup_release_info{setup,ref,commit}`
   and the deploy and images timestamps; ENV local/test without the file serves nothing (the Overview card says "no
   release here"), stage/prod without it fail the group. `/feed` has a Release section after the Snapshot.
   The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.

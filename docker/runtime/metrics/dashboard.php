@@ -42,6 +42,15 @@ function dashboard_family($values, $name)
     return $found;
 }
 
+// The labels of a flat map's key ('{job="a",name="b \\"c\\""}') as name => value, unescaped.
+function dashboard_labels($key)
+{
+    preg_match_all('/(?:^\{|,)([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\\\]|\\\\.)*)"/', (string) $key, $matches, PREG_SET_ORDER);
+    $labels = array();
+    foreach ($matches as $match) $labels[$match[1]] = stripcslashes($match[2]);
+    return $labels;
+}
+
 // Calls $each(time, values) for every history line since $since, oldest first, one line in memory at a time.
 function dashboard_history($since, $each)
 {

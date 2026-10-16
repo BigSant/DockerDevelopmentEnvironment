@@ -57,6 +57,11 @@ class CrontabTest(unittest.TestCase):
             # Variables, key=value arguments and long tokens are masked.
             "API_KEY=supersecret123 php script.php key=hunter2 a1b2c3d4e5f6g7h8i9j0k": "php script.php key=… …",
             "env A=1 B=2 php cron.php": "php cron.php",
+            # A query is never shown, with a scheme or without; nor the word after one that names a secret.
+            "wget -q -O- shop.example/cron.php?token=secret123": "wget cron.php",
+            "curl localhost:8080/cron?pass=hunter2": "curl cron",
+            "php bin/console app:run --x password hunter2": "php console app:run password",
+            "php cron.php # token xyz, see shop.example/x?key=abc": "php cron.php · token … see shop.example/x",
             "true": "true",
             "cd /app": "job",
             "php " + "very-long-subcommand-name-" * 4: "php " + ("very-long-subcommand-name-" * 4)[:55] + "…",
@@ -64,7 +69,7 @@ class CrontabTest(unittest.TestCase):
         names = php(f"echo json_encode(array_map('cronJobName', {json.dumps(list(cases))}));")
         self.assertEqual(dict(zip(cases, names)), cases)
         for name in names:
-            self.assertNotRegex(name, "hunter2|xyz|pw@|token=|abc|supersecret")
+            self.assertNotRegex(name, "hunter2|xyz|pw@|token=|abc|supersecret|secret123|\\?")
         jobs = php(f"echo json_encode(cronJobs({json.dumps('0 3 * * * php bin/console app:sync # nightly')}, 'crontab'));")
         self.assertEqual(jobs[0]["name"], "php console app:sync · nightly")
 

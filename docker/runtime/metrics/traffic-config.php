@@ -100,6 +100,33 @@ function traffic_config_check($file)
 {
     $errors = array();
     if (is_link($file) || !is_file($file)) return array(null, array('not a regular file'));
+    // What no try/catch survives in the processes that include it (the dashboard, the sampler): a named function or
+    // class may already exist there (h, metrics_setting ...), exit ends the request. Closures are the way.
+    $tokens = token_get_all((string) file_get_contents($file));
+    foreach ($tokens as $index => $token) {
+        if (!is_array($token)) continue;
+        $previous = null;
+        for ($back = $index - 1; $back >= 0; $back--) {
+            if (is_array($tokens[$back]) && in_array($tokens[$back][0], array(T_WHITESPACE, T_COMMENT, T_DOC_COMMENT), true)) continue;
+            $previous = $tokens[$back];
+            break;
+        }
+        if ($token[0] === T_FUNCTION) {
+            for ($next = $index + 1; isset($tokens[$next]); $next++) {
+                if ($tokens[$next] === '&' || (is_array($tokens[$next]) && $tokens[$next][0] === T_WHITESPACE)) continue;
+                if (is_array($tokens[$next]) && $tokens[$next][0] === T_STRING) {
+                    $errors[] = 'line ' . $token[2] . ": function '" . $tokens[$next][1] . "': use a closure (a named function may already exist where the file is read)";
+                }
+                break;
+            }
+        } elseif (in_array($token[0], array(T_CLASS, T_INTERFACE, T_TRAIT), true)
+            && !(is_array($previous) && in_array($previous[0], array(T_DOUBLE_COLON, T_NEW), true))) {
+            $errors[] = 'line ' . $token[2] . ': no ' . strtolower($token[1]) . ' declarations (use closures)';
+        } elseif ($token[0] === T_EXIT) {
+            $errors[] = 'line ' . $token[2] . ': ' . strtolower($token[1]) . ' would end the analysis';
+        }
+    }
+    if ($errors) return array(null, $errors);
     ob_start();
     try {
         $config = (function ($__file) { return include $__file; })($file);
@@ -262,10 +289,14 @@ function traffic_ip_in($ip, $ranges)
 function traffic_matches($rules, $request)
 {
     if ($rules instanceof Closure) {
+        // Its warnings and notices stay out of the page (this service does not load php-policy's display_errors).
+        set_error_handler(function () { return true; });
         try {
             return (bool) $rules($request);
         } catch (Throwable $error) {
             return false;
+        } finally {
+            restore_error_handler();
         }
     }
     foreach ($rules as $rule) {

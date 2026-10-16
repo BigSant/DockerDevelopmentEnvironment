@@ -130,13 +130,12 @@ function overview_cards()
                 }
             }
             $jobs = count(dashboard_family($v, 'setup_cron_job_info'));
-            // The failing jobs by name (info labels: job="…",…,name="…").
+            // The failing jobs by name, each once (a job in two files has two info rows).
             $names = array();
-            foreach (dashboard_family($v, 'setup_cron_job_info') as $labels => $one) {
-                if (preg_match('/job="([^"]*)".*name="((?:[^"\\\\]|\\\\.)*)"/', $labels, $match) && isset($exits['{job="' . $match[1] . '"}'])
-                        && (int) $exits['{job="' . $match[1] . '"}'] !== 0) {
-                    $names[$match[1]] = stripcslashes($match[2]);
-                }
+            foreach (dashboard_family($v, 'setup_cron_job_info') as $key => $one) {
+                $labels = dashboard_labels($key);
+                $exit = isset($labels['job']) ? '{job="' . $labels['job'] . '"}' : null;
+                if ($exit !== null && isset($labels['name'], $exits[$exit]) && (int) $exits[$exit] !== 0) $names[$labels['job']] = $labels['name'];
             }
             return array($failing ? 'bad' : ($late ? 'warn' : 'ok'), $failing ? $failing . ' failing' : $jobs . ' jobs',
                 ($names ? implode(', ', array_values($names)) . ' · ' : '') . ($late ? $late . ' overdue · ' : '') . count($exits) . ' with a recorded run');
@@ -151,10 +150,8 @@ function overview_cards()
                 return in_array(metrics_setting('ENV', 'local'), array('local', 'test'), true)
                     ? array('none', 'local', 'no release here: make up runs the checkout') : null;
             }
-            $labels = (string) key($info);
-            $label = function ($name) use ($labels) {
-                return preg_match('/' . $name . '="((?:[^"\\\\]|\\\\.)*)"/', $labels, $match) ? stripcslashes($match[1]) : '';
-            };
+            $labels = dashboard_labels(key($info));
+            $label = function ($name) use ($labels) { return isset($labels[$name]) ? $labels[$name] : ''; };
             $deployed = overview_value($v, 'setup_release_deployed_timestamp_seconds');
             $value = $label('ref') !== '' ? $label('ref') : ($label('commit') !== '' ? $label('commit') : '–');
             return array('none', $value, trim(($label('commit') !== '' && $label('commit') !== $value ? $label('commit') . ' · ' : '')
