@@ -535,7 +535,7 @@ return array(
 - `label` – kortelės pavadinimas (be jo – vardas didžiąja raide).
 - Pagalbinės funkcijos – tik closure'ai: vardinės funkcijos, klasės ir `exit`/`die` atmetami (failą skaito dashboard'as ir sampler'is, kur toks vardas gali jau būti). Closure'o įspėjimai nerodomi, o išimtis reiškia „netinka“.
 - `make up` failą patikrina metrics image'o PHP ir sustoja su klaidomis (`config/metrics/traffic.php is not valid: …`). Serveryje klaidingas failas nieko nesugadina: galioja setup klasės, o Traffic tab'as, Overview ir `/feed` parašo, kas negerai; `make deploy` tai parodo įspėjimu.
-- Pakeitimui nereikia nei image'ų, nei restart'o: `make deploy` failą nukopijuoja, kita analizė jį perskaito. Uždarytų valandų cache perskaičiuojamas iš dienos failų, todėl ir 7 d. langas rodo naujas klases (pirmas 7 d. lango atidarymas po pakeitimo gali užtrukti, kol sampler'is perskaičiuoja).
+- Pakeitimui nereikia nei image'ų, nei restart'o: `make deploy` failą nukopijuoja, kita analizė jį perskaito. Uždarytų valandų cache per kelias minutes perskaičiuoja sampler'is (iš dienos failų), todėl ir 7 d. langas rodo naujas klases; kol jis to nepadarė, puslapiai rodo senas klases ir patys log'ų neskaito.
 
 Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Klasės, botai, atakos ir atsakymo laikai tikslūs; sąrašai laiko po 500 dažniausių kiekvienos valandos įrašų, todėl judriame lange retesnių įrašų skaičiai apytiksliai. Valanda į cache įrašoma tik tada, kai log'ų kolektorius veikė po jos pabaigos: kol jis sustojęs, valandos skaičiuojamos iš naujo ir, jam grįžus, papildomos.
 

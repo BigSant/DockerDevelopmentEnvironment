@@ -270,7 +270,7 @@ function traffic_window($start, $end, $now)
         $hour = $cursor - $cursor % 3600;
         $next = min($end, $hour + 3600);
         if ($cursor === $hour && $next === $hour + 3600 && traffic_closed($hour, $now)) {
-            $cached = traffic_cached($hour);
+            $cached = traffic_cached($hour, true);
             if ($cached !== null) {
                 traffic_merge($total, $cached);
                 // 168 cached hours of 500 entries each would be 84 000: keep the merged lists bounded.
@@ -352,13 +352,14 @@ function traffic_collector_caught_up()
 }
 
 // A cache file that is whole (a failed write leaves none, metrics_write_json; an empty one is not trusted) and built
-// with the classes in effect: after the project's file, METRICS_BOTS or setup's own classes change, the hours are
-// built again from the day files.
-function traffic_cached($hour)
+// with the classes in effect: after the project's file, METRICS_BOTS or setup's own classes change, the sampler builds
+// the hours again from the day files. $stale: a page takes an hour of the previous classes meanwhile, so it never
+// reads a week of logs itself (the next traffic round, within minutes, brings the new ones).
+function traffic_cached($hour, $stale = false)
 {
     $cached = metrics_read_json(traffic_directory() . '/' . $hour . '.json');
-    if ($cached === null || !isset($cached['requests'], $cached['classes'], $cached['rules'])) return null;
-    return $cached['rules'] === traffic_rules()['hash'] ? $cached : null;
+    if ($cached === null || !isset($cached['requests'], $cached['classes'])) return null;
+    return $stale || (isset($cached['rules']) && $cached['rules'] === traffic_rules()['hash']) ? $cached : null;
 }
 
 // The sampler's traffic loop: every closed hour of the last TRAFFIC_KEEP_DAYS - 1 days not cached yet, a local day
