@@ -24,8 +24,9 @@ it, because setup moved); a project changes nothing unless it wants classes of i
   a card on the Traffic tab, a line in `/feed` and a `setup_http_class_requests` label. `make up` checks the file
   (`config/metrics/traffic.php is not valid: …`); an invalid file on a server leaves the built-in classes in effect
   and the dashboard says why. Helpers are closures: named functions, classes and `exit` are refused. Changing it
-  needs neither images nor a restart: `make deploy` copies it and the next analysis reads it (the first 7-day view
-  after a change can be slow while the cached hours are built again). The format is in `doc/ARCHITECTURE.md` and `doc/lt/05-servisai.md`.
+  needs neither images nor a restart: `make deploy` copies it and the next analysis reads it; the closed hours of the
+  last 7 days follow within minutes (the next traffic round builds them again, the pages show the previous classes
+  until then). The format is in `doc/ARCHITECTURE.md` and `doc/lt/05-servisai.md`.
 - **Cron jobs have names.** The Cron tab, the Overview card of failing jobs and `setup_cron_job_info{name=…}` name a
   job by its program and targets (`php console app:sync`, `curl shop.example/cron`, `make run-tasks-daily · nightly`);
   option values, queries (of URLs and paths), `key=value` values, tokens and the word after `token`, `password`,

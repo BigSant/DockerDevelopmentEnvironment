@@ -382,6 +382,13 @@ return array(
         before = json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["rules"]
         (self.work / "metrics-config").mkdir()
         (self.work / "metrics-config/traffic.php").write_text("<?php return array('classes' => array('old' => array('match' => array(array('path' => '#^/lt/old-#')))));")
+        # A page does not read the week's logs itself: until the next traffic round the hours keep the previous classes.
+        report = self.report("window=7d")
+        self.assertEqual((report["classes"]["old"], report["classes"]["human"]), (0, 30))
+        self.assertEqual(json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["rules"], before)
+        result = subprocess.run(["php", str(SAMPLER), "--traffic", "--once"], env=self.environment, capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
         report = self.report("window=7d")
         self.assertEqual((report["classes"]["old"], report["classes"]["human"]), (30, 0))
         self.assertNotEqual(json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["rules"], before)

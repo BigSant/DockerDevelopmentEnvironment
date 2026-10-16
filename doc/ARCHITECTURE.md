@@ -180,8 +180,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   not run, because compose output can hold interpolated secrets); `make deploy` runs the same check in the running
   service after copying the file and warns. A cached hour records the hash of the rules it was built with (setup's
   `TRAFFIC_RULES_VERSION`, the file, the bot words); a different hash is a missing hour, built again from the day
-  files: the next traffic round does it, and a page asking for one of those hours first builds it itself (the first
-  7-day view after a change reads the week's day files, as after a first deploy). A window (15 min, 1 h, 24 h and 7 d from a
+  files by the next traffic round; a page meanwhile takes the hour of the previous classes (`traffic_cached($hour,
+  true)`), so it never reads a week of logs itself. A window (15 min, 1 h, 24 h and 7 d from a
   whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
   only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
   every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
