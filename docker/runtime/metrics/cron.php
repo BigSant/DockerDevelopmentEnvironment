@@ -1,8 +1,9 @@
 <?php
 // Cron group: each job of the project crontab with its last run (start, exit code, duration) from the cron
 // service's run history (data/cron/history.jsonl, written by cron-run.sh), mounted read-only.
-// Jobs are labelled by their id (the cron UI's) and crontab line, never by the command: commands can carry
-// tokens (e.g. cron URLs with ?token=).
+// Jobs are labelled by their id (the cron UI's), crontab line and a readable name (cronJobName: the program and its
+// targets, URLs without query, values and tokens masked), never by the command: commands can carry tokens (e.g.
+// cron URLs with ?token=).
 require_once __DIR__ . '/../cron/compose.php';
 
 function metrics_cron_parts()
@@ -52,8 +53,9 @@ function metrics_cron_jobs(Metrics $metrics)
     $schedules = array();
     foreach ($jobs as $job) {
         if ($job['command'] === '' || cronFields($job['schedule']) === null) continue;
-        $metrics->add('setup_cron_job_info', 'A job of the project crontab: its file, line and schedule', 1,
-            array('job' => $job['id'], 'source' => $job['source'], 'line' => (string) $job['line'], 'schedule' => $job['schedule']));
+        $metrics->add('setup_cron_job_info', 'A job of the project crontab: its file, line, schedule and a name without secrets', 1,
+            array('job' => $job['id'], 'source' => $job['source'], 'line' => (string) $job['line'], 'schedule' => $job['schedule'],
+                  'name' => $job['name']));
         $schedules[$job['id']][] = $job['schedule'];
     }
     foreach ($schedules as $id => $list) {

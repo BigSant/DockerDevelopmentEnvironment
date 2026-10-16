@@ -391,6 +391,8 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
     clear_cache(project)
     reload_php(project)
     record(project, entry)
+    from project_release import publish_release_info
+    publish_release_info(project, deploy_path)
     print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
     return commit
 

@@ -50,7 +50,7 @@ function traffic_tab_body($report, $start, $end, $label, $key)
     $bar .= '<input type="date" name="day" value="' . h($key === '' ? $label : '') . '"><button>Day</button>'
         . '<span class="spacer"></span><span class="stamp">' . h($time($start)) . ' – ' . h($time($end)) . '</span></form>';
     $classes = '<div class="cards">';
-    foreach (array('human' => 'People', 'bot' => 'Bots', 'asset' => 'Static files', 'attack' => 'Attacks') as $class => $title) {
+    foreach (array('human' => 'People', 'api' => 'Scripts & API', 'bot' => 'Bots', 'asset' => 'Static files', 'attack' => 'Attacks') as $class => $title) {
         $classes .= '<section class="card' . ($class === 'attack' && $report['classes']['attack'] ? ' bad' : '') . '"><h2>' . h($title) . '</h2>'
             . '<div class="value">' . h(number_format($report['classes'][$class], 0, '.', ' ')) . '</div>'
             . '<div class="note">' . ($report['requests'] ? round($report['classes'][$class] / $report['requests'] * 100) : 0) . ' % of '
@@ -78,7 +78,8 @@ function traffic_tab_body($report, $start, $end, $label, $key)
         . traffic_tab_rows('Top user agents', $report['agents']) . traffic_tab_rows('Top URLs', $report['urls'])
         . traffic_tab_rows('4xx by URL', $report['errors4']) . traffic_tab_rows('5xx by URL', $report['errors5'])
         . traffic_tab_rows('Slowest URLs', $report['slowest'], $seconds) . '</div>'
-        . '<p class="stamp">Classes: an attack pattern first, then a known bot, then a static file. Bots: setup\'s list and METRICS_BOTS. '
+        . '<p class="stamp">Classes: an attack pattern first, then a known bot, then a static file, then a client that is not a browser '
+        . '(scripts & API: curl, python, Go, Java, an app\'s own client, no agent). Bots: setup\'s list and METRICS_BOTS. '
         . 'Classes, bots, attacks and response times are exact; the lists keep each hour\'s ' . TRAFFIC_TOP . ' busiest entries, '
         . 'so in a busy window the counts below the top ones are approximate.</p>';
 }

@@ -4,9 +4,12 @@
 //   attack  a request matching an attack pattern (SQL injection, path traversal, probe, XSS), whatever its agent;
 //   bot     a user agent naming a known crawler (setup's list and METRICS_BOTS, comma-separated);
 //   asset   a GET of a static file (image, script, style, font);
+//   api     a client that is not a browser: an agent that does not start like every browser's ("Mozilla/", "Opera/"),
+//           such as curl, Wget, python-requests, Go-http-client, Java, an app's own client, or no agent at all;
 //   human   everything else.
 // As the script did, bots are counted one by one by agent (an agent naming two counts for both, an attack's agent
-// too) and the requests per IP of the suspicious (an attack) and regular clients count their non-asset, non-bot lines. An hour that has closed is
+// too) and the requests per IP of the suspicious (an attack) and regular clients count their non-asset, non-bot lines
+// (the api class among them: the script had no such class). An hour that has closed is
 // aggregated once and cached (traffic/<hour>.json in the sampler's directory; the sampler prepares them, a page
 // builds what is missing), so a 7-day window merges 168 small files instead of reading a week of logs. A cached hour
 // keeps the busiest TRAFFIC_TOP entries of each list. Lists are also trimmed while a file is read (to 2 x TRAFFIC_TOP
@@ -34,7 +37,9 @@ const TRAFFIC_ATTACKS = array(
     'probe' => '#(/\.env(\b|$)|/wp-(login|admin|content|includes)|/xmlrpc\.php|/\.git(/|$|\?)|/\.svn/|/\.aws/|/\.ssh/|/phpmyadmin|/\.ds_store|/server-status|/vendor/phpunit|/cgi-bin/)#i',
     'xss' => '/(<script|%3cscript|javascript:|onerror\s*=|onerror%3d|onload\s*=|onload%3d|%3csvg|<svg)/i',
 );
-const TRAFFIC_CLASSES = array('human', 'bot', 'asset', 'attack');
+const TRAFFIC_CLASSES = array('human', 'bot', 'asset', 'api', 'attack');
+// Every browser's agent starts like this; an agent that does not is a script or an API client.
+const TRAFFIC_BROWSER = '#^(Mozilla|Opera)/#';
 const TRAFFIC_TOP = 500;
 // The attack lines a cached hour keeps per type (shown as examples).
 const TRAFFIC_LINES = 20;
@@ -85,6 +90,7 @@ function traffic_parse($line, $bots, $tools)
     if ($attack !== null) $class = 'attack';
     elseif ($named) $class = 'bot';
     elseif ($method === 'GET' && preg_match(TRAFFIC_ASSET, $path)) $class = 'asset';
+    elseif (!preg_match(TRAFFIC_BROWSER, $agent)) $class = 'api';
     else $class = 'human';
     $rt = preg_match('/ rt=(\d+(?:\.\d+)?) /', $line, $timing) ? (float) $timing[1] : null;
     return array($time, $class, $attack, array('ip' => $fields[1], 'path' => $path === '' ? $target : $path, 'status' => (int) $fields[4],
@@ -110,7 +116,7 @@ function traffic_add(&$aggregate, $parsed)
         }
         $aggregate['suspicious'][$ip] = 1;
     }
-    if ($class === 'human' || $class === 'attack') {
+    if ($class === 'human' || $class === 'api' || $class === 'attack') {
         $aggregate['ip_requests'][$ip] = (isset($aggregate['ip_requests'][$ip]) ? $aggregate['ip_requests'][$ip] : 0) + 1;
     }
     if ($class === 'asset') return;

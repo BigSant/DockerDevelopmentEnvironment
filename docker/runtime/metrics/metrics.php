@@ -101,7 +101,7 @@ function metrics_proc($path)
 // follows database (it reuses the database group's connection for the version).
 function metrics_groups()
 {
-    $groups = array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry', 'php');
+    $groups = array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry', 'php', 'release');
     // The cache group only with Redis or memcached (SERVICES); without them it is not served at all.
     if (metrics_setting('METRICS_REDIS', '') !== '' || metrics_setting('METRICS_MEMCACHED', '') !== '') $groups[] = 'cache';
     return $groups;

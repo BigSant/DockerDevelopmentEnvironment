@@ -55,6 +55,12 @@ services:
       - type: bind
         source: ${PROJECT_DATA_DIRECTORY}/metrics
         target: /var/lib/setup-metrics
+      # What runs here: the setup version, application commit and deploy times make deploy and deploy-images write
+      # (current.json); empty where no release is deployed (local).
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}/release
+        target: /host/release
+        read_only: true
       # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
       # the host network counters are read from /proc/1/net (the host's network namespace).
       - type: bind

@@ -284,7 +284,7 @@ function metrics_http_traffic(Metrics $metrics)
     $collected = traffic_collect(array(array($start, $end)));
     $aggregate = $collected[0];
     foreach (TRAFFIC_CLASSES as $class) {
-        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, bot, asset (static file), attack',
+        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, bot, asset (static file), api (a client that is not a browser), attack',
             $aggregate['classes'][$class], array('class' => $class));
     }
     foreach (metrics_http_top($aggregate['bots'], 20) as $bot => $count) {

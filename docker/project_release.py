@@ -349,6 +349,36 @@ def build_release(project, allow_dirty=False):
     return lock
 
 
+RELEASE_INFO = 'release-info.json'
+
+
+def publish_release_info(project, deploy_path, images=False):
+    """What runs on the target, for the metrics dashboard: the setup version the release images were built from, when
+    they were started, the application commit last deployed and when. Written to <data>/release/current.json on
+    DEPLOY_PATH, which the metrics service mounts read-only: the deployment history (deployments.json) stays where make
+    deploy runs, which need not be the target. images=True: deploy-images has just started the images."""
+    from datetime import datetime, timezone
+    from project_deploy import history
+    directory = release_directory(project)
+    local = directory / RELEASE_INFO
+    info = json.loads(local.read_text()) if local.is_file() else {}
+    lock = json.loads((directory / LOCK_NAME).read_text()) if (directory / LOCK_NAME).is_file() else {}
+    now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+    info.update(environment=project.environment, setup=lock.get('setup', info.get('setup')))
+    if images:
+        info['images_at'] = now
+    deployed = [entry for entry in history(project) if not entry.get('failed')]
+    if deployed:
+        info.update(commit=deployed[-1]['commit'], ref=deployed[-1].get('ref'), deployed_at=deployed[-1]['at'])
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    local.write_text(json.dumps(info, indent=2, sort_keys=True) + '\n')
+    os.chmod(local, 0o644)
+    target = deploy_target(project)
+    remote = Path(deploy_path, project.data_directory.resolve().relative_to(project.root.resolve()), 'release')
+    target.mkdir([str(remote)])
+    target.push(str(local), str(remote / 'current.json'), '--chmod=F644')
+
+
 def deploy_images(project, transfer=True):
     """Load the release images into the target's Docker and start the release model there."""
     context, deploy_path = release_settings(project)
@@ -375,4 +405,5 @@ def deploy_images(project, transfer=True):
     subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', '-',
                     'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'],
                    input=json.dumps(model), text=True, check=True)
+    publish_release_info(project, deploy_path, images=True)
     return images
