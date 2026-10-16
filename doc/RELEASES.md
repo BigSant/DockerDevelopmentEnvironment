@@ -4,7 +4,7 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.13.0
 
 The metrics dashboard of `SERVICES=metrics` projects names its cron jobs, tells scripts from people in the traffic
 and shows what release runs where. `make build` and `make deploy-images` (a pipeline deploy with `IMAGES=auto` does
