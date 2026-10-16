@@ -4,6 +4,7 @@
 // history of the small families for the dashboard's charts. The website probes run in a loop of their own
 // (--probes, every METRICS_PROBE_INTERVAL seconds), so a page that takes 30 s never delays the minute.
 // Files in METRICS_SNAPSHOT_DIR (data/<env>/metrics): snapshot.json, probes.json, history/<UTC hour>.jsonl.
+// Each loop runs every round as its own process (--once): a round never sees what an earlier one cached.
 // Usage: php sampler.php [--once]            the minute loop (one sample with --once)
 //        php sampler.php --probes [--once]   the probe loop (one round with --once)
 //        php sampler.php --traffic [--once]  the traffic loop: caches the closed hours' analysis (traffic.php)
@@ -73,43 +74,47 @@ function metrics_probe_round($now)
     metrics_write_json(metrics_snapshot_directory() . '/probes.json', metrics_website_probe($now));
 }
 
+// One round in a process of its own (php sampler.php [--probes|--traffic] --once): nothing a round caches (a database
+// connection or its failure, the Docker collector's snapshot) is carried into the next. A round that fails is
+// logged by its process; the loop goes on.
+function metrics_round($mode)
+{
+    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ($mode === '' ? '' : ' ' . $mode) . ' --once';
+    passthru($command, $code);
+    return $code;
+}
+
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
     umask(022);
     $once = in_array('--once', $argv, true);
     $probes = in_array('--probes', $argv, true);
-    if (in_array('--traffic', $argv, true)) {
-        // Every 5 minutes: the hour that has closed is cached within minutes.
-        do {
-            try {
-                metrics_traffic_round(time());
-            } catch (Throwable $error) {
-                fwrite(STDERR, 'metrics-sampler: traffic: ' . $error->getMessage() . "\n");
-                if ($once) exit(1);
-            }
-            if (!$once) sleep(300);
-        } while (!$once);
+    $traffic = in_array('--traffic', $argv, true);
+    if ($once) {
+        try {
+            if ($traffic) metrics_traffic_round(time());
+            elseif ($probes) metrics_probe_round(time());
+            else metrics_sample(time());
+        } catch (Throwable $error) {
+            // The snapshot ages; /metrics then reports every group as down.
+            fwrite(STDERR, 'metrics-sampler: ' . ($traffic ? 'traffic: ' : '') . $error->getMessage() . "\n");
+            exit(1);
+        }
         exit(0);
     }
     if ($probes) {
         require_once __DIR__ . '/website.php';
-        if (!metrics_website_urls() && !$once) {
-            // Nothing to probe: the loop has nothing to do until the settings change (a restart).
-            while (true) sleep(3600);
-        }
+        // Nothing to probe: the loop has nothing to do until the settings change (a restart).
+        if (!metrics_website_urls()) while (true) sleep(3600);
     }
-    $interval = $probes ? metrics_website_probe_interval() : metrics_sampler_interval();
-    do {
+    $mode = $traffic ? '--traffic' : ($probes ? '--probes' : '');
+    // The traffic loop every 5 minutes (the hour that has closed is cached within minutes), the probes every
+    // METRICS_PROBE_INTERVAL, the minute's sample a few seconds after the minute starts, once its last log lines
+    // are written.
+    $interval = $traffic ? 300 : ($probes ? metrics_website_probe_interval() : metrics_sampler_interval());
+    while (true) {
         $now = time();
-        try {
-            $probes ? metrics_probe_round($now) : metrics_sample($now);
-        } catch (Throwable $error) {
-            // The snapshot ages; /metrics then reports every group as down.
-            fwrite(STDERR, 'metrics-sampler: ' . $error->getMessage() . "\n");
-            if ($once) exit(1);
-        }
-        if ($once) break;
-        // The minute's sample a few seconds after the minute starts, once its last log lines are written.
-        $next = $probes ? $now + $interval : $now - $now % $interval + $interval + min(5, intdiv($interval, 4));
+        metrics_round($mode);
+        $next = $mode !== '' ? $now + $interval : $now - $now % $interval + $interval + min(5, intdiv($interval, 4));
         sleep(max(1, $next - time()));
-    } while (true);
+    }
 }

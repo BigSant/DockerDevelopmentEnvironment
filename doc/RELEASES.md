@@ -4,6 +4,16 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## 2.12.3
+
+- **The metrics sampler no longer keeps a round's state.** Since 2.12.0 each loop of the metrics service was one
+  long-running process, and the caches meant for one sample lived on: a database login that failed once (for example
+  before `make db-monitor-user` created the account during the same deploy) kept the database group down until the
+  container restarted; the Containers group and tab stayed at the Docker collector's first snapshot (its age check
+  never ran again); the database server's status figures stayed at their first values. Every sample, probe and traffic
+  round now runs in a process of its own. `make build` and `make deploy-images`; a server that shows
+  `the DB monitor account … cannot log in` although the account works recovers with the new images.
+
 ## 2.12.2
 
 The dashboard of `SERVICES=metrics` projects says why a group was not collected and what it needs. Nothing to change

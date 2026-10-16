@@ -130,7 +130,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   `setup_metrics_group_up` 0 and nothing else. The website probes are the sampler's second loop (`--probes`, every
   `METRICS_PROBE_INTERVAL` = 300 s, curl `--max-time` 30; a timeout is time 30, status 0) into `probes.json`, which
   the minute's sample reads with `setup_website_probe_timestamp_seconds`; older than three intervals fails the group.
-  A loop that stops is restarted by `start.sh`. `PHP_CLI_SERVER_WORKERS=4` keeps a slow page from blocking a scrape.
+  Each loop runs every round as its own process (`sampler.php [--probes|--traffic] --once`): what a round caches
+  (the database connection or its failure, the server status, the Docker collector's snapshot) never reaches the
+  next. A loop that stops is restarted by `start.sh`. `PHP_CLI_SERVER_WORKERS=4` keeps a slow page from blocking a scrape.
   The HTTP window defaults to one minute, as often as the sampler samples and Prometheus scrapes.
   Dashboard (`dashboard.php`, the pages other than `/metrics`): PHP rendering plus a few lines of vanilla JS, self-
   contained like the cron and backup UIs, and computing nothing: tabs read the snapshot, the history or the log
