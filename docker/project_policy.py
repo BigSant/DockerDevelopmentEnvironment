@@ -323,10 +323,11 @@ TRAFFIC_CLASSES_INVALID = 3
 
 def traffic_classes_file(project):
     """The project's traffic classes (config/metrics/traffic.php) when the metrics service runs and the file exists."""
-    if 'metrics' not in project.active_model()['services']:
+    # PROJECT_CONFIG_DIRECTORY, as project_mounts reads it.
+    file = project.root / 'app/config' / TRAFFIC_CLASSES_FILE
+    if not file.exists() and not file.is_symlink():
         return None
-    file = Path(project.process_env['PROJECT_CONFIG_DIRECTORY']) / TRAFFIC_CLASSES_FILE
-    return file if file.exists() or file.is_symlink() else None
+    return file if 'metrics' in project.active_model()['services'] else None
 
 
 def check_traffic_classes(project):

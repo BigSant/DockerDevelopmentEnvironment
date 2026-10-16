@@ -563,7 +563,8 @@ class AutoSwitchTest(Fixture):
                 "config/mark": "same\n", "config/cron/crontab": "0 * * * * echo hourly\n", "public/index.php": "<?php // A\n"}
         commits = [("A", base),
                    ("B", {"public/index.php": "<?php // B\n"}),  # code only
-                   ("C", {"config/cron/crontab": "* * * * * echo minute\n"}),  # the crontab only
+                   # The crontab and the traffic classes only: both read where they are mounted.
+                   ("C", {"config/cron/crontab": "* * * * * echo minute\n", "config/metrics/traffic.php": "<?php return array();\n"}),
                    ("D", {"config/nginx/site.conf": "server {}\n"})]  # the containers' config
         origin, self.commits = self.repository("environment", commits)
         self.app = self.work / "root/app"
@@ -587,7 +588,7 @@ class AutoSwitchTest(Fixture):
         self.write_lock()
         self.run_step(0, IMAGES="auto", REF=c["C"])
         self.assert_out(f"IMAGES=auto: no (nothing image-related changed since {c['B'][:12]})")
-        self.assertNotIn("make release", self.make_log(), "a crontab change needs no images")
+        self.assertNotIn("make release", self.make_log(), "a crontab or traffic classes change needs no images")
         self.run_step(0, IMAGES="auto", REF=c["D"])
         self.assert_out(f"IMAGES=auto: yes (changed since {c['C'][:12]}: config/nginx/site.conf)")
         self.assert_log("make deploy-images ENV=prod transfer=0 | head=D")

@@ -4,6 +4,38 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+The metrics dashboard of `SERVICES=metrics` projects names its cron jobs, tells scripts from people in the traffic
+and shows what release runs where. `make build` and `make deploy-images` (a pipeline deploy with `IMAGES=auto` does
+it, because setup moved); a project changes nothing unless it wants classes of its own.
+
+- **Scripts and API clients are a traffic class of their own (`api`).** curl, Wget, python-requests and other HTTP
+  libraries and command-line tools, and requests without a user agent, counted as people before: on asana prod 24 912
+  of 24 929 requests were "human", almost all of them API calls. The Traffic tab has a "Scripts & API" card,
+  `setup_http_class_requests` an `api` label. **"human" drops on the day this deploys**: the requests are spread over
+  the new classes, the traffic itself did not fall. Regular and suspicious IPs now count people and attacks only.
+  The cached traffic hours are built again from the day files on the first traffic round, so the last 7 days use the
+  new classes too.
+- **Traffic classes of the project: `config/metrics/traffic.php`.** A PHP file in the project's configuration
+  (`app/config/metrics/`, beside `config/cron`) adds up to 10 classes, recognised by path, URL, user agent, method,
+  IP or CIDR range, status or host (or a function), and extends, replaces or turns off `api`; `bots` adds crawlers
+  like `METRICS_BOTS`. They are checked after attacks and before setup's bot, asset, api and human. Each class gets
+  a card on the Traffic tab, a line in `/feed` and a `setup_http_class_requests` label. `make up` checks the file
+  (`config/metrics/traffic.php is not valid: …`); an invalid file on a server leaves the built-in classes in effect
+  and the dashboard says why. Changing it needs neither images nor a restart: `make deploy` copies it and the next
+  analysis reads it. The format is in `doc/ARCHITECTURE.md` and `doc/lt/05-servisai.md`.
+- **Cron jobs have names.** The Cron tab, the Overview card of failing jobs and `setup_cron_job_info{name=…}` name a
+  job by its program and targets (`php console app:sync`, `curl shop.example/cron`, `make run-tasks-daily · nightly`);
+  option values, URL queries, `key=value` values and tokens are never shown.
+- **What runs here.** `make deploy` and `make deploy-images` write `data/<env>/release/current.json` on the target;
+  the Overview has a Release card (ref, commit, setup version, deploy time) and `/feed` a Release section, and
+  `/metrics` serves `setup_release_info`, `setup_release_deployed_timestamp_seconds` and
+  `setup_release_images_timestamp_seconds`. Locally the card says there is no release. A server shows the release
+  group down until the first `make deploy-images` with this version writes the file.
+- The dashboard's callout of a group's problems reads "Problems, and what they need" (a warning can come with
+  complete figures).
+
 ## 2.12.3
 
 - **The metrics sampler no longer keeps a round's state.** Since 2.12.0 each loop of the metrics service was one

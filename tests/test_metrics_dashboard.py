@@ -56,6 +56,7 @@ def snapshot(**overrides):
 class DashboardServer:
     php = ()
     zone = "UTC"
+    environment_name = "prod"
 
     def setUp(self):
         scratch = ROOT / ".test-work"
@@ -69,7 +70,7 @@ class DashboardServer:
         # Nothing to collect from: a page that read /proc, the logs or a database would show nothing.
         environment = {"PATH": "/usr/bin:/bin", "METRICS_SNAPSHOT_DIR": str(self.snapshots), "METRICS_PROC_ROOT": str(self.work / "none"),
                        "METRICS_LOGS_DIR": str(self.work / "none"), "METRICS_DATABASE_FIXTURE": str(self.work / "none.json"),
-                       "ENV": "prod", "PROJECT_NAME": "demo", "TZ": self.zone}
+                       "ENV": self.environment_name, "PROJECT_NAME": "demo", "TZ": self.zone}
         self.logs = self.work / "logs"
         environment["METRICS_LOGS_DIR"] = str(self.logs)
         server = subprocess.Popen(["php", *self.php, "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env=environment,
@@ -177,6 +178,25 @@ class OverviewTest(DashboardServer, unittest.TestCase):
         _, cards = self.cards()
         self.assertEqual((cards["load"][0], cards["iowait"][0]), ("warn", "warn"))
 
+    def test_the_release_card_and_the_failing_cron_jobs_by_name(self):
+        deployed = 1792130400  # 2026-10-16 06:00 UTC
+        info = {"setup": "2.13.0", "ref": "v1.4.0", "commit": "abc123def456"}
+        jobs = [({"job": "aaa", "source": "crontab", "line": "1", "schedule": "* * * * *", "name": "php console app:sync"}, 1),
+                ({"job": "bbb", "source": "crontab", "line": "2", "schedule": "0 3 * * *", "name": 'curl shop.example/"cron"'}, 1),
+                ({"job": "bbb", "source": "crontab.prod", "line": "1", "schedule": "0 4 * * *", "name": 'curl shop.example/"cron"'}, 1),
+                ({"job": "ccc", "source": "crontab", "line": "3", "schedule": "@hourly", "name": "make ok"}, 1)]
+        self.write(snapshot(setup_release_info=family([(info, 1)]),
+                            setup_release_deployed_timestamp_seconds=family([({}, deployed)]),
+                            setup_cron_job_info=family(jobs),
+                            setup_cron_job_last_exit_code=family([({"job": "aaa"}, 0), ({"job": "bbb"}, 3), ({"job": "ccc"}, 1)])))
+        _, cards = self.cards()
+        self.assertEqual(cards["release"][:3], ("none", "v1.4.0", "abc123def456 · setup 2.13.0 · deployed 2026-10-16 06:00"))
+        # Each failing job once, by its name.
+        self.assertEqual(cards["cron"][:3], ("bad", "2 failing", 'curl shop.example/&quot;cron&quot;, make ok · 3 with a recorded run'))
+        # On a server without the release figures the card is not shown (the release group says what is missing).
+        self.write(snapshot())
+        self.assertNotIn("release", self.cards()[1])
+
     def test_lines_come_from_the_last_24_hours_of_history(self):
         self.write(snapshot())
         history = self.snapshots / "history"
@@ -216,6 +236,17 @@ class OverviewTest(DashboardServer, unittest.TestCase):
         self.assertNotIn("<html", fragment)
         # The page loads nothing from elsewhere.
         self.assertNotRegex(page, r'(src|href)="(https?:)?//')
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class LocalOverviewTest(DashboardServer, unittest.TestCase):
+    environment_name = "local"
+
+    def test_the_release_card_says_there_is_no_release_locally(self):
+        self.write(snapshot())
+        body = fetch(self.base, "/")[2]
+        self.assertRegex(body, r'data-card="release"><h2>Release</h2><div class="value">local</div>'
+                               r'<div class="note">no release here: make up runs the checkout</div>')
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")

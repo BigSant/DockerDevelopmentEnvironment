@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -284,6 +285,31 @@ class ReleaseTest(unittest.TestCase):
         # A remote Docker context without DEPLOY_SSH: no way to look, compose reports it as before.
         with patch('project_release.subprocess.run', side_effect=AssertionError('no lookup')):
             project_release.check_ports(project, 'shop-stage', 'release-demo-stage', model)
+
+    @unittest.skipUnless(shutil.which('rsync'), 'rsync is required')
+    def test_the_release_info_says_what_runs_on_the_target(self):
+        from project_deploy import record
+        target = self.app.parent / 'target'
+        project = self.stage(f'APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH={target}\nDEPLOY_CONTEXT=default\n')
+        directory = project_release.release_directory(project)
+        directory.mkdir(parents=True)
+        (directory / 'images.lock.json').write_text(json.dumps({'project': 'release-demo-stage', 'setup': 'v2.13.0', 'images': {}}))
+        current = target / 'data/stage/release/current.json'
+        with contextlib.redirect_stdout(io.StringIO()):
+            project_release.publish_release_info(project, str(target), images=True)
+        first = json.loads(current.read_text())
+        self.assertEqual((first['environment'], first['setup']), ('stage', 'v2.13.0'))
+        self.assertIn('images_at', first)
+        self.assertNotIn('commit', first, 'no code deployed yet')
+        # The last completed deploy, not a failed one after it; the images' time stays.
+        record(project, {'ref': 'v1.4.0', 'commit': 'a' * 40, 'at': '2026-10-16T06:05:00+00:00'})
+        record(project, {'ref': 'v1.5.0', 'commit': 'b' * 40, 'at': '2026-10-16T07:00:00+00:00', 'failed': 'after-rsync'})
+        with contextlib.redirect_stdout(io.StringIO()):
+            project_release.publish_release_info(project, str(target))
+        second = json.loads(current.read_text())
+        self.assertEqual((second['ref'], second['commit'], second['deployed_at'], second['images_at']),
+                         ('v1.4.0', 'a' * 40, '2026-10-16T06:05:00+00:00', first['images_at']))
+        self.assertEqual(current.stat().st_mode & 0o777, 0o644, 'the metrics service reads it as the project account')
 
     def test_deploy_creates_the_code_and_data_directories_as_the_deploying_account(self):
         # Directories Docker creates for a missing bind source belong to root: php-fpm and MySQL, which run as

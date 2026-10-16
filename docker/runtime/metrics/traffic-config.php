@@ -51,7 +51,8 @@ function traffic_rules()
     return $rules;
 }
 
-function traffic_rules_from($file)
+// $checked: traffic_config_check($file) when the caller has it (the file is included once: it may declare functions).
+function traffic_rules_from($file, $checked = null)
 {
     $config = array('classes' => array(), 'bots' => array());
     $builtin = array(array('agent' => TRAFFIC_API_AGENTS));
@@ -59,9 +60,9 @@ function traffic_rules_from($file)
     $error = null;
     $text = '';
     if (is_file($file)) {
-        list($loaded, $errors) = traffic_config_check($file);
+        list($loaded, $errors) = $checked !== null ? $checked : traffic_config_check($file);
         if ($errors) {
-            $error = basename(dirname($file)) . '/' . basename($file) . ': ' . implode('; ', $errors) . '. The built-in classes apply until it is fixed.';
+            $error = 'config/metrics/traffic.php: ' . implode('; ', $errors) . '. The built-in classes apply until it is fixed.';
         } else {
             $config = $loaded;
             $text = (string) @file_get_contents($file);
@@ -287,11 +288,12 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
         echo 'No ' . $file . ': the built-in classes apply (' . implode(', ', TRAFFIC_BUILTIN_CLASSES) . ").\n";
         exit(0);
     }
-    list($config, $errors) = traffic_config_check($file);
+    $checked = traffic_config_check($file);
+    $errors = $checked[1];
     if ($errors) {
         fwrite(STDERR, $file . " is not valid:\n  " . implode("\n  ", $errors) . "\n");
         exit(TRAFFIC_CONFIG_INVALID);
     }
-    $rules = traffic_rules_from($file);
+    $rules = traffic_rules_from($file, $checked);
     echo 'Traffic classes: ' . implode(', ', array_keys($rules['labels'])) . ($rules['api'] === null ? ' (api off)' : '') . "\n";
 }

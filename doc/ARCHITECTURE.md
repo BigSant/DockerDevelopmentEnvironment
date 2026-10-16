@@ -123,7 +123,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   Collection is the sampler's (`sampler.php`, started with `php -S` by `start.sh`): its minute loop collects every
   group a few seconds after each minute starts into `snapshot.json` in `data/<env>/metrics` (bind mount
   `/var/lib/setup-metrics`, kept when the container is recreated; `problems` holds, per group, why its failed parts
-  failed, each message once, printable ASCII, 500 characters at most) and appends the families of up to 16 samples,
+  failed or what a part with complete figures warns about (`MetricsWarning`, the group stays up), each message once,
+  printable ASCII, 500 characters at most) and appends the families of up to 16 samples,
   without per-client, per-query, per-table or per-process lists, to `history/<UTC hour>.jsonl`, whole hours kept 48 h.
   `/metrics` only serves the latest snapshot plus `setup_metrics_snapshot_timestamp_seconds`, so scrapes change
   neither the load nor the windows; a snapshot older than three sampler intervals (or none) is served as every
@@ -151,11 +152,31 @@ fingerprint is outdated; it removes only with `apply=1`.
   backwards in 64 KiB chunks until enough lines match, a gzipped one forwards keeping only the last matches, a shown
   line cut at 4 KiB: memory stays bounded whatever the size.
   Traffic (`traffic.php`, `traffic-tab.php`, `/traffic` and `/traffic.json`), scan_access_file.sh's successor: each
-  nginx-proxy access line (tool sites left out) is one class, `attack` (fixed patterns: the script's SQLi `<word>%20`,
-  path traversal, probes such as `/.env`, `/wp-login`, `/.git/`, XSS) before `bot` (agent names one of setup's
-  crawlers or `METRICS_BOTS`) before `asset` (GET of a static file) before `human`; bots are counted per name by agent
-  like the script (an attack's too), suspicious IPs (an attack) and regular IPs by their non-asset, non-bot requests.
-  Tested against the script's own result.txt on `tests/fixtures/traffic`. A window (15 min, 1 h, 24 h and 7 d from a
+  nginx-proxy access line (tool sites left out) is one class, the first that matches: `attack` (fixed patterns: the
+  script's SQLi `<word>%20`, path traversal, probes such as `/.env`, `/wp-login`, `/.git/`, XSS), the project's own
+  classes, `bot` (agent names one of setup's crawlers, `METRICS_BOTS` or the project file's `bots`), `asset` (GET of a
+  static file), `api` (an HTTP library or command-line tool by agent prefix: curl, Wget, python-requests/httpx/urllib,
+  aiohttp, GuzzleHttp, okhttp, Apache-HttpClient, Java, Go-http-client, node-fetch, axios, PostmanRuntime,
+  libwww-perl, or no agent), `human`. Bots are counted per name by agent like the script (an attack's too); suspicious
+  IPs (an attack) and regular IPs count human and attack requests (the script counted every non-asset, non-bot line;
+  it had no class for scripts). Tested against the script's own result.txt on `tests/fixtures/traffic`.
+  The project's classes (`traffic-config.php`) are `config/metrics/traffic.php` of `PROJECT_CONFIG_DIRECTORY`, mounted
+  read-only at `/host/metrics-config` (optional like `/host/cron-config`) and read by every analysis, so a change
+  applies without a restart; `IMAGE_PATHS` leaves `config/metrics` out. A PHP file, not YAML (neither the PHP images
+  nor setup's Python parse YAML): it returns `classes` (name => `label`, `match`) and `bots`. `match` is a list of
+  rules, any of which matches, each an array of fields that must all match (`path` and `url` regexes without and with
+  the query, `agent` regex, `method`, `ip` addresses and CIDRs, `status`, `host`), or a closure that gets those
+  fields. At most 10 classes (`setup_http_class_requests` labels), names `^[a-z][a-z0-9_]{0,31}$`; `api` is the one
+  built-in class a project changes (`'extend' => true` adds rules, without it they replace the agents, `false` turns
+  it off). The file is refused whole for any mistake (syntax, unknown key or field, a regex that does not compile, a
+  bad CIDR, a built-in name): the built-in classes apply, the HTTP group throws a `MetricsWarning` after its figures
+  (the message reaches the snapshot's `problems`, the group stays up) and the Traffic tab and `/feed` say why.
+  `make up` and `make restart` check it first with the metrics image's PHP (`compose run --rm --no-deps metrics php
+  traffic-config.php`, exit 3 for an invalid file, whose errors are shown; another failure only says the check could
+  not run, because compose output can hold interpolated secrets); `make deploy` runs the same check in the running
+  service after copying the file and warns. A cached hour records the hash of the rules it was built with (setup's
+  `TRAFFIC_RULES_VERSION`, the file, the bot words); a different hash is a missing hour, built again from the day
+  files. A window (15 min, 1 h, 24 h and 7 d from a
   whole hour, or a local day) merges closed hours from `traffic/<hour>.json` in the sampler's directory and reads
   only the rest, in one pass per day file (plain backwards, gzipped forwards); the sampler's third loop (`--traffic`,
   every 5 minutes) caches every missing closed hour of 7 days, a local day per pass, and removes those past 8. An hour
@@ -191,7 +212,8 @@ fingerprint is outdated; it removes only with `apply=1`.
   Cache group (`cache.php`), only with `SERVICES` holding redis or memcached and metrics: `docker/metrics/redis.yml`
   / `memcached.yml` put the cache on the metrics network and set `METRICS_REDIS` / `METRICS_MEMCACHED`; the service
   sends Redis's `INFO` (RESP) and memcached's `stats` itself. Without either the group is absent, not down.
-  The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class, the 20
+  The HTTP group adds that analysis of its own window as a bounded set (`metrics_http_traffic`): per class (the
+  project's too), the 20
   busiest bots, every attack type, the 10 busiest URLs and those with the most 5xx, the requests over
   `METRICS_SLOW_REQUEST_SECONDS`, and the p50/p95 response times as gauges of the window (a summary's quantiles
   would be over its lifetime, and promtool rejects `quantile` on a gauge).
@@ -226,7 +248,17 @@ fingerprint is outdated; it removes only with `apply=1`.
   `/containers/{id}/stats?stream=false&one-shot=true` (no wait for a second sample): CPU time (CPU % from the
   change since its previous snapshot of the same container id), memory without the inactive page cache (as
   `docker stats`) against `HostConfig.Memory` (mem_limit), block I/O; a container whose stats fail keeps its state. With `SERVICES="cron metrics"` (`docker/metrics/cron.yml`) the
-  cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command.
+  cron group reads the crontab and `data/cron/history.jsonl` read-only and labels jobs by id, never by command:
+  `setup_cron_job_info` adds `name` (`cronJobName`: the program and up to three targets, wrappers such as flock, nice,
+  timeout, env and `cd … &&` and every option with its value left out, words split as the shell does, a URL as host and
+  path, `key=…`, long tokens and texts with spaces as `…`, then the line's `#` comment), shown on the Cron tab and on
+  the Overview card for a failing job.
+  Release group (`release.php`): `current.json` in `data/<env>/release` (mounted read-only at `/host/release`), which
+  `make deploy` and `make deploy-images` write on `DEPLOY_PATH` through the deploy target
+  (`project_release.publish_release_info`: the lock's setup version, when the images started, the last completed
+  deploy's ref, commit and time; `deployments.json` stays where make deploy runs). `setup_release_info{setup,ref,commit}`
+  and the deploy and images timestamps; ENV local/test without the file serves nothing (the Overview card says "no
+  release here"), stage/prod without it fail the group. `/feed` has a Release section after the Snapshot.
   The host group sums `/proc/<pid>` per `argv[0]` (arguments can hold secrets) as `ps %cpu/%mem` did.
   Logs: `metrics-logs` (`log-collector.php`, the same guards as `metrics-docker`) follows the stdout and stderr of
   every project container except itself through `GET /containers/{id}/logs?follow=1&timestamps=1` and appends the
