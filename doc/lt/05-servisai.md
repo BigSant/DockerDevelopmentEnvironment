@@ -480,13 +480,14 @@ Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER
 | Disk | projekto duomenų disko užimtumas | > 80 % | > 90 % |
 | 5xx / min | serverio klaidos per minutę ir užklausos per minutę | > 0 | ≥ 10 |
 | Response p95 | 95 % užklausų atsakymo laikas (kai yra srautų analizė) | > 1 s | > 3 s |
+| PHP workers | aktyvūs php-fpm procesai / `PHP_FPM_MAX_CHILDREN` (paleisti – pastaboje) | ≥ 80 % ar visi buvo užimti | užklausos laukia eilėje |
 | Database | prisijungimai ir limitas | > 60 % limito | > 80 % ar DB nepasiekiama |
 | Containers | veikiantys / visi | – | bent vienas sustojęs ar ne `healthy` |
 | Cron | užduotys (tik su `cron` servisu), nepavykusios – pagal pavadinimą | vėluoja paleidimas | paskutinis paleidimas nepavyko |
 | Page checks | `METRICS_URLS` patikrinimai | 4xx ar > 3 s | neatsakė (0) ar 5xx |
 | Release | kas čia veikia: ref, commit, setup versija, deploy laikas (lokaliai – „no release here“) | – | – |
 
-Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi.
+Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi. Užvedus pelę ant grafiko rodomas to momento laikas ir reikšmė. Visas lenteles galima rikiuoti paspaudus stulpelio antraštę (rikiavimas išlieka atsinaujinus puslapiui); Cron lentelėje nepavykęs paskutinis paleidimas rodomas raudonai, Logs – atskira lentelė kiekvienam servisui.
 
 **Srautai** (`/traffic`) – nginx-proxy užklausų analizė (seno `scan_access_file.sh` įpėdinis) pasirinktam langui: 15 min., 1 val., 24 val., 7 d. ar konkreti diena. Kiekviena užklausa priskiriama pirmai klasei, kuri jai tinka, šia tvarka:
 

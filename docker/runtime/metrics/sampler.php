@@ -13,6 +13,9 @@ require_once __DIR__ . '/metrics.php';
 // The history keeps the families of up to this many samples, without lists of clients, queries, tables or
 // processes (labelled by these): what changes from minute to minute in them is the membership, not a series.
 const METRICS_HISTORY_SAMPLES = 16;
+// Families the Overview's lines count whatever their size: one sample per cron job or container. A larger family with
+// a cpu label keeps only its cpu="all" sample (the I/O wait line), not one per core.
+const METRICS_HISTORY_WHOLE = array('setup_cron_job_last_exit_code', 'setup_container_running');
 const METRICS_HISTORY_SKIPPED_LABELS = array('ip', 'user_agent', 'query', 'schema', 'table', 'process', 'usr', 'label');
 const METRICS_HISTORY_HOURS = 48;
 
@@ -45,8 +48,11 @@ function metrics_history($directory, $now, Metrics $metrics)
     if (!is_dir($directory) && !@mkdir($directory, 0755) && !is_dir($directory)) throw new RuntimeException('cannot create ' . $directory);
     $values = array();
     foreach ($metrics->families() as $name => $family) {
-        if (count($family['samples']) > METRICS_HISTORY_SAMPLES) continue;
-        foreach ($family['samples'] as $sample) {
+        $samples = $family['samples'];
+        if (count($samples) > METRICS_HISTORY_SAMPLES && !in_array($name, METRICS_HISTORY_WHOLE, true)) {
+            $samples = array_filter($samples, function ($sample) { return isset($sample[0]['cpu']) && (string) $sample[0]['cpu'] === 'all'; });
+        }
+        foreach ($samples as $sample) {
             if (array_intersect(array_keys($sample[0]), METRICS_HISTORY_SKIPPED_LABELS)) continue 2;
             $values[$name . metrics_labels($sample[0])] = is_float($sample[1]) && !is_finite($sample[1]) ? null : $sample[1];
         }

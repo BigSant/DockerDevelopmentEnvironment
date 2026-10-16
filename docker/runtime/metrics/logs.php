@@ -107,17 +107,21 @@ function logs_tab_list()
         return '<div class="empty">No log collector files: the log collector runs with SERVICES=metrics (service metrics-logs).</div>';
     }
     if (!$files) return '<div class="empty">No log files yet.</div>';
-    $body = '<table class="list"><thead><tr><th>Service</th><th>Day</th><th>File</th><th class="num">Size</th><th></th></tr></thead><tbody>';
+    // A table per service, so a file is never read as another service's.
+    $body = '<div class="panels">';
     foreach ($files as $service => $list) {
-        foreach ($list as $index => $file) {
+        $body .= '<section class="panel"><h2>' . h($service) . '</h2><table class="list"><thead><tr><th>Day</th><th>File</th>'
+            . '<th class="num">Size</th><th></th></tr></thead><tbody>';
+        foreach ($list as $file) {
             list($name, $kind, $day, $bytes) = $file;
             $id = rawurlencode($service . '/' . $name);
-            $body .= '<tr><td>' . ($index === 0 ? '<b>' . h($service) . '</b>' : '') . '</td><td>' . h($day) . '</td>'
-                . '<td><a href="/logs/view?file=' . $id . '">' . h($name) . '</a></td><td class="num">' . h(logs_tab_size($bytes)) . '</td>'
-                . '<td><a class="quiet" href="/logs/download?file=' . $id . '">download</a></td></tr>';
+            $body .= '<tr><td class="id">' . h($day) . '</td><td class="id"><a href="/logs/view?file=' . $id . '">' . h($name) . '</a></td>'
+                . '<td class="num" data-v="' . (int) $bytes . '">' . h(logs_tab_size($bytes)) . '</td>'
+                . '<td class="id"><a class="quiet" href="/logs/download?file=' . $id . '">download</a></td></tr>';
         }
+        $body .= '</tbody></table></section>';
     }
-    return $body . '</tbody></table>';
+    return $body . '</div>';
 }
 
 function logs_tab_view($asked, $lines, $level, $text)

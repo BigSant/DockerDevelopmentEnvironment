@@ -24,10 +24,13 @@ function tabs_time($value)
     return $value ? date('Y-m-d H:i:s', (int) $value) : '–';
 }
 
-// $columns: [[family or "family:label", title, format(value) or null], ...]; rows keyed by the $keys labels. A sample
-// with only some of them (a cron job's last run has its id, its info also the file and line) fills every row that
-// agrees on those it has.
-function tabs_table($families, $title, $keys, $columns, $note = '')
+// $columns: [[family or "family:label", title, format(value) or null, cell class], ...]; rows keyed by the $keys labels.
+// A sample with only some of them (a cron job's last run has its id, its info also the file and line) fills every row
+// that agrees on those it has. Names and figures stay on one line (a narrow page scrolls the panel instead), a time
+// breaks between its date and time; only a query and a column whose class says wrap break. A figure's cell keeps its
+// raw value in data-v for the page's sort. $options: 'hidden' => [key => true: never shown, false: shown only when
+// the rows differ in it], 'row' => function([family or "family:label" => value]) giving the row's class ('bad').
+function tabs_table($families, $title, $keys, $columns, $note = '', $options = array())
 {
     $rows = array();
     $partial = array();
@@ -70,16 +73,41 @@ function tabs_table($families, $title, $keys, $columns, $note = '')
     $body = '<section class="panel wide"><h2>' . h($title) . '</h2>';
     if (!$rows) return $body . '<p class="stamp">No data.</p></section>';
     $body .= ($note !== '' ? '<p class="stamp">' . h($note) . '</p>' : '') . '<table class="list"><thead><tr>';
-    foreach ($keys as $key) $body .= '<th>' . h($key) . '</th>';
-    foreach ($columns as $column) $body .= '<th class="num">' . h($column[1]) . '</th>';
+    $classes = array();
+    foreach ($columns as $index => $column) {
+        $classes[$index] = isset($column[3]) ? $column[3] : (strpos($column[0], ':') !== false ? 'text'
+            : (isset($column[2]) && $column[2] === 'tabs_time' ? 'num time' : 'num'));
+    }
+    // Keys that identify a row without telling the reader anything are left out.
+    $shown = array();
+    foreach ($keys as $position => $key) {
+        $hidden = isset($options['hidden']) && array_key_exists($key, $options['hidden']) ? $options['hidden'][$key] : null;
+        $values = array();
+        foreach ($rows as $row) $values[$row['key'][$position]] = true;
+        if ($hidden === null || ($hidden === false && count($values) > 1)) $shown[$position] = true;
+    }
+    foreach ($keys as $position => $key) {
+        if (isset($shown[$position])) $body .= '<th>' . h($key) . '</th>';
+    }
+    foreach ($columns as $index => $column) {
+        $body .= '<th' . (strpos($classes[$index], 'num') === 0 ? ' class="num"' : '') . '>' . h($column[1]) . '</th>';
+    }
     $body .= '</tr></thead><tbody>';
     foreach ($rows as $row) {
-        $body .= '<tr>';
-        foreach ($row['key'] as $value) $body .= '<td class="key">' . h($value) . '</td>';
+        $values = array();
+        foreach ($columns as $index => $column) $values[$column[0]] = isset($row['cells'][$index]) ? $row['cells'][$index] : null;
+        $class = isset($options['row']) ? (string) call_user_func($options['row'], $values) : '';
+        $body .= $class !== '' ? '<tr class="' . h($class) . '">' : '<tr>';
+        foreach ($row['key'] as $position => $value) {
+            if (isset($shown[$position])) $body .= '<td class="' . ($keys[$position] === 'query' ? 'key' : 'id') . '">' . h($value) . '</td>';
+        }
         foreach ($columns as $index => $column) {
             $value = isset($row['cells'][$index]) ? $row['cells'][$index] : null;
-            $shown = $value === null ? '–' : (isset($column[2]) ? call_user_func($column[2], $value) : (is_numeric($value) ? tabs_number($value) : $value));
-            $body .= '<td class="num">' . h($shown) . '</td>';
+            $text = $value === null ? '–' : (isset($column[2]) ? call_user_func($column[2], $value) : (is_numeric($value) ? tabs_number($value) : $value));
+            // A time breaks only between its date and its time, never at a date's hyphens.
+            $text = strpos($classes[$index], 'time') !== false ? '<span>' . str_replace(' ', '</span> <span>', h($text)) . '</span>' : h($text);
+            $raw = strpos($classes[$index], 'num') === 0 && is_numeric($value) ? ' data-v="' . h($value) . '"' : '';
+            $body .= '<td class="' . $classes[$index] . '"' . $raw . '>' . $text . '</td>';
         }
         $body .= '</tr>';
     }
@@ -118,7 +146,7 @@ function tabs_containers($families)
             array('setup_container_running', 'running', $yes), array('setup_container_healthy', 'healthy', $yes),
             array('setup_container_restarts_total', 'restarts'), array('setup_container_oom_killed', 'OOM killed', $yes),
             array('setup_container_exit_code', 'last exit'), array('setup_container_started_timestamp_seconds', 'started', 'tabs_time'),
-            array('setup_container_info:image', 'image')))
+            array('setup_container_info:image', 'image', null, 'text wrap')))
         . tabs_table($families, 'Resources', array('service', 'container'), array(
             array('setup_container_cpu_percent', 'CPU %', function ($value) { return tabs_number($value, 1); }),
             array('setup_container_memory_bytes', 'memory MB', function ($value) { return tabs_number($value / 1048576, 1); }),
@@ -136,14 +164,18 @@ function tabs_cron($families)
 {
     return tabs_table($families, 'Schedule', array(), array(array('setup_cron_schedule_enabled', 'runs on schedule',
             function ($value) { return (int) $value === 1 ? 'yes' : 'no (CRON_SCHEDULE=off)'; })))
-        . tabs_table($families, 'Jobs', array('job', 'source', 'line'), array(array('setup_cron_job_info:name', 'name'),
+        . tabs_table($families, 'Jobs', array('job', 'source', 'line'), array(array('setup_cron_job_info:name', 'name', null, 'text wrap'),
             array('setup_cron_job_info:schedule', 'schedule'),
             array('setup_cron_job_last_run_timestamp_seconds', 'last run', 'tabs_time'), array('setup_cron_job_last_exit_code', 'exit'),
             array('setup_cron_job_last_duration_seconds', 'duration', function ($value) { return tabs_number($value) . ' s'; }),
             array('setup_cron_job_last_success_timestamp_seconds', 'last success', 'tabs_time'),
             array('setup_cron_job_expected_run_timestamp_seconds', 'next expected', 'tabs_time')),
-            'Jobs by id as the cron UI shows them, named by the program and its targets; the command itself is not shown '
-            . '(it can hold tokens): URLs without their query, values and tokens as "…".');
+            'Jobs named by the program and its targets; the command itself is not shown (it can hold tokens): URLs without '
+            . 'their query, values and tokens as "…". A job whose last run failed is red.',
+            array('hidden' => array('job' => true, 'source' => false), 'row' => function ($values) {
+                $exit = $values['setup_cron_job_last_exit_code'];
+                return $exit !== null && (int) $exit !== 0 ? 'bad' : '';
+            }));
 }
 
 // Why a group has nothing to show.
