@@ -1,12 +1,16 @@
 <?php
 // Traffic analysis, the successor of scan_access_file.sh: nginx-proxy's access lines (the log collector's day files,
-// tool sites left out as in the HTTP group) of a window, each request in one class:
+// tool sites left out as in the HTTP group) of a window, each request in one class, the first that matches:
 //   attack  a request matching an attack pattern (SQL injection, path traversal, probe, XSS), whatever its agent;
-//   bot     a user agent naming a known crawler (setup's list and METRICS_BOTS, comma-separated);
+//   (the project's own classes, config/metrics/traffic.php: traffic-config.php)
+//   bot     a user agent naming a known crawler (setup's list, METRICS_BOTS and the project file's bots);
 //   asset   a GET of a static file (image, script, style, font);
+//   api     a client that is not a browser: an HTTP library or command-line tool (curl, Wget, python-requests,
+//           GuzzleHttp, Java, Go-http-client ...) or no agent; a project extends, replaces or turns it off;
 //   human   everything else.
 // As the script did, bots are counted one by one by agent (an agent naming two counts for both, an attack's agent
-// too) and the requests per IP of the suspicious (an attack) and regular clients count their non-asset, non-bot lines. An hour that has closed is
+// too). The requests per IP of the suspicious (an attack) and regular clients count the human and attack lines: the
+// script counted every non-asset, non-bot line, but it had no class for scripts. An hour that has closed is
 // aggregated once and cached (traffic/<hour>.json in the sampler's directory; the sampler prepares them, a page
 // builds what is missing), so a 7-day window merges 168 small files instead of reading a week of logs. A cached hour
 // keeps the busiest TRAFFIC_TOP entries of each list. Lists are also trimmed while a file is read (to 2 x TRAFFIC_TOP
@@ -34,7 +38,6 @@ const TRAFFIC_ATTACKS = array(
     'probe' => '#(/\.env(\b|$)|/wp-(login|admin|content|includes)|/xmlrpc\.php|/\.git(/|$|\?)|/\.svn/|/\.aws/|/\.ssh/|/phpmyadmin|/\.ds_store|/server-status|/vendor/phpunit|/cgi-bin/)#i',
     'xss' => '/(<script|%3cscript|javascript:|onerror\s*=|onerror%3d|onload\s*=|onload%3d|%3csvg|<svg)/i',
 );
-const TRAFFIC_CLASSES = array('human', 'bot', 'asset', 'attack');
 const TRAFFIC_TOP = 500;
 // The attack lines a cached hour keeps per type (shown as examples).
 const TRAFFIC_LINES = 20;
@@ -42,26 +45,24 @@ const TRAFFIC_LINES = 20;
 const TRAFFIC_SETTLE = 120;
 const TRAFFIC_KEEP_DAYS = 8;
 
-function traffic_bots()
-{
-    $extra = preg_split('/\s*,\s*/', trim(metrics_setting('METRICS_BOTS', '')), -1, PREG_SPLIT_NO_EMPTY);
-    return array_values(array_unique(array_merge(TRAFFIC_BOTS, $extra)));
-}
+require_once __DIR__ . '/traffic-config.php';
 
 function traffic_empty()
 {
-    return array('requests' => 0, 'classes' => array_fill_keys(TRAFFIC_CLASSES, 0), 'bots' => array(), 'attacks' => array(),
+    $rules = traffic_rules();
+    return array('rules' => $rules['hash'], 'requests' => 0, 'classes' => array_fill_keys(array_keys($rules['labels']), 0), 'bots' => array(), 'attacks' => array(),
         'attack_lines' => array(), 'suspicious' => array(), 'ip_requests' => array(), 'ips' => array(), 'agents' => array(),
         'urls' => array(), 'errors4' => array(), 'errors5' => array(), 'times' => array(), 'durations' => array());
 }
 
 // One access line: [time, class, attack type or null, the line's fields] or null for a line that is not a site
 // request (not an access line, a tool site).
-function traffic_parse($line, $bots, $tools)
+function traffic_parse($line, $rules, $tools)
 {
     $fields = metrics_http_access_fields($line);
     if ($fields === null) return null;
-    if ($tools && preg_match('/ host=(\S+)$/', $line, $host) && isset($tools[strtolower($host[1])])) return null;
+    $host = preg_match('/ host=(\S+)$/', $line, $found) ? strtolower($found[1]) : '';
+    if ($tools && isset($tools[$host])) return null;
     $time = metrics_http_time('!d/M/Y:H:i:s O', $fields[2]);
     if ($time === null) return null;
     $request = $fields[3];
@@ -79,23 +80,35 @@ function traffic_parse($line, $bots, $tools)
     // As nginx wrote it: bytes outside ASCII stay \xHH escapes, so the agent is valid JSON (and HTML) text.
     $agent = $fields[7];
     $named = array();
-    foreach ($bots as $bot) {
+    foreach ($rules['bots'] as $bot) {
         if (strpos($agent, $bot) !== false) $named[] = $bot;
     }
-    if ($attack !== null) $class = 'attack';
-    elseif ($named) $class = 'bot';
-    elseif ($method === 'GET' && preg_match(TRAFFIC_ASSET, $path)) $class = 'asset';
-    else $class = 'human';
+    $class = $attack !== null ? 'attack' : traffic_class($rules, $named, array('ip' => $fields[1], 'method' => $method,
+        'path' => $path, 'url' => $target, 'status' => (int) $fields[4], 'agent' => $agent, 'host' => $host));
     $rt = preg_match('/ rt=(\d+(?:\.\d+)?) /', $line, $timing) ? (float) $timing[1] : null;
     return array($time, $class, $attack, array('ip' => $fields[1], 'path' => $path === '' ? $target : $path, 'status' => (int) $fields[4],
         'agent' => $agent, 'bots' => $named, 'rt' => $rt, 'line' => $line));
+}
+
+// The class of a request that is not an attack: the project's classes in their order, then bot, asset, api, human.
+function traffic_class($rules, $bots, $request)
+{
+    foreach ($rules['classes'] as $name => $own) {
+        if (traffic_matches($own[1], $request)) return $name;
+    }
+    if ($bots) return 'bot';
+    if ($request['method'] === 'GET' && preg_match(TRAFFIC_ASSET, $request['path'])) return 'asset';
+    foreach ($rules['api'] ?: array() as $api) {
+        if (traffic_matches($api, $request)) return 'api';
+    }
+    return 'human';
 }
 
 function traffic_add(&$aggregate, $parsed)
 {
     list(, $class, $attack, $request) = $parsed;
     $aggregate['requests']++;
-    $aggregate['classes'][$class]++;
+    $aggregate['classes'][$class] = (isset($aggregate['classes'][$class]) ? $aggregate['classes'][$class] : 0) + 1;
     $ip = $request['ip'];
     $aggregate['ips'][$ip] = (isset($aggregate['ips'][$ip]) ? $aggregate['ips'][$ip] : 0) + 1;
     $agent = $request['agent'];
@@ -152,7 +165,7 @@ function traffic_trim(&$aggregate, $limit)
 function traffic_merge(&$into, $from)
 {
     $into['requests'] += $from['requests'];
-    foreach ($from['classes'] as $class => $count) $into['classes'][$class] += $count;
+    foreach ($from['classes'] as $class => $count) $into['classes'][$class] = (isset($into['classes'][$class]) ? $into['classes'][$class] : 0) + $count;
     foreach (array('bots', 'attacks', 'ip_requests', 'ips', 'agents', 'urls', 'errors4', 'errors5', 'durations') as $list) {
         foreach ($from[$list] as $key => $count) {
             $into[$list][$key] = (isset($into[$list][$key]) ? $into[$list][$key] : 0) + $count;
@@ -205,11 +218,11 @@ function traffic_collect($pieces)
     foreach ($pieces as $index => $piece) $aggregates[$index] = traffic_empty();
     $from = min(array_map(function ($piece) { return $piece[0]; }, $pieces));
     $to = max(array_map(function ($piece) { return $piece[1]; }, $pieces));
-    $bots = traffic_bots();
+    $rules = traffic_rules();
     $tools = metrics_http_tool_hosts();
     $seen = 0;
-    $visit = function ($line) use ($pieces, &$aggregates, $bots, $tools, $from, &$seen) {
-        $parsed = traffic_parse($line, $bots, $tools);
+    $visit = function ($line) use ($pieces, &$aggregates, $rules, $tools, $from, &$seen) {
+        $parsed = traffic_parse($line, $rules, $tools);
         if ($parsed === null) return true;
         foreach ($pieces as $index => $piece) {
             if ($parsed[0] >= $piece[0] && $parsed[0] < $piece[1]) {
@@ -338,11 +351,14 @@ function traffic_collector_caught_up()
     return $cache[$state][1];
 }
 
-// A cache file that is whole: a failed write leaves none (metrics_write_json), an empty one is not trusted.
+// A cache file that is whole (a failed write leaves none, metrics_write_json; an empty one is not trusted) and built
+// with the classes in effect: after the project's file, METRICS_BOTS or setup's own classes change, the hours are
+// built again from the day files.
 function traffic_cached($hour)
 {
     $cached = metrics_read_json(traffic_directory() . '/' . $hour . '.json');
-    return $cached !== null && isset($cached['requests'], $cached['classes']) ? $cached : null;
+    if ($cached === null || !isset($cached['requests'], $cached['classes'], $cached['rules'])) return null;
+    return $cached['rules'] === traffic_rules()['hash'] ? $cached : null;
 }
 
 // The sampler's traffic loop: every closed hour of the last TRAFFIC_KEEP_DAYS - 1 days not cached yet, a local day
@@ -410,6 +426,7 @@ function traffic_report($aggregate, $limit = 20)
     return array(
         'requests' => $aggregate['requests'],
         'classes' => $aggregate['classes'],
+        'labels' => traffic_rules()['labels'],
         'bots' => metrics_http_top($aggregate['bots'], 100),
         'attacks' => $aggregate['attacks'],
         'attack_lines' => $aggregate['attack_lines'],

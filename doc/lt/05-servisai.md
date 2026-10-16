@@ -482,21 +482,24 @@ Metrikų servisas yra PHP integruotas serveris su 4 worker'iais (`PHP_CLI_SERVER
 | Response p95 | 95 % užklausų atsakymo laikas (kai yra srautų analizė) | > 1 s | > 3 s |
 | Database | prisijungimai ir limitas | > 60 % limito | > 80 % ar DB nepasiekiama |
 | Containers | veikiantys / visi | – | bent vienas sustojęs ar ne `healthy` |
-| Cron | užduotys (tik su `cron` servisu) | vėluoja paleidimas | paskutinis paleidimas nepavyko |
+| Cron | užduotys (tik su `cron` servisu), nepavykusios – pagal pavadinimą | vėluoja paleidimas | paskutinis paleidimas nepavyko |
 | Page checks | `METRICS_URLS` patikrinimai | 4xx ar > 3 s | neatsakė (0) ar 5xx |
+| Release | kas čia veikia: ref, commit, setup versija, deploy laikas (lokaliai – „no release here“) | – | – |
 
 Kortelė be duomenų nerodoma (pvz. Cron be `cron` serviso). Jei sampler'is sustojo, viršuje rodomas įspėjimas su nuotraukos amžiumi.
 
-**Srautai** (`/traffic`) – nginx-proxy užklausų analizė (seno `scan_access_file.sh` įpėdinis) pasirinktam langui: 15 min., 1 val., 24 val., 7 d. ar konkreti diena. Kiekviena užklausa priskiriama vienai klasei:
+**Srautai** (`/traffic`) – nginx-proxy užklausų analizė (seno `scan_access_file.sh` įpėdinis) pasirinktam langui: 15 min., 1 val., 24 val., 7 d. ar konkreti diena. Kiekviena užklausa priskiriama pirmai klasei, kuri jai tinka, šia tvarka:
 
 | Klasė | Kas | Pavyzdžiai |
 | --- | --- | --- |
 | Attacks | užklausa atitinka atakos šabloną (net jei agentas – botas) | SQLi (`select%20`, `union%20` … kaip scripte), path traversal (`../`, `/etc/passwd`), zondai (`/.env`, `/wp-login.php`, `/.git/`, `/phpmyadmin`), XSS (`<script`, `onerror=`) |
-| Bots | agentas įvardija žinomą robotą: setup sąrašas (scripto sąrašas ir dar ~30) ir projekto `METRICS_BOTS` | `Googlebot`, `bingbot/2.0`, `GPTBot` |
+| projekto klasės | `config/metrics/traffic.php` (žr. žemiau), failo tvarka | mokėjimų callback'ai, ERP sinchronizacija |
+| Bots | agentas įvardija žinomą robotą: setup sąrašas (scripto sąrašas ir dar ~30), projekto `METRICS_BOTS` ir failo `bots` | `Googlebot`, `bingbot/2.0`, `GPTBot` |
 | Static files | `GET` paveikslėlio, JS, CSS ar šrifto | `/themes/…/theme.css?v=3` |
+| Scripts & API (`api`) | HTTP biblioteka ar komandinės eilutės įrankis pagal agentą, arba agento nėra | `curl/8.5.0`, `Wget/1.21`, `python-requests/2.31`, `GuzzleHttp/7`, `Java/17`, `Go-http-client/1.1`, `-` |
 | People | visa kita | |
 
-Rodoma: kiekis pagal klasę, atsakymo laiko p95 ir mediana, atakos pagal tipą su eilutėmis, botai, įtartini IP (bent viena ataka) ir įprasti IP (kaip scripte – be statinių failų ir botų užklausų), top IP, user-agent'ai ir URL (be query), 4xx ir 5xx pagal URL, lėčiausi URL (`rt=`). Botų skaičiai sutampa su scripto (kiekvienas vardas skaičiuojamas atskirai pagal agentą).
+Rodoma: kortelė kiekvienai klasei, atsakymo laiko p95 ir mediana, atakos pagal tipą su eilutėmis, botai, įtartini IP (bent viena ataka) ir įprasti IP (žmonių užklausos; scriptas skaičiavo visas, išskyrus statinius failus ir botus, bet skriptų klasės neturėjo), top IP, user-agent'ai ir URL (be query), 4xx ir 5xx pagal URL, lėčiausi URL (`rt=`). Botų skaičiai sutampa su scripto (kiekvienas vardas skaičiuojamas atskirai pagal agentą).
 
 Projekto botai (be setup pakeitimo), `env/common.env`:
 
@@ -504,11 +507,41 @@ Projekto botai (be setup pakeitimo), `env/common.env`:
 METRICS_BOTS="ShopCrawler/1.0, Inhouse Monitor"
 ```
 
+**Projekto srauto klasės** – `app/config/metrics/traffic.php` (šalia `config/cron`), PHP failas, grąžinantis masyvą. Be failo galioja setup klasės. Pavyzdys:
+
+```php
+<?php
+return array(
+    'classes' => array(
+        'payment' => array('label' => 'Payment callbacks', 'match' => array(
+            array('path' => '#^/module/(paysera|montonio|stripe_official)/(callback|webhook|validation)#'),
+        )),
+        'integration' => array('label' => 'ERP / webservice', 'match' => array(
+            array('path' => '#^/api/#', 'method' => array('GET', 'PUT', 'POST')),
+            array('agent' => '#GuzzleHttp/#'),
+        )),
+        'monitor' => array('match' => array(array('ip' => array('10.8.0.0/24'), 'path' => '#^/health$#'))),
+        // setup api klasė: papildyti ('extend' => true), pakeisti (be extend) ar išjungti ('api' => false).
+        'api' => array('extend' => true, 'match' => array(array('agent' => '#^MyErpSync/#'))),
+        // Kai taisyklių neužtenka: funkcija gauna ip, method, path, url, status, agent, host.
+        'special' => array('match' => function (array $request) { return $request['status'] === 402; }),
+    ),
+    'bots' => array('ShopCrawler/1.0'),
+);
+```
+
+- Klasė tinka, kai tinka bent viena jos taisyklė; taisyklė tinka, kai tinka visi jos laukai. Laukai: `path` (regex keliui be query), `url` (regex su query), `agent` (regex), `method`, `ip` (adresai ir CIDR), `status`, `host` (viena reikšmė ar sąrašas).
+- Iki 10 klasių (kiekviena – `setup_http_class_requests` label'is), vardas `a-z`, `0-9`, `_`, pradedant raide. `attack`, `bot`, `asset`, `human` keisti negalima, `api` – galima.
+- `label` – kortelės pavadinimas (be jo – vardas didžiąja raide).
+- Pagalbinės funkcijos – tik closure'ai: vardinės funkcijos, klasės ir `exit`/`die` atmetami (failą skaito dashboard'as ir sampler'is, kur toks vardas gali jau būti). Closure'o įspėjimai nerodomi, o išimtis reiškia „netinka“.
+- `make up` failą patikrina metrics image'o PHP ir sustoja su klaidomis (`config/metrics/traffic.php is not valid: …`). Serveryje klaidingas failas nieko nesugadina: galioja setup klasės, o Traffic tab'as, Overview ir `/feed` parašo, kas negerai; `make deploy` tai parodo įspėjimu.
+- Pakeitimui nereikia nei image'ų, nei restart'o: `make deploy` failą nukopijuoja, kita analizė jį perskaito. Uždarytų valandų cache perskaičiuojamas iš dienos failų, todėl ir 7 d. langas rodo naujas klases (pirmas 7 d. lango atidarymas po pakeitimo gali užtrukti, kol sampler'is perskaičiuoja).
+
 Uždarytų valandų rezultatai saugomi `data/<ENV>/metrics/traffic/` (8 d.): sampler'is juos paruošia kas 5 min., todėl 7 d. langas atsidaro greitai ir dienos failų neperskaito iš naujo. Klasės, botai, atakos ir atsakymo laikai tikslūs; sąrašai laiko po 500 dažniausių kiekvienos valandos įrašų, todėl judriame lange retesnių įrašų skaičiai apytiksliai. Valanda į cache įrašoma tik tada, kai log'ų kolektorius veikė po jos pabaigos: kol jis sustojęs, valandos skaičiuojamos iš naujo ir, jam grįžus, papildomos.
 
-**Database**, **Containers**, **Cron** – tos pačios reikšmės kaip `/metrics`, lentelėmis: DB – talpa ir prisijungimai, lėtos, table-scan ir daugiausiai laiko užimančios užklausos, lėčiausias vykdymas, dabar vykdomos, lentelių lock'ai ir I/O; Konteineriai – kiekvieno projekto konteinerio būsena, health, restart'ai, OOM, paskutinis exit kodas, paleidimo laikas ir resursai (CPU %, atmintis ir dalis nuo `mem_limit`, disko I/O) – matosi, kuris servisas valgo resursus; Cron – kiekviena užduotis (id, failas, eilutė, grafikas), paskutinis paleidimas, exit kodas, trukmė, paskutinė sėkmė ir kitas laukiamas paleidimas (komanda nerodoma – joje būna token'ų). Kai duomenų nėra, skirtukas parašo kodėl (pvz. `cron` servisas neįjungtas).
+**Database**, **Containers**, **Cron** – tos pačios reikšmės kaip `/metrics`, lentelėmis: DB – talpa ir prisijungimai, lėtos, table-scan ir daugiausiai laiko užimančios užklausos, lėčiausias vykdymas, dabar vykdomos, lentelių lock'ai ir I/O; Konteineriai – kiekvieno projekto konteinerio būsena, health, restart'ai, OOM, paskutinis exit kodas, paleidimo laikas ir resursai (CPU %, atmintis ir dalis nuo `mem_limit`, disko I/O) – matosi, kuris servisas valgo resursus; Cron – kiekviena užduotis (id, failas, eilutė, pavadinimas, grafikas), paskutinis paleidimas, exit kodas, trukmė, paskutinė sėkmė ir kitas laukiamas paleidimas. Pavadinimas – programa ir jos taikiniai (`php console app:sync`, `curl shop.example/cron`, `make run-tasks-daily · nightly` su eilutės `#` komentaru); pati komanda nerodoma, nes joje būna token'ų: be opcijų reikšmių, URL ir keliai be query, `key=…`, ilgi token'ai ir žodis po `token`, `password`, `key`, `Bearer` … – `…`. Kai duomenų nėra, skirtukas parašo kodėl (pvz. `cron` servisas neįjungtas).
 
-**`/feed`** – tekstinė ataskaita žmogui ar LLM (pvz. įklijuoti į pokalbį ar pridėti prie užduoties): paskutinė nuotrauka seno `monitoring.sh` `results.txt` sekcijomis su tomis pačiomis antraštėmis (`Uptime:`, `RAM Usage:`, … `Top RAM-consuming Processes:`, kiekviena baigiasi brūkšnių eilute) ir paskutinių 24 val. srautų analizė (`Traffic classes:`, `Traffic bot requests:`, `Traffic attacks:` su eilutėmis, top IP, user-agent'ai, URL, 4xx/5xx, lėčiausi URL). Turinys – setup reikšmės, ne senų komandų (`df`, `free`, …) išvestis; server_stats_viewer jos neskaito. Apsauga kaip `/metrics`: IP sąrašas ir token'as, be `METRICS_HTPASSWD`.
+**`/feed`** – tekstinė ataskaita žmogui ar LLM (pvz. įklijuoti į pokalbį ar pridėti prie užduoties): paskutinė nuotrauka seno `monitoring.sh` `results.txt` sekcijomis su tomis pačiomis antraštėmis (`Uptime:`, `RAM Usage:`, … `Top RAM-consuming Processes:`, kiekviena baigiasi brūkšnių eilute), `Release:` sekcija po `Snapshot:` (kas čia veikia: setup versija, ref, commit, deploy laikas) ir paskutinių 24 val. srautų analizė (`Traffic classes:` su projekto klasėmis, `Traffic bot requests:`, `Traffic attacks:` su eilutėmis, top IP, user-agent'ai, URL, 4xx/5xx, lėčiausi URL). Turinys – setup reikšmės, ne senų komandų (`df`, `free`, …) išvestis; server_stats_viewer jos neskaito. Apsauga kaip `/metrics`: IP sąrašas ir token'as, be `METRICS_HTPASSWD`.
 
 ```bash
 curl -H "Authorization: Bearer $METRICS_TOKEN" https://metrics.demo.lt/feed

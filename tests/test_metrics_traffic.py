@@ -44,7 +44,9 @@ def script_result():
 
 
 @unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
-class TrafficTest(unittest.TestCase):
+class TrafficBase(unittest.TestCase):
+    """php -S over a work directory: the log collector's files, the sampler's and the project's traffic classes
+    (absent until a test writes them)."""
     php = ()
 
     def setUp(self):
@@ -59,7 +61,8 @@ class TrafficTest(unittest.TestCase):
         self.snapshots = self.work / "snapshots"
         self.snapshots.mkdir()
         self.environment = {"PATH": "/usr/bin:/bin", "METRICS_SNAPSHOT_DIR": str(self.snapshots), "METRICS_LOGS_DIR": str(self.logs),
-                            "TZ": ZONE, "DOMAIN": "demo.local", "METRICS_BOTS": "ShopCrawler/1.0, Inhouse Monitor"}
+                            "TZ": ZONE, "DOMAIN": "demo.local", "METRICS_BOTS": "ShopCrawler/1.0, Inhouse Monitor",
+                            "METRICS_TRAFFIC_CONFIG": str(self.work / "metrics-config/traffic.php")}
         port = free_port()
         server = subprocess.Popen(["php", *self.php, "-S", f"127.0.0.1:{port}", str(ENDPOINT)], env=self.environment,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -78,6 +81,8 @@ class TrafficTest(unittest.TestCase):
         self.assertEqual((status, kind), (200, "application/json"), body)
         return json.loads(body)
 
+
+class TrafficTest(TrafficBase):
     def test_a_known_log_gives_the_scripts_bots_injections_and_ips(self):
         shutil.copy(FIXTURES / "access-2026-10-14.log", self.logs / "nginx-proxy")
         expected = script_result()
@@ -87,7 +92,8 @@ class TrafficTest(unittest.TestCase):
         self.assertEqual(report["attacks"], {"sqli": 3})
         self.assertEqual(report["suspicious_ips"], expected["suspicious"])
         self.assertEqual(report["regular_ips"], expected["regular"])
-        self.assertEqual(report["classes"], {"human": 41, "bot": 21, "asset": 35, "attack": 3})
+        # The python-requests line is an SQL injection.
+        self.assertEqual(report["classes"], {"human": 41, "api": 0, "bot": 21, "asset": 35, "attack": 3})
         # 4xx and 5xx by URL (no query), the slowest URLs by average.
         self.assertEqual(report["errors4"], {"/lt/nera": 2, "/module/x/ajax.php": 1})
         self.assertEqual(report["errors5"], {"/lt/uzsakymas": 2})
@@ -126,7 +132,7 @@ class TrafficTest(unittest.TestCase):
         (self.logs / f"nginx-proxy/access-{local:%Y-%m-%d}.log").write_text("".join(rows) + "\n")
         report = self.report("window=1h")
         self.assertEqual(report["attacks"], {"probe": 4, "traversal": 1, "xss": 1})
-        self.assertEqual(report["classes"], {"human": 1, "bot": 2, "asset": 0, "attack": 6})
+        self.assertEqual(report["classes"], {"human": 1, "api": 0, "bot": 2, "asset": 0, "attack": 6})
         # Bots are counted by agent like the script did, an attack's agent too; the class is the attack.
         self.assertEqual(report["bots"], {"ShopCrawler/1.0": 1, "Inhouse Monitor": 1, "Googlebot": 1})
         self.assertEqual(set(report["suspicious_ips"]), {"203.0.113.5", "203.0.113.6", "203.0.113.7", "203.0.113.8"})
@@ -244,6 +250,212 @@ class TrafficTest(unittest.TestCase):
         self.assertFalse(old.exists())
 
 
+class TrafficClassesTest(TrafficBase):
+    """Scripts and API clients (api) apart from people, and the project's own classes from config/metrics/traffic.php:
+    in file order after the attacks and before setup's bot, asset, api and human; an invalid file changes nothing."""
+
+    def write(self, rows, config=None):
+        moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)
+        local = moment.astimezone(ZoneInfo(ZONE))
+        (self.logs / f"nginx-proxy/access-{local:%Y-%m-%d}.log").write_text(
+            "".join(line(ip, moment, request, status, agent, host=host) for ip, request, status, agent, host in rows))
+        if config is not None:
+            (self.work / "metrics-config").mkdir(exist_ok=True)
+            (self.work / "metrics-config/traffic.php").write_text(config)
+
+    def test_scripts_and_api_clients_are_not_people(self):
+        self.write([("198.51.100.1", "GET /lt/ HTTP/1.1", 200, FIREFOX, "demo.local"),
+                    ("198.51.100.2", "GET /module/x/cron.php?token=a HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    ("198.51.100.3", "POST /api/orders HTTP/1.1", 201, "python-requests/2.31.0", "demo.local"),
+                    ("198.51.100.4", "GET / HTTP/1.1", 200, "-", "demo.local"),
+                    ("198.51.100.5", "GET /lt/x HTTP/1.1", 200, "GuzzleHttp/7", "demo.local"),
+                    ("198.51.100.6", "GET /lt/y HTTP/1.1", 200, "Java/17.0.2", "demo.local"),
+                    ("198.51.100.7", "GET /lt/z HTTP/1.1", 200, "Go-http-client/1.1", "demo.local"),
+                    # A static file is one whoever asks.
+                    ("198.51.100.8", "GET /img/logo.png HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    # An agent setup does not know is a person.
+                    ("198.51.100.9", "GET /lt/ HTTP/1.1", 200, "MyApp/1.0", "demo.local")])
+        report = self.report("window=1h")
+        self.assertEqual(report["classes"], {"human": 2, "api": 6, "bot": 0, "asset": 1, "attack": 0})
+        self.assertEqual(list(report["labels"].items()), [("human", "People"), ("api", "Scripts & API"), ("bot", "Bots"),
+                                                          ("asset", "Static files"), ("attack", "Attacks")])
+        # Regular IPs are people's.
+        self.assertEqual(report["regular_ips"], {"198.51.100.1": 1, "198.51.100.9": 1})
+        page = fetch(self.base, "/traffic?window=1h")[2]
+        self.assertIn('data-class="api"><h2>Scripts &amp; API</h2><div class="value">6</div>', page)
+        self.assertNotIn("data-problems", page)
+
+    def test_the_projects_classes_match_in_file_order_before_setups(self):
+        config = """<?php
+return array(
+    'classes' => array(
+        'payment' => array('label' => 'Payment callbacks', 'match' => array(array('path' => '#^/module/paysera/callback#'))),
+        'integration' => array('match' => array(array('path' => '#^/api/#', 'method' => array('put', 'POST')),
+            array('agent' => '#GuzzleHttp/#'))),
+        'monitor' => array('match' => array(array('ip' => array('10.8.0.0/24', '2001:db8::/32'), 'path' => '#^/health$#'))),
+        'admin' => array('match' => array(array('host' => 'Admin.Demo.Local'),
+            array('url' => '#[?&]controller=AdminOrders#', 'status' => array(200, 302)))),
+        'teapot' => array('match' => function (array $request) { return $request['status'] === 418; }),
+        'api' => array('extend' => true, 'match' => array(array('agent' => '#^MyErpSync/#'))),
+    ),
+    'bots' => array('FileCrawler/2'),
+);
+"""
+        googlebot = "Mozilla/5.0 (compatible; Googlebot/2.1)"
+        self.write([("192.0.2.1", "GET /module/paysera/callback?order=1 HTTP/1.1", 200, googlebot, "demo.local"),
+                    ("192.0.2.2", "POST /api/orders HTTP/1.1", 201, "curl/8.5.0", "demo.local"),
+                    ("192.0.2.2", "GET /api/orders HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    ("192.0.2.3", "GET /lt/ HTTP/1.1", 200, "GuzzleHttp/7", "demo.local"),
+                    ("10.8.0.5", "GET /health HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    ("2001:db8::5", "GET /health HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    ("10.9.0.5", "GET /health HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    ("192.0.2.4", "GET /x HTTP/1.1", 200, FIREFOX, "admin.demo.local"),
+                    ("192.0.2.4", "GET /adm/index.php?controller=AdminOrders&token=x HTTP/1.1", 302, FIREFOX, "demo.local"),
+                    ("192.0.2.5", "GET /tea HTTP/1.1", 418, FIREFOX, "demo.local"),
+                    ("192.0.2.6", "GET /lt/ HTTP/1.1", 200, "MyErpSync/3.1", "demo.local"),
+                    ("192.0.2.7", "GET /lt/ HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                    ("192.0.2.8", "GET /lt/ HTTP/1.1", 200, "FileCrawler/2.1", "demo.local"),
+                    ("192.0.2.9", "GET /lt/ HTTP/1.1", 200, FIREFOX, "demo.local"),
+                    # An attack on a project path is an attack.
+                    ("203.0.113.1", "GET /module/paysera/callback/../../etc/passwd HTTP/1.1", 400, FIREFOX, "demo.local")],
+                   config)
+        report = self.report("window=1h")
+        self.assertEqual(report["classes"], {"human": 1, "payment": 1, "integration": 2, "monitor": 2, "admin": 2, "teapot": 1,
+                                             "api": 4, "bot": 1, "asset": 0, "attack": 1})
+        self.assertEqual(list(report["labels"].items()),
+                         [("human", "People"), ("payment", "Payment callbacks"), ("integration", "Integration"),
+                          ("monitor", "Monitor"), ("admin", "Admin"), ("teapot", "Teapot"), ("api", "Scripts & API"),
+                          ("bot", "Bots"), ("asset", "Static files"), ("attack", "Attacks")])
+        # Bots are still counted by agent, the project file's too.
+        self.assertEqual(report["bots"], {"Googlebot": 1, "FileCrawler/2": 1})
+        self.assertEqual(report["regular_ips"], {"192.0.2.9": 1})
+        self.assertEqual(set(report["suspicious_ips"]), {"203.0.113.1"})
+        page = fetch(self.base, "/traffic?window=1h")[2]
+        self.assertIn('data-class="payment"><h2>Payment callbacks</h2><div class="value">1</div>', page)
+        self.assertNotIn("data-problems", page)
+
+    def test_the_built_in_api_class_is_replaced_or_turned_off(self):
+        rows = [("192.0.2.1", "GET /lt/ HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                ("192.0.2.2", "GET /lt/ HTTP/1.1", 200, "MyErpSync/3.1", "demo.local")]
+        self.write(rows, "<?php return array('classes' => array('api' => array('match' => array(array('agent' => '#^MyErpSync/#')))));")
+        self.assertEqual(self.report("window=1h")["classes"], {"human": 1, "api": 1, "bot": 0, "asset": 0, "attack": 0})
+        self.write(rows, "<?php return array('classes' => array('api' => false));")
+        report = self.report("window=1h")
+        self.assertEqual(report["classes"], {"human": 2, "bot": 0, "asset": 0, "attack": 0})
+        self.assertNotIn("api", report["labels"])
+
+    def test_an_invalid_file_leaves_the_built_in_classes_and_says_why(self):
+        rows = [("192.0.2.1", "GET /lt/ HTTP/1.1", 200, "curl/8.5.0", "demo.local"),
+                ("192.0.2.2", "GET /api/x HTTP/1.1", 200, FIREFOX, "demo.local")]
+        for config, reason in (
+                ("<?php return array('classes' => array('own' => array('match' => array(array('path' => '#^/api/')))));",
+                 "class 'own' rule 1: path is not a valid regular expression"),
+                ("<?php return array('classes' => array('own' => array('match' => array(array('path' => '#^/api/#')))) ;",
+                 "ParseError on line 1")):
+            self.write(rows, config)
+            report = self.report("window=1h")
+            self.assertEqual(report["classes"], {"human": 1, "api": 1, "bot": 0, "asset": 0, "attack": 0})
+            page = fetch(self.base, "/traffic?window=1h")[2]
+            self.assertIn('<div class="callout error" data-problems>config/metrics/traffic.php: ', page)
+            self.assertIn(reason, page.replace("&#039;", "'"))
+            self.assertIn("The built-in classes apply until it is fixed.", page)
+
+    def test_a_closure_that_warns_or_throws_only_does_not_match(self):
+        self.write([("192.0.2.1", "GET /lt/ HTTP/1.1", 200, FIREFOX, "demo.local"),
+                    ("192.0.2.2", "GET /tea HTTP/1.1", 418, FIREFOX, "demo.local")],
+                   "<?php return array('classes' => array("
+                   "'noisy' => array('match' => function (array $r) { return $r['referer'] === 'x' || $r['status'] === 418; }),"
+                   "'failing' => array('match' => function (array $r) { throw new RuntimeException('no'); })));")
+        # The warnings stay out of the JSON (report() parses it) and the page.
+        self.assertEqual(self.report("window=1h")["classes"],
+                         {"human": 1, "noisy": 1, "failing": 0, "api": 0, "bot": 0, "asset": 0, "attack": 0})
+        self.assertNotIn("Warning", fetch(self.base, "/traffic?window=1h")[2])
+
+    def test_cached_hours_are_built_again_when_the_classes_change(self):
+        moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)
+        name = f"access-{moment.astimezone(ZoneInfo(ZONE)):%Y-%m-%d}.log.gz"
+        with gzip.open(self.logs / "nginx-proxy" / name, "wt") as handle:
+            for number in range(30):
+                handle.write(line(f"198.51.100.{number}", moment, f"GET /lt/old-{number} HTTP/1.1"))
+        self.assertEqual(self.report("window=7d")["classes"]["human"], 30)
+        hour = int(moment.timestamp()) // 3600 * 3600
+        before = json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["rules"]
+        (self.work / "metrics-config").mkdir()
+        (self.work / "metrics-config/traffic.php").write_text("<?php return array('classes' => array('old' => array('match' => array(array('path' => '#^/lt/old-#')))));")
+        report = self.report("window=7d")
+        self.assertEqual((report["classes"]["old"], report["classes"]["human"]), (30, 0))
+        self.assertNotEqual(json.loads((self.snapshots / f"traffic/{hour}.json").read_text())["rules"], before)
+
+
+@unittest.skipUnless(shutil.which("php"), "PHP CLI is required")
+class TrafficConfigCheckTest(unittest.TestCase):
+    """php traffic-config.php [file]: what make up runs in the metrics service; 3 and the errors for an invalid file."""
+    CHECK = ROOT / "docker/runtime/metrics/traffic-config.php"
+
+    def check(self, text):
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "traffic.php"
+            if text is not None:
+                file.write_text(text)
+            return subprocess.run(["php", str(self.CHECK), str(file)], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+
+    def test_a_valid_file_lists_its_classes_and_none_means_the_built_in_ones(self):
+        result = self.check("<?php return array('classes' => array('payment' => array('match' => array(array('path' => '#^/pay#')))),"
+                            " 'bots' => array('X/1'));")
+        self.assertEqual((result.returncode, result.stdout), (0, "Traffic classes: human, payment, api, bot, asset, attack\n"))
+        # Class constants and anonymous classes are no declarations.
+        result = self.check("<?php $a = Closure::class; $b = new class {};\n"
+                            "return array('classes' => array('own' => array('match' => function (array $r) { return $r['agent'] === 'x'; })));")
+        self.assertEqual((result.returncode, result.stdout), (0, "Traffic classes: human, own, api, bot, asset, attack\n"), result.stderr)
+        result = self.check(None)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("the built-in classes apply (human, api, bot, asset, attack)", result.stdout)
+
+    def test_every_mistake_is_named(self):
+        result = self.check("""<?php return array('other' => 1, 'bots' => array(''), 'classes' => array(
+            'Bad-Name' => array('match' => array(array('path' => '#x#'))),
+            'bot' => array('match' => array(array('agent' => '#x#'))),
+            'human' => false,
+            'nomatch' => array('label' => 'x'),
+            'empty' => array('match' => array()),
+            'fields' => array('label' => str_repeat('x', 41), 'colour' => 1, 'match' => array(array('path' => '#(#', 'ip' => '10.0.0.0/33',
+                'status' => '200', 'method' => array(), 'agent' => 5, 'size' => 1))),
+            'api' => array('extend' => 'yes', 'match' => array(array('agent' => '#x#'))),
+        ));""")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        for reason in ("unknown key 'other' (classes, bots)", "'bots' must be a list of user-agent words",
+                       "class 'Bad-Name': a name is a-z, 0-9 and _", "class 'bot' is built in (add crawlers under 'bots')",
+                       "class 'human' is built in; only api can be changed", "class 'nomatch': no 'match'",
+                       "class 'empty': 'match' is a list of rules", "class 'fields': unknown key 'colour'",
+                       "class 'fields': the label is a text of 40 characters at most",
+                       "class 'fields' rule 1: path is not a valid regular expression",
+                       "class 'fields' rule 1: 10.0.0.0/33 is not an IP address or CIDR range",
+                       "class 'fields' rule 1: status is a status code or a list of them", "class 'fields' rule 1: method is empty",
+                       "class 'fields' rule 1: agent is not a valid regular expression",
+                       "class 'fields' rule 1: unknown field 'size'", "class 'api': extend is true or false"):
+            self.assertIn(reason, result.stderr)
+
+    def test_what_would_break_the_service_is_refused_before_the_file_runs(self):
+        # The dashboard defines h(): a named function could already exist where the file is read, and exit ends it.
+        result = self.check("<?php\nfunction h($r) { return true; }\nclass Rules {}\nif (getenv('X')) exit(1);\n"
+                            "return array('classes' => array());")
+        self.assertEqual((result.returncode, result.stdout), (3, ""))
+        for reason in ("line 2: function 'h': use a closure", "line 3: no class declarations", "line 4: exit would end the analysis"):
+            self.assertIn(reason, result.stderr)
+
+    def test_eleven_classes_a_syntax_error_and_no_array_are_refused(self):
+        classes = ", ".join(f"'c{n}' => array('match' => array(array('path' => '#^/{n}#')))" for n in range(11))
+        result = self.check(f"<?php return array('classes' => array({classes}));")
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("11 classes; 10 at most", result.stderr)
+        result = self.check("<?php return array(")
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("ParseError on line", result.stderr)
+        result = self.check("<?php echo 'noise'; return 'classes';")
+        self.assertEqual((result.returncode, result.stdout), (3, ""))
+        self.assertIn("it must return an array with 'classes'", result.stderr)
+
+
 class TrafficMemoryTest(TrafficTest):
     """The analysis keeps its lists bounded: a busy day within 64 MB (the metrics service has 128 MB)."""
     php = ("-d", "memory_limit=64M")
@@ -297,8 +509,10 @@ class TrafficMetricsTest(EndpointMixin, unittest.TestCase):
 
     def test_classes_slow_requests_and_percentiles_of_the_window(self):
         metrics = self.scrape()
-        # Nine site requests in the window (the scrape of metrics.demo.local is left out), none a bot or an attack.
-        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"), {"human": 9, "bot": 0, "asset": 0, "attack": 0})
+        # Nine site requests in the window (the scrape of metrics.demo.local is left out), none a bot or an attack: two
+        # by curl and a TLS handshake without an agent are scripts.
+        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"),
+                         {"human": 6, "api": 3, "bot": 0, "asset": 0, "attack": 0})
         self.assertEqual(labelled(metrics, "setup_http_attack_requests", "type"), {"sqli": 0, "traversal": 0, "probe": 0, "xss": 0})
         self.assertNotIn("setup_http_bot_requests", metrics)
         # Timed lines in the window: 0, 12, 250 and 30001 ms; one over 2 s.
@@ -308,6 +522,23 @@ class TrafficMetricsTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(self.scrape(METRICS_SLOW_REQUEST_SECONDS="0.2")["setup_http_slow_requests"][""], 2)
         self.assertEqual(labelled(metrics, "setup_http_url_5xx_requests", "url"), {"/error": 1})
         self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+
+    def test_the_projects_classes_are_labels_and_an_invalid_file_keeps_the_group_up(self):
+        config = self.work / "traffic.php"
+        config.write_text("<?php return array('classes' => array('failing' => array('match' => array(array('path' => '#^/error$#')))));")
+        metrics = self.scrape(METRICS_TRAFFIC_CONFIG=str(config))
+        # curl's /error is the project's class now.
+        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"),
+                         {"human": 6, "failing": 1, "api": 2, "bot": 0, "asset": 0, "attack": 0})
+        config.write_text("<?php return array('classes' => array('bot' => array('match' => array(array('path' => '#^/error$#')))));")
+        metrics = self.scrape(METRICS_TRAFFIC_CONFIG=str(config))
+        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"),
+                         {"human": 6, "api": 3, "bot": 0, "asset": 0, "attack": 0})
+        # Every figure is there, so the group is up; the dashboard says what is wrong.
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="http"}'], 1)
+        problems = json.loads((self.work / "snapshots/snapshot.json").read_text())["problems"]["http"]
+        self.assertEqual(problems, ["config/metrics/traffic.php: class 'bot' is built in (add crawlers under 'bots'); only api "
+                                    "can be changed. The built-in classes apply until it is fixed."])
 
     def test_label_sets_are_bounded_to_the_busiest(self):
         listed = json.loads(subprocess.run(["php", "-r", "require $argv[1]; echo json_encode(TRAFFIC_BOTS);",

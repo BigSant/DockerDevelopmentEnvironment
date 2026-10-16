@@ -7,6 +7,11 @@
 // the cron times and /feed.
 metrics_timezone();
 
+// A part's problem that leaves its figures complete (the group stays up): the dashboard shows it like a failure.
+class MetricsWarning extends RuntimeException
+{
+}
+
 final class Metrics
 {
     private $families = array();
@@ -101,7 +106,7 @@ function metrics_proc($path)
 // follows database (it reuses the database group's connection for the version).
 function metrics_groups()
 {
-    $groups = array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry', 'php');
+    $groups = array('system', 'website', 'http', 'security', 'database', 'host', 'containers', 'cron', 'registry', 'php', 'release');
     // The cache group only with Redis or memcached (SERVICES); without them it is not served at all.
     if (metrics_setting('METRICS_REDIS', '') !== '' || metrics_setting('METRICS_MEMCACHED', '') !== '') $groups[] = 'cache';
     return $groups;
@@ -137,8 +142,9 @@ function metrics_snapshot($now)
     return $now - (int) $snapshot['taken'] <= 3 * max(1, (int) $snapshot['interval']) ? $snapshot : null;
 }
 
-// Collect one group: each part is independent, a failed part only clears the group's up flag. Returns why parts
-// failed, each reason once: the sampler keeps them in the snapshot, so the dashboard says what is missing.
+// Collect one group: each part is independent, a failed part only clears the group's up flag (a MetricsWarning, whose
+// figures are complete, not even that). Returns why parts failed, each reason once: the sampler keeps them in the
+// snapshot, so the dashboard says what is missing.
 function metrics_collect(Metrics $metrics, $group)
 {
     require_once __DIR__ . '/' . $group . '.php';
@@ -148,7 +154,7 @@ function metrics_collect(Metrics $metrics, $group)
         try {
             call_user_func($part, $metrics);
         } catch (Throwable $error) {
-            $complete = false;
+            $complete = $complete && $error instanceof MetricsWarning;
             error_log('metrics ' . $part . ': ' . $error->getMessage());
             // Printable ASCII and bounded: the snapshot must encode whatever a driver put in its message.
             $problems[] = substr(preg_replace('/[^\x20-\x7e]+/', ' ', $error->getMessage()), 0, 500);

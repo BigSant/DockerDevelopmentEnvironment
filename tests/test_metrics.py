@@ -324,6 +324,26 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         self.assertEqual(list(second["setup_container_healthy"].values()), [0])
         self.assertNotEqual(healthy, [0])
 
+    def test_the_release_group_serves_what_runs_here_and_needs_it_only_on_servers(self):
+        release = self.work / "release"
+        release.mkdir()
+        # Locally make up runs the checkout: no release, nothing missing.
+        metrics = parse(fetch(self.start(ENV="local", METRICS_RELEASE_DIR=str(release)), token=TOKEN)[2])
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="release"}'], 1)
+        self.assertNotIn("setup_release_info", metrics)
+        # A server without it: down, and the dashboard says who writes it.
+        metrics = parse(fetch(self.start(ENV="prod", METRICS_RELEASE_DIR=str(release)), token=TOKEN)[2])
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="release"}'], 0)
+        problems = json.loads((self.work / "snapshots/snapshot.json").read_text())["problems"]["release"]
+        self.assertEqual(problems, [f"no release information in {release}/current.json (make deploy-images writes it)"])
+        (release / "current.json").write_text(json.dumps({"environment": "prod", "setup": "2.13.0", "images_at": "2026-10-16T06:00:00+00:00",
+                                                         "commit": "abc123def4567890", "ref": "v1.4.0", "deployed_at": "2026-10-16T06:05:00+00:00"}))
+        metrics = parse(fetch(self.start(ENV="prod", METRICS_RELEASE_DIR=str(release)), token=TOKEN)[2])
+        self.assertEqual(metrics["setup_metrics_group_up"]['{group="release"}'], 1)
+        self.assertEqual(metrics["setup_release_info"], {'{setup="2.13.0",ref="v1.4.0",commit="abc123def456"}': 1})
+        self.assertEqual(metrics["setup_release_images_timestamp_seconds"][""], 1792130400)
+        self.assertEqual(metrics["setup_release_deployed_timestamp_seconds"][""], 1792130700)
+
     def test_a_stopped_sampler_turns_every_group_down_after_three_intervals(self):
         base = self.start(METRICS_SAMPLER_INTERVAL="1")
         self.assertEqual(parse(fetch(base, token=TOKEN)[2])["setup_metrics_group_up"]['{group="system"}'], 1)
@@ -331,8 +351,8 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         time.sleep(4.5)
         metrics = parse(fetch(base, token=TOKEN, fresh=False)[2])
         self.assertEqual(set(metrics["setup_metrics_group_up"].values()), {0})
-        # Every group metrics_groups() lists (the registry and php groups have no dashboard names).
-        self.assertEqual(len(metrics["setup_metrics_group_up"]), len(IMPLEMENTED) + 2)
+        # Every group metrics_groups() lists (the registry, php and release groups have no dashboard names).
+        self.assertEqual(len(metrics["setup_metrics_group_up"]), len(IMPLEMENTED) + 3)
         self.assertNotIn("ram_total", metrics)
         self.assertIn("setup_metrics_snapshot_timestamp_seconds", metrics)
         # Never sampled: the same, without a snapshot time.
@@ -526,8 +546,9 @@ class FeedTest(EndpointMixin, unittest.TestCase):
         self.assertEqual((status, kind), (200, "text/plain; charset=utf-8"), text)
         sections = feed_sections(text)
         headers = [header for header, _ in sections]
-        self.assertEqual(headers[0], "Snapshot")
-        script = [header for header in headers if not header.startswith("Traffic") and header != "Snapshot"]
+        # What runs here (not one of the script's sections) follows the snapshot's time.
+        self.assertEqual(headers[:2], ["Snapshot", "Release"])
+        script = [header for header in headers if not header.startswith("Traffic") and header not in ("Snapshot", "Release")]
         self.assertEqual(script, MONITORING_HEADERS)
         body = dict(sections)
         self.assertEqual(body["Website Response Time"], f"Url: {url}\nResponse Time: {body['Website Response Time'].split('Response Time: ')[1].split('s')[0]}s\nStatus Code: 200")
@@ -892,6 +913,8 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual({(v["source"], v["target"]) for v in released if v["type"] == "bind"},
                          {("/proc", "/host/proc"), ("/srv/demo/data/stage", "/host/disk"),
                           ("/srv/demo/data/stage/metrics", "/var/lib/setup-metrics"),
+                          # What make deploy and deploy-images wrote about the release (current.json).
+                          ("/srv/demo/data/stage/release", "/host/release"),
                           # What the last backup found about the table registry (database as code is on by default).
                           ("/srv/demo/data/stage/table-registry", "/host/table-registry")})
         self.assertIn((logs["source"], "/host/http-logs"), {(v["source"], v["target"]) for v in released if v["type"] == "volume"})
@@ -986,6 +1009,59 @@ class SettingsTest(unittest.TestCase):
         mounts = {volume["target"]: volume for volume in metrics["volumes"]}
         self.assertEqual((mounts["/host/cron-config"]["source"], mounts["/host/cron-config"]["read_only"]),
                          (str(project.root / "app/config/cron"), True))
+
+    def test_the_projects_traffic_classes_are_mounted_when_present_and_checked_before_up(self):
+        import project_policy
+        from unittest.mock import patch
+        app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")
+        project = Project(app, "stage")
+        mounts = {v["target"]: v for v in json.loads(project.capture(["config", "--format", "json"]))["services"]["metrics"]["volumes"]}
+        self.assertNotIn("/host/metrics-config", mounts)  # no app/config/metrics: not created by Docker
+        calls = []
+        run = lambda command, **kwargs: calls.append(command)
+        # Patched subprocess.run is every module's: the model is read before.
+        model = project.active_model()
+        with patch("project_policy.subprocess.run", run), patch.object(project, "active_model", lambda: model):
+            project_policy.check_traffic_classes(project)
+            project_policy.report_traffic_classes(project)
+        self.assertEqual(calls, [], "nothing to check without the file")
+        config = project.root / "app/config/metrics"
+        config.mkdir(parents=True)
+        (config / "traffic.php").write_text("<?php return array();\n")
+        project = Project(app, "stage")
+        mounts = {v["target"]: v for v in json.loads(project.capture(["config", "--format", "json"]))["services"]["metrics"]["volumes"]}
+        self.assertEqual((mounts["/host/metrics-config"]["source"], mounts["/host/metrics-config"]["read_only"]), (str(config), True))
+        released = release_model(project, "/srv/demo")["services"]["metrics"]["volumes"]
+        self.assertIn(("/srv/demo/app/config/metrics", "/host/metrics-config"), {(v["source"], v["target"]) for v in released})
+        model = project.active_model()
+        project.active_model = lambda: model
+        # make up: the metrics service's own PHP checks it (3: invalid, with the errors after the first line).
+        invalid = "/host/metrics-config/traffic.php is not valid:\n  class 'bot' is built in\n  class 'x': no 'match'\n"
+        for returncode, stdout, stderr in ((3, "", invalid), (0, "Traffic classes: human, api, bot, asset, attack\n", "")):
+            calls.clear()
+            def run(command, **kwargs):
+                calls.append(command)
+                return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+            with patch("project_policy.subprocess.run", run), contextlib.redirect_stdout(io.StringIO()) as out:
+                if returncode:
+                    with self.assertRaisesRegex(ValueError, r"^config/metrics/traffic\.php is not valid: class 'bot' is built in; "
+                                                            r"class 'x': no 'match'$"):
+                        project_policy.check_traffic_classes(project)
+                else:
+                    project_policy.check_traffic_classes(project)
+                    self.assertEqual(out.getvalue(), stdout)
+            self.assertEqual(calls[0][-10:], ["run", "--rm", "--pull", "never", "--no-deps", "-T", "--entrypoint", "php", "metrics",
+                                              "/opt/setup/runtime/metrics/traffic-config.php"])
+        # A compose failure is not the file's: its output may hold interpolated secrets and is not shown.
+        with patch("project_policy.subprocess.run", lambda command, **kwargs: subprocess.CompletedProcess(command, 1, "", "secret")), \
+                self.assertRaisesRegex(ValueError, r"Could not check config/metrics/traffic\.php \(compose run exit 1\); make build"):
+            project_policy.check_traffic_classes(project)
+        # make deploy: the running service checks the copied file, and a mistake is a warning.
+        with patch("project_policy.subprocess.run", lambda command, **kwargs: subprocess.CompletedProcess(command, 3, "", invalid)), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            project_policy.report_traffic_classes(project)
+        self.assertEqual(out.getvalue(), "Warning: config/metrics/traffic.php is not valid, the built-in traffic classes apply: "
+                                         "class 'bot' is built in; class 'x': no 'match'\n")
 
     def test_a_writable_or_other_host_mount_is_still_refused_by_the_release(self):
         app = self.project(f"METRICS_ALLOWED_IPS=10.8.0.20\nMETRICS_TOKEN={TOKEN}\n")

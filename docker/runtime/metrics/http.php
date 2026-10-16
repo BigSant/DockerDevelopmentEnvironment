@@ -22,7 +22,7 @@ const METRICS_HTTP_ERROR_TYPES = array(
 
 function metrics_http_parts()
 {
-    return array('metrics_http_access', 'metrics_http_errors', 'metrics_http_traffic');
+    return array('metrics_http_access', 'metrics_http_errors', 'metrics_http_traffic', 'metrics_http_traffic_rules');
 }
 
 // nginx-proxy's TCP table snapshot (security group).
@@ -283,9 +283,9 @@ function metrics_http_traffic(Metrics $metrics)
     list($start, $end) = metrics_http_window();
     $collected = traffic_collect(array(array($start, $end)));
     $aggregate = $collected[0];
-    foreach (TRAFFIC_CLASSES as $class) {
-        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, bot, asset (static file), attack',
-            $aggregate['classes'][$class], array('class' => $class));
+    foreach ($aggregate['classes'] as $class => $count) {
+        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, api (scripts and API clients), bot, asset (static file), attack and the project\'s own (config/metrics/traffic.php)',
+            $count, array('class' => (string) $class));
     }
     foreach (metrics_http_top($aggregate['bots'], 20) as $bot => $count) {
         $metrics->add('setup_http_bot_requests', 'Requests of the window per known bot (the 20 busiest)', $count, array('bot' => (string) $bot));
@@ -316,4 +316,13 @@ function metrics_http_traffic(Metrics $metrics)
                 ($name === 'p50' ? 'Median' : '95th percentile') . ' response time of the window\'s requests (nginx rt, static files excluded)', $value);
         }
     }
+}
+
+// The project's traffic classes (config/metrics/traffic.php): an invalid file leaves the built-in classes in effect,
+// so the figures are complete and the group stays up; the dashboard says what is wrong, whatever else failed.
+function metrics_http_traffic_rules(Metrics $metrics)
+{
+    require_once __DIR__ . '/traffic.php';
+    $error = traffic_rules()['error'];
+    if ($error !== null) throw new MetricsWarning($error);
 }

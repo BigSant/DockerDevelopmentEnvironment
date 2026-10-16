@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -167,7 +168,8 @@ class ReleaseTest(unittest.TestCase):
         model = release_model(project, '/home/shop/site')
         with patch('project_release.subprocess.Popen', Save), patch('project_release.release_model', return_value=model), \
                 patch('project_release.subprocess.run', lambda command, **k: subprocess.CompletedProcess(command, 0, '', '')), \
-                patch('project_release.prepare_runtime_directories'), contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.prepare_runtime_directories'), patch('project_release.publish_release_info'), \
+                contextlib.redirect_stdout(io.StringIO()):
             deploy_images(project)
         self.assertIn('getmeili/meilisearch:v1.10', saved[0], 'the external image travels with docker save')
 
@@ -206,8 +208,11 @@ class ReleaseTest(unittest.TestCase):
         prepare = lambda project, model, path: calls.append(['prepare', path])
         with patch('project_release.subprocess.Popen', Save), patch('project_release.subprocess.run', run), \
                 patch('project_release.release_model', return_value=model), \
-                patch('project_release.prepare_runtime_directories', prepare), contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.prepare_runtime_directories', prepare), \
+                patch('project_release.publish_release_info') as published, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(deploy_images(project), ['a:1', 'b:1'])
+        # The dashboard's release card: the images have just started on DEPLOY_PATH.
+        published.assert_called_once_with(project, '/home/shop/site', images=True)
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
         self.assertEqual(calls[2], ['prepare', '/home/shop/site'], 'the directories exist before the containers start')
@@ -280,6 +285,44 @@ class ReleaseTest(unittest.TestCase):
         # A remote Docker context without DEPLOY_SSH: no way to look, compose reports it as before.
         with patch('project_release.subprocess.run', side_effect=AssertionError('no lookup')):
             project_release.check_ports(project, 'shop-stage', 'release-demo-stage', model)
+
+    @unittest.skipUnless(shutil.which('rsync'), 'rsync is required')
+    def test_the_release_info_says_what_runs_on_the_target(self):
+        from project_deploy import record
+        target = self.app.parent / 'target'
+        project = self.stage(f'APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH={target}\nDEPLOY_CONTEXT=default\n')
+        directory = project_release.release_directory(project)
+        directory.mkdir(parents=True)
+        (directory / 'images.lock.json').write_text(json.dumps({'project': 'release-demo-stage', 'setup': 'v2.13.0', 'images': {}}))
+        current = target / 'data/stage/release/current.json'
+        with contextlib.redirect_stdout(io.StringIO()):
+            project_release.publish_release_info(project, str(target), images=True)
+        first = json.loads(current.read_text())
+        self.assertEqual((first['environment'], first['setup']), ('stage', 'v2.13.0'))
+        self.assertIn('images_at', first)
+        self.assertNotIn('commit', first, 'no code deployed yet')
+        # The last completed deploy, not a failed one after it; the images' time stays.
+        record(project, {'ref': 'v1.4.0', 'commit': 'a' * 40, 'at': '2026-10-16T06:05:00+00:00'})
+        record(project, {'ref': 'v1.5.0', 'commit': 'b' * 40, 'at': '2026-10-16T07:00:00+00:00', 'failed': 'after-rsync'})
+        with contextlib.redirect_stdout(io.StringIO()):
+            project_release.publish_release_info(project, str(target))
+        second = json.loads(current.read_text())
+        self.assertEqual((second['ref'], second['commit'], second['deployed_at'], second['images_at']),
+                         ('v1.4.0', 'a' * 40, '2026-10-16T06:05:00+00:00', first['images_at']))
+        self.assertEqual(current.stat().st_mode & 0o777, 0o644, 'the metrics service reads it as the project account')
+        # make release alone ships nothing: a code-only deploy keeps the setup version of the images that run.
+        (directory / 'images.lock.json').write_text(json.dumps({'project': 'release-demo-stage', 'setup': 'v2.14.0', 'images': {}}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            project_release.publish_release_info(project, str(target))
+        self.assertEqual(json.loads(current.read_text())['setup'], 'v2.13.0')
+        # The deploy is done when it runs: a target that refuses the file is a warning, not a failed deploy.
+        class Refusing(LocalTarget):
+            def push(self, source, path, *options):
+                raise subprocess.CalledProcessError(255, ['rsync'])
+        with patch('project_release.deploy_target', lambda project: Refusing()), contextlib.redirect_stdout(io.StringIO()) as out:
+            project_release.publish_release_info(project, str(target), images=True)
+        self.assertIn('Warning: the release information for the dashboard was not written (CalledProcessError)', out.getvalue())
+        self.assertEqual(json.loads(current.read_text())['setup'], 'v2.13.0', 'the target keeps its previous file')
 
     def test_deploy_creates_the_code_and_data_directories_as_the_deploying_account(self):
         # Directories Docker creates for a missing bind source belong to root: php-fpm and MySQL, which run as

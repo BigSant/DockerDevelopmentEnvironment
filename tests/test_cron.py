@@ -43,6 +43,36 @@ class CrontabTest(unittest.TestCase):
         twice = php(f"echo json_encode(cronJobs({json.dumps('0 3 * * * php a.php' + chr(10) + '0 15 * * * php a.php')}, 'crontab'));")
         self.assertNotEqual(twice[0]["id"], twice[1]["id"], "one command on two schedules keeps two histories")
 
+    def test_job_names_show_the_program_and_its_targets_never_a_secret(self):
+        cases = {
+            "cd /app && make run-tasks-daily # Execution: 20min": "make run-tasks-daily · Execution: 20min",
+            "flock -n /tmp/sync.lock nice -n 10 php bin/console app:sync --env=prod > /dev/null 2>&1": "php console app:sync",
+            "timeout 30m /usr/local/bin/php /var/www/bin/console prestashop:cron 2>&1 | logger": "php console prestashop:cron",
+            # A URL keeps its host and path: no user, password or query.
+            'curl -s "https://user:pw@shop.example/cron?token=abc"': "curl shop.example/cron",
+            "wget -q -O - https://shop.example/module/x/cron.php?secure_key=0123456789abcdefABCDEF": "wget shop.example/module/x/cron.php",
+            # An option's value is never shown, quoted spaces and all.
+            'curl -fsS -H "Authorization: Bearer xyz" https://shop.example/api/run': "curl shop.example/api/run",
+            "curl -d 'password=hunter2' https://shop.example/login": "curl shop.example/login",
+            # Variables, key=value arguments and long tokens are masked.
+            "API_KEY=supersecret123 php script.php key=hunter2 a1b2c3d4e5f6g7h8i9j0k": "php script.php key=… …",
+            "env A=1 B=2 php cron.php": "php cron.php",
+            # A query is never shown, with a scheme or without; nor the word after one that names a secret.
+            "wget -q -O- shop.example/cron.php?token=secret123": "wget cron.php",
+            "curl localhost:8080/cron?pass=hunter2": "curl cron",
+            "php bin/console app:run --x password hunter2": "php console app:run password",
+            "php cron.php # token xyz, see shop.example/x?key=abc": "php cron.php · token … see shop.example/x",
+            "true": "true",
+            "cd /app": "job",
+            "php " + "very-long-subcommand-name-" * 4: "php " + ("very-long-subcommand-name-" * 4)[:55] + "…",
+        }
+        names = php(f"echo json_encode(array_map('cronJobName', {json.dumps(list(cases))}));")
+        self.assertEqual(dict(zip(cases, names)), cases)
+        for name in names:
+            self.assertNotRegex(name, "hunter2|xyz|pw@|token=|abc|supersecret|secret123|\\?")
+        jobs = php(f"echo json_encode(cronJobs({json.dumps('0 3 * * * php bin/console app:sync # nightly')}, 'crontab'));")
+        self.assertEqual(jobs[0]["name"], "php console app:sync · nightly")
+
     def test_problems_name_the_line(self):
         text = "61 * * * * php a.php\n* * * * *\n@sometimes php b.php\n0 1 * * MON-FRI php c.php\n"
         problems = php(f"echo json_encode(cronProblems({json.dumps(text)}, 'crontab'));")

@@ -42,9 +42,123 @@ function cronJobs($text, $source)
         $seen[$command] = isset($seen[$command]) ? $seen[$command] + 1 : 1;
         $key = $seen[$command] === 1 ? $command : $command . "\0" . $seen[$command];
         $jobs[] = array('id' => substr(sha1($key), 0, 12), 'schedule' => $schedule, 'command' => $command,
-                        'source' => $source, 'line' => $number + 1);
+                        'source' => $source, 'line' => $number + 1, 'name' => cronJobName($command));
     }
     return $jobs;
+}
+
+/**
+ * A readable name for a job that never shows a secret: the program and up to three of its subcommands, targets or
+ * script names ("make run-tasks-daily", "php console app:sync", "curl shop.example/cron"), then the line's trailing
+ * comment. Wrappers (flock, nice, timeout, env, cd … &&), options and their values and redirections are left out; a
+ * URL keeps its host and path (no user, password or query), a key=value keeps its key, a long token becomes "…".
+ */
+function cronJobName($command)
+{
+    // The word after one that names a secret (token, password, key, Bearer …) is masked too.
+    $secret = false;
+    $mask = function ($word) use (&$secret) {
+        if ($secret) {
+            $secret = false;
+            return '…';
+        }
+        if (preg_match('/^(token|secret|key|api_?key|pass(word)?|pwd|auth\w*|bearer)$/i', rtrim($word, ':='))) {
+            $secret = true;
+            return $word;
+        }
+        if (preg_match('#^[a-z][a-z0-9+.-]*://#i', $word)) {
+            $parts = parse_url($word);
+            return isset($parts['host']) ? $parts['host'] . (isset($parts['path']) ? rtrim($parts['path'], '/') : '') : '…';
+        }
+        // A query or fragment is never shown, with a scheme or without (shop.example/cron.php?token=…).
+        $word = preg_replace('/[?#].*$/s', '', $word);
+        if ($word === '') return '…';
+        if (preg_match('/^([A-Za-z_][A-Za-z0-9_.-]*)=/', $word, $match)) return $match[1] . '=…';
+        if (strlen($word) >= 20 && preg_match('/[0-9]/', $word) && preg_match('/[A-Za-z]/', $word) && !preg_match('#[/:]#', $word)) return '…';
+        return $word;
+    };
+    $comment = '';
+    if (preg_match('/(?:^|\s)#\s*(.*)$/', $command, $match)) {
+        $comment = implode(' ', array_map($mask, preg_split('/\s+/', trim($match[1]), -1, PREG_SPLIT_NO_EMPTY)));
+        $command = substr($command, 0, -strlen($match[0]));
+        $secret = false;
+    }
+    // Wrappers and the options that take the next word as their value (nice -n 10, flock -w 5, timeout -s KILL).
+    $wrappers = array('flock', 'nice', 'ionice', 'timeout', 'nohup', 'env', 'sudo', 'chronic', 'time', 'exec');
+    $wrapperValued = array('-n', '--adjustment', '-c', '--class', '-w', '--wait', '--timeout', '-E', '--conflict-exit-code',
+        '-s', '--signal', '-k', '--kill-after', '-u', '--user', '-g', '--group', '-C', '--chdir');
+    // The program's options that take a value, which is never shown (make -C dir, php -d x=1, curl -H 'Authorization: …').
+    $valued = array('-C', '--directory', '-f', '--file', '--makefile', '-d', '--data', '--data-raw', '-c', '-u', '--user',
+        '-o', '--output', '-O', '--output-document', '-H', '--header', '-X', '--request', '-A', '--user-agent', '-e', '-b',
+        '--cookie', '-T', '--upload-file', '-F', '--form', '--password', '--http-password', '--http-user', '--post-data',
+        '--header', '--env');
+    $name = '';
+    $moved = '';
+    // Words as the shell splits them (a quoted text is one word, without its quotes) and the separators between commands.
+    preg_match_all('/(?:[^\s;&|"\']+|"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\')+|&&|\|\||[;&|]/', trim($command), $tokens);
+    $segments = array(array());
+    foreach ($tokens[0] as $token) {
+        if (in_array($token, array('&&', '||', ';', '&', '|'), true)) {
+            $segments[] = array();
+            continue;
+        }
+        $segments[count($segments) - 1][] = preg_replace('/"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\'/', '$1$2', $token);
+    }
+    foreach ($segments as $words) {
+        $program = null;
+        $arguments = array();
+        for ($index = 0; $index < count($words); $index++) {
+            $word = $words[$index];
+            if ($word === '') continue;
+            if (preg_match('/^\d*[<>]/', $word)) {
+                // A redirection, and its target when it is a word of its own.
+                if (preg_match('/^\d*[<>]+&?$/', $word)) $index++;
+                continue;
+            }
+            if ($program === null) {
+                if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word)) continue;
+                $base = basename($word);
+                if (in_array($base, $wrappers, true)) {
+                    // A wrapper's options, flock's lock file and timeout's duration come before the command.
+                    while (isset($words[$index + 1]) && $words[$index + 1] !== '') {
+                        $next = $words[$index + 1];
+                        if ($next[0] === '-') {
+                            $index += strpos($next, '=') === false && in_array($next, $wrapperValued, true) ? 2 : 1;
+                        } elseif (($base === 'flock' && strpos($next, '/') !== false) || ($base === 'timeout' && preg_match('/^\d+(\.\d+)?[smhd]?$/', $next))
+                            || ($base === 'env' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $next))) {
+                            $index++;
+                        } else {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                $program = $base;
+                continue;
+            }
+            if ($word[0] === '-') {
+                if (strpos($word, '=') === false && in_array($word, $valued, true)) $index++;
+                continue;
+            }
+            $shown = $mask($word);
+            // A path is named by its last part (the script), a URL by its host and path; a word with spaces is a text.
+            if (strpos($shown, '/') !== false && !preg_match('#^[a-z][a-z0-9+.-]*://#i', $word)) $shown = basename($shown);
+            if (preg_match('/\s/', $shown)) $shown = '…';
+            if ($shown !== '' && count($arguments) < 3) $arguments[] = $shown;
+        }
+        // cd only moves; the job is what follows it (a job that is only true is named so).
+        if ($program === null) continue;
+        if (in_array($program, array('cd', 'true', ':'), true)) {
+            if ($moved === '') $moved = $program;
+            continue;
+        }
+        $name = trim($program . ' ' . implode(' ', $arguments));
+        break;
+    }
+    if ($name === '') $name = $moved !== '' && $moved !== 'cd' ? $moved : 'job';
+    if (strlen($name) > 60) $name = substr($name, 0, 59) . '…';
+    if ($comment !== '') $name .= ' · ' . (strlen($comment) > 40 ? substr($comment, 0, 39) . '…' : $comment);
+    return $name;
 }
 
 /** Problems of one crontab text (empty when every job is a 5-field or macro schedule with a command). */

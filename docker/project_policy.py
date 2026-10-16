@@ -3,6 +3,7 @@ import ipaddress
 import json
 from pathlib import Path
 import re
+import subprocess
 from urllib.parse import urlsplit
 
 from project_prestashop import is_prestashop
@@ -311,3 +312,56 @@ def preflight_php(project):
     if is_prestashop(project):
         project.capture(['run', '--rm', '--pull', 'never', '--no-deps', '--entrypoint', 'php', 'php-fpm',
                          '/opt/setup/runtime/prestashop-command.php', 'validate'])
+    check_traffic_classes(project)
+
+
+TRAFFIC_CLASSES_FILE = 'metrics/traffic.php'
+TRAFFIC_CLASSES_SCRIPT = '/opt/setup/runtime/metrics/traffic-config.php'
+# traffic-config.php's exit status for an invalid file.
+TRAFFIC_CLASSES_INVALID = 3
+
+
+def traffic_classes_file(project):
+    """The project's traffic classes (config/metrics/traffic.php) when the metrics service runs and the file exists."""
+    # PROJECT_CONFIG_DIRECTORY, as project_mounts reads it.
+    file = project.root / 'app/config' / TRAFFIC_CLASSES_FILE
+    if not file.exists() and not file.is_symlink():
+        return None
+    return file if 'metrics' in project.active_model()['services'] else None
+
+
+def run_traffic_classes_check(project, args):
+    """traffic-config.php through compose (args: how it reaches the metrics service): (exit status, its output, the
+    errors of an invalid file)."""
+    result = subprocess.run(project.command + args, env=project.compose_env(args, None), capture_output=True, text=True)
+    errors = [line.strip() for line in result.stderr.strip().split('\n')[1:]] if result.returncode == TRAFFIC_CLASSES_INVALID else []
+    return result.returncode, result.stdout.strip(), '; '.join(errors)
+
+
+def check_traffic_classes(project):
+    """make up / restart: the metrics service's own PHP checks config/metrics/traffic.php before the containers
+    start. The service would apply the built-in classes and show the error; this stops it before that."""
+    if traffic_classes_file(project) is None:
+        return
+    status, output, errors = run_traffic_classes_check(
+        project, ['run', '--rm', '--pull', 'never', '--no-deps', '-T', '--entrypoint', 'php', 'metrics', TRAFFIC_CLASSES_SCRIPT])
+    if status == TRAFFIC_CLASSES_INVALID:
+        raise ValueError(f'config/{TRAFFIC_CLASSES_FILE} is not valid: {errors}')
+    if status:
+        # Compose errors can include interpolated credentials; keep diagnostics private.
+        raise ValueError(f'Could not check config/{TRAFFIC_CLASSES_FILE} (compose run exit {status}); '
+                         'make build builds the metrics image')
+    print(output)
+
+
+def report_traffic_classes(project):
+    """make deploy: the running metrics service checks the config/metrics/traffic.php the deploy has just copied. It
+    reads the file live, so a mistake is already in effect (the built-in classes, the error on the dashboard): a
+    warning, not a failed deploy. Nothing when the service is not running."""
+    if traffic_classes_file(project) is None:
+        return
+    status, output, errors = run_traffic_classes_check(project, ['exec', '-T', 'metrics', 'php', TRAFFIC_CLASSES_SCRIPT])
+    if status == TRAFFIC_CLASSES_INVALID:
+        print(f'Warning: config/{TRAFFIC_CLASSES_FILE} is not valid, the built-in traffic classes apply: {errors}', flush=True)
+    elif not status:
+        print(output, flush=True)

@@ -55,6 +55,18 @@ services:
       - type: bind
         source: ${PROJECT_DATA_DIRECTORY}/metrics
         target: /var/lib/setup-metrics
+      # What runs here: the setup version, application commit and deploy times make deploy and deploy-images write
+      # (current.json); empty where no release is deployed (local).
+      - type: bind
+        source: ${PROJECT_DATA_DIRECTORY}/release
+        target: /host/release
+        read_only: true
+      # The project's traffic classes (config/metrics/traffic.php), read by every analysis, so a change applies
+      # without a restart. Optional: project_mounts.py drops it when app/config/metrics is missing.
+      - type: bind
+        source: ${PROJECT_CONFIG_DIRECTORY}/metrics
+        target: /host/metrics-config
+        read_only: true
       # Host numbers, not the container's: CPU, memory, load and uptime are host-wide in /proc;
       # the host network counters are read from /proc/1/net (the host's network namespace).
       - type: bind

@@ -136,12 +136,14 @@ function tabs_cron($families)
 {
     return tabs_table($families, 'Schedule', array(), array(array('setup_cron_schedule_enabled', 'runs on schedule',
             function ($value) { return (int) $value === 1 ? 'yes' : 'no (CRON_SCHEDULE=off)'; })))
-        . tabs_table($families, 'Jobs', array('job', 'source', 'line'), array(array('setup_cron_job_info:schedule', 'schedule'),
+        . tabs_table($families, 'Jobs', array('job', 'source', 'line'), array(array('setup_cron_job_info:name', 'name'),
+            array('setup_cron_job_info:schedule', 'schedule'),
             array('setup_cron_job_last_run_timestamp_seconds', 'last run', 'tabs_time'), array('setup_cron_job_last_exit_code', 'exit'),
             array('setup_cron_job_last_duration_seconds', 'duration', function ($value) { return tabs_number($value) . ' s'; }),
             array('setup_cron_job_last_success_timestamp_seconds', 'last success', 'tabs_time'),
             array('setup_cron_job_expected_run_timestamp_seconds', 'next expected', 'tabs_time')),
-            'Jobs by id as the cron UI shows them; the command is not shown (it can hold tokens).');
+            'Jobs by id as the cron UI shows them, named by the program and its targets; the command itself is not shown '
+            . '(it can hold tokens): URLs without their query, values and tokens as "…".');
 }
 
 // Why a group has nothing to show.

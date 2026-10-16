@@ -130,12 +130,34 @@ function overview_cards()
                 }
             }
             $jobs = count(dashboard_family($v, 'setup_cron_job_info'));
+            // The failing jobs by name, each once (a job in two files has two info rows).
+            $names = array();
+            foreach (dashboard_family($v, 'setup_cron_job_info') as $key => $one) {
+                $labels = dashboard_labels($key);
+                $exit = isset($labels['job']) ? '{job="' . $labels['job'] . '"}' : null;
+                if ($exit !== null && isset($labels['name'], $exits[$exit]) && (int) $exits[$exit] !== 0) $names[$labels['job']] = $labels['name'];
+            }
             return array($failing ? 'bad' : ($late ? 'warn' : 'ok'), $failing ? $failing . ' failing' : $jobs . ' jobs',
-                ($late ? $late . ' overdue · ' : '') . count($exits) . ' with a recorded run');
+                ($names ? implode(', ', array_values($names)) . ' · ' : '') . ($late ? $late . ' overdue · ' : '') . count($exits) . ' with a recorded run');
         }, function ($v) {
             $exits = dashboard_family($v, 'setup_cron_job_last_exit_code');
             return $exits ? count(array_filter($exits, function ($code) { return (int) $code !== 0; })) : null;
         }),
+        'release' => array('Release', function ($v) {
+            $info = dashboard_family($v, 'setup_release_info');
+            if (!$info) {
+                // Locally make up runs the checkout; on a server the release group says what is missing.
+                return in_array(metrics_setting('ENV', 'local'), array('local', 'test'), true)
+                    ? array('none', 'local', 'no release here: make up runs the checkout') : null;
+            }
+            $labels = dashboard_labels(key($info));
+            $label = function ($name) use ($labels) { return isset($labels[$name]) ? $labels[$name] : ''; };
+            $deployed = overview_value($v, 'setup_release_deployed_timestamp_seconds');
+            $value = $label('ref') !== '' ? $label('ref') : ($label('commit') !== '' ? $label('commit') : '–');
+            return array('none', $value, trim(($label('commit') !== '' && $label('commit') !== $value ? $label('commit') . ' · ' : '')
+                . 'setup ' . ($label('setup') !== '' ? $label('setup') : '?')
+                . ($deployed !== null ? ' · deployed ' . date('Y-m-d H:i', (int) $deployed) : '')));
+        }, function ($v) { return null; }),
         'pages' => array('Page checks', function ($v) use ($slowest) {
             $statuses = dashboard_family($v, 'website_response_status');
             if (!$statuses) return null;

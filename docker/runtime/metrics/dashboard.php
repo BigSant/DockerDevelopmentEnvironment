@@ -42,6 +42,15 @@ function dashboard_family($values, $name)
     return $found;
 }
 
+// The labels of a flat map's key ('{job="a",name="b \\"c\\""}') as name => value, unescaped.
+function dashboard_labels($key)
+{
+    preg_match_all('/(?:^\{|,)([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\\\]|\\\\.)*)"/', (string) $key, $matches, PREG_SET_ORDER);
+    $labels = array();
+    foreach ($matches as $match) $labels[$match[1]] = stripcslashes($match[2]);
+    return $labels;
+}
+
 // Calls $each(time, values) for every history line since $since, oldest first, one line in memory at a time.
 function dashboard_history($since, $each)
 {
@@ -142,7 +151,7 @@ function dashboard_problems($snapshot, $groups)
             $items .= '<li><b>' . h($group) . '</b>: ' . h((string) $problem) . '</li>';
         }
     }
-    return $items === '' ? '' : '<div class="callout error" data-problems>Not collected, and what it needs:<ul>' . $items . '</ul></div>';
+    return $items === '' ? '' : '<div class="callout error" data-problems>Problems, and what they need:<ul>' . $items . '</ul></div>';
 }
 
 // The page around a tab's body. The body refreshes itself from ?fragment=1 every $refresh seconds (0: never).
