@@ -4,7 +4,10 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+## 2.14.1
+
+The metrics dashboard's Logs tab shows its tables without scroll bars. `make build` and `make deploy-images` (a
+pipeline deploy with `IMAGES=auto` does it, because setup moved); nothing to change in the project.
 
 - **Logs tab without scroll bars.** Three tables of log files side by side were narrower than their rows, and each
   got a scroll bar. Two per row now (one below 1000 px), and on a phone a file name breaks at its hyphens.
