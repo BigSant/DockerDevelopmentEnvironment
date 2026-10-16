@@ -142,7 +142,7 @@ function dashboard_problems($snapshot, $groups)
             $items .= '<li><b>' . h($group) . '</b>: ' . h((string) $problem) . '</li>';
         }
     }
-    return $items === '' ? '' : '<div class="callout error" data-problems>Not collected, and what it needs:<ul>' . $items . '</ul></div>';
+    return $items === '' ? '' : '<div class="callout error" data-problems>Problems, and what they need:<ul>' . $items . '</ul></div>';
 }
 
 // The page around a tab's body. The body refreshes itself from ?fragment=1 every $refresh seconds (0: never).

@@ -283,9 +283,9 @@ function metrics_http_traffic(Metrics $metrics)
     list($start, $end) = metrics_http_window();
     $collected = traffic_collect(array(array($start, $end)));
     $aggregate = $collected[0];
-    foreach (TRAFFIC_CLASSES as $class) {
-        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, bot, asset (static file), api (a client that is not a browser), attack',
-            $aggregate['classes'][$class], array('class' => $class));
+    foreach ($aggregate['classes'] as $class => $count) {
+        $metrics->add('setup_http_class_requests', 'Requests of the window per class: human, api (scripts and API clients), bot, asset (static file), attack and the project\'s own (config/metrics/traffic.php)',
+            $count, array('class' => (string) $class));
     }
     foreach (metrics_http_top($aggregate['bots'], 20) as $bot => $count) {
         $metrics->add('setup_http_bot_requests', 'Requests of the window per known bot (the 20 busiest)', $count, array('bot' => (string) $bot));
@@ -316,4 +316,7 @@ function metrics_http_traffic(Metrics $metrics)
                 ($name === 'p50' ? 'Median' : '95th percentile') . ' response time of the window\'s requests (nginx rt, static files excluded)', $value);
         }
     }
+    // Every figure is in (with the built-in classes); the dashboard says what is wrong with the project's file.
+    $error = traffic_rules()['error'];
+    if ($error !== null) throw new MetricsWarning($error);
 }

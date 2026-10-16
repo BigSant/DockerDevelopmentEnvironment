@@ -331,8 +331,8 @@ class EndpointTest(EndpointMixin, unittest.TestCase):
         time.sleep(4.5)
         metrics = parse(fetch(base, token=TOKEN, fresh=False)[2])
         self.assertEqual(set(metrics["setup_metrics_group_up"].values()), {0})
-        # Every group metrics_groups() lists (the registry and php groups have no dashboard names).
-        self.assertEqual(len(metrics["setup_metrics_group_up"]), len(IMPLEMENTED) + 2)
+        # Every group metrics_groups() lists (the registry, php and release groups have no dashboard names).
+        self.assertEqual(len(metrics["setup_metrics_group_up"]), len(IMPLEMENTED) + 3)
         self.assertNotIn("ram_total", metrics)
         self.assertIn("setup_metrics_snapshot_timestamp_seconds", metrics)
         # Never sampled: the same, without a snapshot time.
@@ -526,8 +526,9 @@ class FeedTest(EndpointMixin, unittest.TestCase):
         self.assertEqual((status, kind), (200, "text/plain; charset=utf-8"), text)
         sections = feed_sections(text)
         headers = [header for header, _ in sections]
-        self.assertEqual(headers[0], "Snapshot")
-        script = [header for header in headers if not header.startswith("Traffic") and header != "Snapshot"]
+        # What runs here (not one of the script's sections) follows the snapshot's time.
+        self.assertEqual(headers[:2], ["Snapshot", "Release"])
+        script = [header for header in headers if not header.startswith("Traffic") and header not in ("Snapshot", "Release")]
         self.assertEqual(script, MONITORING_HEADERS)
         body = dict(sections)
         self.assertEqual(body["Website Response Time"], f"Url: {url}\nResponse Time: {body['Website Response Time'].split('Response Time: ')[1].split('s')[0]}s\nStatus Code: 200")
@@ -892,6 +893,8 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual({(v["source"], v["target"]) for v in released if v["type"] == "bind"},
                          {("/proc", "/host/proc"), ("/srv/demo/data/stage", "/host/disk"),
                           ("/srv/demo/data/stage/metrics", "/var/lib/setup-metrics"),
+                          # What make deploy and deploy-images wrote about the release (current.json).
+                          ("/srv/demo/data/stage/release", "/host/release"),
                           # What the last backup found about the table registry (database as code is on by default).
                           ("/srv/demo/data/stage/table-registry", "/host/table-registry")})
         self.assertIn((logs["source"], "/host/http-logs"), {(v["source"], v["target"]) for v in released if v["type"] == "volume"})

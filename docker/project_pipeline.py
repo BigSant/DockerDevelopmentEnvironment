@@ -58,8 +58,10 @@ SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('ROLLBACK', 'no'), ('BACKUP', '
 AUTO_SWITCHES = ('IMAGES', 'CRON')
 # What the images and containers are made of, in the environment repository: IMAGES=auto rebuilds when the
 # deployed commits touch it (env/<env>.env.example is added per environment). config/ is mounted, but Apache,
-# nginx and the PHP startup read it at container start; config/cron/ is left to CRON (make cron-reload).
-IMAGE_PATHS = ('Dockerfile', '.dockerignore', 'docker', 'compose', 'config', ':(exclude)config/cron', 'env/common.env')
+# nginx and the PHP startup read it at container start; config/cron/ is left to CRON (make cron-reload), and
+# config/metrics/ is read by every traffic analysis (make deploy copies it).
+IMAGE_PATHS = ('Dockerfile', '.dockerignore', 'docker', 'compose', 'config', ':(exclude)config/cron', ':(exclude)config/metrics',
+               'env/common.env')
 CRON_PATHS = ('config/cron',)
 USAGE = 64
 # The step's make variables would leak into the make steps it starts; Bitbucket's DOCKER_HOST points

@@ -393,6 +393,8 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
     record(project, entry)
     from project_release import publish_release_info
     publish_release_info(project, deploy_path)
+    from project_policy import report_traffic_classes
+    report_traffic_classes(project)
     print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
     return commit
 

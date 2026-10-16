@@ -49,11 +49,14 @@ function traffic_tab_body($report, $start, $end, $label, $key)
     }
     $bar .= '<input type="date" name="day" value="' . h($key === '' ? $label : '') . '"><button>Day</button>'
         . '<span class="spacer"></span><span class="stamp">' . h($time($start)) . ' – ' . h($time($end)) . '</span></form>';
-    $classes = '<div class="cards">';
-    foreach (array('human' => 'People', 'api' => 'Scripts & API', 'bot' => 'Bots', 'asset' => 'Static files', 'attack' => 'Attacks') as $class => $title) {
-        $classes .= '<section class="card' . ($class === 'attack' && $report['classes']['attack'] ? ' bad' : '') . '"><h2>' . h($title) . '</h2>'
-            . '<div class="value">' . h(number_format($report['classes'][$class], 0, '.', ' ')) . '</div>'
-            . '<div class="note">' . ($report['requests'] ? round($report['classes'][$class] / $report['requests'] * 100) : 0) . ' % of '
+    $error = traffic_rules()['error'];
+    $classes = ($error === null ? '' : '<div class="callout error" data-problems>' . h($error) . '</div>') . '<div class="cards">';
+    // People, the project's own classes, scripts & API, bots, static files, attacks (a card per class).
+    foreach ($report['labels'] as $class => $title) {
+        $count = isset($report['classes'][$class]) ? $report['classes'][$class] : 0;
+        $classes .= '<section class="card' . ($class === 'attack' && $count ? ' bad' : '') . '" data-class="' . h($class) . '"><h2>' . h($title) . '</h2>'
+            . '<div class="value">' . h(number_format($count, 0, '.', ' ')) . '</div>'
+            . '<div class="note">' . ($report['requests'] ? round($count / $report['requests'] * 100) : 0) . ' % of '
             . h(number_format($report['requests'], 0, '.', ' ')) . ' requests</div></section>';
     }
     $classes .= '<section class="card"><h2>Response time</h2><div class="value">'
@@ -74,12 +77,13 @@ function traffic_tab_body($report, $start, $end, $label, $key)
     };
     return $bar . $classes . '<div class="panels">' . $attacks
         . traffic_tab_rows('Bots', $report['bots']) . traffic_tab_rows('Suspicious IPs (an attack)', $report['suspicious_ips'])
-        . traffic_tab_rows('Top IPs', $report['ips']) . traffic_tab_rows('Regular IPs (pages, no attack)', $report['regular_ips'])
+        . traffic_tab_rows('Top IPs', $report['ips']) . traffic_tab_rows('Regular IPs (people, no attack)', $report['regular_ips'])
         . traffic_tab_rows('Top user agents', $report['agents']) . traffic_tab_rows('Top URLs', $report['urls'])
         . traffic_tab_rows('4xx by URL', $report['errors4']) . traffic_tab_rows('5xx by URL', $report['errors5'])
         . traffic_tab_rows('Slowest URLs', $report['slowest'], $seconds) . '</div>'
-        . '<p class="stamp">Classes: an attack pattern first, then a known bot, then a static file, then a client that is not a browser '
-        . '(scripts & API: curl, python, Go, Java, an app\'s own client, no agent). Bots: setup\'s list and METRICS_BOTS. '
+        . '<p class="stamp">Classes: an attack pattern first, then the project\'s own classes (config/metrics/traffic.php), then a '
+        . 'known bot, then a static file, then scripts & API (curl, Wget, python, Guzzle, Java, Go and other HTTP clients, no '
+        . 'agent). Bots: setup\'s list, METRICS_BOTS and the project file\'s. Regular and suspicious IPs count people and attacks. '
         . 'Classes, bots, attacks and response times are exact; the lists keep each hour\'s ' . TRAFFIC_TOP . ' busiest entries, '
         . 'so in a busy window the counts below the top ones are approximate.</p>';
 }

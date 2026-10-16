@@ -332,14 +332,15 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         _, metrics = self.scrape()
         base = list(base_samplers())[-1]
         page = fetch(base, "/cron")[2]
-        # job, file, line, then schedule, last run, exit, duration, last success, next expected.
+        # job, file, line, then name, schedule, last run, exit, duration, last success, next expected.
         jobs = {tuple(row[:3]): row for row in tab_rows(page, "Jobs")}
         failing = jobs[(job_id(FAILING), "crontab", "3")]
-        self.assertEqual((failing[3], failing[5]), ("*/5 * * * *", "3"))
+        # Named without the cron URL's token.
+        self.assertEqual((failing[3], failing[4], failing[6]), ("echo shop.example/cron", "*/5 * * * *", "3"))
         # The nightly job is in two files: two rows with their own schedules and the job's one history.
         nightly, stage = jobs[(job_id("true"), "crontab", "4")], jobs[(job_id("true"), "crontab.stage", "1")]
-        self.assertEqual((nightly[3], stage[3]), ("0 3 * * *", "15 * * * *"))
-        self.assertEqual(nightly[4:8], stage[4:8])
+        self.assertEqual((nightly[3], nightly[4], stage[4]), ("true", "0 3 * * *", "15 * * * *"))
+        self.assertEqual(nightly[5:9], stage[5:9])
         self.assertEqual(len(jobs), len(metrics["setup_cron_job_info"]))
         self.assertNotIn("cron-secret-value", page)
         _, metrics = self.scrape(METRICS_CRON="0")
@@ -354,10 +355,11 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         # so its run figures are served once; crontab.prod is not this environment's.
         failing, nightly, hourly = job_id(FAILING), job_id("true"), job_id("echo never")
         info = metrics["setup_cron_job_info"]
-        self.assertEqual(set(info), {f'{{job="{failing}",source="crontab",line="3",schedule="*/5 * * * *"}}',
-                                     f'{{job="{nightly}",source="crontab",line="4",schedule="0 3 * * *"}}',
-                                     f'{{job="{hourly}",source="crontab",line="5",schedule="@hourly"}}',
-                                     f'{{job="{nightly}",source="crontab.stage",line="1",schedule="15 * * * *"}}'})
+        self.assertEqual(set(info), {
+            f'{{job="{failing}",source="crontab",line="3",schedule="*/5 * * * *",name="echo shop.example/cron"}}',
+            f'{{job="{nightly}",source="crontab",line="4",schedule="0 3 * * *",name="true"}}',
+            f'{{job="{hourly}",source="crontab",line="5",schedule="@hourly",name="echo never"}}',
+            f'{{job="{nightly}",source="crontab.stage",line="1",schedule="15 * * * *",name="true"}}'})
         self.assertEqual(labelled(metrics, "setup_cron_job_last_exit_code", "job"), {failing: 3, nightly: 0})
         last = labelled(metrics, "setup_cron_job_last_run_timestamp_seconds", "job")
         self.assertAlmostEqual(last[failing], started, delta=30)
@@ -368,9 +370,9 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         self.assertTrue(last[failing] < expected[failing] <= last[failing] + 300)
         self.assertEqual(expected[hourly] % 3600, 0)
         self.assertTrue(started < expected[hourly] <= started + 3600 + 30)
-        # The command (and the token in it) is never a label.
+        # The command (and the token in it) is never a label: only its name is.
         self.assertNotIn("cron-secret-value", body)
-        self.assertNotIn("echo", body)
+        self.assertNotIn("token=", body)
         self.assertEqual(group_up(metrics, "cron"), 1)
 
         # The nightly id's earliest schedule (15 * * * * of crontab.stage) gives its expected time.

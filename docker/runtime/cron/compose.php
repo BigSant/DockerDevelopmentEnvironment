@@ -69,18 +69,33 @@ function cronJobName($command)
         $comment = implode(' ', array_map($mask, preg_split('/\s+/', trim($match[1]), -1, PREG_SPLIT_NO_EMPTY)));
         $command = substr($command, 0, -strlen($match[0]));
     }
+    // Wrappers and the options that take the next word as their value (nice -n 10, flock -w 5, timeout -s KILL).
     $wrappers = array('flock', 'nice', 'ionice', 'timeout', 'nohup', 'env', 'sudo', 'chronic', 'time', 'exec');
-    // Options that take the next word as their value.
-    $valued = array('-C', '--directory', '-f', '--file', '--makefile', '-d', '-c', '-u', '--user', '-o', '--output', '-O',
-        '-H', '--header', '-X', '--request', '-A', '--user-agent', '-e', '-n', '-w', '-E', '--lock-file', '-g', '-s', '-k',
-        '--adjustment', '--class', '--signal', '--kill-after');
+    $wrapperValued = array('-n', '--adjustment', '-c', '--class', '-w', '--wait', '--timeout', '-E', '--conflict-exit-code',
+        '-s', '--signal', '-k', '--kill-after', '-u', '--user', '-g', '--group', '-C', '--chdir');
+    // The program's options that take a value, which is never shown (make -C dir, php -d x=1, curl -H 'Authorization: …').
+    $valued = array('-C', '--directory', '-f', '--file', '--makefile', '-d', '--data', '--data-raw', '-c', '-u', '--user',
+        '-o', '--output', '-O', '--output-document', '-H', '--header', '-X', '--request', '-A', '--user-agent', '-e', '-b',
+        '--cookie', '-T', '--upload-file', '-F', '--form', '--password', '--http-password', '--http-user', '--post-data',
+        '--header', '--env');
     $name = '';
-    foreach (preg_split('/\s*(?:&&|\|\||;|\|)\s*/', trim($command)) as $segment) {
-        $words = preg_split('/\s+/', trim(str_replace(array('"', "'"), '', $segment)), -1, PREG_SPLIT_NO_EMPTY);
+    $moved = '';
+    // Words as the shell splits them (a quoted text is one word, without its quotes) and the separators between commands.
+    preg_match_all('/(?:[^\s;&|"\']+|"(?:[^"\\\\]|\\\\.)*"|\'[^\']*\')+|&&|\|\||[;&|]/', trim($command), $tokens);
+    $segments = array(array());
+    foreach ($tokens[0] as $token) {
+        if (in_array($token, array('&&', '||', ';', '&', '|'), true)) {
+            $segments[] = array();
+            continue;
+        }
+        $segments[count($segments) - 1][] = preg_replace('/"((?:[^"\\\\]|\\\\.)*)"|\'([^\']*)\'/', '$1$2', $token);
+    }
+    foreach ($segments as $words) {
         $program = null;
         $arguments = array();
         for ($index = 0; $index < count($words); $index++) {
             $word = $words[$index];
+            if ($word === '') continue;
             if (preg_match('/^\d*[<>]/', $word)) {
                 // A redirection, and its target when it is a word of its own.
                 if (preg_match('/^\d*[<>]+&?$/', $word)) $index++;
@@ -90,12 +105,13 @@ function cronJobName($command)
                 if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $word)) continue;
                 $base = basename($word);
                 if (in_array($base, $wrappers, true)) {
-                    // A wrapper's options (nice -n 10), flock's lock file and timeout's duration come before the command.
-                    while (isset($words[$index + 1])) {
+                    // A wrapper's options, flock's lock file and timeout's duration come before the command.
+                    while (isset($words[$index + 1]) && $words[$index + 1] !== '') {
                         $next = $words[$index + 1];
                         if ($next[0] === '-') {
-                            $index += strpos($next, '=') === false && in_array($next, $valued, true) ? 2 : 1;
-                        } elseif (($base === 'flock' && strpos($next, '/') !== false) || ($base === 'timeout' && preg_match('/^\d+[smhd]?$/', $next))) {
+                            $index += strpos($next, '=') === false && in_array($next, $wrapperValued, true) ? 2 : 1;
+                        } elseif (($base === 'flock' && strpos($next, '/') !== false) || ($base === 'timeout' && preg_match('/^\d+(\.\d+)?[smhd]?$/', $next))
+                            || ($base === 'env' && preg_match('/^[A-Za-z_][A-Za-z0-9_]*=/', $next))) {
                             $index++;
                         } else {
                             break;
@@ -111,16 +127,21 @@ function cronJobName($command)
                 continue;
             }
             $shown = $mask($word);
-            // A path is named by its last part (the script), a URL by its host and path.
+            // A path is named by its last part (the script), a URL by its host and path; a word with spaces is a text.
             if ($shown === $word && strpos($word, '/') !== false) $shown = basename($word);
+            if (preg_match('/\s/', $shown)) $shown = '…';
             if ($shown !== '' && count($arguments) < 3) $arguments[] = $shown;
         }
-        // cd only moves; the job is what follows it.
-        if ($program === null || in_array($program, array('cd', 'true', ':'), true)) continue;
+        // cd only moves; the job is what follows it (a job that is only true is named so).
+        if ($program === null) continue;
+        if (in_array($program, array('cd', 'true', ':'), true)) {
+            if ($moved === '') $moved = $program;
+            continue;
+        }
         $name = trim($program . ' ' . implode(' ', $arguments));
         break;
     }
-    if ($name === '') $name = 'job';
+    if ($name === '') $name = $moved !== '' && $moved !== 'cd' ? $moved : 'job';
     if (strlen($name) > 60) $name = substr($name, 0, 59) . '…';
     if ($comment !== '') $name .= ' · ' . (strlen($comment) > 40 ? substr($comment, 0, 39) . '…' : $comment);
     return $name;

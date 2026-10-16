@@ -87,7 +87,8 @@ class TrafficTest(unittest.TestCase):
         self.assertEqual(report["attacks"], {"sqli": 3})
         self.assertEqual(report["suspicious_ips"], expected["suspicious"])
         self.assertEqual(report["regular_ips"], expected["regular"])
-        self.assertEqual(report["classes"], {"human": 41, "bot": 21, "asset": 35, "attack": 3})
+        # The python-requests line is an SQL injection.
+        self.assertEqual(report["classes"], {"human": 41, "api": 0, "bot": 21, "asset": 35, "attack": 3})
         # 4xx and 5xx by URL (no query), the slowest URLs by average.
         self.assertEqual(report["errors4"], {"/lt/nera": 2, "/module/x/ajax.php": 1})
         self.assertEqual(report["errors5"], {"/lt/uzsakymas": 2})
@@ -126,7 +127,7 @@ class TrafficTest(unittest.TestCase):
         (self.logs / f"nginx-proxy/access-{local:%Y-%m-%d}.log").write_text("".join(rows) + "\n")
         report = self.report("window=1h")
         self.assertEqual(report["attacks"], {"probe": 4, "traversal": 1, "xss": 1})
-        self.assertEqual(report["classes"], {"human": 1, "bot": 2, "asset": 0, "attack": 6})
+        self.assertEqual(report["classes"], {"human": 1, "api": 0, "bot": 2, "asset": 0, "attack": 6})
         # Bots are counted by agent like the script did, an attack's agent too; the class is the attack.
         self.assertEqual(report["bots"], {"ShopCrawler/1.0": 1, "Inhouse Monitor": 1, "Googlebot": 1})
         self.assertEqual(set(report["suspicious_ips"]), {"203.0.113.5", "203.0.113.6", "203.0.113.7", "203.0.113.8"})
@@ -297,8 +298,10 @@ class TrafficMetricsTest(EndpointMixin, unittest.TestCase):
 
     def test_classes_slow_requests_and_percentiles_of_the_window(self):
         metrics = self.scrape()
-        # Nine site requests in the window (the scrape of metrics.demo.local is left out), none a bot or an attack.
-        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"), {"human": 9, "bot": 0, "asset": 0, "attack": 0})
+        # Nine site requests in the window (the scrape of metrics.demo.local is left out), none a bot or an attack: two
+        # by curl and a TLS handshake without an agent are scripts.
+        self.assertEqual(labelled(metrics, "setup_http_class_requests", "class"),
+                         {"human": 6, "api": 3, "bot": 0, "asset": 0, "attack": 0})
         self.assertEqual(labelled(metrics, "setup_http_attack_requests", "type"), {"sqli": 0, "traversal": 0, "probe": 0, "xss": 0})
         self.assertNotIn("setup_http_bot_requests", metrics)
         # Timed lines in the window: 0, 12, 250 and 30001 ms; one over 2 s.

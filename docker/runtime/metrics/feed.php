@@ -101,7 +101,8 @@ function feed_traffic($report, $start, $end)
     }
     $slowest = function ($value) { return number_format($value['average'], 3, '.', '') . 's avg ' . $value['requests'] . ' req'; };
     return feed_section('Traffic window', date('Y-m-d H:i', $start) . ' - ' . date('Y-m-d H:i', $end) . ', ' . $report['requests'] . ' requests')
-        . feed_section('Traffic classes', $list($report['classes']) . "\np50 " . ($report['p50'] === null ? '-' : $report['p50'] . 's')
+        . feed_section('Traffic classes', $list($report['classes']) . (traffic_rules()['error'] === null ? '' : "\n" . traffic_rules()['error'])
+            . "\np50 " . ($report['p50'] === null ? '-' : $report['p50'] . 's')
             . "\np95 " . ($report['p95'] === null ? '-' : $report['p95'] . 's'))
         . feed_section('Traffic bot requests', $list($report['bots']))
         . feed_section('Traffic attacks', $attacks === '' ? 'none' : $attacks)

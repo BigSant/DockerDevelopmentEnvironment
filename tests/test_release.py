@@ -167,7 +167,8 @@ class ReleaseTest(unittest.TestCase):
         model = release_model(project, '/home/shop/site')
         with patch('project_release.subprocess.Popen', Save), patch('project_release.release_model', return_value=model), \
                 patch('project_release.subprocess.run', lambda command, **k: subprocess.CompletedProcess(command, 0, '', '')), \
-                patch('project_release.prepare_runtime_directories'), contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.prepare_runtime_directories'), patch('project_release.publish_release_info'), \
+                contextlib.redirect_stdout(io.StringIO()):
             deploy_images(project)
         self.assertIn('getmeili/meilisearch:v1.10', saved[0], 'the external image travels with docker save')
 
@@ -206,8 +207,11 @@ class ReleaseTest(unittest.TestCase):
         prepare = lambda project, model, path: calls.append(['prepare', path])
         with patch('project_release.subprocess.Popen', Save), patch('project_release.subprocess.run', run), \
                 patch('project_release.release_model', return_value=model), \
-                patch('project_release.prepare_runtime_directories', prepare), contextlib.redirect_stdout(io.StringIO()):
+                patch('project_release.prepare_runtime_directories', prepare), \
+                patch('project_release.publish_release_info') as published, contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(deploy_images(project), ['a:1', 'b:1'])
+        # The dashboard's release card: the images have just started on DEPLOY_PATH.
+        published.assert_called_once_with(project, '/home/shop/site', images=True)
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
         self.assertEqual(calls[2], ['prepare', '/home/shop/site'], 'the directories exist before the containers start')
