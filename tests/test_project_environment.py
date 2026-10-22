@@ -1,4 +1,4 @@
-"""Grouped scaffolding and readiness checks without changing running containers."""
+"""Project initialization and readiness checks without changing running containers."""
 
 import contextlib
 import io
@@ -12,10 +12,14 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
-from prepare_project import prepare
+sys.path[:0] = [str(ROOT), str(ROOT / "docker"), str(ROOT / "tests")]
+from project_scaffold import scaffold
 from project import Project
 from project_environment import doctor, initialize_directories, initialize_env, pull_images
+
+
+# make init copies the private env file from its example.
+EXAMPLE = {"env/local.env.example": "DOMAIN=example.local\n"}
 
 
 class ProjectEnvironmentTest(unittest.TestCase):
@@ -26,8 +30,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "example"
         self.directory = self.root / "app"
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(self.root)
+        scaffold(self.root, EXAMPLE)
 
     def initialize(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -37,40 +40,29 @@ class ProjectEnvironmentTest(unittest.TestCase):
                            "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='private $value'\n")
         return private
 
-    def test_grouped_default_preserves_custom_sources_and_private_settings(self):
+    def test_init_preserves_private_settings(self):
         private = self.initialize()
         before = private.read_bytes()
-        for relative in ("compose/local.yaml", "Dockerfile", ".gitignore", "qa/README.md"):
-            (self.directory / relative).write_text("custom project source\n")
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(prepare(self.root), [])
             initialize_env(self.directory, "local")
         self.assertEqual(private.read_bytes(), before)
         self.assertEqual(private.stat().st_mode & 0o777, 0o600)
         self.assertFalse((self.directory / ".env").exists())
         self.assertIn("PROJECT_NAME=example", (self.directory / "env/common.env").read_text())
-        self.assertTrue((self.directory / "qa/playwright/tests/homepage.spec.cjs").is_file())
-        for relative in ("compose/local.yaml", "Dockerfile", ".gitignore", "qa/README.md"):
-            self.assertEqual((self.directory / relative).read_text(), "custom project source\n")
 
-    def test_app_layout_merges_existing_tree_and_is_detected_on_rerun(self):
+    def test_app_layout_model_paths(self):
         root = Path(self.temporary.name) / "consolidated"
-        app = root / "app"
-        (app / "public").mkdir(parents=True)
+        app = scaffold(root, {**EXAMPLE, "config/php/20-runtime.ini": "memory_limit = 256M\n"})
+        (app / "public").mkdir()
         (app / "public/index.php").write_text("existing application\n")
-        (app / "config/sql").mkdir(parents=True)
-        (app / "config/sql/existing.sql").write_text("SELECT 1;\n")
         with contextlib.redirect_stdout(io.StringIO()):
-            prepare(root, layout="app")
             initialize_env(app, "local")
-            self.assertEqual(prepare(root), [])
         (app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
                                           "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test\n")
         project = Project(app)
         model = project.model()
         self.assertEqual(project.root, root)
         self.assertEqual(project.settings["SCHEMA_DIRECTORY"], "app/database/schema")
-        self.assertEqual(project.settings["POST_IMPORT_SQL_DIRECTORY"], "app/database/after-import")
         # Without a project Dockerfile the CORE pass-through extends the CORE image.
         self.assertEqual(Path(model["services"]["php-fpm"]["build"]["context"]), ROOT / "docker/docker/php-fpm/project")
         mounts = {v["target"]: v["source"] for v in model["services"]["php-fpm"]["volumes"]}
@@ -79,14 +71,11 @@ class ProjectEnvironmentTest(unittest.TestCase):
         database = {v["target"]: v["source"] for v in model["services"]["database"]["volumes"]}
         self.assertEqual(Path(database["/var/lib/mysql"]), root / "data/mysql")
         self.assertEqual((app / "public/index.php").read_text(), "existing application\n")
-        self.assertEqual((app / "config/sql/existing.sql").read_text(), "SELECT 1;\n")
         self.assertFalse((root / "docker").exists())
 
     def test_database_as_code_is_on_by_default_and_off_on_request(self):
         root = Path(self.temporary.name) / "schema-default"
-        app = root / "app"
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(root, layout="app")
+        app = scaffold(root)
         (app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
                                           "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=test\n")
         common = app / "env/common.env"
@@ -103,8 +92,10 @@ class ProjectEnvironmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DATABASE_AS_CODE"):
             Project(app)
 
-    def test_grouped_model_and_init_preserve_application_and_data(self):
+    def test_init_directories_preserve_application_and_data(self):
         self.initialize()
+        with (self.directory / "env/common.env").open("a") as common:
+            common.write("SERVICES=redis\n")
         project = Project(self.directory)
         with contextlib.redirect_stdout(io.StringIO()):
             initialize_directories(project)
@@ -117,7 +108,7 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertEqual(marker.read_text(), "preserve")
         model = project.model()
         self.assertEqual(Path(model["services"]["php-fpm"]["build"]["context"]), ROOT / "docker/docker/php-fpm/project")
-        # The full template selects the CORE redis service, which starts with up.
+        # SERVICES selects the CORE redis service, which starts with up.
         self.assertIn("redis", project.active_model()["services"])
 
     def test_the_active_model_leaves_out_what_only_a_profile_starts(self):
@@ -127,21 +118,6 @@ class ProjectEnvironmentTest(unittest.TestCase):
         self.assertIn("php-fpm-base", full, "the base image is built through its build_only profile")
         self.assertNotIn("php-fpm-base", active, "up, ps and exec never see it")
         self.assertLess(set(active), set(full))
-
-    def test_mixed_sources_and_escaping_parent_symlinks_fail_before_writes(self):
-        (self.directory / ".env").write_text("PROJECT_NAME=old\n")
-        with self.assertRaisesRegex(ValueError, "no longer supported"):
-            prepare(self.root)
-        (self.directory / ".env").unlink()
-        target = self.directory / "database/schema/README.md"
-        target.unlink()
-        target.parent.rmdir()
-        outside = Path(self.temporary.name) / "outside"
-        outside.mkdir()
-        target.parent.symlink_to(outside, target_is_directory=True)
-        with self.assertRaisesRegex(ValueError, "symlink"):
-            prepare(self.root)
-        self.assertEqual(list(outside.iterdir()), [])
 
     def test_doctor_accepts_a_server_without_certificates_but_not_half_a_pair(self):
         # On stage/prod nginx-proxy generates a self-signed pair when data/<env>/ssl is empty.

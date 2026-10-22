@@ -4,6 +4,19 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
+## Unreleased
+
+The v1 `templates/grouped` scaffold and its `prepare_project.py` command are gone; `create-project` (templates/minimal)
+is the only scaffold. Nothing to change in a project: setup never read those files at run time.
+
+- **No more `templates/grouped`.** It still described the v1 layout (`qa/`, `compose/qa.yaml`, root `.env` rules in
+  `.gitignore`, a `date.timezone` line), and the guide told you to copy QA and Doctrine files from it. The guide now
+  shows those files itself: Playwright, PHPStan and PHP-CS-Fixer use the default mounts `config/playwright/`,
+  `tests/playwright/`, `config/phpstan/` (baseline `PHPSTAN_BASELINE_FILE=/tmp/phpstan/config/baseline.neon`) and
+  `config/php-cs/` without a Compose file (`doc/lt/08-kodo-kokybe.md`); Doctrine keeps `compose/doctrine.yaml` and
+  `database/doctrine/` with their contents in `doc/lt/07-duomenu-baze.md`. A project that copied `qa/` and
+  `compose/qa.yaml` keeps working through `PROJECT_COMPOSE_FILES`.
+
 ## 2.14.1
 
 The metrics dashboard's Logs tab shows its tables without scroll bars. `make build` and `make deploy-images` (a

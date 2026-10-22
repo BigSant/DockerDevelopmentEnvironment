@@ -91,13 +91,13 @@ Privatus interpretatoriaus Compose failas `.generated/phpstorm-compose.<ENV>.yam
 ## Dvi Git repozitorijos
 
 ```text
-forsena/app/.git            # Aplinkos repozitorija: env, compose, config, database, qa
+forsena/app/.git            # Aplinkos repozitorija: env, compose, config, database, tests
 forsena/app/public/.git     # Parduotuvės kodas
 ```
 
 | Failai | Kur commit'inti |
 | --- | --- |
-| `compose/`, `env/common.env`, `env/*.env.example`, `config/`, `database/`, `qa/` | Aplinkos repozitorijoje (`app/`). |
+| `compose/`, `env/common.env`, `env/*.env.example`, `config/`, `database/`, `tests/` | Aplinkos repozitorijoje (`app/`). |
 | Moduliai, temos, parduotuvės kodas | Parduotuvės repozitorijoje (`app/public/`). |
 | `env/local.env`, `env/test.env`, `env/stage.env`, `env/prod.env`, dump'ai, `.generated/`, `data/` | Niekur. |
 

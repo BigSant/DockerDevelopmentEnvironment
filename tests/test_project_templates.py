@@ -1,8 +1,6 @@
 """Filesystem and real Compose config tests; no Docker Engine mutations."""
 
 from concurrent.futures import ThreadPoolExecutor
-import contextlib
-import io
 import json
 import os
 from pathlib import Path
@@ -17,7 +15,6 @@ REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1
                  'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "docker"))
-from prepare_project import prepare
 from project import Project, main as run_project
 
 
@@ -30,7 +27,7 @@ class ProjectTemplatesTest(unittest.TestCase):
         self.projects = Path(self.temporary.name)
 
     def prepare(self, name="example", extra=""):
-        """A minimal grouped project: env/ + compose/ beside app/public."""
+        """A minimal project: env/ + compose/ beside app/public."""
         root = self.projects / name
         directory = root / "app"
         (directory / "env").mkdir(parents=True)
@@ -43,50 +40,11 @@ class ProjectTemplatesTest(unittest.TestCase):
         (directory / "Makefile").write_bytes((ROOT / "templates/shared/Makefile").read_bytes())
         return root, directory
 
-    def test_prepare_writes_identical_grouped_sources_and_preserves_settings(self):
-        first = self.projects / "one"
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(first)
-            prepare(self.projects / "two")
-        one, two = first / "app", self.projects / "two/app"
-        for name in ("Makefile", "compose/common.yaml", ".gitignore"):
-            self.assertEqual((one / name).read_bytes(), (two / name).read_bytes())
-        (one / "env/common.env").write_text("PROJECT_NAME=custom\n")
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(prepare(first), [])
-        self.assertEqual((one / "env/common.env").read_text(), "PROJECT_NAME=custom\n")
-
-    def test_custom_makefile_is_not_overwritten(self):
-        root = self.projects / "example"
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(root)
-        (root / "app/Makefile").write_text("custom user file\n")
-        with self.assertRaisesRegex(ValueError, "differs from the template"):
-            prepare(root)
-        self.assertEqual((root / "app/Makefile").read_text(), "custom user file\n")
-
-    def test_batch_preflight_and_preview_do_not_leave_partial_projects(self):
-        first = self.projects / "first"
-        second = self.projects / "second"
-        command = [sys.executable, str(ROOT / "prepare_project.py"), str(first), str(second)]
-        preview = subprocess.run(command + ["--check"], capture_output=True, text=True)
-        self.assertEqual(preview.returncode, 0, preview.stderr)
-        self.assertFalse(first.exists())
-        self.assertFalse(second.exists())
-        (second / "app").mkdir(parents=True)
-        (second / "app/Makefile").write_text("user-owned\n")
-        failed = subprocess.run(command, capture_output=True, text=True)
-        self.assertNotEqual(failed.returncode, 0)
-        self.assertFalse(first.exists())
-        self.assertEqual((second / "app/Makefile").read_text(), "user-owned\n")
-
     def test_root_level_sources_are_rejected(self):
         _, directory = self.prepare()
         (directory / ".env").write_text("PROJECT_NAME=wrong\n")
         with self.assertRaisesRegex(ValueError, "no longer supported"):
             Project(directory)
-        with self.assertRaisesRegex(ValueError, "no longer supported"):
-            prepare(directory.parent)
 
     def test_native_model_paths_profiles_and_literal_credentials(self):
         root, directory = self.prepare()
@@ -207,13 +165,13 @@ class ProjectTemplatesTest(unittest.TestCase):
 
     def test_project_tool_settings_select_baseline_and_playwright_config(self):
         _, directory = self.prepare(extra=(
-            "PHPSTAN_BASELINE_FILE=/tmp/phpstan/baselines/phpstan.neon\n"
+            "PHPSTAN_BASELINE_FILE=/tmp/phpstan/config/baseline.neon\n"
             "PLAYWRIGHT_COMMAND=npx playwright test --config=/e2e/config/playwright.config.cjs\n"))
         cases = [
             ("doctrine-build", [], ["build", "php-doctrine-migrations"], "doctrine"),
             ("phpstan-baseline", [], ["run", "--rm", "--no-deps", "--entrypoint", "phpstan", "php-phpstan",
                                     "analyse", "--configuration=/tmp/phpstan/config/phpstan.neon",
-                                    "--generate-baseline=/tmp/phpstan/baselines/phpstan.neon",
+                                    "--generate-baseline=/tmp/phpstan/config/baseline.neon",
                                     "--allow-empty-baseline"], "phpstan"),
             ("e2e", [], ["run", "--rm", "--entrypoint", "npx", "playwright", "playwright", "test",
                          "--config=/e2e/config/playwright.config.cjs"], "playwright"),
@@ -228,7 +186,7 @@ class ProjectTemplatesTest(unittest.TestCase):
                 self.assertEqual(run_project(), 0)
                 execute.assert_called_once_with(expected, profiles=profile)
 
-    def test_grouped_files_select_only_one_environment_and_explicit_component(self):
+    def test_compose_files_select_only_one_environment_and_explicit_component(self):
         _, directory = self.prepare()
         with (directory / "env/common.env").open("a") as handle:
             handle.write("PHP_VERSION=8.1\nPROJECT_COMPOSE_FILES=compose/redis.yaml\n")

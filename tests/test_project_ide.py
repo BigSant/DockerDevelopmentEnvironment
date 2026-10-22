@@ -14,8 +14,8 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
-from prepare_project import prepare
+sys.path[:0] = [str(ROOT), str(ROOT / "docker"), str(ROOT / "tests")]
+from project_scaffold import scaffold
 from project import Project
 from project_ide import docker_server_name, initialize_ide, refresh_ide
 
@@ -27,8 +27,7 @@ class ProjectIdeTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(dir=scratch)
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "example"
-        with contextlib.redirect_stdout(io.StringIO()):
-            prepare(self.root, layout="app")
+        scaffold(self.root)
         self.app = self.root / "app"
         (self.app / "env/local.env").write_text("DOMAIN=example.local\nLOCALHOST_PORT=3301\nLOCALHOST_PORT_SSL=3302\n"
                                               "DATABASE_USER=test\nDATABASE_NAME=test\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD='secret $value'\n")

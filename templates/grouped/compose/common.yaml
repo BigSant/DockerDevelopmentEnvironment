@@ -1,7 +1,0 @@
-services:
-  # Resolve the shop domain inside the project network for browser tests.
-  nginx-proxy:
-    networks:
-      network_app:
-        aliases:
-          - ${DOMAIN}

@@ -14,8 +14,8 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 REMOTE_LIMITS = ('PHP_MEMORY=1g\nPHP_CPUS=1\nDATABASE_MEMORY=2g\nDATABASE_CPUS=1\n'
                  'WEBSERVER_MEMORY=256m\nWEBSERVER_CPUS=1\nPROXY_MEMORY=128m\nPROXY_CPUS=0.5\n')
-sys.path[:0] = [str(ROOT), str(ROOT/'docker')]
-from prepare_project import prepare
+sys.path[:0] = [str(ROOT), str(ROOT/'docker'), str(ROOT/'tests')]
+from project_scaffold import scaffold
 from project import Project
 from project_policy import resolve_policy, validate_configuration
 from project_health import start_project
@@ -28,7 +28,7 @@ class PolicyTest(unittest.TestCase):
         scratch=ROOT/'.test-work';scratch.mkdir(exist_ok=True)
         tmp=tempfile.TemporaryDirectory(dir=scratch);self.addCleanup(tmp.cleanup)
         self.root=Path(tmp.name)/'shop'
-        with contextlib.redirect_stdout(io.StringIO()): prepare(self.root, layout='app')
+        scaffold(self.root, {'env/common.env': 'PROJECT_NAME=shop\nSERVICES=pma mailpit redis\n'})
         self.app=self.root/'app'
         for env in ('local','test','stage','prod'):
             remote = 'ALLOWED_IPS=203.0.113.10\n' if env in ('stage','prod') else ''
@@ -84,7 +84,7 @@ class PolicyTest(unittest.TestCase):
         self.assertEqual(Path(mount['source']),self.root/'data/prod/mysql')
         redis=next(v for v in model['services']['redis']['volumes'] if v['target']=='/data')
         self.assertEqual(Path(redis['source']),self.root/'data/prod/redis')
-        # The full legacy source includes both services; neither needs a profile.
+        # SERVICES selects both web tools; neither needs a profile.
         for selected in ('', 'cron'):
             values=Project(self.app,profiles=selected).model()['services']['nginx-proxy']['environment']
             self.assertEqual((values['SETUP_ENABLE_PMA'],values['SETUP_ENABLE_MAILPIT']),('1','1'))
@@ -93,6 +93,7 @@ class PolicyTest(unittest.TestCase):
 
     def test_project_contract_rejects_values_without_printing_secrets(self):
         contract=self.app/'config/environment.json'
+        contract.parent.mkdir();(self.app/'compose').mkdir()
         contract.write_text(json.dumps({'php-fpm':{'TOKEN':{'required':True},'API':{'type':'url','required':True}}}))
         project=Project(self.app)
         with self.assertRaisesRegex(ValueError,'TOKEN'): validate_configuration(project)

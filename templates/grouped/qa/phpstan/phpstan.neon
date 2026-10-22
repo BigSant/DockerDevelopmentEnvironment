@@ -1,8 +1,0 @@
-includes:
-    - ../baselines/phpstan.neon
-
-parameters:
-    level: 6
-    paths:
-        - /var/www/html
-    tmpDir: /tmp/phpstan/cache

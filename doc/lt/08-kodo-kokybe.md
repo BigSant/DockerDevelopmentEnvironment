@@ -68,17 +68,39 @@ E2e testai rašo užsakymus ir klientus, todėl jie irgi vykdomi tik `ENV=test`.
 Paruošimas (vieną kartą):
 
 1. `env/common.env`: `SERVICES` pridėk `playwright`.
-2. Nusikopijuok setup šablono failus: `templates/grouped/compose/qa.yaml` → `compose/qa.yaml`, `templates/grouped/qa/playwright/` → `qa/playwright/`.
+2. Aplinkos repozitorijoje: konfigūracija `config/playwright/playwright.config.cjs`, testai `tests/playwright/`. Setup abu katalogus prijungia tik skaitymui (`/e2e/config`, `/e2e/tests`), papildomo Compose failo nereikia.
 3. `env/common.env`:
 
 ```dotenv
-PROJECT_COMPOSE_FILES=compose/qa.yaml
 PLAYWRIGHT_COMMAND=npx playwright test --config=/e2e/config/playwright.config.cjs
 ```
 
-`compose/qa.yaml` prijungia `qa/playwright` konfigūraciją ir testus tik skaitymui. Be jo setup tik skaitymui prijungia `config/playwright/` (konfigūraciją) ir `tests/playwright/` (testus). Rezultatai visada rašomi į testinės aplinkos duomenų katalogą.
+`config/playwright/playwright.config.cjs` (testų katalogą, duomenų katalogą ir `BASE_URL` duoda setup):
 
-Testo pavyzdys `qa/playwright/tests/homepage.spec.cjs`:
+```javascript
+const path = require('node:path');
+const { defineConfig } = require('@playwright/test');
+
+const dataDirectory = process.env.PLAYWRIGHT_DATA_DIR;
+
+module.exports = defineConfig({
+  testDir: process.env.PLAYWRIGHT_TEST_DIR,
+  outputDir: path.join(dataDirectory, 'test-results'),
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: path.join(dataDirectory, 'report'), open: 'never' }],
+  ],
+  use: {
+    baseURL: process.env.BASE_URL,
+    ignoreHTTPSErrors: true,
+    trace: 'retain-on-failure',
+  },
+});
+```
+
+`ignoreHTTPSErrors: true` reikalingas, nes testinė aplinka naudoja vietinį sertifikatą. Rezultatai visada rašomi į testinės aplinkos duomenų katalogą.
+
+Testo pavyzdys `tests/playwright/homepage.spec.cjs`:
 
 ```javascript
 const { test, expect } = require('@playwright/test');
@@ -102,14 +124,21 @@ Naršyklė kreipiasi į `https://<testinis domenas>` (`BASE_URL`) projekto tinkl
 PHPStan analizuoja kodą ir nieko nekeičia, todėl jis vykdomas įprastoje aplinkoje.
 
 1. `SERVICES` pridėk `php-phpstan`.
-2. Nusikopijuok `templates/grouped/compose/qa.yaml` (jei dar neturi) ir `templates/grouped/qa/phpstan/`, `templates/grouped/qa/baselines/` į projektą, `PROJECT_COMPOSE_FILES=compose/qa.yaml`.
-3. `env/common.env`: `PHPSTAN_BASELINE_FILE=/tmp/phpstan/baselines/phpstan.neon`.
+2. Sukurk aplinkos repozitorijoje katalogą `config/phpstan/` (konteineryje `/tmp/phpstan/config/`). Jei jame nėra `phpstan.neon`, pirmas `make phpstan` įrašo numatytąjį (visa aplikacija, `level: 6`), toliau failas tavo.
+3. Baseline'ui `env/common.env`: `PHPSTAN_BASELINE_FILE=/tmp/phpstan/config/baseline.neon` (numatytoji reikšmė tuščia, be jos `make phpstan-baseline` sustoja). Failas atsiras `config/phpstan/baseline.neon`.
 
-`qa/phpstan/phpstan.neon`, kai tikrini tik savo modulį:
+Prieš pirmą baseline sukurk tuščią `config/phpstan/baseline.neon`, nes `includes` reikalauja esamo failo:
+
+```neon
+parameters:
+	ignoreErrors: []
+```
+
+`config/phpstan/phpstan.neon`, kai tikrini tik savo modulį:
 
 ```neon
 includes:
-    - ../baselines/phpstan.neon
+    - baseline.neon
 
 parameters:
     level: 6
@@ -133,8 +162,8 @@ JSON ataskaita rašoma į `data/phpstan/report.json`. Kitos užduotys: `report-r
 
 ```bash
 make phpstan-baseline
-git diff -- qa/baselines/phpstan.neon
-git add qa/baselines/phpstan.neon
+git diff -- config/phpstan/baseline.neon
+git add config/phpstan/baseline.neon
 ```
 
 Baseline yra ne pataisymas: peržiūrėk skirtumą prieš commit'indamas. Nustatymai: [PHPStan](https://phpstan.org/config-reference).
@@ -142,7 +171,9 @@ Baseline yra ne pataisymas: peržiūrėk skirtumą prieš commit'indamas. Nustat
 ## E. PHP formatavimas (PHP-CS-Fixer)
 
 1. `SERVICES` pridėk `php-cs`.
-2. `templates/grouped/qa/php-cs/.php-cs-fixer.php` → `qa/php-cs/.php-cs-fixer.php`, `PROJECT_COMPOSE_FILES=compose/qa.yaml`.
+2. Sukurk aplinkos repozitorijoje katalogą `config/php-cs/` (konteineryje `/tmp/php-cs-fixer/config/`). Jei jame nėra `.php-cs-fixer.php`, pirmas `make phpcs` įrašo numatytąjį (visa aplikacija, `@PSR12` ir `@PHP80Migration`), toliau failas tavo.
+
+`config/php-cs/.php-cs-fixer.php`, kai tvarkai tik savo modulį:
 
 ```php
 <?php
@@ -199,5 +230,5 @@ exit 0
 | Kas | Kur |
 | --- | --- |
 | Modulio PHPUnit rinkinys | Modulyje, keliauja kartu su moduliu (parduotuvės repozitorijoje). |
-| E2e, PHPStan, PHP-CS konfigūracija | Aplinkos repozitorijoje `qa/`. |
+| E2e, PHPStan, PHP-CS konfigūracija | Aplinkos repozitorijoje: `config/playwright/`, `config/phpstan/`, `config/php-cs/`; e2e testai – `tests/playwright/`. |
 | Rezultatai, cache, ataskaitos | `data/<įrankis>/` (testui – `.generated/test/data/`). Ne Git. |

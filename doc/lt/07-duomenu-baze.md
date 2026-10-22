@@ -431,13 +431,58 @@ Ji turi tik `PROCESS` ir skaitymą `performance_schema` bei `sys`: mato skaitikl
 
 ## Doctrine migracijos (neprivaloma)
 
-Jei aplikacija naudoja Doctrine migracijas, nusikopijuok šabloną iš setup:
+Jei aplikacija naudoja Doctrine migracijas, aplinkos repozitorijoje sukurk tris failus ir katalogą `database/doctrine/versions/` (migracijų klasės).
 
-```bash
-mkdir -p compose database/doctrine/versions
-cp ../../setup/templates/grouped/compose/doctrine.yaml compose/
-cp ../../setup/templates/grouped/database/doctrine/connection.php database/doctrine/
-cp ../../setup/templates/grouped/database/doctrine/migrations.php database/doctrine/
+`compose/doctrine.yaml` – CORE įrankio servisas be jo laukia (`tail -f /dev/null`), todėl šis failas nurodo komandą ir prijungia `database/doctrine/`:
+
+```yaml
+services:
+  php-doctrine-migrations:
+    extends:
+      file: ${ROOT_DIRECTORY}/docker/php-doctrine-migrations/docker-compose.yml
+      service: php-doctrine-migrations
+    profiles: [doctrine]
+    entrypoint:
+      - doctrine-migrations
+      - --configuration=/tmp/doctrine-migrations/config/migrations.php
+      - --db-configuration=/tmp/doctrine-migrations/config/connection.php
+    volumes:
+      - ${PROJECT_DOCKER_DIRECTORY}/database/doctrine:/tmp/doctrine-migrations/config
+      - ${PROJECT_DATA_DIRECTORY}/doctrine-migrations:/tmp/doctrine-migrations/cache
+```
+
+`database/doctrine/migrations.php`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+return [
+    'table_storage' => ['table_name' => 'doctrine_migration_versions'],
+    'migrations_paths' => ['DoctrineMigrations' => __DIR__ . '/versions'],
+    // MySQL DDL commits implicitly; schema migrations below are non-transactional.
+    'all_or_nothing' => false,
+    'transactional' => false,
+    'check_database_platform' => true,
+];
+```
+
+`database/doctrine/connection.php` (prisijungimas iš konteinerio env, slaptažodžių faile nėra):
+
+```php
+<?php
+
+declare(strict_types=1);
+
+return [
+    'driver' => 'pdo_mysql',
+    'host' => getenv('DATABASE_HOST') ?: 'database',
+    'user' => getenv('DATABASE_USER'),
+    'password' => getenv('DATABASE_PASSWORD'),
+    'dbname' => getenv('DATABASE_NAME'),
+    'charset' => 'utf8mb4',
+];
 ```
 
 `env/common.env` papildyk `PROJECT_COMPOSE_FILES=compose/doctrine.yaml` (jei sąrašas jau yra, pridėk prie jo). Tada:

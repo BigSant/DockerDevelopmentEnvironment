@@ -17,13 +17,29 @@ from database_migrations import generate_migration, compare_in_container
 from project import Project
 
 
+# The migrations.php that doc/lt/07-duomenu-baze.md shows.
+MIGRATIONS = '''<?php
+
+declare(strict_types=1);
+
+return [
+    'table_storage' => ['table_name' => 'doctrine_migration_versions'],
+    'migrations_paths' => ['DoctrineMigrations' => __DIR__ . '/versions'],
+    // MySQL DDL commits implicitly; schema migrations below are non-transactional.
+    'all_or_nothing' => false,
+    'transactional' => false,
+    'check_database_platform' => true,
+];
+'''
+
+
 @unittest.skipUnless(os.environ.get('SETUP_DOCTRINE_TEST_IMAGE'), 'set SETUP_DOCTRINE_TEST_IMAGE for disposable Doctrine integration')
 class DoctrineIntegrationTest(unittest.TestCase):
     def test_unsupported_table_options_do_not_silently_generate_an_empty_migration(self):
         (ROOT / '.test-work').mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / '.test-work') as temporary:
             config = Path(temporary)
-            (config / 'migrations.php').write_bytes((ROOT / 'templates/grouped/database/doctrine/migrations.php').read_bytes())
+            (config / 'migrations.php').write_text(MIGRATIONS)
             payload = {'before': {'t': 'CREATE TABLE t (id int) ENGINE=InnoDB ROW_FORMAT=COMPACT;'},
                        'after': {'t': 'CREATE TABLE t (id int) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;'},
                        'charset': 'utf8mb4', 'collation': 'utf8mb4_unicode_ci',
@@ -44,7 +60,7 @@ class DoctrineIntegrationTest(unittest.TestCase):
             (app / 'Makefile').write_bytes((ROOT / 'templates/shared/Makefile').read_bytes())
             (app / 'env/common.env').write_text(f'PROJECT_NAME={root.name}\nSCHEMA_DIRECTORY=app/database/schema\n')
             (app / 'env/local.env').write_text('DATABASE_NAME=example\nDATABASE_USER=example\nDATABASE_ROOT_PASSWORD=root-test-only\nDATABASE_PASSWORD=doctrine-test-only\n')
-            (config / 'migrations.php').write_bytes((ROOT / 'templates/grouped/database/doctrine/migrations.php').read_bytes())
+            (config / 'migrations.php').write_text(MIGRATIONS)
             (config / 'connection.php').write_text("<?php return ['driver'=>'pdo_mysql','host'=>'127.0.0.1','user'=>'example','password'=>'doctrine-test-only','dbname'=>'example'];")
             model = {'services': {
                 'database': {'image': os.environ.get('SETUP_DB_TEST_IMAGE', 'mysql:5.7'),
