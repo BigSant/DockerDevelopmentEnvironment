@@ -46,6 +46,7 @@ Blokas su `dotenv`, `yaml`, `ini`, `php` ar `sql` yra failo turinys. Blokas su `
 | Padidinti konteinerio atmintį | [Resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui) |
 | Įjungti Xdebug profiliavimą | [Xdebug](05-servisai.md#php-ir-xdebug) |
 | Išleisti kodą į STAGE ar LIVE | [Release ir deploy](09-aplinkos.md) |
+| Prisijungti prie STAGE ar LIVE serverio (terminalas, komanda, konteineriai) | [Per worker'į](09-aplinkos.md#prisijungimas-prie-serverio-per-workerį) |
 | Sužinoti, kokias env reikšmes turi LIVE serveris | [LIVE zondas](../../tools/live-probe/README.md) |
 | Atlaisvinti vietos nuo senų image'ų | [make image-prune](04-compose-ir-dockerfile.md#image-fingerprintai-ir-make-image-prune) |
 

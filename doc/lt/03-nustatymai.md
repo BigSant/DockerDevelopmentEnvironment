@@ -178,7 +178,7 @@ Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stag
 | `SCHEMA_DIRECTORY` | `app/database/schema` | Kitas schemos snapshot'o katalogas nuo projekto šaknies. Su `DATABASE_AS_CODE=off` nenaudojamas. |
 | `POST_IMPORT_SQL_DIRECTORY` | `database/after-import` šalia Makefile | Kitas after-import katalogas nuo projekto šaknies. |
 | `FIXTURES_DIRECTORY` | Tuščias | Fixtures katalogas nuo projekto šaknies, pvz. `app/database/fixtures`. |
-| `BACKUP_SSH` | Kompiuterio atsakymas | `make db-pull`: setup-server paskyra VPN adresu, pvz. `setup@10.8.0.14`. Paprastai nenurodomas: pirmas `make db-pull` paklausia ir išsaugo setup'o `docker/.env.backup` visiems projektams. Projekte – tik jei jo kopijos kitame serveryje. |
+| `BACKUP_SSH` | Kompiuterio atsakymas | `make db-pull` ir `make ssh`: setup-server paskyra VPN adresu, pvz. `setup@10.8.0.14`. Paprastai nenurodomas: pirmas `make db-pull` paklausia ir išsaugo setup'o `docker/.env.backup` visiems projektams. Projekte – tik jei jo kopijos kitame serveryje. |
 | `BACKUP_SERVER_PROJECT` | git vardas, tada `PROJECT_NAME` | Projekto katalogo vardas serveryje (`projects/<vardas>`). Paprastai nereikia: pirmiausia bandomas aplinkos repo vardas (`origin`, pvz. `asana_tracker`), tada `PROJECT_NAME`; serveriui nežinant nė vieno, `make db-pull` paklausia ir įrašo į `env/local.env`. |
 | `BACKUP_SSH_KEY` | Kompiuterio atsakymas | Kitas privatus SSH raktas `make db-pull` (pvz. `~/.ssh/kopijoms_ed25519`); paklausiama kartu su `BACKUP_SSH`. |
 | `INTEGRATIONS_ENABLED` | Tuščias | Integracijos, kurias po užkėlimo palikti įjungtas, per tarpus. |

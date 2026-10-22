@@ -406,6 +406,12 @@ over ssh. Code push, removals, target-only module listing (directories only), `m
 runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with
 `BatchMode=yes` and `ConnectTimeout=15`, host keys checked as ssh is configured. The containers' Docker daemon is
 the separate `DEPLOY_CONTEXT`.
+Developers reach a target only through the setup-server worker (`server_access`, `make ssh`): the same key and
+`BACKUP_SSH` as `make db-pull` (`database_pull.connection`), whose forced command on the worker goes on with the
+worker's own deploy access at the level the key was granted per project environment (`phpfpm-readonly` < `phpfpm` <
+`docker` < `full`; setup-server's `bin/add-backup-key --grant`). Setup only builds the gate's request (`access`,
+`shell`, `exec … -- CMD`, `host`, `docker VERB …`, one shell-quoted string the gate splits again), picks the server
+project name from `access` and asks ssh for a TTY only when both ends are terminals; every check is the gate's.
 Locally `make up` prepares the same runtime directories first (`project_environment.runtime_directories`): a bind
 source a newer setup adds (`data/<env>/metrics`) would otherwise be created by Docker as root, which the services
 running as the project account cannot write. An empty root-owned one Docker made earlier is replaced (the account

@@ -366,10 +366,10 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-pull", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-pull", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
-    parser.add_argument("--command", help="QA command override, parsed as arguments (no shell)")
+    parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
     parser.add_argument("--workdir", default=".", help="Composer/npm directory relative to application sources")
     parser.add_argument("--ref", default="HEAD", help="Committed schema baseline for doctrine-diff (default: HEAD)")
     parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
@@ -386,7 +386,12 @@ def main():
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
                         'deploy-variables: also replace the Bitbucket / GitHub variables that exist')
     parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600); '
-                        'db-pull: stage or prod (default prod)')
+                        'db-pull, ssh: stage or prod (default prod)')
+    parser.add_argument('--root', action='store_true', help='ssh: root in the php-fpm container (level phpfpm)')
+    parser.add_argument('--readonly', action='store_true', help='ssh: the php-fpm container without the application account')
+    parser.add_argument('--host', action='store_true', help='ssh: the server itself, in the project directory (level full)')
+    parser.add_argument('--docker', help='ssh: one Docker request on the project containers (level docker), e.g. "ps -a"')
+    parser.add_argument('--access', action='store_true', help='ssh: list what this key may reach through the server')
     parser.add_argument('--import', dest='import_now', action='store_true', help='db-pull: load the downloaded backup (as db-import)')
     parser.add_argument('--configure', action='store_true', help='db-pull: ask again for this machine\'s backup server (setup docker/.env.backup)')
     parser.add_argument('--token-file', help='deploy-variables: access token file (0600); default BITBUCKET_ACCESS_TOKEN, '
@@ -557,6 +562,10 @@ def main():
                           then_import=args.import_now, backup=args.backup)
             if not args.import_now:
                 print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
+        elif args.action == "ssh":
+            from server_access import connect
+            return connect(project, args.source or 'prod', root=args.root, readonly=args.readonly, host=args.host,
+                           command=args.command or '', docker=args.docker or '', access=args.access)
         elif args.action in ("db-import", "db-import-plan"):
             # Every dump table must be classified; the plan only reports, the import may ask.
             plan = plan_load(project, dump=args.dump or '', fixtures=args.db_fixtures, skip=args.skip,
