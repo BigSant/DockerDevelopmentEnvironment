@@ -4,7 +4,7 @@ PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_
 PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
-.PHONY: init doctor pull shell ide-init ide-refresh db-backup db-pull db-prepare bootstrap test-init setup-info
+.PHONY: init doctor pull shell ide-init ide-refresh db-backup db-pull ssh db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
@@ -23,6 +23,8 @@ help:
 	@echo 'db-backup [file=backup.sql.gz] [full=1]: export without the data of registry skip tables (full=1: all); setup-info: shared version'
 	@echo 'db-pull [from=prod|stage] [full=1] [fresh=1] [import=1] [backup=1] [configure=1]: server backup over SSH'
 	@echo '        (newest registry backup; full=1 every table; fresh=1 a new one made now; asks for the server once)'
+	@echo 'ssh [from=prod|stage] [root=1|readonly=1] [cmd="…"] | host=1 [cmd="…"] | docker="ps -a" | access=1:'
+	@echo '        php-fpm terminal or command on the server through setup-server (host=1 the server, docker= its containers)'
 	@echo 'ide-init: prepare PhpStorm project settings; ide-refresh: refresh its private Compose file'
 	@echo 'init / doctor: prepare local files / check readiness; pull: fetch external images; shell: PHP terminal'
 	@echo 'check / config: validate / render shared sources without starting containers'
@@ -142,6 +144,9 @@ db-backup:
 
 db-pull:
 	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(import)),--import,) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(configure)),--configure,) $(if $(filter 1,$(full)),--full,) $(if $(filter 1,$(fresh)),--fresh,)
+
+ssh:
+	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(root)),--root,) $(if $(filter 1,$(readonly)),--readonly,) $(if $(filter 1,$(host)),--host,) $(if $(filter 1,$(access)),--access,) $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(docker),--docker $(call quote,$(docker)),)
 
 test-init:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(refresh)),--refresh-test,)

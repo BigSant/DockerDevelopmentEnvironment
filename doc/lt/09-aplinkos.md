@@ -320,6 +320,48 @@ make deploy-variables ENV=prod token=… from=~/prod-secrets.env         # sukur
 - `gh` nuskaito reikšmę be paskutinio eilutės lūžio. Secret'ą, kurio reikšmė baigiasi eilutės lūžiu, komanda praleidžia: įrašyk jį ranka.
 - Secret reikšmių GitHub neparodo, todėl lyginami tik vardai ir rūšis (secret ar variable). Išėjimo kodai tokie patys: 0, 1, 2 (GitHub ar `gh` klaida), 64.
 
+## Prisijungimas prie serverio per worker'į
+
+Programuotojas prie stage/prod serverio tiesiogiai nesijungia: jo raktas yra tik setup-server worker'yje (tas pats, kaip
+[`make db-pull`](07-duomenu-baze.md#serverio-kopija-db-pull)), o toliau worker'is jungiasi savo prieiga – ta pačia,
+kuria deploy'ina (`DEPLOY_SSH`, Docker context'as). LIVE serveryje programuotojo raktas nereikalingas.
+
+Ką raktas gali pasiekti, nurodo serverio administratorius setup-server pusėje, kiekvienai projekto aplinkai atskirai:
+`sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas> --grant PROJEKTAS:ENV=LYGIS` (`--grant` kartojamas).
+Lygiai (kiekvienas apima ankstesnius):
+
+| Lygis | Ką leidžia |
+| --- | --- |
+| `phpfpm-readonly` | Terminalas ar komanda php-fpm konteineryje kita paskyra, ne aplikacijos: failų keisti negali. DB slaptažodis konteinerio aplinkoje lieka, todėl duomenų bazės tai nesaugo. |
+| `phpfpm` | Tas pats aplikacijos paskyra (`APP_UID`, failai lieka teisingo savininko), su `root=1` – root konteineryje. |
+| `docker` | Projekto konteineriai: `ps`, `logs`, `exec`, `start`, `stop`, `restart`, `top`, `stats`, `inspect`. Serverio nustatymų ir kitų Docker veiksmų (`run`, volume'ai, image'ai) – ne; `exec` – ne į konteinerius su Docker socket'u (`metrics-docker`, `metrics-logs`). |
+| `full` | Pats serveris deploy'aus paskyra, projekto kataloge (`DEPLOY_PATH`) – kaip prisijungus įprastai. Projektui, deploy'inamam į patį worker'į (`--target local`), tai paskyra `setup` worker'yje: visi jo projektai ir Docker. |
+
+```bash
+make ssh                                  # php-fpm terminalas prod aplinkoje
+make ssh from=stage root=1                # stage, root konteineryje
+make ssh readonly=1                       # tik skaityti (kita paskyra)
+make ssh cmd="php bin/console cache:clear"    # viena komanda; išėjimo kodas – jos
+make ssh cmd="sh -c 'tail -n 50 var/logs/*.log | grep -i error'"   # kanalai ir * – per sh -c
+make ssh docker="ps -a"                   # projekto konteineriai
+make ssh docker="logs --tail 200 -f nginx-proxy"
+make ssh docker="restart php-fpm"
+make ssh host=1                           # pats serveris (full)
+make ssh host=1 cmd="df -h"
+make ssh access=1                         # ką mano raktas gali pasiekti: PROJEKTAS ENV LYGIS
+```
+
+- Serveris ir raktas – `make db-pull` atsakymas (`BACKUP_SSH`, `BACKUP_SSH_KEY`, pirmą kartą paklausiama), projekto vardas
+  serveryje – tas pats (`BACKUP_SERVER_PROJECT`, aplinkos repo vardas, `PROJECT_NAME`): iš jų imamas pirmas, kurį raktas
+  gali pasiekti (`access`).
+- `cmd=` ir `docker=` skaidomi į žodžius kaip shell'e, bet shell'as jų nevykdo: kanalams, `*` ir `&&` – `sh -c '…'`.
+- Terminale ssh gauna TTY (`-t`: terminalas, klausimai, spalvos); su `|` ar `>` – be jo, todėl išvestį galima nukreipti:
+  `make ssh cmd="php -i" > php-info.txt`.
+- Kiekvienas prisijungimas ir komanda įrašomi worker'io žurnale su rakto vardu.
+- „no access gate yet“ – serverio setup-server dar be šios funkcijos (`bin/update`) arba raktui nesuteiktas lygis;
+  „may reach no project“ – raktas negauna šio projekto (`make ssh access=1` parodo, ką gauna) arba serveryje jis kitu
+  vardu (`BACKUP_SERVER_PROJECT`).
+
 ## Bandymas iš savo kompiuterio
 
 Kol build serverio nėra, jo vaidmenį atlieka programuotojo kompiuteris: tos pačios komandos su privačiu `env/prod.env`. Be `DEPLOY_CONTEXT` stage/prod konteineriai valdomi šio kompiuterio Docker'yje įprastomis komandomis (`make up ENV=prod`). `make deploy-images` ir `make deploy` reikalauja `DEPLOY_CONTEXT`: vietiniam bandymui tinka Docker context'as, rodantis į šį kompiuterį (standartinis `default`). Jei `DEPLOY_SSH` tuščias, `rsync` rašo į vietinį `DEPLOY_PATH`.

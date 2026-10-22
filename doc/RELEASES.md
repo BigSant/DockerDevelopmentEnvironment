@@ -7,7 +7,8 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 ## Unreleased
 
 The v1 `templates/grouped` scaffold and its `prepare_project.py` command are gone; `create-project` (templates/minimal)
-is the only scaffold. Nothing to change in a project: setup never read those files at run time.
+is the only scaffold. Nothing to change in a project: setup never read those files at run time. `make ssh` opens a
+terminal on a stage/prod server through the setup-server worker.
 
 - **No more `templates/grouped`.** It still described the v1 layout (`qa/`, `compose/qa.yaml`, root `.env` rules in
   `.gitignore`, a `date.timezone` line), and the guide told you to copy QA and Doctrine files from it. The guide now
@@ -16,6 +17,13 @@ is the only scaffold. Nothing to change in a project: setup never read those fil
   `config/php-cs/` without a Compose file (`doc/lt/08-kodo-kokybe.md`); Doctrine keeps `compose/doctrine.yaml` and
   `database/doctrine/` with their contents in `doc/lt/07-duomenu-baze.md`. A project that copied `qa/` and
   `compose/qa.yaml` keeps working through `PROJECT_COMPOSE_FILES`.
+- **`make ssh`: a terminal or a command on a stage/prod server through the setup-server worker.** The developer's
+  key stays on the worker (the same one as `make db-pull`), which goes on with its own deploy access at the level its
+  administrator granted for the project environment (`bin/add-backup-key --grant PROJECT:ENV=LEVEL`):
+  `phpfpm-readonly` or `phpfpm` (the php-fpm container; `root=1`, `readonly=1`, `cmd="…"`), `docker` (`docker="ps -a"`,
+  logs, exec, restart of the project's containers) or `full` (`host=1`, the server itself in `DEPLOY_PATH`).
+  `make ssh access=1` lists what the key may reach. Needs a setup-server with the access gate; nothing to change in
+  the project (`doc/lt/09-aplinkos.md`, „Prisijungimas prie serverio per worker'į“).
 
 ## 2.14.1
 
