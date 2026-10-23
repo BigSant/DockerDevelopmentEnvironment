@@ -8,7 +8,8 @@ builds stage/prod releases from a release tag. Projects do not pin versions.
 
 The v1 `templates/grouped` scaffold and its `prepare_project.py` command are gone; `create-project` (templates/minimal)
 is the only scaffold. Nothing to change in a project: setup never read those files at run time. `make ssh` opens a
-terminal on a stage/prod server through the setup-server worker.
+terminal on a stage/prod server through the setup-server worker. `STAGE_ENVIRONMENTS` adds server environments that
+behave like stage (e.g. a temporary `mdv`).
 
 - **No more `templates/grouped`.** It still described the v1 layout (`qa/`, `compose/qa.yaml`, root `.env` rules in
   `.gitignore`, a `date.timezone` line), and the guide told you to copy QA and Doctrine files from it. The guide now
@@ -24,6 +25,14 @@ terminal on a stage/prod server through the setup-server worker.
   logs, exec, restart of the project's containers) or `full` (`host=1`, the server itself in `DEPLOY_PATH`).
   `make ssh access=1` lists what the key may reach. Needs a setup-server with the access gate; nothing to change in
   the project (`doc/lt/09-aplinkos.md`, „Prisijungimas prie serverio per worker'į“).
+- **Extra stage environments.** `STAGE_ENVIRONMENTS="mdv"` in `env/common.env` gives a project more server
+  environments beside stage and prod, e.g. a temporary one for a large piece of work: each is a stage in every rule
+  (limits, allowlists, `APP_UID`, the secret store, mail, after-import SQL, releases from an untagged setup), with
+  its own `env/mdv.env`, containers (`<PROJECT_NAME>-mdv-…`), `data/mdv/`, backups (`worker-mdv-…`) and a deployment
+  (Bitbucket) or GitHub environment named `mdv`. `ENV=` now accepts the names the list holds and refuses others with a
+  message naming the setting; `make db-pull from=mdv` and `make ssh from=mdv` reach them through setup-server. The
+  pipeline templates end with an example step (Bitbucket custom pipeline `deploy-mdv`). Nothing to change in a project
+  that has none; see `doc/lt/09-aplinkos.md`, "Papildomos aplinkos".
 
 ## 2.14.1
 

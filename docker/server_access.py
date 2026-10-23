@@ -19,7 +19,8 @@ import shlex
 import subprocess
 import sys
 
-from database_pull import ENVIRONMENTS, connection, server_projects, ssh_command
+from database_pull import connection, server_projects, ssh_command
+from project_environments import server_environments
 
 # Refused requests exit 65 (EX_DATAERR) with the gate's reason on stderr, as setup-server-backup-pull does.
 REFUSED = 65
@@ -87,8 +88,8 @@ def server_project(project, source, grants):
 def connect(project, source='prod', root=False, readonly=False, host=False, command='', docker='', access=False,
             run=subprocess.run, ask=input, interactive=None, tty=None):
     """Run the request through the worker with this terminal; the exit status is the remote command's (65 refused)."""
-    if source not in ENVIRONMENTS:
-        raise ValueError('from= must be stage or prod')
+    if source not in server_environments(project.directory):
+        raise ValueError('from= must be stage, prod or an environment STAGE_ENVIRONMENTS lists')
     if not access:
         request('', source, root, readonly, host, command, docker)  # a wrong combination stops before connecting
     ssh = ssh_command(*connection(project, ask=ask, interactive=interactive))

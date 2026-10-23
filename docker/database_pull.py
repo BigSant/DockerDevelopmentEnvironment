@@ -1,4 +1,4 @@
-"""make db-pull: download a stage/prod backup that the setup-server keeps, over SSH from the VPN.
+"""make db-pull: download a server environment's backup that the setup-server keeps, over SSH from the VPN.
 
 The server side is setup-server's bin/add-backup-key: the developer's key may only run its backup command
 (`info PROJECT ENV [full]` names the newest backup and its size, `get PROJECT ENV FILE` sends it, and with
@@ -25,20 +25,27 @@ import sys
 import tempfile
 import zlib
 
+from project_environments import server_environments
 from project_remote import origin_url
 
 TARGET = re.compile(r'[a-z_][a-z0-9_.-]*@[A-Za-z0-9][A-Za-z0-9.:-]*')
 NAME = re.compile(r'[a-z0-9][a-z0-9_-]*')
-# The nightly series of setup-server and the pre-deploy backups of make db-backup (the server's naming).
-# setup-server's series (nightly worker-, weekly full-, fresh-, fresh-full-) and setup's pre-deploy backups.
-BACKUP = re.compile(r'(?:(?:worker|full|fresh|fresh-full)-(stage|prod)-\d{8}T\d{6}Z'
-                    r'|[a-z0-9][a-z0-9_-]*-(stage|prod)-\d{8}T\d{6}\d*)\.sql\.gz')
-FULL_SERIES = re.compile(r'(?:full|fresh-full)-(stage|prod)-\d{8}T\d{6}Z\.sql\.gz')
 PROGRESS = re.compile(r'progress backup (\d+) (\d+)')
 CHUNK = 1024 * 1024
-ENVIRONMENTS = ('stage', 'prod')
 # This machine's backup server, shared by every project (ignored by git: .env.*).
 SHARED = Path(__file__).with_name('.env.backup')
+
+
+def backup_name(source):
+    """setup-server's series (nightly worker-, weekly full-, fresh-, fresh-full-) and setup's pre-deploy backups
+    of one server environment (stage, prod or an extra one; a name of project_environments.NAME)."""
+    return re.compile(rf'(?:(?:worker|full|fresh|fresh-full)-{source}-\d{{8}}T\d{{6}}Z'
+                      rf'|[a-z0-9][a-z0-9_-]*-{source}-\d{{8}}T\d{{6}}\d*)\.sql\.gz')
+
+
+def full_series(source):
+    """The full series of one environment (weekly full-, fresh-full-): every table's data."""
+    return re.compile(rf'(?:full|fresh-full)-{source}-\d{{8}}T\d{{6}}Z\.sql\.gz')
 
 
 def read_shared(path=None):
@@ -187,8 +194,7 @@ def named_backup(answer, source, full):
     words = answer.decode('utf-8', 'replace').strip().split()
     file = words[0] if words else ''
     size = int(words[1]) if len(words) == 2 and words[1].isdigit() else 0
-    match = BACKUP.fullmatch(file)
-    if not match or source not in match.groups() or len(words) > 2 or bool(FULL_SERIES.fullmatch(file)) != full:
+    if not backup_name(source).fullmatch(file) or len(words) > 2 or bool(full_series(source).fullmatch(file)) != full:
         raise ValueError('The backup server named no usable backup')
     return file, size
 
@@ -300,8 +306,8 @@ def pull(project, source='prod', run=subprocess.run, reconfigure=False, ask=inpu
     from progress import amount, step
     if project.environment != 'local':
         raise ValueError('make db-pull downloads into a developer copy: run it with ENV=local')
-    if source not in ENVIRONMENTS:
-        raise ValueError('from= must be stage or prod')
+    if source not in server_environments(project.directory):
+        raise ValueError('from= must be stage, prod or an environment STAGE_ENVIRONMENTS lists')
     first, count = 1, 1 + int(fresh) + int(then_import)
     ssh = ssh_command(*connection(project, reconfigure, ask, interactive))
     name, latest = newest(project, ssh, source, run, ask, interactive, full)

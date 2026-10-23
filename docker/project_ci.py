@@ -13,7 +13,8 @@ import stat
 import sys
 import urllib.request
 
-from project_env_files import DEPLOYMENT_NAMES, deployment_variables, read_dotenv
+from project_env_files import deployment_variables, read_dotenv
+from project_environments import is_server
 from project_remote import origin_url
 
 PROVIDERS = ('bitbucket', 'github')
@@ -99,8 +100,8 @@ def load_list(directory, environment, source, replace):
     """(ENV, the listed variables, the values of from=FILE or None): the checks every provider shares."""
     # The default is production, as in the deploy step that runs it most.
     environment = 'prod' if environment == 'local' else environment
-    if environment not in DEPLOYMENT_NAMES:
-        raise Failure('Deployment variables belong to ENV=stage or ENV=prod')
+    if not is_server(environment):
+        raise Failure('Deployment variables belong to a server environment: ENV=stage, prod or one STAGE_ENVIRONMENTS lists')
     if replace and not source:
         raise Failure('replace=1 belongs to from=FILE (apply)')
     try:

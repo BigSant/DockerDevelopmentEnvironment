@@ -7,9 +7,10 @@
 
 The list is the one make pipeline-deploy checks (project_env_files.deployment_variables). On GitHub a
 DEPLOY_PLAIN_VARIABLES name is an environment *variable* (readable in the settings and the log), every
-other name an environment *secret*; the GitHub environment is staging (ENV=stage) or production
-(ENV=prod). The repository is DEPLOY_GITHUB_REPOSITORY (owner/repository) or the origin remote. The
-token comes from token=PATH (owned by you, 0600), GH_TOKEN or GITHUB_TOKEN.
+other name an environment *secret*; the GitHub environment is staging (ENV=stage), production (ENV=prod)
+or an extra environment's own name (STAGE_ENVIRONMENTS). The repository is DEPLOY_GITHUB_REPOSITORY
+(owner/repository) or the origin remote. The token comes from token=PATH (owned by you, 0600), GH_TOKEN
+or GITHUB_TOKEN.
 
 Reading and variables use the REST API (urllib). A secret must be encrypted with the environment's
 public key (a libsodium sealed box), which the standard library cannot do: the official GitHub CLI
@@ -28,7 +29,7 @@ import urllib.parse
 import urllib.request
 
 from project_ci import Failure, NoRedirect, compare, load_list, print_names, read_token, summary
-from project_env_files import DEPLOYMENT_NAMES
+from project_environments import deployment_name
 import project_remote
 
 API = 'https://api.github.com'
@@ -156,7 +157,7 @@ def deploy_variables(directory, environment, source, replace, token_file, names_
     settings, _ = file_settings(directory, environment)
     slug = repository(directory, settings)
     token = token_of(token_file, environ, slug)
-    name = DEPLOYMENT_NAMES[environment]
+    name = deployment_name(environment)
     client = GitHub(environ.get('GITHUB_API_URL') or API, token, slug, name)
     label = f'GitHub {slug}, environment {name}'
 

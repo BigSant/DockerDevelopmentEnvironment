@@ -11,7 +11,7 @@ setup/docker/.env → projekto env/common.env → projekto env/<ENV>.env
 ```
 
 - `env/common.env` – bendri projekto nustatymai visoms aplinkoms. Commit'inamas, slaptažodžių jame nėra.
-- `env/<ENV>.env` – vienos aplinkos reikšmės ir slaptažodžiai (`local.env`, `test.env`, `stage.env`, `prod.env`). Į Git nededami. Vietoj jų commit'inami `*.env.example` be slaptažodžių.
+- `env/<ENV>.env` – vienos aplinkos reikšmės ir slaptažodžiai (`local.env`, `test.env`, `stage.env`, `prod.env`, papildomų aplinkų `<vardas>.env`). Į Git nededami. Vietoj jų commit'inami `*.env.example` be slaptažodžių.
 - `ENV=test` skaito `test.env`, o ne `local.env`.
 - Kai setup pats įrašo reikšmę (`create-project`, `make init`, `make bootstrap`, `make test-init`), ją deda po sekcijos antrašte (`# Project`, `# Versions`, `# PrestaShop`, `# Services`, `# Address`, `# Access`, `# Database`, `# PrestaShop keys`, `# Database as code`, `# Runtime`, `# Tools`), sekcijas – šia tvarka; trūkstamą sekciją sukuria. Sekcija baigiasi tuščia eilute. Esama eilutė keičiama vietoje, nežinomi raktai rašomi failo gale. Sąrašas: [env_layout.py](../../docker/env_layout.py).
 
@@ -54,6 +54,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
 | `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
 | `APP_ENVIRONMENT` | Tuščias | Aplikacijos savų env kintamųjų **vardai** per tarpus (be reikšmių), kuriuos setup perduoda `php-fpm` ir `cron`. Laikyk `common.env`. Žr. [Savi aplikacijos parametrai](#savi-aplikacijos-parametrai-app_environment). |
+| `STAGE_ENVIRONMENTS` | Tuščias | Papildomos serverio aplinkos šalia `stage` ir `prod`, pvz. laikina `"mdv"` didesniam darbui: per tarpą ar kablelį, mažosios raidės ir skaitmenys, 2–16 simbolių, pirmas – raidė (`local`, `test`, `stage`, `prod` negalimi). Kiekviena veikia lygiai kaip `stage` (limitai, IP sąrašai, `APP_UID`, secret store, Mailpit, ne-prod after-import), su savu `env/<vardas>.env`, konteineriais (`demo-mdv-…`), `data/<vardas>/` ir deploy aplinka tuo pačiu vardu. `ENV=` priima tik išvardytas. Laikyk `common.env`. Žr. [papildomos aplinkos](09-aplinkos.md#papildomos-aplinkos-stage_environments). |
 | `SETUP_MIN_VERSION` | Tuščias | Seniausia setup versija, su kuria projektas veikia, pvz. `2.3.0`. Kiekviena `make` komanda pirmiausia palygina ją su setup `VERSION` ir su senesniu setup sustoja, nieko nepakeitusi. Laikyk `common.env`. Jį tikrina setup versijos po 2.2.0; 2.2.0 ir senesnės jį ignoruoja. |
 
 `PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, `SERVICES` – **papildomus servisus**. Tai trys atskiri pasirinkimai.

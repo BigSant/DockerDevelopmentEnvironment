@@ -21,7 +21,8 @@ import urllib.parse
 import urllib.request
 
 from project_ci import Failure, NoRedirect, compare, load_list, print_names, read_token, summary
-from project_env_files import DEPLOYMENT_NAMES, file_settings
+from project_env_files import file_settings
+from project_environments import deployment_name
 import project_remote
 
 API = 'https://api.bitbucket.org/2.0'
@@ -119,8 +120,8 @@ def run(directory, environment, source, replace, token_file, names_only, environ
         raise Failure('no token: set BITBUCKET_ACCESS_TOKEN or pass token=PATH (a file only you can read) with a '
                       f'repository access token of {slug}: {SCOPES}')
     client = Bitbucket(environ.get('BITBUCKET_API_URL') or API, token, slug)
-    url = environment_url(client, f'{client.api}/repositories/{slug}', DEPLOYMENT_NAMES[environment])
-    label = f'Bitbucket {slug}, environment {DEPLOYMENT_NAMES[environment]}'
+    url = environment_url(client, f'{client.api}/repositories/{slug}', deployment_name(environment))
+    label = f'Bitbucket {slug}, environment {deployment_name(environment)}'
 
     def present():
         return {v['key']: {'secured': bool(v.get('secured')), 'uuid': v.get('uuid', '')}

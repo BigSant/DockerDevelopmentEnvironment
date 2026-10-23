@@ -6,6 +6,7 @@ import re
 import subprocess
 from urllib.parse import urlsplit
 
+from project_environments import is_server
 from project_prestashop import is_prestashop
 
 # Defaults are resolved once, before service Compose interpolation.
@@ -86,7 +87,7 @@ def resolve_resources(settings, values, environment):
     for name, (memory, cpus) in RESOURCES.items():
         explicit_memory = get(f'{name}_MEMORY') or get(MEMORY_ALIASES.get(name, ''))
         explicit_cpus = get(f'{name}_CPUS') or get('CONTAINER_CPUS')
-        if environment in ('stage', 'prod') and name in REMOTE_REQUIRED:
+        if is_server(environment) and name in REMOTE_REQUIRED:
             missing += [f'{name}_{kind}' for kind, value in (('MEMORY', explicit_memory), ('CPUS', explicit_cpus)) if not value]
         values[f'{name}_MEMORY'] = explicit_memory or memory
         values[f'{name}_CPUS'] = explicit_cpus or cpus

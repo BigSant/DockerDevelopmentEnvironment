@@ -238,7 +238,8 @@ function dashboard_page($current, $title, $body, $refresh = 60)
     }
     $environment = metrics_setting('ENV', 'local');
     $project = metrics_setting('PROJECT_NAME', metrics_setting('DOMAIN', ''));
-    $sign = in_array($environment, array('stage', 'prod'), true) ? $environment : '';
+    // prod is prod; stage and the extra environments (STAGE_ENVIRONMENTS) sign as stage, with their own name.
+    $sign = $environment === 'prod' ? 'prod' : (in_array($environment, array('local', 'test'), true) ? '' : 'stage');
     $tabs = '';
     foreach (dashboard_tabs() as $path => $label) {
         $tabs .= '<a href="' . h($path) . '"' . ($path === $current ? ' class="on"' : '') . '>' . h($label) . '</a>';

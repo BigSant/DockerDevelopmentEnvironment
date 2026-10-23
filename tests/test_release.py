@@ -42,7 +42,7 @@ class ReleaseTest(unittest.TestCase):
     def test_server_settings_are_required_and_described_in_env(self):
         with self.assertRaisesRegex(ValueError, 'needs APP_UID, APP_GID, DEPLOY_PATH, DEPLOY_CONTEXT in env/stage.env'):
             release_settings(self.stage())
-        with self.assertRaisesRegex(ValueError, 'ENV=stage or ENV=prod'):
+        with self.assertRaisesRegex(ValueError, 'ENV=stage, prod or one STAGE_ENVIRONMENTS lists'):
             release_settings(Project(self.app))
         (self.app / 'env/stage.env').write_text(REMOTE + 'DEPLOY_CONTEXT=shop-stage\n')
         with self.assertRaisesRegex(ValueError, 'DEPLOY_CONTEXT runs ENV=stage on a server: set APP_UID'):

@@ -179,7 +179,7 @@ function page($title, $body, $refresh = 0)
         . '<title>' . h($title) . ($project !== '' ? ' · ' . h($project) : '') . '</title><style>' . CRON_UI_STYLE . '</style></head>'
         . '<body class="env-' . h($environment) . '" data-zone="' . h($zone) . '"><header class="top"><a class="mark" href="/">CRON<small>'
         . h($project !== '' ? $project : 'scheduled jobs') . '</small></a>'
-        . '<span class="sign ' . h($environment) . '" title="Environment">' . h($environment) . '</span><span class="spacer"></span>'
+        . '<span class="sign ' . h(environmentSign($environment)) . '" title="Environment">' . h($environment) . '</span><span class="spacer"></span>'
         . '<nav class="nav"><a class="btn" href="/">Board</a>' . ($editable ? '<a class="btn" href="/edit">Edit crontab</a>' : '') . '</nav>'
         . '<div class="clock"><b id="clock">' . h(date('H:i:s')) . '</b>' . h($zone) . '</div></header>'
         . '<main><h1>' . h($title) . '</h1>' . $body . '</main><script>' . CRON_UI_SCRIPT . '</script></body></html>';
@@ -284,10 +284,16 @@ function lamps($runs, $running = null)
     return '<div class="lamps" role="img" aria-label="Last ' . count($recent) . ' runs' . ($running ? ', one running' : '') . '">' . $out . '</div>';
 }
 
+// prod is prod; stage and the extra environments (STAGE_ENVIRONMENTS) sign as stage, with their own name.
+function environmentSign($environment)
+{
+    return $environment === 'prod' ? 'prod' : (in_array($environment, array('local', 'test'), true) ? $environment : 'stage');
+}
+
 function runForm($job, $token)
 {
     global $environment;
-    $confirm = in_array($environment, array('stage', 'prod'), true)
+    $confirm = !in_array($environment, array('local', 'test'), true)
         ? ' data-confirm="' . h('Run this job on ' . strtoupper($environment) . ' now?' . "\n\n" . $job['command']) . '"' : '';
     return '<form method="post" action="/run"' . $confirm . '><input type="hidden" name="token" value="' . h($token) . '">'
         . '<input type="hidden" name="job" value="' . h($job['id']) . '"><button class="run">Run now</button></form>';

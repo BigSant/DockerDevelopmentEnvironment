@@ -2,7 +2,8 @@
 # beside env/ and the Makefile). setup does the work: make pipeline-deploy in the build root
 # (setup/doc/lt/09-aplinkos.md, "Bitbucket Pipelines"); keep only the pipelines and variables here.
 #
-# Deploys are started by hand: Pipelines -> Run pipeline -> custom: deploy-stage / deploy-production.
+# Deploys are started by hand: Pipelines -> Run pipeline -> custom: deploy-stage / deploy-production (and
+# deploy-<name> of an extra environment, at the end).
 # Each step runs on the self-hosted shell runner of the build server (the labels below; without them it
 # would run in Bitbucket's cloud). The build root holds this repository in app/ and setup beside it;
 # BUILD_ROOT is a repository variable, or the setup-server layout below. Secrets are Deployment variables
@@ -55,3 +56,12 @@ pipelines:
           <<: *deploy
           name: Deploy to production
           deployment: Production
+    # An extra environment (STAGE_ENVIRONMENTS="mdv" in env/common.env, env/mdv.env.example): a custom pipeline
+    # deploy-<name> whose step deploys to a deployment environment of that same name (Repository settings ->
+    # Deployments -> Staging -> Add environment: mdv). The setup-server web UI starts it as "Deploy į mdv".
+    # deploy-mdv:
+    #   - variables: *variables
+    #   - step:
+    #       <<: *deploy
+    #       name: Deploy to mdv
+    #       deployment: mdv
