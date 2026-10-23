@@ -43,4 +43,10 @@ Projekte `make help` parodo visas komandas.
 
 Keičiant Docker logiką (Dockerfile, Compose, runner'į, profilius, drop-in taškus) tame pačiame pakeitime atnaujink `doc/lt/` ir `doc/ARCHITECTURE.md`. Naujas nustatymas įrašomas į `docker/project-settings.yaml`.
 
+Kiekvienas sujungimas į `master` po sėkmingo CI tampa release'u pats (`.github/workflows/release.yml`): `doc/RELEASES.md`
+skyrius `## Unreleased` tampa nauja versija, `VERSION` pakeliamas, commit'as „Release X.Y.Z“ pažymimas `vX.Y.Z`. Todėl
+naujausias release tag'as visada yra `master`. Pakeitimas įrašo savo eilutę po `## Unreleased`; antraštė nurodo žingsnį:
+be žymės – patch, `(minor)` – nauja funkcija be pakeitimų projektuose, `(major)` – projektai turi keistis. `VERSION`
+ir tag'ų ranka nekeisk.
+
 Testai: `python3 -m unittest discover -s tests`.

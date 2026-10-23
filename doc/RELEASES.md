@@ -4,7 +4,14 @@
 modifications. Developer machines run the latest `master` of one shared checkout; the build server
 builds stage/prod releases from a release tag. Projects do not pin versions.
 
-## Unreleased
+Every merge to `master` is released by itself once its CI passed (`.github/workflows/release.yml`,
+`tools/release.py`): the `## Unreleased` section below becomes the next version, `VERSION` follows, and the commit
+"Release X.Y.Z" is tagged `vX.Y.Z`. So the newest release tag is always `master`. A change adds its entry under
+`## Unreleased`; the heading says how far the version moves: `## Unreleased` a patch (fixes, documentation),
+`## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
+change (say how). An empty section still releases a patch.
+
+## Unreleased (minor)
 
 The v1 `templates/grouped` scaffold and its `prepare_project.py` command are gone; `create-project` (templates/minimal)
 is the only scaffold. Nothing to change in a project: setup never read those files at run time. `make ssh` opens a

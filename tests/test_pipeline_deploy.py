@@ -178,7 +178,7 @@ class OneRepositoryTest(Fixture):
         commits.append(("G", {"env/common.env": COMMON, "env/prod.env.example": "MARK=G\n", "config/mark": "G\n"}))
         origin, self.commits = self.repository("environment", commits)
         self.app = self.work / "root/app"
-        git(self.work, "clone", "-q", str(origin), str(self.app))
+        git(self.work, "clone", "-q", "--no-hardlinks", str(origin), str(self.app))
         git(self.app, "checkout", "-q", "--detach", self.commits["A"])
         # As the first deploy by hand leaves it.
         (self.app / "env/prod.env").write_text((self.app / "env/prod.env.example").read_text())
@@ -349,10 +349,10 @@ class SeparateCodeRepositoryTest(Fixture):
             for name in ("E1", "E2")])
         shop, self.shop = self.repository("shop", [(name, {"index.php": f"<?php // {name}\n"}) for name in ("V1", "V2")])
         self.app = self.work / "root/app"
-        git(self.work, "clone", "-q", str(origin), str(self.app))
+        git(self.work, "clone", "-q", "--no-hardlinks", str(origin), str(self.app))
         git(self.app, "checkout", "-q", "--detach", self.environments["E1"])
         (self.app / "env/prod.env").write_text((self.app / "env/prod.env.example").read_text())
-        git(self.work, "clone", "-q", str(shop), str(self.app / "public"))
+        git(self.work, "clone", "-q", "--no-hardlinks", str(shop), str(self.app / "public"))
         git(self.app / "public", "checkout", "-q", "--detach", self.shop["V1"])
         self.pipeline_commit = self.environments["E2"]
         self.secrets = {"DATABASE_PASSWORD": "db-VALUE-1", "DATABASE_ROOT_PASSWORD": "root-VALUE-2",
@@ -521,7 +521,7 @@ class ExtraEnvironmentTest(Fixture):
             # B dropped the environment from the list, but left its example.
             ("B", {"env/common.env": COMMON, "env/mdv.env.example": example.format("B"), "config/mark": "B\n"})])
         self.app = self.work / "root/app"
-        git(self.work, "clone", "-q", str(origin), str(self.app))
+        git(self.work, "clone", "-q", "--no-hardlinks", str(origin), str(self.app))
         git(self.app, "checkout", "-q", "--detach", self.commits["A"])
         self.pipeline_commit = self.commits["A"]
         self.secrets = dict(REQUIRED)
@@ -614,7 +614,7 @@ class AutoSwitchTest(Fixture):
                    ("D", {"config/nginx/site.conf": "server {}\n"})]  # the containers' config
         origin, self.commits = self.repository("environment", commits)
         self.app = self.work / "root/app"
-        git(self.work, "clone", "-q", str(origin), str(self.app))
+        git(self.work, "clone", "-q", "--no-hardlinks", str(origin), str(self.app))
         git(self.app, "checkout", "-q", "--detach", self.commits["A"])
         (self.app / "env/prod.env").write_text((self.app / "env/prod.env.example").read_text())
         self.pipeline_commit = self.commits["B"]

@@ -1,0 +1,42 @@
+name: Release
+# Every merge to master becomes a release once its CI passed: tools/release.py moves VERSION and doc/RELEASES.md,
+# then "Release X.Y.Z" is committed and tagged vX.Y.Z. The newest release tag is therefore always master, and a
+# server that takes the newest release (setup-server: update-setup) runs what master has. Prod releases build from
+# a release tag only, so they never wait for a hand-made release.
+on:
+  workflow_run:
+    workflows: [Setup compatibility]
+    types: [completed]
+    branches: [master]
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Release the tested commit while it is master's newest
+        env:
+          TESTED: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          head=$(git rev-parse HEAD)
+          # Only the commit CI tested: when master moved on, the newer commit's own run releases it.
+          if [ "$head" != "$TESTED" ]; then echo "master is at $head, not the tested $TESTED: its own run releases it"; exit 0; fi
+          if tag=$(git describe --tags --exact-match HEAD 2>/dev/null); then echo "$head is already $tag"; exit 0; fi
+          case "$(git log -1 --format=%s)" in "Release "*) echo "$head is a release commit"; exit 0 ;; esac
+          version=$(python3 tools/release.py)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -am "Release $version" -m "Automatic release of $TESTED, whose CI passed (tools/release.py)."
+          git tag "v$version"
+          # Refused when master moved meanwhile: that commit's run releases it.
+          git push origin "HEAD:refs/heads/master" "refs/tags/v$version"
+          echo "Released v$version"
