@@ -1,8 +1,9 @@
 """make db-pull: download a server environment's backup that the setup-server keeps, over SSH from the VPN.
 
-The server side is setup-server's bin/add-backup-key: the developer's key may only run its backup command
-(`info PROJECT ENV [full]` names the newest backup and its size, `get PROJECT ENV FILE` sends it, and with
---allow-fresh `fresh PROJECT ENV [full]` makes a new one first). Nothing here reaches LIVE. The file lands in
+The server side is setup-server's bin/add-backup-key: the developer's key may only run its backup command, for the
+project environments it is granted (`info PROJECT ENV [full]` names the newest backup and its size, `get PROJECT ENV
+FILE` sends it, and where it is granted fresh `fresh PROJECT ENV [full]` makes a new one first). Nothing here reaches
+LIVE. The file lands in
 .generated/backups (0600); make db-import loads it, or `make db-pull import=1` does both.
 
 Which backup: the newest registry backup (setup's: structure of every table, the import tables' data; nightly,
