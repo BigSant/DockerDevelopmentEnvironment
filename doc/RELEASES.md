@@ -13,6 +13,11 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+- **`make db-pull` follows per-project backup grants.** setup-server now grants backups per project environment
+  (`db`, or `fresh` to ask for a new one) instead of every project; its refusals ("may not download backups of …",
+  "may not ask for a fresh backup of …") reach you as they are, and the guide says where the grants are given.
+  Nothing to change in projects.
+
 ## 2.15.0
 
 The v1 `templates/grouped` scaffold and its `prepare_project.py` command are gone; `create-project` (templates/minimal)

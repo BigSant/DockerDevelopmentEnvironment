@@ -309,7 +309,7 @@ Kai reikia veikiančios aplinkos su tikrais duomenimis, nebūtina prašyti dump'
 
 Vieną kartą:
 
-1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas>` (su `--allow-fresh` gali prašyti ir šviežios kopijos). Raktas veiks tik iš VPN ir tik kopijoms (be shell'o). Jei serveris atsako `Connection refused`, jame nėra sshd: administratorius pirmiausia paleidžia `sudo bin/install-ssh --from <VPN tinklas>`.
+1. Serverio administratorius įrašo tavo **viešą** raktą (`~/.ssh/id_ed25519.pub`) – setup-server `sudo bin/add-backup-key …pub --name vardas --from <VPN tinklas> --pull projektas=db` arba setup-server sąsajos *Prieiga* → raktas → „Kopijos“. Leidimai – kiekvienai projekto aplinkai: `db` – parsisiųsti, `fresh` – ir prašyti šviežios kopijos; „visi projektai“ – visų, ir naujų. Raktas veiks tik iš VPN ir tik leistų aplinkų kopijoms (be shell'o). Jei serveris atsako `Connection refused`, jame nėra sshd: administratorius pirmiausia paleidžia `sudo bin/install-ssh --from <VPN tinklas>`.
 2. Pirmas `make db-pull` paklausia serverio (`setup@10.8.0.14`) ir SSH rakto (tuščia – numatytasis) ir išsaugo atsakymą setup'o `docker/.env.backup` (0600, ne Git). Juo naudojasi visi šio kompiuterio projektai; projekto `BACKUP_SSH` / `BACKUP_SSH_KEY`, jei nurodyti, laimi. `make db-pull configure=1` paklausia iš naujo.
 3. Projekto vardas serveryje randamas pats: aplinkos repo vardas (`origin`, mažosiomis raidėmis – taip serveris vadina build katalogą), tada `PROJECT_NAME`. Jei serveris nežino nė vieno, komanda paklausia ir įrašo `BACKUP_SERVER_PROJECT` į `env/local.env`.
 
@@ -345,7 +345,7 @@ Import                   [##########..................]  37%  4.10 GB / 11.08 GB
 - **Kopija pagal registrą** (be `full`): `skip` lentelės – tik struktūra, be `DROP`, todėl užkėlus jų vietiniai duomenys lieka. **Pilna** (`full=1`): visų lentelių duomenys, todėl užkėlus pakeičiamos ir sinchronizuojamos lentelės.
 - **Kopijoje yra tikri klientų duomenys.** Failas privatus (`0600`); ištrink, kai nebereikia. Kasdieniam darbui be asmens duomenų – [dev rinkinys](#f-bazinis-rinkinys).
 - Kopija su [papildomomis schemomis](#papildomos-schemos) turi serverio schemų vardus (`USE`): vietinis `DATABASE_NAME` ir schemos turi sutapti su serverio.
-- Klaida „Cannot reach the backup server“ – patikrink VPN, serverio adresą (`make db-pull configure=1`) ir ar raktas įrašytas serveryje. „may not ask for a fresh backup“ – raktas įrašytas be `--allow-fresh`. „too old“ – serverio setup-server dar be savaitinių ir šviežių kopijų (`bin/update`).
+- Klaida „Cannot reach the backup server“ – patikrink VPN, serverio adresą (`make db-pull configure=1`) ir ar raktas įrašytas serveryje. „may not download backups of …“ – raktas negauna tos projekto aplinkos kopijų; „may not ask for a fresh backup of …“ – gauna, bet be `fresh` (abu – setup-server *Prieiga* → raktas → „Kopijos“). „too old“ – serverio setup-server dar be savaitinių ir šviežių kopijų (`bin/update`).
 
 ## H. Fixtures
 
