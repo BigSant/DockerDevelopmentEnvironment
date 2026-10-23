@@ -6,3 +6,6 @@
   `--database mysql:8.4|mariadb:11.4`, `--release`). Check its exit status before committing; output piped
   through `tail` or `grep` hides it.
 - A change to Docker logic updates `doc/` with it: `ARCHITECTURE.md`, `RELEASES.md`, and `doc/lt/` where users see it.
+- Every merge to master releases itself after CI (`.github/workflows/release.yml`, `tools/release.py`): add the entry
+  under `## Unreleased` in `doc/RELEASES.md` and mark the heading `(minor)` or `(major)` when it is more than a patch.
+  Never bump `VERSION` or tag by hand.

@@ -25,6 +25,7 @@ setup/
     compatibility.json                PrestaShop line -> supported PHP / MySQL / MariaDB
   templates/                          create-project sources (minimal, shared Makefile), pipelines/ (Bitbucket, GitHub)
   tools/live-probe/                   setup-probe.php: read-only PHP 5.6+ probe uploaded to a LIVE server -> setup settings report
+  tools/release.py                    the next release from doc/RELEASES.md's Unreleased section (CI runs it on master)
   tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
 ```
 
@@ -494,6 +495,12 @@ the variables. B tests run only with their variable: `SETUP_MYSQL_IMAGE`, `SETUP
 inside third-party images must not rely on bash ≥ 4.4 (e.g. `"${array[@]}"` of an empty array under `set -u`).
 The metrics exposition is checked with `promtool` (`SETUP_PROMTOOL_IMAGE=prom/prometheus:latest` when it
 is not installed); `SETUP_GRAFANA_SOURCE=<server_stats_viewer checkout>` checks the recorded names are current.
+
+Releases: every push to master whose CI ("Setup compatibility") passed is released by `.github/workflows/release.yml`
+when it is still master's newest commit: `tools/release.py` turns `## Unreleased` of `doc/RELEASES.md` into the next
+version (`(minor)`/`(major)` on the heading, else a patch), writes `VERSION`, and the job commits "Release X.Y.Z",
+tags `vX.Y.Z` and pushes both. The newest release tag is therefore master, which is what prod builds need
+(`project_release` takes setup only at an exact release tag for ENV=prod) and what setup-server's update takes.
 
 ## 9. Rules — do not break these
 
