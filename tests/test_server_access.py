@@ -82,6 +82,15 @@ class ServerAccessTest(unittest.TestCase):
         self.assertEqual(sent, "exec shop prod -- php -v", "one shell-quoted string, which the gate splits again")
         self.assertNotIn("-t", probe.split())
 
+    def test_an_extra_environment_the_project_lists_is_reached_by_its_name(self):
+        with self.assertRaisesRegex(ValueError, "STAGE_ENVIRONMENTS"):
+            self.connect("mdv")
+        (self.root / "app/env").mkdir()
+        (self.root / "app/env/common.env").write_text('PROJECT_NAME=shop\nSTAGE_ENVIRONMENTS="mdv"\n')
+        os.environ["GRANTS"] = "shop mdv docker\n"
+        self.assertEqual(self.connect("mdv", docker="ps")[0], 0)
+        self.assertEqual(self.calls()[-1][1], "docker shop mdv ps")
+
     def test_wrong_combinations_stop_before_connecting(self):
         for options, message in (({"root": True, "readonly": True}, "exclude each other"),
                                  ({"host": True, "root": True}, "server itself"),
@@ -90,7 +99,7 @@ class ServerAccessTest(unittest.TestCase):
                                  ({"command": "echo 'open"}, "quotation")):
             with self.subTest(options=options), self.assertRaisesRegex(ValueError, message):
                 self.connect(**options)
-        with self.assertRaisesRegex(ValueError, "stage or prod"):
+        with self.assertRaisesRegex(ValueError, "stage, prod or an environment STAGE_ENVIRONMENTS lists"):
             self.connect("local")
         self.assertFalse(self.log.exists())
 

@@ -2,7 +2,7 @@
 
 [Turinys](README.md) · [Atgal](10-kasdienis-darbas.md) · [Toliau: cache ir resursai](12-cache-ir-hibridines-aplinkos.md)
 
-Komandas vykdyk projekto kataloge (`~/Projects/demo/app`). Numatyta aplinka `local`, kitą pasirink `ENV=test|stage|prod`. `make help` parodo trumpą sąrašą.
+Komandas vykdyk projekto kataloge (`~/Projects/demo/app`). Numatyta aplinka `local`, kitą pasirink `ENV=test|stage|prod` (ar [papildomą](09-aplinkos.md#papildomos-aplinkos-stage_environments), pvz. `ENV=mdv`). `make help` parodo trumpą sąrašą.
 
 Setup repozitorijoje yra dvi komandos be `make`:
 
@@ -61,8 +61,8 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make schema-resolve` | Klasifikuoja registre nežinomas lenteles (įtraukti / pašalinti). |
 | `make db-backup [file=…] [full=1]` | Sukuria DB kopiją (`.generated/backups/`) pagal registrą; `full=1` – visų lentelių duomenys. |
 | `make db-backup-prune [apply=1]` | Peržiūrėti / ištrinti senas kopijas. |
-| `make db-pull [from=prod\|stage] [full=1] [fresh=1] [import=1] [backup=1] [configure=1]` | Parsisiunčia setup-server kopiją per SSH: naujausią pagal registrą, `full=1` – pilną, `fresh=1` – serveris padaro naują dabar; `import=1` – ir užkelia. Pirmą kartą paklausia serverio. Žr. [db-pull](07-duomenu-baze.md#serverio-kopija-db-pull). |
-| `make ssh [from=prod\|stage] [root=1\|readonly=1] [cmd="…"]`, `host=1`, `docker="…"`, `access=1` | Terminalas ar komanda stage/prod serveryje per setup-server worker'į: php-fpm konteineryje, `host=1` – pats serveris, `docker=` – projekto konteineriai; lygį suteikia serveris. Žr. [prisijungimas](09-aplinkos.md#prisijungimas-prie-serverio-per-workerį). |
+| `make db-pull [from=prod\|stage\|mdv…] [full=1] [fresh=1] [import=1] [backup=1] [configure=1]` | Parsisiunčia setup-server kopiją per SSH: naujausią pagal registrą, `full=1` – pilną, `fresh=1` – serveris padaro naują dabar; `import=1` – ir užkelia. Pirmą kartą paklausia serverio. Žr. [db-pull](07-duomenu-baze.md#serverio-kopija-db-pull). |
+| `make ssh [from=prod\|stage\|mdv…] [root=1\|readonly=1] [cmd="…"]`, `host=1`, `docker="…"`, `access=1` | Terminalas ar komanda stage/prod serveryje per setup-server worker'į: php-fpm konteineryje, `host=1` – pats serveris, `docker=` – projekto konteineriai; lygį suteikia serveris. Žr. [prisijungimas](09-aplinkos.md#prisijungimas-prie-serverio-per-workerį). |
 | `make db-fixtures-plan set=…` / `make db-fixtures-load set=…` | Peržiūrėti / įkelti fixtures rinkinį. |
 | `make db-restrict-grants` | Vieną kartą susiaurina senos DB teises, root gauna atskirą slaptažodį. |
 | `make db-monitor-user` | Sukuria arba atnaujina DB monitoriaus vartotoją. |

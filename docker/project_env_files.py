@@ -11,6 +11,7 @@ quotes" with escapes, quoted values over several lines, # comments); it does not
 from pathlib import Path
 import re
 
+from project_environments import DEPLOYMENT_ENVIRONMENTS, DEPLOYMENT_NAMES, is_server  # noqa: F401 (re-exported)
 from project_prestashop import KEY_NAMES as PRESTASHOP_KEYS, is_prestashop, required_keys
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -22,9 +23,6 @@ TARGET_KEYS = ('DEPLOY_CONTEXT', 'DEPLOY_SSH', 'DEPLOY_PATH', 'APP_UID', 'APP_GI
 TARGET_FILE = 'target.env'
 TARGET_VALUE = re.compile(r'[A-Za-z0-9@._:/+-]*')
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r'}
-# The deployment environment names of both providers: staging -> ENV=stage, production -> ENV=prod.
-DEPLOYMENT_ENVIRONMENTS = {'staging': 'stage', 'production': 'prod'}
-DEPLOYMENT_NAMES = {setup: name for name, setup in DEPLOYMENT_ENVIRONMENTS.items()}
 # Basic-auth users of the browser tools (nginx-proxy access.sh), optional on top of their IP allowlist.
 TOOL_PASSWORDS = {tool: f'{tool.upper()}_HTPASSWD' for tool in ('pma', 'mailpit', 'cron', 'backup', 'metrics')}
 # Secrets a pipeline passes as process environment (Bitbucket Deployment variables, GitHub environment
@@ -116,7 +114,7 @@ def project_root(directory):
 def target_file(directory, environment=None):
     """The build root's target.<env>.env, else its target.env: beside app/ (or app/ of the app/docker layout).
 
-    One build root deploys both stage and prod; target.<env>.env sends one of them elsewhere.
+    One build root deploys stage, prod and any extra environment; target.<env>.env sends one of them elsewhere.
     """
     root = project_root(directory)
     specific = root / f'target.{environment}.env' if environment else None
@@ -153,7 +151,7 @@ def file_settings(directory, environment):
             entries = read_dotenv(path)
             values.update(entries)
             mentioned.update(entries)
-    if environment in ('stage', 'prod'):
+    if is_server(environment):
         values.update(target_settings(directory, environment))
     return values, mentioned
 

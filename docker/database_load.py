@@ -14,6 +14,7 @@ from typing import Callable, Optional
 from database_client import DatabaseError, extra_schemas
 from database_import import (CHUNK, after_import_hooks, check_dump_tables, load_dump, main_schema, progress_meter,
                              render_hook, scan_dump, skip_rule, unpack)
+from project_environments import is_server
 from project_prestashop import is_prestashop
 
 
@@ -104,7 +105,7 @@ def plan_dump(project, dump, ask=input, interactive=None):
 
 def plan_dataset(project, name, replace):
     from database_dataset import dataset_inputs, schema_sql
-    if project.environment in ('stage', 'prod'):
+    if is_server(project.environment):
         raise ValueError('The base data set (dev logins, sample data) loads only into local and test databases')
     files, fixtures = dataset_inputs(project, name)
     schema = schema_sql(project)

@@ -504,6 +504,52 @@ class GitHubSeparateCodeRepositoryTest(GitHub, SeparateCodeRepositoryTest):
         self.assert_log("make deploy ENV=prod rollback=1 | head=E2")
 
 
+class ExtraEnvironmentTest(Fixture):
+    """An extra environment (STAGE_ENVIRONMENTS="mdv"): its deployment environment carries its own name."""
+
+    deployment = "mdv"
+
+    def ci_environment(self):
+        return {**super().ci_environment(), "BITBUCKET_DEPLOYMENT_ENVIRONMENT": self.deployment}
+
+    def setUp(self):
+        super().setUp()
+        example = "MARK={0}\nDEPLOY_CONTEXT=default\nDEPLOY_SSH=\nDEPLOY_PATH=/srv/fixture-mdv\n"
+        listed = COMMON + 'STAGE_ENVIRONMENTS="mdv"\n'
+        origin, self.commits = self.repository("environment", [
+            ("A", {"env/common.env": listed, "env/mdv.env.example": example.format("A"), "config/mark": "A\n"}),
+            # B dropped the environment from the list, but left its example.
+            ("B", {"env/common.env": COMMON, "env/mdv.env.example": example.format("B"), "config/mark": "B\n"})])
+        self.app = self.work / "root/app"
+        git(self.work, "clone", "-q", str(origin), str(self.app))
+        git(self.app, "checkout", "-q", "--detach", self.commits["A"])
+        self.pipeline_commit = self.commits["A"]
+        self.secrets = dict(REQUIRED)
+
+    def test_the_deployment_environment_of_its_own_name_deploys_that_environment(self):
+        self.run_step(0, REF=self.commits["A"])
+        self.assert_log(f"make deploy ENV=mdv ref={self.commits['A']} backup=0 | head=A config=A env=A")
+        self.assertTrue((self.app / "env/mdv.env").is_file())
+        self.assertTrue((self.app / ".generated/release/mdv/deployments.json").is_file())
+        self.run_step(64, REF=self.commits["B"])
+        self.assert_out("The deployment environment mdv is not an environment of commit")
+        self.assert_out("STAGE_ENVIRONMENTS")
+
+    def test_another_name_or_a_mismatch_is_refused(self):
+        self.deployment = "test"
+        self.run_step(64)
+        self.assert_out("Run this from a Staging or Production deployment step, or one named after an extra environment")
+        self.deployment = "mdv"
+        self.run_step(64, environment="stage")
+        self.assert_out("ENV=stage does not match")
+        self.assertEqual(self.make_log(), "")
+
+
+class GitHubExtraEnvironmentTest(GitHub, ExtraEnvironmentTest):
+    def ci_environment(self):
+        return {**GitHub.ci_environment(self), "DEPLOY_ENVIRONMENT": self.deployment}
+
+
 class DeploymentVariablesListTest(unittest.TestCase):
     def project(self, common, example=""):
         scratch = ROOT / ".test-work"

@@ -6,6 +6,8 @@ services:
       PROJECT_NAME: ${PROJECT_NAME}
       PROJECT_DISPLAY_NAME: ${PROJECT_DISPLAY_NAME-}
       EXTRA_COMPOSE_FILES: ${PROJECT_COMPOSE_FILES-}
+      # Extra server environments beside stage and prod, each a stage of its own (e.g. a temporary mdv).
+      STAGE_ENVIRONMENTS: ${STAGE_ENVIRONMENTS-}
       # Names (not values) of the application's own settings that php-fpm and cron receive.
       APP_ENVIRONMENT: ${APP_ENVIRONMENT-}
       DATABASE_NAME: ${DATABASE_NAME-}

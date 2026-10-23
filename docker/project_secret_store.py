@@ -1,11 +1,12 @@
-"""The stage/prod secret store: a stack keeps the Deployment variables it was deployed with.
+"""The secret store of a server environment (stage, prod, an extra one): a stack keeps the Deployment variables
+it was deployed with.
 
 The Deployment variables (Bitbucket) or environment secrets (GitHub) exist only in a pipeline step.
 Commands that run on the server outside a pipeline — the worker's nightly backup, "backup now", a
 `make db-import` by hand — need the same values, and a copy in a file would be a second source to
 keep in step. The stack carries them instead: the `secrets` service lists every Deployment variable
 as `NAME: ${NAME-}` (references only, like APP_ENVIRONMENT), so each deploy gives it the pipeline's
-values. Outside a pipeline (CI is not "true") a stage/prod command takes a name its process lacks
+values. Outside a pipeline (CI is not "true") a server environment's command takes a name its process lacks
 from that container. The container only sleeps, without network or mounts; its values sit in
 Docker's container configuration like every other container's environment (the database's
 passwords already do).
@@ -16,15 +17,15 @@ import os
 import subprocess
 
 from project_env_files import deployment_variables, file_settings
+from project_environments import is_server
 from project_ide import write_overlay
 
 SERVICE = 'secrets'
-ENVIRONMENTS = ('stage', 'prod')
 
 
 def store_names(directory, environment):
     """The names the store keeps: the environment's Deployment variables; none for local/test."""
-    if environment not in ENVIRONMENTS:
+    if not is_server(environment):
         return []
     return list(deployment_variables(directory, environment))
 
@@ -74,7 +75,7 @@ def fill_from_store(directory, environment, process_env, run=subprocess.run):
     Only outside a pipeline: there the pipeline's own values are the truth, and a variable removed in
     Bitbucket must not come back from the running stack.
     """
-    if environment not in ENVIRONMENTS or os.environ.get('CI') == 'true':
+    if not is_server(environment) or os.environ.get('CI') == 'true':
         return []
     names = [name for name in store_names(directory, environment) if not process_env.get(name)]
     if not names:

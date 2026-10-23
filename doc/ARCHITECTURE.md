@@ -374,10 +374,21 @@ fingerprint is outdated; it removes only with `apply=1`.
 | local | `app/public` | developer stack; tools open without allowlist |
 | test | `.generated/test/app` copy | own DB/containers; `make test-prepare`, `make phpunit`, e2e only here |
 | stage / prod | release on the target | limits, allowlists and `APP_UID` required; started from the release model |
+| extra (e.g. `mdv`) | release on the target | listed in `STAGE_ENVIRONMENTS` (env/common.env); a stage in every rule |
+
+`project_environments` owns the list. `ENV` is local, test, stage, prod or a name `STAGE_ENVIRONMENTS` lists
+(`[a-z][a-z0-9]{1,15}`, not one of those four); the runner refuses any other before it reads anything else, and a bad
+name in the list stops every command. Every check that means "a server environment" asks `is_server` (anything but
+local and test), so an extra environment gets stage's guards, secret store, mail policy, after-import rules and
+untagged releases; only `== 'prod'` checks set prod apart. Its deployment (Bitbucket) or GitHub environment carries
+its own name (`deployment_name`; staging and production stay stage's and prod's): `pipeline-deploy` takes such a
+name provisionally and refuses the step when the deployed commit's `env/common.env` does not list it. Backups keep
+their names with the environment's (`worker-<env>-…`, `<PROJECT_NAME>-<env>-<time>`), which `db-pull` matches for
+the environment it asked for.
 
 ## 7. Release and deploy (D model)
 
-`make release ENV=stage|prod` builds the images here from committed setup and writes
+`make release ENV=stage|prod|<extra>` builds the images here from committed setup and writes
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
 installed). A release keeps no host path except the read-only `/proc` of the metrics service and the read-only
 Docker socket of its network-less collectors (named volumes, such as its HTTP log volume, pass through unchanged).

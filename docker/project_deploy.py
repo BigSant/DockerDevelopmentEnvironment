@@ -1,6 +1,6 @@
 """Code deploy: build a release of the application on this machine and carry it to the target with rsync.
 
-make deploy ENV=stage|prod [ref=TAG] [backup=1] [rollback=1]
+make deploy ENV=stage|prod|<extra> [ref=TAG] [backup=1] [rollback=1]
   1. release: git archive of the code ref, composer install --no-dev (and PS_RELEASE_PATHS for
      PrestaShop) in the release PHP image, the project's config/deploy/build.sh (assets) if present;
   2. with backup=1, a DB backup of the target to this machine, following the table registry (off by default);

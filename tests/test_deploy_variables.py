@@ -226,7 +226,7 @@ class DeployVariablesTest(unittest.TestCase):
         self.assertIn("0 present, 27 missing", self.output)
         self.assertTrue(any("{env-staging}/variables" in r["path"] for r in self.requests("GET")))
         self.run_tool(64, environment="test")
-        self.assertIn("Deployment variables belong to ENV=stage or ENV=prod", self.output)
+        self.assertIn("Deployment variables belong to a server environment: ENV=stage, prod or one STAGE_ENVIRONMENTS lists", self.output)
 
     def test_apply_creates_only_the_missing_ones_with_the_listed_flag(self):
         self.state(missing=("DATABASE_PASSWORD", "HTPASSWD_WEB", "GRAFANA_BASE_URL", "ERP_EMPLOYEE_ID", "VOYAGE_API_KEY"))

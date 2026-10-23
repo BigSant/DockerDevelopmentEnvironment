@@ -4,6 +4,8 @@ import ipaddress
 import re
 from urllib.parse import urlsplit
 
+from project_environments import is_server
+
 TOKEN_MINIMUM = 24
 # Container-side defaults; the collector itself lives in runtime/metrics/.
 DEFAULTS = {'METRICS_SUPPORT_LEVEL': '0', 'METRICS_DISK_WRITE_MB': '100', 'METRICS_HTTP_WINDOW_MINUTES': '1',
@@ -59,5 +61,5 @@ def check_token(settings, environment):
     """The token is optional (the IP allowlist guards the endpoint); one that is set must be usable,
     since the endpoint answers 503 with a short one."""
     token = str(settings.get('METRICS_TOKEN') or '')
-    if environment in ('stage', 'prod') and token and len(token) < TOKEN_MINIMUM:
+    if is_server(environment) and token and len(token) < TOKEN_MINIMUM:
         raise ValueError(f'METRICS_TOKEN on {environment} must have {TOKEN_MINIMUM}+ characters (or stay empty)')

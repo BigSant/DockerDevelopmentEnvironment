@@ -7,6 +7,7 @@ import re
 import socket
 import subprocess
 
+from project_environments import is_server
 from project_prestashop import is_prestashop
 
 
@@ -154,7 +155,7 @@ def doctor(project):
             pair = [Path(mount["source"]) / filename for filename in ("domain.crt", "domain.key")]
             # A server without a pair gets a self-signed one from nginx-proxy (TLS ends at DirectAdmin
             # or the VPN serves HTTP); locally mkcert provides it, and half a pair is always wrong.
-            if getattr(project, 'environment', 'local') in ('stage', 'prod') and not any(path.exists() for path in pair):
+            if is_server(getattr(project, 'environment', 'local')) and not any(path.exists() for path in pair):
                 notes.append(f"No certificate in {pair[0].parent}: nginx-proxy serves a self-signed pair on 443.")
                 continue
             for certificate in pair:

@@ -1,8 +1,9 @@
-"""The CI deploy step: make pipeline-deploy [ENV=stage|prod] in the build root.
+"""The CI deploy step: make pipeline-deploy [ENV=stage|prod|<extra>] in the build root.
 
 Two CI providers run it the same way. Bitbucket Pipelines: a deployment step (deployment: Staging or
-Production) whose Deployment variables are the step's process environment. GitHub Actions: a job with
-environment: staging or production that passes the environment's name in DEPLOY_ENVIRONMENT (GitHub
+Production, or an extra environment's own name) whose Deployment variables are the step's process environment.
+GitHub Actions: a job with environment: staging, production or an extra environment's own name (STAGE_ENVIRONMENTS
+in env/common.env) that passes the environment's name in DEPLOY_ENVIRONMENT (GitHub
 has no built-in variable for it) and its secrets and configuration variables as JSON in
 DEPLOY_SECRETS_JSON (toJSON(secrets)) and DEPLOY_VARIABLES_JSON (toJSON(vars)); the step expands
 each name the job's own environment lacks into its process environment and never prints a value.
@@ -42,8 +43,9 @@ import re
 import subprocess
 import sys
 
-from project_env_files import (DEPLOYMENT_ENVIRONMENTS, TARGET_KEYS, deployment_variables, file_settings,
+from project_env_files import (TARGET_KEYS, deployment_variables, file_settings,
                                needed_setup_version, project_root, read_dotenv, target_file, target_settings)
+from project_environments import DEPLOYMENT_ENVIRONMENTS, NAME, RESERVED, is_server, server_environments
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
 # GitHub Actions: the job's secrets and configuration variables, as toJSON(secrets) / toJSON(vars).
@@ -106,14 +108,15 @@ class Provider:
 BITBUCKET = Provider(
     'Bitbucket', 'BITBUCKET_DEPLOYMENT_ENVIRONMENT', 'BITBUCKET_COMMIT',
     'Deployment variables missing or empty (Repository settings -> Deployments -> {name})',
-    'Run make pipeline-deploy from a Bitbucket deployment step (deployment: Staging or Production); '
-    'BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set',
+    'Run make pipeline-deploy from a Bitbucket deployment step (deployment: Staging, Production or an extra '
+    "environment's own name); BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set",
     'run the pipeline on commit {commit}')
 GITHUB = Provider(
     'GitHub', 'DEPLOY_ENVIRONMENT', 'GITHUB_SHA',
     'Environment secrets or variables missing or empty (Settings -> Environments -> {name})',
-    'Run make pipeline-deploy from a GitHub Actions job with environment: staging or production that passes '
-    'the same name in DEPLOY_ENVIRONMENT (templates/pipelines/github-deploy.yml); DEPLOY_ENVIRONMENT is not set',
+    'Run make pipeline-deploy from a GitHub Actions job with environment: staging, production or an extra '
+    "environment's own name that passes the same name in DEPLOY_ENVIRONMENT "
+    '(templates/pipelines/github-deploy.yml); DEPLOY_ENVIRONMENT is not set',
     'run the workflow from a branch or tag at commit {commit}')
 NO_PROVIDER = Provider(
     'CI', '', '', '',
@@ -200,6 +203,9 @@ class Step:
 
     def write_env(self):
         """env/<env>.env: the checked-out example plus the server's deploy target (target.env)."""
+        if self.environment not in server_environments(self.directory):
+            raise Refusal(f'The deployment environment {self.environment} is not an environment of commit '
+                          f'{self.git("rev-parse", "HEAD")[:12]}: list it in STAGE_ENVIRONMENTS of env/common.env')
         example = self.directory / f'env/{self.environment}.env.example'
         if not example.is_file():
             raise Refusal(f'env/{self.environment}.env.example is missing in commit {self.git("rev-parse", "HEAD")[:12]}')
@@ -250,19 +256,23 @@ class Step:
 
 
 def environment_of(environment, name, provider=BITBUCKET):
-    """The setup ENV of this step: ENV=stage|prod, or the one the deployment environment names."""
+    """The setup ENV of this step: ENV=stage|prod|<extra>, or the one the deployment environment names: staging,
+    production, or an extra environment's own name. Whether the project lists that one is checked against the
+    deployed commit's env/common.env (Step.write_env): a commit may add it."""
     derived = DEPLOYMENT_ENVIRONMENTS.get(name.lower())
+    if not derived and NAME.fullmatch(name.lower()) and name.lower() not in RESERVED:
+        derived = name.lower()
     if not name:
         raise Refusal(provider.outside)
-    if environment in ('stage', 'prod'):
+    if is_server(environment):
         if derived and derived != environment:
             raise Refusal(f'ENV={environment} does not match the {provider.label} deployment environment {name} '
                           f'(ENV={derived})')
         return environment
     if environment == 'local' and derived:
         return derived
-    raise Refusal(f'Run this from a Staging or Production deployment step (this one is {name}), '
-                  'or pass ENV=stage|prod for a deployment environment with another name')
+    raise Refusal(f'Run this from a Staging or Production deployment step, or one named after an extra environment '
+                  f'(this one is {name}), or pass ENV=stage|prod|<extra> for a deployment environment with another name')
 
 
 def pipeline_deploy(directory, environment='local', root=None, environ=None, out=None, err=None):

@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 
+from project_environments import is_server
 from project_target import deploy_target
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -46,8 +47,8 @@ def setup_version(allow_dirty=False, tagged=False):
 
 def release_settings(project, remote=True):
     """DEPLOY_CONTEXT, DEPLOY_PATH and the server account; all described in env, none tied to this machine."""
-    if project.environment not in ('stage', 'prod'):
-        raise ValueError('Releases are built for ENV=stage or ENV=prod')
+    if not is_server(project.environment):
+        raise ValueError('Releases are built for a server environment: ENV=stage, prod or one STAGE_ENVIRONMENTS lists')
     settings = project.settings
     missing = [name for name in ('APP_UID', 'APP_GID', 'DEPLOY_PATH') + (('DEPLOY_CONTEXT',) if remote else ())
                if not settings.get(name)]

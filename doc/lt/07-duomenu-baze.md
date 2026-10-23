@@ -323,6 +323,7 @@ make db-pull fresh=1 full=1        # nauja pilna kopija dabar
 make db-pull import=1              # + užkelia (kaip make db-import: after-import, migracijos)
 make db-pull fresh=1 import=1 backup=1   # prieš užkeliant – vietinės DB kopija
 make db-pull from=stage            # stage
+make db-pull from=mdv              # papildoma aplinka (STAGE_ENVIRONMENTS)
 ```
 
 Kiekvienas žingsnis rodomas atskirai, terminale – su juosta (dalis, kiekis, likęs laikas):

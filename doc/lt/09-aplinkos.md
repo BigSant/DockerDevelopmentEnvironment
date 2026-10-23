@@ -10,12 +10,40 @@
 | `test` | `env/test.env` | `app/.generated/test/app` | `app/.generated/test/data/` | Testai, žr. [8 skyrių](08-kodo-kokybe.md). |
 | `stage` | `env/stage.env` | `app/stage/public` | `data/stage/` | Tarpinis serveris. |
 | `prod` | `env/prod.env` | `app/prod/public` | `data/prod/` | LIVE. |
+| papildoma, pvz. `mdv` | `env/mdv.env` | `app/mdv/public` | `data/mdv/` | Kitas stage, pvz. laikinas didesniam darbui; `STAGE_ENVIRONMENTS`, žr. [žemiau](#papildomos-aplinkos-stage_environments). |
 
 Konteinerių ir tinklo varduose yra aplinka (`demo-local-…`, `demo-test-…`), todėl kelios aplinkos gali veikti kartu. Aplinką pasirenka `ENV=` bet kurioje komandoje: `make ps ENV=test`.
 
+## Papildomos aplinkos (`STAGE_ENVIRONMENTS`)
+
+Kai vieno stage neužtenka (pvz. didesnis darbas, kurį reikia rodyti atskirai nuo įprasto stage), projektas gali turėti
+daugiau serverio aplinkų. Kiekviena jų yra **dar vienas stage**: galioja visos stage taisyklės ir leidimai (limitai, IP
+sąrašai, `APP_UID`, secret store, Mailpit, ne-prod after-import SQL, release'ai ir iš ne-tag setup). Prod tėra vienas.
+
+Pridėti (pvz. `mdv`):
+
+1. `env/common.env`: `STAGE_ENVIRONMENTS="mdv"` (kelios – per tarpą). Vardas: mažosios raidės ir skaitmenys, 2–16
+   simbolių, pirmas – raidė; `local`, `test`, `stage`, `prod` negalimi. Neišvardytą `ENV=mdv` runner'is atmeta.
+2. `env/mdv.env.example` – kaip `stage.env.example`, su savu `DOMAIN`, limitais ir IP sąrašais (be slaptažodžių).
+3. Deploy aplinka **tuo pačiu vardu**: Bitbucket'e *Repository settings → Deployments → Staging → Add environment:
+   `mdv`* (jos Deployment variables), GitHub'e – aplinka `mdv` (jos secrets). `staging`/`production` lieka stage ir prod.
+4. Pipeline'as: Bitbucket'e custom pipeline'as `deploy-mdv` su `deployment: mdv` (pavyzdys
+   `templates/pipelines/bitbucket-pipelines.yml` gale; setup-server sąsaja jį paleidžia mygtuku „Deploy į mdv“), GitHub'e –
+   `mdv` workflow `environment` pasirinkimuose. `make pipeline-deploy` aplinką ima iš deploy aplinkos vardo ir dar kartą
+   patikrina, ar deploy'inamas commit'as ją išvardija.
+5. Jei taikinys kitas nei stage: setup-server'yje `sudo bin/add-project --target mdv=ssh://…` (be jo – bendras
+   `target.env`).
+
+Toliau viskas kaip stage: `make release ENV=mdv`, `make deploy ENV=mdv ref=…`, `make deploy-variables ENV=mdv`,
+`make db-pull from=mdv`, `make ssh from=mdv`; kopijos `worker-mdv-…`, konteineriai `demo-mdv-…`.
+
+Panaikinti: serveryje `make down ENV=mdv`, ištrink `data/mdv/` ir `app/mdv/` (jei kodas buvo ten), išbrauk vardą iš
+`STAGE_ENVIRONMENTS`, ištrink `env/mdv.env.example`, pipeline'ą ir deploy aplinką. Kopijos `.generated/backups/*-mdv-*`
+lieka, kol jų neištrini.
+
 ## Ką stage ir prod reikalauja
 
-Tas pats CORE veikia visose aplinkose, bet stage/prod turi griežtesnes taisykles. Komanda sustoja su klaida, jei:
+Tas pats CORE veikia visose aplinkose, bet stage/prod (ir [papildomos aplinkos](#papildomos-aplinkos-stage_environments)) turi griežtesnes taisykles. Komanda sustoja su klaida, jei:
 
 - nenurodyti keturių pagrindinių servisų limitai `PHP_MEMORY`, `PHP_CPUS`, `DATABASE_MEMORY`, `DATABASE_CPUS`, `WEBSERVER_MEMORY`, `WEBSERVER_CPUS`, `PROXY_MEMORY`, `PROXY_CPUS`. Klaidos pranešimas pasiūlo reikšmes pagal Docker host'o dydį ([resursai](12-cache-ir-hibridines-aplinkos.md#resursai-kiekvienam-servisui));
 - įjungtas `pma`, `mailpit`, `cron`, `dbmonitor` ar `metrics`, bet nėra jo IP sąrašo ([IP apribojimai](05-servisai.md#ip-apribojimai));

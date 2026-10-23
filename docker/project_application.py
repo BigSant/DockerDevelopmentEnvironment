@@ -4,6 +4,7 @@ import shlex
 import shutil
 import subprocess
 
+from project_environments import is_server
 from project_prestashop import is_prestashop
 
 PATH = re.compile(r'[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*')
@@ -66,7 +67,7 @@ def prepare_application(project):
         project.run(['run', '--rm', '--no-deps', '--entrypoint', 'sh', 'php-fpm', '-c', ' && '.join(commands)])
     if composer:
         arguments = ['install', '--no-interaction', '--working-dir=/var/www/html']
-        if project.environment in ('stage', 'prod'):
+        if is_server(project.environment):
             arguments += ['--no-dev', '--optimize-autoloader']
         project.run(['run', '--rm', '--no-deps', '--entrypoint', 'composer', 'php-fpm', *arguments])
     if not commands and not composer:

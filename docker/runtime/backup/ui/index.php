@@ -236,7 +236,8 @@ table.registry{width:100%;border-collapse:collapse}
 CSS;
 
 header('Content-Type: text/html; charset=utf-8');
-$sign = in_array($environment, array('stage', 'prod'), true) ? $environment : '';
+// prod is prod; stage and the extra environments (STAGE_ENVIRONMENTS) sign as stage, with their own name.
+$sign = $environment === 'prod' ? 'prod' : (in_array($environment, array('local', 'test'), true) ? '' : 'stage');
 echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     . '<title>Backup · ' . h(getenv('PROJECT_NAME')) . '</title><style>' . $style . '</style></head><body>'
     . '<div class="top"><div class="mark">BACKUP<small>' . h(getenv('PROJECT_NAME')) . ' · ' . h($schema) . '</small></div>'

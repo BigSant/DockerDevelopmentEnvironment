@@ -22,6 +22,7 @@ from database_backup import backup_database
 from database_client import extra_schemas, test_schemas
 from setup_release import image_suffixes, setup_info, suffix_variable
 from project_env_files import hides_process_value, project_root, read_dotenv
+from project_environments import is_server, require as require_environment, stage_environments
 from project_policy import DEFAULTS, LEGACY_RESOURCE_KEYS, MissingLimits, resolve_policy, suggested_limits, validate_configuration
 
 
@@ -31,7 +32,7 @@ SERVICE_CATALOGUE = ('pma', 'mailpit', 'cron', 'dbmonitor', 'backup', 'metrics',
                      'php-doctrine-migrations')
 # Long-running catalogue services start with `up`; the others are tools started by their command.
 RUNTIME_PROFILES = {'cron': 'cron', 'backup': 'backup'}
-# Web tools that stage/prod start only behind a client IP allowlist.
+# Web tools that a server environment (stage, prod, an extra one) starts only behind a client IP allowlist.
 ALLOWLISTED_TOOLS = ('pma', 'mailpit', 'cron', 'dbmonitor', 'backup', 'metrics')
 # With DEPLOY_CONTEXT, stage/prod containers run on the target: exec/ps/logs go there, builds
 # and model rendering stay on this build machine, and lifecycle commands use the release model.
@@ -72,7 +73,8 @@ class Project:
     def __init__(self, directory, environment="local", root=None, profiles=None):
         self.directory = Path(directory).resolve()
         self.root = Path(root).resolve() if root else project_root(self.directory)
-        self.environment = environment
+        # stage, prod and the extra environments env/common.env lists (STAGE_ENVIRONMENTS) run on a server.
+        self.environment = require_environment(self.directory, environment)
         build_environment = 'local' if environment == 'test' else environment
         self.web_directory = self.root / 'app/public'
         self.data_directory = self.root / 'data'
@@ -133,6 +135,7 @@ class Project:
         self.command += ["--project-name", "setup-settings", "-f", str(DOCKER_ROOT / "project-settings.yaml")]
         settings = json.loads(self.capture(["config", "--format", "json"]))["services"]["settings"]["environment"]
         self.settings = settings
+        stage_environments(settings)  # a bad name stops here, whatever ENV this command is for
         profile = settings['PROFILE']
         if profile == 'ps': profile = 'prestashop'
         settings['PROFILE'] = profile
@@ -140,12 +143,12 @@ class Project:
         # DOMAIN may list several hostnames; from here on it is the primary one (project_domains).
         from project_domains import apply_domains
         apply_domains(self, settings)
-        if environment in ('stage', 'prod') and settings.get('APP_UID'):
+        if is_server(environment) and settings.get('APP_UID'):
             # Server containers run as the hosting account (e.g. the DirectAdmin user), not the builder.
             if not (str(settings['APP_UID']).isdigit() and str(settings.get('APP_GID', '')).isdigit()):
                 raise ValueError('APP_UID and APP_GID must both be numeric ids of the account on the server')
             self.process_env.update(HOST_UID=str(settings['APP_UID']), HOST_GID=str(settings['APP_GID']))
-        if environment in ('stage', 'prod') and settings.get('DEPLOY_CONTEXT'):
+        if is_server(environment) and settings.get('DEPLOY_CONTEXT'):
             if not settings.get('APP_UID'):
                 raise ValueError(f'DEPLOY_CONTEXT runs ENV={environment} on a server: set APP_UID and APP_GID '
                                  'to the hosting account there')
@@ -199,7 +202,7 @@ class Project:
         if settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
             raise ValueError("DATABASE_ROOT_PASSWORD must differ from DATABASE_PASSWORD")
         extra_schemas(settings)
-        if test_schemas(settings) and environment in ('stage', 'prod'):
+        if test_schemas(settings) and is_server(environment):
             raise ValueError(f'DATABASE_TEST_SCHEMAS is for local and test only: tests never run on the '
                              f'ENV={environment} database')
         name = settings.get("PROJECT_NAME", "")
@@ -275,7 +278,7 @@ class Project:
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
         active = self.active_model()['services']
-        if environment in ('stage', 'prod'):
+        if is_server(environment):
             for tool in ALLOWLISTED_TOOLS:
                 if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
                     raise ValueError(f'{tool} on {environment} requires {tool.upper()}_ALLOWED_IPS or ALLOWED_IPS')
@@ -360,7 +363,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker-directory", required=True)
     parser.add_argument("--project-directory")
-    parser.add_argument("--env", choices=["local", "stage", "prod", "test"], default="local")
+    parser.add_argument("--env", default="local", help="local, test, stage, prod or an extra environment that "
+                        "STAGE_ENVIRONMENTS in env/common.env lists")
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
@@ -386,7 +390,7 @@ def main():
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
                         'deploy-variables: also replace the Bitbucket / GitHub variables that exist')
     parser.add_argument('--from', dest='source', help='deploy-variables: create the missing variables from this dotenv file (0600); '
-                        'db-pull, ssh: stage or prod (default prod)')
+                        'db-pull, ssh: stage, prod or an extra environment (default prod)')
     parser.add_argument('--root', action='store_true', help='ssh: root in the php-fpm container (level phpfpm)')
     parser.add_argument('--readonly', action='store_true', help='ssh: the php-fpm container without the application account')
     parser.add_argument('--host', action='store_true', help='ssh: the server itself, in the project directory (level full)')
@@ -424,6 +428,7 @@ def main():
     try:
         from project_env_files import require_setup_version
         require_setup_version(args.docker_directory)
+        require_environment(args.docker_directory, args.env)
         if args.action == 'pipeline-deploy':
             # Before Project: the step writes env/<env>.env itself and runs each make step afresh.
             from project_pipeline import pipeline_deploy
