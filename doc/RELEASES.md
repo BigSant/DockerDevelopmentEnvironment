@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 2.15.1
+
 - **`make db-pull` follows per-project backup grants.** setup-server now grants backups per project environment
   (`db`, or `fresh` to ask for a new one) instead of every project; its refusals ("may not download backups of …",
   "may not ask for a fresh backup of …") reach you as they are, and the guide says where the grants are given.
