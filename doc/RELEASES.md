@@ -17,6 +17,9 @@ change (say how). An empty section still releases a patch.
   the cache/mail policy failed on the missing `configuration` table and php-fpm restarted in a loop, so `make setup`
   never reached `make db-load`. The policy now waits for shop tables; `make db-load` and `make db-import` apply it
   after loading data, as before. Nothing to change in projects.
+- **A fresh project starts with the values `make setup` just wrote.** bootstrap fills the domain, ports and database
+  names into a new `env/local.env`, but the later steps (build, app-prepare, up) kept the settings read before it,
+  so the first start of a new project used `example.local`. Projects with a filled `local.env` were not affected.
 
 ## 3.0.0
 

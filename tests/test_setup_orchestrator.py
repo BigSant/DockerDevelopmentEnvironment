@@ -105,6 +105,28 @@ class OrchestratorTest(unittest.TestCase):
         self.assertEqual(calls, ['init'])
 
 
+    def test_later_steps_use_the_project_bootstrap_read_again(self):
+        # A fresh clone: bootstrap writes DOMAIN, ports and database values and returns the project re-read.
+        stale = type('P', (), {'environment': 'local', 'settings': {'DATABASE_NAME': 'example'}, 'run': lambda *a, **k: None})()
+        fresh = type('P', (), {'environment': 'local', 'settings': {'DATABASE_NAME': 'shop'}, 'run': lambda *a, **k: None})()
+        seen = []
+        patches = [patch('project_environment.initialize_directories', lambda p: None),
+                   patch('project_bootstrap.bootstrap', lambda p: fresh),
+                   patch.object(project_setup, 'git_hooks', lambda p: seen.append(('git-hooks', p))),
+                   patch('project_images.build_images', lambda p: seen.append(('build', p))),
+                   patch('project_application.prepare_application', lambda p: seen.append(('app-prepare', p))),
+                   patch('project_health.start_project', lambda p, t: seen.append(('up', p))),
+                   patch.object(project_setup, 'database_tables', lambda p: 0)]
+        with contextlib.ExitStack() as stack:
+            for item in patches:
+                stack.enter_context(item)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                project_setup.run_setup(stale)
+        self.assertEqual([step for step, _ in seen], ['git-hooks', 'build', 'app-prepare', 'up'])
+        self.assertTrue(all(project is fresh for _, project in seen))
+        self.assertIn('Database shop is empty', output.getvalue())
+
+
     def test_setup_installs_the_git_hooks_on_local_and_leaves_a_hook_manager_alone(self):
         from types import SimpleNamespace
         local = SimpleNamespace(environment='local', settings={'SCHEMA_DIRECTORY': 'app/database/schema'})
