@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.4.0
 
 - **`make shop-audit [live=DIR]`: does the shop repository hold its code?** A read-only check for PrestaShop projects.
   It sorts every file of the shop checkout into release (`PS_RELEASE_PATHS`), generated, content (the protected
