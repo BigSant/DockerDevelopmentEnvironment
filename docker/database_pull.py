@@ -149,21 +149,25 @@ def old_server(result):
     return result.returncode == 65 and b'expected: latest PROJECT ENV | get PROJECT ENV FILE' in (result.stderr or b'')
 
 
-def request_words(name, source, full):
-    return f'{name} {source}' + (' full' if full else '')
+def request_words(name, source, word=''):
+    """A request's PROJECT ENV and its optional last word: full (the full series) or files (make files-pull)."""
+    return f'{name} {source}' + (f' {word}' if word else '')
 
 
-def newest(project, ssh, source, run, ask, interactive, full=False):
+def newest(project, ssh, source, run, ask, interactive, full=False, word=None):
     """(server project name, the server's answer to `info`); asks for the name when the server knows none tried.
 
-    The answer of a server without `info` (setup-server before the weekly full backups) is `latest`'s."""
+    The answer of a server without `info` (setup-server before the weekly full backups) is `latest`'s. word is
+    the request's last word (default: full with full)."""
     tried = []
+    word = ('full' if full else '') if word is None else word
 
     def info(name):
-        answer = run(ssh + [f'info {request_words(name, source, full)}'], capture_output=True, timeout=60)
+        answer = run(ssh + [f'info {request_words(name, source, word)}'], capture_output=True, timeout=60)
         if old_server(answer):
-            if full:
-                raise ValueError('The backup server is too old for full=1 (update setup-server: bin/update)')
+            if word:
+                raise ValueError(f'The backup server is too old for {"full=1" if word == "full" else "make " + word + "-pull"} '
+                                 '(update setup-server: bin/update)')
             answer = run(ssh + [f'latest {name} {source}'], capture_output=True, timeout=60)
         return answer
 
@@ -200,11 +204,14 @@ def named_backup(answer, source, full):
     return file, size
 
 
-def fresh_backup(ssh, name, source, full, popen=subprocess.Popen, meter=None):
-    """Ask the server for a new backup and follow its progress; (file, size) of the result."""
+def fresh_backup(ssh, name, source, full, popen=subprocess.Popen, meter=None, word=None, named=None):
+    """Ask the server for a new backup and follow its progress; (file, size) of the result. word and named (the
+    answer's check) default to the database backup's (full with full)."""
     from progress import Bar
     meter = meter or Bar
-    process = popen(ssh + [f'fresh {request_words(name, source, full)}'], stdout=subprocess.PIPE,
+    word = ('full' if full else '') if word is None else word
+    named = named or (lambda answer: named_backup(answer, source, full))
+    process = popen(ssh + [f'fresh {request_words(name, source, word)}'], stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE)
     bar, said = None, []
     for raw in process.stderr:
@@ -233,7 +240,7 @@ def fresh_backup(ssh, name, source, full, popen=subprocess.Popen, meter=None):
         if 'expected: latest PROJECT ENV | get PROJECT ENV FILE' in message:
             message = 'it cannot make fresh backups yet (update setup-server: bin/update)'
         raise ValueError(f'The backup server refused: {message}')
-    return named_backup(answer, source, full)
+    return named(answer)
 
 
 class Checked:

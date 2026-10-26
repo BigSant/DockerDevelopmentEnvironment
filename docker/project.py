@@ -370,7 +370,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -384,7 +384,9 @@ def main():
     parser.add_argument('--to', help='db-rollback: roll back every migration applied after this one')
     parser.add_argument('--full', action='store_true', help='db-backup: dump the data of every table, ignoring registry skip rules; '
                         'db-pull: the newest full backup (every table\'s data) instead of the registry one')
-    parser.add_argument('--fresh', action='store_true', help='db-pull: have the server make a new backup now and download it')
+    parser.add_argument('--fresh', action='store_true', help='db-pull, files-pull: have the server make a new backup now and '
+                        'download it')
+    parser.add_argument('--extract', action='store_true', help='files-pull: write the files into the local code tree')
     parser.add_argument('--skip', action='store_true', help='db-import: leave out the data of the tables the registry marks skip')
     parser.add_argument('--set', default='dev', help='db-dataset/db-load: data set name (default dev)')
     parser.add_argument('--replace', action='store_true', help='db-load: drop every table of a non-empty database first; '
@@ -570,6 +572,12 @@ def main():
                           then_import=args.import_now, backup=args.backup)
             if not args.import_now:
                 print(f'Load it: make db-import file={target}   (or next time: make db-pull import=1)')
+        elif args.action == "files-pull":
+            from project_files import pull_files
+            target = pull_files(project, args.source or 'prod', fresh=args.fresh, extract=args.extract,
+                                reconfigure=args.configure)
+            if not args.extract:
+                print(f'Put them in the code tree: make files-pull extract=1   (or by hand: tar -xzf {target})')
         elif args.action == "ssh":
             from server_access import connect
             return connect(project, args.source or 'prod', root=args.root, readonly=args.readonly, host=args.host,

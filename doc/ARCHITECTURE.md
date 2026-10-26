@@ -417,7 +417,10 @@ the back office writes; language packs in `translations/<locale>/` and `mails/` 
 `files-backup` (`project_files`) copies the code tree paths `BACKUP_FILE_PATHS` lists (files the server writes and git
 ignores, validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored
 include chain into a mirror `.generated/backups/.files-<env>/`, then an atomic `files-<env>-<UTC>Z.tar.gz` (members named
-from the code root). The setup-server worker runs it nightly and rotates the series.
+from the code root). The setup-server worker runs it nightly and rotates the series. `files-pull` (ENV=local) downloads
+the newest one through the db-pull channel (`database_pull`: connection, `info|fresh PROJECT ENV files`, `get`), reads the
+archive to its end before keeping it, and with `extract=1` writes only regular files this checkout's `BACKUP_FILE_PATHS`
+names into the local code tree (links, `..` and paths outside it are skipped; nothing is deleted).
 The release's files reach the **Deploy target** (`project_target.deploy_target`): this machine, or `DEPLOY_SSH=user@host`
 over ssh. Code push, removals, target-only module listing (directories only), `module-pull`, `files-backup`, environment-file sync,
 runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with
