@@ -11,7 +11,15 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **`make deploy-images` sends only the images the target lacks.** Each image is compared with the target's by its
+  layers and start configuration (an image ID differs between the classic and the containerd image store); the ones
+  that match stay, so a setup update or an image-related change ships the rebuilt PHP image, not the database and tool
+  images again. When the build machine keeps the classic store, whose `docker save` carries uncompressed layers, the
+  stream goes through `zstd` (if installed); `docker load` reads it as it is.
+- **A `PS_RELEASE=on` PHP image is about 0.5 GB smaller.** The PrestaShop release is unpacked in its own build stage and
+  copied in as one layer; moving it inside the image's stage stored it twice. The files and their owners are the same.
 
 ## 3.6.0
 

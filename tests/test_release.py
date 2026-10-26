@@ -162,7 +162,7 @@ class ReleaseTest(unittest.TestCase):
 
         class Save:
             stdout = io.BytesIO(b'tar')
-            def __init__(self, command, stdout): saved.append(command)
+            def __init__(self, command, **kwargs): saved.append(command)
             def wait(self): return 0
 
         model = release_model(project, '/home/shop/site')
@@ -172,6 +172,44 @@ class ReleaseTest(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             deploy_images(project)
         self.assertIn('getmeili/meilisearch:v1.10', saved[0], 'the external image travels with docker save')
+
+    def test_only_the_images_the_target_lacks_or_holds_in_another_build_travel(self):
+        layers = lambda *ids: {'RootFS': {'Layers': list(ids)}, 'Config': {'Cmd': ['run'], 'Env': None}, 'Os': 'linux',
+                               'Architecture': 'amd64'}
+        here = {'a:1': layers('l1', 'l2'), 'b:1': layers('l1', 'l3'), 'c:1': layers('l4')}
+        # The target's store words it otherwise (no Env, more fields): the same image all the same.
+        there = {'a:1': {**layers('l1', 'l2'), 'Config': {'Cmd': ['run'], 'Hostname': ''}, 'Id': 'sha256:manifest'},
+                 'b:1': layers('l1', 'old')}
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command[-2:] == ['{{json .DriverStatus}}']:
+                return subprocess.CompletedProcess(command, 0, '[["Backing Filesystem","extfs"]]', '')
+            if 'inspect' in command:
+                images = there if '--context' in command else here
+                found = images.get(command[-1])
+                return subprocess.CompletedProcess(command, 0 if found else 1, json.dumps(found) if found else '', '')
+            return subprocess.CompletedProcess(command, 0, '', '')
+
+        class Stage:
+            stdout = io.BytesIO(b'tar')
+            def __init__(self, command, **kwargs): calls.append(command)
+            def wait(self): return 0
+
+        with patch('project_release.subprocess.run', run), patch('project_release.subprocess.Popen', Stage), \
+                patch('project_release.shutil.which', return_value='/usr/bin/zstd'), contextlib.redirect_stdout(io.StringIO()) as out:
+            project_release.send_images('shop-stage', ['a:1', 'b:1', 'c:1'])
+        self.assertIn(['docker', 'save', 'b:1', 'c:1'], calls, 'a:1 is there already')
+        self.assertIn(['zstd', '-q', '-T0', '-3', '-c'], calls, 'a classic store saves the layers uncompressed')
+        self.assertIn('sending 2 images to Docker context shop-stage (1 there already), zstd', out.getvalue())
+        there.update({'b:1': here['b:1'], 'c:1': here['c:1']})
+        calls.clear()
+        with patch('project_release.subprocess.run', run), patch('project_release.subprocess.Popen', Stage), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            project_release.send_images('shop-stage', ['a:1', 'b:1', 'c:1'])
+        self.assertFalse([call for call in calls if 'save' in call or 'load' in call])
+        self.assertIn('has the 3 images already: nothing to send', out.getvalue())
 
     def test_release_stops_when_an_image_cannot_be_had(self):
         project = self.external_project()
@@ -195,7 +233,7 @@ class ReleaseTest(unittest.TestCase):
 
         class Save:
             stdout = io.BytesIO(b'tar')
-            def __init__(self, command, stdout): calls.append(command)
+            def __init__(self, command, **kwargs): calls.append(command)
             def wait(self): return 0
 
         def run(command, **kwargs):
@@ -213,6 +251,8 @@ class ReleaseTest(unittest.TestCase):
             self.assertEqual(deploy_images(project), ['a:1', 'b:1'])
         # The dashboard's release card: the images have just started on DEPLOY_PATH.
         published.assert_called_once_with(project, '/home/shop/site', images=True)
+        # Neither Docker knows the images (the inspections find nothing): both travel.
+        calls = [call for call in calls if 'inspect' not in call and 'info' not in call and call[0] != 'zstd']
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
         self.assertEqual(calls[2], ['prepare', '/home/shop/site'], 'the directories exist before the containers start')
