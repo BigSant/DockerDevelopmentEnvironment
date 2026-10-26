@@ -1,11 +1,12 @@
-"""Translations in the environment repository: legacy module files and translation table rows, written on the target
-when the repository brings them new or changed since the last deploy (setup_translations), and exported locally."""
+"""Translation migrations: drafted from what changed in the local shop since the base, applied once per database
+(recorded in setup_migrations), writing only their own translations: legacy module files and translation table rows."""
 
 import contextlib
 import io
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -14,76 +15,82 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "tests"), str(ROOT / "docker")]
 from fake_database import FakeDatabase  # noqa: E402
-from project_translations import (apply_translations, entry_id, checksum, export_translations, legacy_text,  # noqa: E402
-                                  module_domains, parse_legacy, php_quote)
+from project_translations import (database_loaded, draft_migration, legacy_text, migrate_translations,  # noqa: E402
+                                  parse_legacy, php_quote, read_target, take_base)
 
-LT = """<?php
-
-global $_MODULE;
-$_MODULE = array();
-$_MODULE['<{shop}prestashop>shop_aaa'] = 'Krepšelis';
-$_MODULE['<{shop}prestashop>shop_bbb'] = 'Kliento tekstas';
-$_MODULE['<{shop}prestashop>shop_ccc'] = 'Tik serveryje';
-"""
+KEY = "<{shop}prestashop>shop_"
+LT = legacy_text({KEY + "aaa": "Krepšelis", KEY + "bbb": "Kliento tekstas", KEY + "ccc": "Tik serveryje"})
 
 
-class Bookkeeping:
-    """A setup_translations table and a translation table for FakeDatabase: reads answered, writes applied."""
+class Shop:
+    """setup_migrations, ps_lang and ps_translation for FakeDatabase: reads answered from this state, writes applied."""
 
-    def __init__(self, written=None, rows=None):
-        self.written = dict(written or {})  # id -> checksum
-        self.rows = list(rows or [])  # [id_translation, id_lang, domain, theme, key, text]
-        self.table = bool(written)
+    def __init__(self, rows=(), applied=()):
+        self.rows = [list(row) for row in rows]  # [id_translation, id_lang, domain, theme, key, text]
+        self.applied = dict(applied)
 
     def answer(self, sql):
-        if "information_schema.TABLES" in sql:
-            return [("1",)] if self.table else []
-        if "FROM setup_translations" in sql:
-            return list(self.written.items())
+        if "FROM setup_migrations" in sql:
+            return list(self.applied.items())
         if "FROM `ps_lang`" in sql:
             return [("1", "lt-LT"), ("2", "en-US")]
-        if "FROM `ps_translation`" in sql and "JOIN" in sql:  # the export's read of the local shop
-            return [("lt-LT", row[2], row[3], row[4], row[5]) for row in self.rows if str(row[1]) == "1"]
+        if "JOIN `ps_lang`" in sql:
+            return [({"1": "lt-LT", "2": "en-US"}[str(row[1])], row[2], row[3], row[4], row[5]) for row in self.rows]
         if "FROM `ps_translation`" in sql:
             return [tuple(str(value) for value in row) for row in self.rows]
         return []
 
     def write(self, sql):
-        if sql.startswith("CREATE TABLE IF NOT EXISTS setup_translations"):
-            self.table = True
-        for identity, value in re.findall(r"\('([0-9a-f]{64})', '([0-9a-f]{64})', NOW\(\)\)", sql):
-            self.written[identity] = value
+        for name, checksum in re.findall(r"INSERT INTO setup_migrations \(name, checksum, applied_at\) VALUES \('([^']+)', '(\w+)'", sql):
+            self.applied[name] = checksum
+        for text, ids in re.findall(r"SET translation = '((?:[^']|'')*)' WHERE id_translation IN \(([\d, ]+)\)", sql):
+            for row in self.rows:
+                if str(row[0]) in ids.split(", "):
+                    row[5] = text.replace("''", "'")
+        for id_lang, key, text, domain, theme in re.findall(
+                r"VALUES \((\d+), '((?:[^']|'')*)', '((?:[^']|'')*)', '([^']+)', (NULL|'[^']*')\);", sql):
+            self.rows.append([len(self.rows) + 100, int(id_lang), domain, "" if theme == "NULL" else theme.strip("'"),
+                              key.replace("''", "'"), text.replace("''", "'")])
 
 
-class TranslationsTest(unittest.TestCase):
+class TranslationMigrationsTest(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="translations-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        self.local = self.root / "app/public"
         self.target = self.root / "target"
-        self.code = self.target / "app/prod/public"
-        (self.code / "modules/shop/translations").mkdir(parents=True)
-        (self.code / "modules/shop/translations/lt.php").write_text(LT)
-        self.repository = self.root / "app/translations"
-        self.book = Bookkeeping()
-        self.project = SimpleNamespace(
-            environment="prod", root=self.root, directory=self.root / "app", web_directory=self.root / "app/prod/public",
+        self.server_code = self.target / "app/prod/public"
+        for code in (self.local, self.server_code):
+            (code / "modules/shop/translations").mkdir(parents=True)
+            (code / "modules/shop/translations/lt.php").write_text(LT)
+        self.shop = Shop(rows=[[7, 1, "Modules.Shop.Shop", "", "Add to cart", "Kliento krepšelis"]])
+        self.local_project = self.project("local", self.shop)
+        self.server = Shop(rows=[[7, 1, "Modules.Shop.Shop", "", "Add to cart", "Kliento krepšelis"],
+                                 [8, 1, "Modules.Shop.Shop", "", "Checkout", "Kliento apmokėjimas"]])
+        self.prod = self.project("prod", self.server)
+
+    def project(self, environment, state):
+        web = self.local if environment == "local" else self.root / "app/prod/public"
+        return SimpleNamespace(
+            environment=environment, root=self.root, directory=self.root / "app", web_directory=web,
             settings={"PROFILE": "prestashop", "PS_VERSION": "8.2.0", "DEPLOY_PATH": str(self.target), "DEPLOY_SSH": "",
                       "DEPLOY_CONTEXT": "default", "APP_UID": "1000", "APP_GID": "1000"},
-            database=FakeDatabase(answer=self.book.answer, on_write=self.book.write))
+            database=FakeDatabase(answer=state.answer, on_write=state.write))
 
-    def repository_file(self, relative, entries):
-        path = self.repository / "legacy" / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(legacy_text(entries))
-
-    def apply(self, dry=False):
+    def quiet(self, function, *arguments, **options):
         with contextlib.redirect_stdout(io.StringIO()) as output:
-            report = apply_translations(self.project, dry=dry)
-        return report, output.getvalue()
+            result = function(*arguments, **options)
+        self.output = output.getvalue()
+        return result
 
-    def target_entries(self):
-        return parse_legacy((self.code / "modules/shop/translations/lt.php").read_text())
+    def translate_locally(self):
+        """What a developer does in the local back office: one file text changed, one added, one table row changed, one new."""
+        (self.local / "modules/shop/translations/lt.php").write_text(
+            legacy_text({KEY + "aaa": "Pirkinių krepšelis", KEY + "bbb": "Kliento tekstas", KEY + "ccc": "Tik serveryje",
+                         KEY + "ddd": "Naujas"}))
+        self.shop.rows[0][5] = "Į krepšelį"
+        self.shop.rows.append([9, 1, "Modules.Shop.Shop", "", "New", "Naujas"])
 
     def test_php_strings_round_trip_and_files_with_anything_else_are_not_understood(self):
         for text in ("plain", "it's", "back\\slash", "\\'", 'quote " and \\"', "ends with \\", "multi\nline"):
@@ -91,92 +98,102 @@ class TranslationsTest(unittest.TestCase):
                 self.assertEqual(parse_legacy(legacy_text({"k": text})), {"k": text})
         self.assertEqual(php_quote("it's \\"), "'it\\'s \\\\'")
         self.assertIsNone(parse_legacy(LT + "$_MODULE['x'] = strtoupper('y');\n"))
-        self.assertIsNone(parse_legacy(LT + "echo 'hi';\n"))
         self.assertEqual(len(parse_legacy(LT + "// a comment\n?>\n")), 3)
 
-    def test_a_new_or_changed_translation_is_written_an_unchanged_one_leaves_the_clients_edit(self):
-        key = "<{shop}prestashop>shop_"
-        # The last deploy wrote aaa and bbb; the client edited bbb in the back office since.
-        self.book = Bookkeeping({entry_id("file", "modules/shop/translations/lt.php", key + "aaa"): checksum("Krepšelis"),
-                                 entry_id("file", "modules/shop/translations/lt.php", key + "bbb"): checksum("Senas tekstas")})
-        self.project.database = FakeDatabase(answer=self.book.answer, on_write=self.book.write)
-        self.repository_file("modules/shop/translations/lt.php",
-                             {key + "aaa": "Pirkinių krepšelis", key + "bbb": "Senas tekstas", key + "ddd": "Naujas"})
-        report, output = self.apply(dry=True)
-        self.assertEqual(self.target_entries()[key + "aaa"], "Krepšelis", "dry=1 changes nothing")
-        self.assertIn("would overwrite modules/shop/translations/lt.php '<{shop}prestashop>shop_aaa': 'Krepšelis' -> "
-                      "'Pirkinių krepšelis'", output)
-        self.assertFalse([sql for sql in self.project.database.executed if "setup_translations" in sql])
-        report, output = self.apply()
-        entries = self.target_entries()
-        self.assertEqual(entries[key + "aaa"], "Pirkinių krepšelis", "changed in the repository: written over the target")
-        self.assertEqual(entries[key + "bbb"], "Kliento tekstas", "unchanged in the repository: the client's edit stays")
-        self.assertEqual(entries[key + "ccc"], "Tik serveryje", "a key only the target has stays")
-        self.assertEqual(entries[key + "ddd"], "Naujas")
-        self.assertEqual(list(entries), [key + "aaa", key + "bbb", key + "ccc", key + "ddd"], "the target's order, new ones last")
-        self.assertEqual((report.written, len(report.over), report.kept), (2, 1, 1))
-        # The next deploy with the same repository writes nothing: the client may edit aaa now.
-        (self.code / "modules/shop/translations/lt.php").write_text(
-            legacy_text({**entries, key + "aaa": "Kliento krepšelis"}))
-        report, _ = self.apply()
-        self.assertEqual(self.target_entries()[key + "aaa"], "Kliento krepšelis")
-        self.assertEqual((report.written, report.kept), (0, 3))
+    def test_a_draft_holds_only_what_the_developer_changed_since_the_base(self):
+        self.assertIsNone(self.quiet(draft_migration, self.local_project, "cart texts"))
+        self.assertIn("There was no base yet", self.output)
+        self.translate_locally()
+        path = self.quiet(draft_migration, self.local_project, "cart texts")
+        self.assertRegex(path.name, r"^\d{14}-cart-texts\.json$")
+        self.assertEqual(json.loads(path.read_text()), {
+            "legacy": {"modules/shop/translations/lt.php": {KEY + "aaa": "Pirkinių krepšelis", KEY + "ddd": "Naujas"}},
+            "database": {"lt-LT": {"Modules.Shop.Shop": {"Add to cart": "Į krepšelį", "New": "Naujas"}}}})
+        self.assertEqual(path.parent, self.root / "app/translations/migrations")
+        self.assertIsNone(self.quiet(draft_migration, self.local_project, "again"), "the base moved on: nothing new")
+        self.assertIn("No translation changed since the base", self.output)
+        with self.assertRaisesRegex(ValueError, "Name the migration"):
+            draft_migration(self.local_project, " ")
+        with self.assertRaisesRegex(ValueError, "ENV=local"):
+            draft_migration(self.prod, "x")
 
-    def test_a_first_deploy_writes_every_translation_and_records_the_equal_ones(self):
-        key = "<{shop}prestashop>shop_"
-        self.repository_file("modules/shop/translations/lt.php", {key + "aaa": "Krepšelis", key + "bbb": "Programuotojo"})
-        self.repository_file("modules/shop/translations/en.php", {key + "aaa": "Cart"})
-        self.repository_file("modules/absent/translations/lt.php", {"<{absent}prestashop>x_1": "Nėra"})
-        report, output = self.apply()
-        self.assertEqual(self.target_entries()[key + "bbb"], "Programuotojo")
-        self.assertEqual(parse_legacy((self.code / "modules/shop/translations/en.php").read_text()), {key + "aaa": "Cart"})
-        self.assertFalse((self.code / "modules/absent").exists(), "no translation file for a module the target lacks")
-        self.assertIn("skipped: modules/absent/translations/lt.php: the target has no module absent", output)
-        self.assertEqual((report.written, report.equal), (2, 1))
-        self.assertEqual(len(self.book.written), 3, "equal ones are recorded too; the absent module's wait")
+    def test_texts_the_local_shop_takes_from_the_server_are_the_base_not_a_change(self):
+        self.quiet(take_base, self.local_project)
+        # A db-pull import=1 of prod: the client's rows arrive; they are no developer's change.
+        self.shop.rows = [list(row) for row in self.server.rows]
+        self.quiet(database_loaded, self.local_project)
+        self.assertIn("Translations base taken (table rows)", self.output)
+        self.shop.rows[1][5] = "Apmokėti"
+        path = self.quiet(draft_migration, self.local_project, "checkout")
+        self.assertEqual(json.loads(path.read_text())["database"], {"lt-LT": {"Modules.Shop.Shop": {"Checkout": "Apmokėti"}}})
+        self.assertEqual(json.loads(path.read_text())["legacy"], {})
 
-    def test_a_target_file_with_more_than_entries_is_not_rewritten(self):
-        (self.code / "modules/shop/translations/lt.php").write_text(LT + "include 'other.php';\n")
-        self.repository_file("modules/shop/translations/lt.php", {"<{shop}prestashop>shop_aaa": "Naujas"})
-        _, output = self.apply()
-        self.assertIn("include 'other.php'", (self.code / "modules/shop/translations/lt.php").read_text())
-        self.assertIn("holds more than $_MODULE lines; not rewritten", output)
-        self.assertEqual(self.book.written, {})
+    def test_a_migration_writes_its_translations_once_and_nothing_else(self):
+        self.quiet(take_base, self.local_project)
+        self.translate_locally()
+        path = self.quiet(draft_migration, self.local_project, "cart")
+        # On the server the client edited bbb and a row of its own since; the migration does not know them.
+        (self.server_code / "modules/shop/translations/lt.php").write_text(
+            legacy_text({KEY + "aaa": "Krepšelis", KEY + "bbb": "Kliento pataisa", KEY + "ccc": "Tik serveryje"}))
+        self.quiet(migrate_translations, self.prod, dry=True)
+        self.assertIn("would write 4", self.output)
+        self.assertIn("'Krepšelis' -> 'Pirkinių krepšelis'", self.output)
+        self.assertEqual(self.server.applied, {}, "dry=1 records nothing")
+        self.assertIn("Krepšelis'", (self.server_code / "modules/shop/translations/lt.php").read_text())
+        applied = self.quiet(migrate_translations, self.prod)
+        self.assertEqual(applied, [f"translations:{path.name}"])
+        entries = parse_legacy((self.server_code / "modules/shop/translations/lt.php").read_text())
+        self.assertEqual(entries, {KEY + "aaa": "Pirkinių krepšelis", KEY + "bbb": "Kliento pataisa",
+                                   KEY + "ccc": "Tik serveryje", KEY + "ddd": "Naujas"})
+        rows = {row[4]: row[5] for row in self.server.rows}
+        self.assertEqual(rows, {"Add to cart": "Į krepšelį", "Checkout": "Kliento apmokėjimas", "New": "Naujas"})
+        # The client edits aaa afterwards: the migration is applied, so it never comes back.
+        (self.server_code / "modules/shop/translations/lt.php").write_text(legacy_text({**entries, KEY + "aaa": "Kliento"}))
+        self.assertEqual(self.quiet(migrate_translations, self.prod), [])
+        self.assertIn("No pending translation migrations", self.output)
+        self.assertEqual(parse_legacy((self.server_code / "modules/shop/translations/lt.php").read_text())[KEY + "aaa"], "Kliento")
+        path.write_text(path.read_text().replace("Naujas", "Kitas"))
+        self.quiet(migrate_translations, self.prod)
+        self.assertIn("changed after it was applied here; it is not rerun", self.output)
 
-    def test_translation_table_rows_are_updated_or_inserted_the_same_way(self):
-        texts = {"Add to cart": "Į krepšelį", "Checkout": "Apmokėti", "New": "Naujas"}
-        path = self.repository / "database/lt-LT/Modules.Shop.Shop.json"
-        path.parent.mkdir(parents=True)
-        path.write_text(json.dumps({"locale": "lt-LT", "domain": "Modules.Shop.Shop", "theme": None, "translations": texts}))
-        theme = self.repository / "database/en-US/Shop.Theme.Actions@classic.json"
-        theme.parent.mkdir(parents=True)
-        theme.write_text(json.dumps({"locale": "en-US", "domain": "Shop.Theme.Actions", "theme": "classic",
-                                     "translations": {"Buy": "Buy now"}}))
-        missing = self.repository / "database/de-DE/Modules.Shop.Shop.json"
-        missing.parent.mkdir(parents=True)
-        missing.write_text(json.dumps({"locale": "de-DE", "domain": "Modules.Shop.Shop", "translations": {"Checkout": "Kasse"}}))
-        self.book = Bookkeeping({entry_id("database", "lt-LT", "Modules.Shop.Shop", "", "Checkout"): checksum("Apmokėti")},
-                                rows=[[7, 1, "Modules.Shop.Shop", "", "Add to cart", "Kliento"],
-                                      [8, 1, "Modules.Shop.Shop", "", "Checkout", "Kliento apmokėjimas"]])
-        self.project.database = FakeDatabase(answer=self.book.answer, on_write=self.book.write)
-        report, output = self.apply()
-        sql = "\n".join(self.project.database.executed)
-        self.assertIn("UPDATE `ps_translation` SET translation = 'Į krepšelį' WHERE id_translation IN (7);", sql)
-        self.assertNotIn("Apmokėti", sql.split("REPLACE INTO")[0], "unchanged since the last deploy: the client's row stays")
-        self.assertIn("INSERT INTO `ps_translation` (id_lang, `key`, translation, domain, theme) VALUES (1, 'New', 'Naujas', "
-                      "'Modules.Shop.Shop', NULL);", sql)
-        self.assertIn("VALUES (2, 'Buy', 'Buy now', 'Shop.Theme.Actions', 'classic');", sql)
-        self.assertNotIn("Kasse", sql)
-        self.assertIn("skipped: de-DE: the target has no such language", output)
-        self.assertEqual((report.written, len(report.over), report.kept), (3, 1, 1))
-        self.project.settings["PS_VERSION"] = "1.6.1.24"
-        with self.assertRaisesRegex(ValueError, "PrestaShop 1.6 has no translation table"):
-            self.apply()
+    def test_a_teammates_migration_applied_locally_is_not_drafted_again(self):
+        self.quiet(take_base, self.local_project)
+        migrations = self.root / "app/translations/migrations"
+        migrations.mkdir(parents=True)
+        (migrations / "20261027100000-teammate.json").write_text(json.dumps(
+            {"legacy": {"modules/shop/translations/lt.php": {KEY + "eee": "Kolegos"}}, "database": {}}))
+        self.quiet(migrate_translations, self.local_project)
+        self.assertEqual(parse_legacy((self.local / "modules/shop/translations/lt.php").read_text())[KEY + "eee"], "Kolegos")
+        self.assertIsNone(self.quiet(draft_migration, self.local_project, "mine"))
+        self.assertIn("No translation changed", self.output)
+
+    def test_what_the_target_lacks_is_noted_and_what_it_cannot_parse_stops(self):
+        migrations = self.root / "app/translations/migrations"
+        migrations.mkdir(parents=True)
+        (migrations / "20261027100000-other.json").write_text(json.dumps(
+            {"legacy": {"modules/absent/translations/lt.php": {"<{absent}prestashop>x_1": "Nėra"}},
+             "database": {"de-DE": {"Modules.Shop.Shop": {"Checkout": "Kasse"}}}}))
+        self.quiet(migrate_translations, self.prod)
+        self.assertIn("skipped: modules/absent/translations/lt.php: no module absent here", self.output)
+        self.assertIn("skipped: de-DE: no such language here", self.output)
+        self.assertFalse((self.server_code / "modules/absent").exists())
+        self.assertIn("translations:20261027100000-other.json", self.server.applied)
+        (migrations / "20261027110000-shop.json").write_text(json.dumps(
+            {"legacy": {"modules/shop/translations/lt.php": {KEY + "aaa": "Naujas"}}}))
+        (self.server_code / "modules/shop/translations/lt.php").write_text(LT + "include 'x.php';\n")
+        with self.assertRaisesRegex(ValueError, "holds more than \\$_MODULE lines: fix it by hand"):
+            self.quiet(migrate_translations, self.prod)
+        self.assertNotIn("translations:20261027110000-shop.json", self.server.applied, "not recorded: it reruns once fixed")
+        (migrations / "notes.txt").write_text("x")
+        with self.assertRaisesRegex(ValueError, "is not named <14 digits>-<name>.json"):
+            migrate_translations(self.prod)
+        (migrations / "notes.txt").unlink()
+        (migrations / "20261027120000-bad.json").write_text(json.dumps({"legacy": {"../x.php": {}}}))
+        with self.assertRaisesRegex(ValueError, '"legacy" maps modules'):
+            self.quiet(migrate_translations, self.prod)
 
     def test_a_server_targets_file_is_read_over_ssh_and_its_absence_told_apart(self):
-        import subprocess
         from project_target import SshTarget
-        from project_translations import read_target
         calls = []
 
         def run(command, **options):
@@ -192,50 +209,16 @@ class TranslationsTest(unittest.TestCase):
             read_target(target, "/p/x/translations/lt.php")
         self.assertIn("BatchMode=yes", calls[0])
 
-    def test_nothing_to_apply_and_generic_projects(self):
-        self.assertIsNone(self.apply()[0])
-        self.project.settings["PROFILE"] = ""
+    def test_generic_projects_and_prestashop_16(self):
+        self.prod.settings["PROFILE"] = ""
         with self.assertRaisesRegex(ValueError, "belongs to PrestaShop"):
-            self.apply()
-
-    def test_export_writes_the_local_modules_files_and_domains_into_the_repository(self):
-        local = self.root / "app/public"
-        (local / "modules/shop/translations").mkdir(parents=True)
-        (local / "modules/shop/translations/lt.php").write_text(LT)
-        (local / "modules/shop/translations/en.php").write_text(legacy_text({"<{shop}prestashop>shop_aaa": "Cart"}))
-        (local / "modules/shop/translations/index.php").write_text("<?php\n")
-        (local / "themes/classic/modules/shop/translations").mkdir(parents=True)
-        (local / "themes/classic/modules/shop/translations/lt.php").write_text(legacy_text({"<{shop}classic>shop_x": "Tema"}))
-        self.repository_file("modules/shop/translations/fr.php", {"old": "gone"})
-        self.book = Bookkeeping(rows=[[1, 1, "Modules.Shop.Shop", "", "Checkout", "Apmokėti"],
-                                      [2, 1, "Modules.Other.Shop", "", "X", "Y"]])
-        self.project.database = FakeDatabase(answer=self.book.answer)
-        self.project.environment, self.project.web_directory = "local", local
-        with contextlib.redirect_stdout(io.StringIO()) as output:
-            export_translations(self.project, ["shop"], [], ["lt"])
-        exported = sorted(path.relative_to(self.repository).as_posix() for path in self.repository.rglob("*") if path.is_file())
-        self.assertEqual(exported, ["database/lt-LT/Modules.Shop.Shop.json", "legacy/modules/shop/translations/fr.php",
-                                    "legacy/modules/shop/translations/lt.php",
-                                    "legacy/themes/classic/modules/shop/translations/lt.php"],
-                         "only lt: fr stays as it was, en is not exported")
-        self.assertEqual(parse_legacy((self.repository / "legacy/modules/shop/translations/lt.php").read_text()),
-                         parse_legacy(LT))
-        data = json.loads((self.repository / "database/lt-LT/Modules.Shop.Shop.json").read_text())
-        self.assertEqual(data, {"locale": "lt-LT", "domain": "Modules.Shop.Shop", "theme": None,
-                                "translations": {"Checkout": "Apmokėti"}})
-        self.assertIn("t.domain LIKE 'Modules.Shop.%'", self.project.database.queried[-1])
-        self.assertIn("Exported 2 legacy files and 1 translation table rows", output.getvalue())
-        self.assertEqual(module_domains("ps_shoppingcart"), "Modules.Shoppingcart.*")
-        self.assertEqual(module_domains("my_module"), "Modules.Mymodule.*")
-        for arguments, message in (((["shop"], [], []), "ENV=local"),):
-            self.project.environment = "prod"
-            with self.subTest(arguments=arguments), self.assertRaisesRegex(ValueError, message):
-                export_translations(self.project, *arguments)
-        self.project.environment = "local"
-        for arguments, message in ((([], [], []), "Name what to export"), ((["../x"], [], []), "Not a module name"),
-                                   (([], ["Modules.%"], []), "Not a domain")):
-            with self.subTest(arguments=arguments), self.assertRaisesRegex(ValueError, message):
-                export_translations(self.project, *arguments)
+            migrate_translations(self.prod)
+        self.prod.settings.update(PROFILE="prestashop", PS_VERSION="1.6.1.24")
+        migrations = self.root / "app/translations/migrations"
+        migrations.mkdir(parents=True)
+        (migrations / "20261027100000-x.json").write_text(json.dumps({"database": {"lt-LT": {"Modules.Shop.Shop": {"a": "b"}}}}))
+        with self.assertRaisesRegex(ValueError, "PrestaShop 1.6 has no translation table"):
+            self.quiet(migrate_translations, self.prod)
 
 
 if __name__ == "__main__":

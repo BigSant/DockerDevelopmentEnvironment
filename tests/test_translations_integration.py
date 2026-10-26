@@ -1,4 +1,4 @@
-"""Translation table rows written by make translations-apply's SQL on a disposable MySQL/MariaDB container."""
+"""Translation migrations drafted from and applied to translation table rows of disposable MySQL/MariaDB containers."""
 
 import contextlib
 import io
@@ -16,7 +16,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
 from database_client import unescape_batch  # noqa: E402
-from project_translations import apply_translations, export_translations  # noqa: E402
+from project_translations import draft_migration, migrate_translations, take_base  # noqa: E402
 
 IMAGES = [image for image in (os.environ.get("SETUP_MYSQL_IMAGE"), os.environ.get("SETUP_MARIADB_IMAGE")) if image]
 PASSWORD = "translations-test-only"
@@ -58,13 +58,13 @@ class Database:
 
 @unittest.skipUnless(IMAGES, "Set SETUP_MYSQL_IMAGE and/or SETUP_MARIADB_IMAGE to built setup database images")
 class TranslationsIntegrationTest(unittest.TestCase):
-    def start(self, image):
+    def start(self, image, stack):
         name = f"setup-translations-{uuid.uuid4().hex[:8]}"
         subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--tmpfs", "/var/lib/mysql",
                         "-e", f"MYSQL_ROOT_PASSWORD={PASSWORD}", "-e", f"MARIADB_ROOT_PASSWORD={PASSWORD}",
                         "-e", "MYSQL_DATABASE=shop", "-e", "MARIADB_DATABASE=shop",
                         "-e", "DATABASE_BUFFER_POOL=128M", "-e", "DATABASE_PERFORMANCE_SCHEMA=off", image], check=True, capture_output=True)
-        self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
+        stack.callback(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)  # before the next image starts
         deadline = time.time() + 120
         while time.time() < deadline:
             probe = subprocess.run(["docker", "exec", "-e", f"MYSQL_PWD={PASSWORD}", name, "sh", "-c",
@@ -81,40 +81,36 @@ class TranslationsIntegrationTest(unittest.TestCase):
                                          "DEPLOY_SSH": "", "DEPLOY_CONTEXT": "default", "APP_UID": "1000", "APP_GID": "1000"},
                                database=database)
 
-    def test_rows_are_updated_inserted_and_recorded_and_an_unchanged_one_keeps_the_clients_edit(self):
+    def test_a_drafted_migration_writes_only_its_rows_once_and_is_recorded_in_setup_migrations(self):
         for image in IMAGES:
-            with self.subTest(image=image), tempfile.TemporaryDirectory() as directory:
-                database = self.start(image)
-                database.execute(SCHEMA)
+            with self.subTest(image=image), tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+                local, server = self.start(image, stack), self.start(image, stack)
+                for database in (local, server):
+                    database.execute(SCHEMA)
                 root = Path(directory)
-                repository = root / "app/translations/database/lt-LT"
-                repository.mkdir(parents=True)
-                texts = {"Add to cart": "Į „krepšelį“ – it's \\ ok", "Checkout": "Apmokėti", "New": "Naujas"}
-                (repository / "Modules.Shop.Shop.json").write_text(json.dumps(
-                    {"locale": "lt-LT", "domain": "Modules.Shop.Shop", "theme": None, "translations": texts}))
-                project = self.project(database, root)
+                (root / "app/public").mkdir(parents=True)
+                developer = self.project(local, root, "local")
                 with contextlib.redirect_stdout(io.StringIO()):
-                    first = apply_translations(project)
-                self.assertEqual((first.written, len(first.over)), (3, 2))
-                rows = dict(database.query("SELECT `key`, translation FROM ps_translation WHERE domain = 'Modules.Shop.Shop' "
-                                           "AND theme IS NULL;"))
-                self.assertEqual(rows, texts)
-                # The client edits Checkout; the repository changes only Add to cart.
-                database.execute("UPDATE ps_translation SET translation = 'Kliento' WHERE `key` = 'Checkout';")
-                texts["Add to cart"] = "Į krepšelį"
-                (repository / "Modules.Shop.Shop.json").write_text(json.dumps(
-                    {"locale": "lt-LT", "domain": "Modules.Shop.Shop", "theme": None, "translations": texts}))
+                    take_base(developer)
+                # The developer translates two texts locally; the client edits another one on the server meanwhile.
+                local.execute("UPDATE ps_translation SET translation = 'Į „krepšelį“ – it''s \\\\ ok' WHERE `key` = 'Add to cart';"
+                              "INSERT INTO ps_translation (id_lang, `key`, translation, domain, theme) "
+                              "VALUES (2, 'Buy', 'Buy now', 'Shop.Theme.Actions', 'classic');")
+                server.execute("UPDATE ps_translation SET translation = 'Kliento pataisa' WHERE `key` = 'Checkout';")
                 with contextlib.redirect_stdout(io.StringIO()):
-                    second = apply_translations(project)
-                self.assertEqual((second.written, second.kept), (1, 2))
-                rows = dict(database.query("SELECT `key`, translation FROM ps_translation WHERE domain = 'Modules.Shop.Shop';"))
-                self.assertEqual(rows, {"Add to cart": "Į krepšelį", "Checkout": "Kliento", "New": "Naujas"})
-                self.assertEqual(database.query("SELECT COUNT(*) FROM setup_translations;"), [("3",)])
-                # The export's LIKE keeps _ literal: Modules.Shop_x is not Modules.Shopx.
+                    path = draft_migration(developer, "cart")
+                self.assertEqual(json.loads(path.read_text())["database"], {
+                    "lt-LT": {"Modules.Shop.Shop": {"Add to cart": "Į „krepšelį“ – it's \\ ok"}},
+                    "en-US": {"Shop.Theme.Actions@classic": {"Buy": "Buy now"}}})
+                prod = self.project(server, root)
                 with contextlib.redirect_stdout(io.StringIO()):
-                    _, exported = export_translations(self.project(database, root, "local"), [], ["Modules.Shop_x.*"], [])
-                self.assertEqual(exported, {("lt-LT", "Modules.Shop_x.Shop", ""): {"Other": "Kito domeno"}})
-
+                    self.assertEqual(migrate_translations(prod), [f"translations:{path.name}"])
+                    self.assertEqual(migrate_translations(prod), [], "once")
+                rows = {(key, theme): text for key, theme, text in server.query(
+                    "SELECT `key`, COALESCE(theme, '-'), translation FROM ps_translation;")}
+                self.assertEqual(rows, {("Add to cart", "-"): "Į „krepšelį“ – it's \\ ok", ("Checkout", "-"): "Kliento pataisa",
+                                        ("Other", "-"): "Kito domeno", ("Buy", "classic"): "Buy now"})
+                self.assertEqual(server.query("SELECT name FROM setup_migrations;"), [(f"translations:{path.name}",)])
 
 if __name__ == "__main__":
     unittest.main()

@@ -198,17 +198,23 @@ class DeployTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ref=TAG"):
             self.deploy()
 
-    def test_translations_of_the_environment_repository_follow_the_module_upgrades(self):
-        written = []
-        with patch("project_translations.apply_translations", lambda project, dry=False: written.append(list(self.calls))):
+    def test_translation_migrations_follow_the_module_upgrades_and_are_recorded_with_the_deploy(self):
+        ran = []
+
+        def migrate(project, dry=False):
+            ran.append(list(self.calls))
+            return ["translations:20261027100000-cart.json"]
+        with patch("project_translations.migrate_translations", migrate):
             self.deploy(ref="v1")
-            self.assertEqual(written, [], "no translations/ in the environment repository: nothing to write")
-            (self.root / "app/translations/legacy").mkdir(parents=True)
+            self.assertEqual(ran, [], "no translations/migrations/ in the environment repository: nothing to migrate")
+            (self.root / "app/translations/migrations").mkdir(parents=True)
             self.calls.clear()
             self.deploy(ref="v1")
-        self.assertEqual(len(written), 1)
-        self.assertIn(["upgrade"], written[0], "after the module upgrades")
-        self.assertFalse([call for call in written[0] if call[-1:] == ["cache-clear"]], "before the cache is cleared")
+        self.assertEqual(len(ran), 1)
+        self.assertIn(["upgrade"], ran[0], "after the module upgrades")
+        self.assertFalse([call for call in ran[0] if call[-1:] == ["cache-clear"]], "before the cache is cleared")
+        entries = json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())
+        self.assertEqual(entries[-1]["translations"], ["translations:20261027100000-cart.json"])
 
     def test_a_profile_without_application_steps_still_deploys(self):
         self.deploy(ref="v1", plan=None)
