@@ -413,6 +413,9 @@ Every application-specific step follows `PROFILE`: protected paths are `PRESTASH
 the back office writes; language packs in `translations/<locale>/` and `mails/` stay code) only for PrestaShop, plus tool folders and
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
+`shop-audit` (`project_shop_audit`, PrestaShop only, read-only) sorts the shop files into release (`PS_RELEASE_PATHS`),
+generated, content (the protected paths), tool state and code, and reports code `.gitignore` hides, tracked release
+or content files, broad ignore rules and, with `live=DIR`, code only a server copy has.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
 `files-backup` (`project_files`) copies the code tree paths `BACKUP_FILE_PATHS` lists (files the server writes and git
 ignores, validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored

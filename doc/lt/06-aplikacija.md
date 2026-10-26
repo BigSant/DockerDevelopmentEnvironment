@@ -118,6 +118,33 @@ Pakeitus `PS_RELEASE` ar `PS_VERSION`, paleisk `make setup`.
 
 Jei projektas keičia branduolio priklausomybes, jo `composer.json` ir `composer.lock` laikomi aplinkos repozitorijoje `config/composer/`. `make setup` juos nukopijuoja į parduotuvę ir paleidžia `composer install` (stage/prod – be dev paketų). Tada release `vendor/` nekopijuojamas, net jei jis nurodytas `PS_RELEASE_PATHS`.
 
+### Ar parduotuvės repozitorija turi visą kodą: make shop-audit
+
+Kiekvienas parduotuvės failas priklauso vienai vietai: oficialiam release'ui (`PS_RELEASE_PATHS`), tam, ką rašo setup ar
+parduotuvė (konfigūracijos failas, šaknies `.htaccess`, `var/`, cache, sitemap'ai, modulių `config*.xml`), serverio
+turiniui, kurio deploy'us neliečia (profilio saugomi keliai: `img/`, `upload/`, `download/`, modulių vertimai, … ir
+projekto `DEPLOY_PROTECTED_PATHS`), įrankiams arba kodui. Kodą parduotuvės repozitorija turi sekti. Apsauginiai
+`index.php` ir `.htaccess` `img/`, `upload/`, `download/`, `cache/` ir `DEPLOY_PROTECTED_PATHS` kataloguose (ir vienu lygiu
+žemiau, pvz. `img/c/index.php`) – irgi kodas.
+
+```bash
+make shop-audit                             # tik checkout'as ir git
+make shop-audit live=/kelias/ftp-kopija     # ir serverio kodo medžio kopija (pvz. iš FTP)
+```
+
+Komanda tik skaito: be konteinerių, tinklo ir rašymo. Klaidos (išėjimo kodas 1):
+
+- kodas, kurį slepia parduotuvės `.gitignore` (pvz. `log/` slepia modulių `vendor/psr/log`, `*.png` – modulių
+  paveikslėlius, `.htaccess` – apsaugą). Jei tai serverio turinys, įrašyk jį į `DEPLOY_PROTECTED_PATHS`, kitaip sek;
+- sekami failai `PS_RELEASE_PATHS` keliuose (`make setup` atsisako ant jų kopijuoti release'ą);
+- nėra `config/defines.inc.php` ar `vendor/` šaltinio (nei git, nei release, nei `config/composer`);
+- su `live=`: kodas, kurio checkout'e nėra arba jis ignoruojamas, ir kodas, kuris yra, bet neužcommit'intas
+  (serverio admin katalogas atpažįstamas ir lyginamas kaip `PS_ADMIN_DIR`).
+
+Įspėjimai: sekami failai saugomuose keliuose (deploy'us jų serveryje niekada neatnaujina), modulio paties `.gitignore`
+paslėpti failai (dažnai dev įrankiai), `.gitignore` taisyklės pagal plėtinį ar katalogo vardą bet kur, sekami dump'ai,
+raktai ir eksportai. Tai preliminari patikra: ar švarus clone'as tikrai veikia, parodo tik paleidimas.
+
 ## Papildomi PS parametrai
 
 Situacija: tavo modulis skaito `supplier_api_url` iš PS parametrų.
