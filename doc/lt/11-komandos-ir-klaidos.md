@@ -91,6 +91,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą. |
 | `make cron-reload ENV=stage\|prod` | Veikiantis cron konteineris perskaito `config/cron/` be restart'o: crontab'as sugeneruojamas iš naujo, patikrinamas `supercronic -test`, supercronic gauna `SIGUSR2`. Vykdomos užduotys nenutraukiamos; netinkamas crontab'as nepritaikomas. |
 | `make files-backup ENV=stage\|prod [file=…]` | `BACKUP_FILE_PATHS` keliai iš taikinio į `.generated/backups/files-<env>-…Z.tar.gz` ([failų kopijos](09-aplinkos.md#failų-kopijos-backup_file_paths)). |
+| `make files-pull [from=prod\|stage] [fresh=1] [extract=1]` | Naujausia (`fresh=1` – nauja) serverio failų kopija į `.generated/backups`, su `extract=1` – ir į vietinį kodą ([failų kopijos](09-aplinkos.md#failų-kopijos-backup_file_paths)). |
 | `make module-pull ENV=stage\|prod name=MODULIS` | Nukopijuoja tik serveryje esantį modulį į vietinį parduotuvės kodą (tik `PROFILE=prestashop`). |
 | `make pipeline-deploy [ENV=stage\|prod]` | Bitbucket arba GitHub Actions deploy žingsnis build root'e: patikros, checkout'as, `env/<env>.env`, `release`/`deploy-images`/`deploy`/`cron-reload` pagal `REF`, `IMAGES`, `CRON`, `ROLLBACK`, `BACKUP`. Žr. [Bitbucket Pipelines](09-aplinkos.md#bitbucket-pipelines), [GitHub Actions](09-aplinkos.md#github-actions). |
 | `make deploy-variables [ENV=stage\|prod] [names=1] [from=FAILAS [replace=1]] [token=KELIAS]` | Palygina Bitbucket Deployment variables arba GitHub aplinkos secrets ir variables (`CI_PROVIDER`) su setup sąrašu, su `from` sukuria trūkstamus. Žr. [Deployment variables](09-aplinkos.md#deployment-variables), [GitHub'e](09-aplinkos.md#make-deploy-variables-githube). |
@@ -170,6 +171,10 @@ Pirmiau visada sugeneruok šviežią modelį su `make config`. Testinei aplinkai
 | `BACKUP_FILE_PATHS entry is not a plain path inside the code tree` | Tas pats `BACKUP_FILE_PATHS` keliui, pvz. `modules/*/translations/`. |
 | `BACKUP_FILE_PATHS is empty: nothing to back up` | `make files-backup` reikia `BACKUP_FILE_PATHS` (`env/common.env`). |
 | `files-backup copies a server environment's files` | `make files-backup` – tik `ENV=stage`, `prod` ar `STAGE_ENVIRONMENTS` aplinkai. |
+| `make files-pull downloads into a developer copy` | `make files-pull` – tik vietinei aplinkai (be `ENV` arba `ENV=local`). |
+| `BACKUP_FILE_PATHS is empty in this checkout` | `make files-pull extract=1` rašo tik `BACKUP_FILE_PATHS` kelius: įrašyk jį `env/common.env`, kaip serveryje. |
+| `The backup server has no files backups yet` | Serverio setup-server dar be failų kopijų: ten `bin/update`. |
+| `The download is not a complete .tar.gz` | Atsisiuntimas nutrūko ar sugadintas; nieko neišsaugota – kartok. |
 | `rsync from … failed (exit N); no backup written` | Taikinys nepasiektas arba nėra kodo katalogo; archyvas neparašytas, ankstesni lieka. |
 | `This project needs setup … or newer (SETUP_MIN_VERSION in env/common.env)` | Projektui reikia naujesnio setup: `git -C ~/Projects/setup pull`, serveryje – naujesnis release tag'as. |
 | `Run this from a Staging or Production deployment step` / `BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set` | `make pipeline-deploy` veikia tik Bitbucket žingsnyje su `deployment: Staging` arba `Production`. Kitaip pavadintai aplinkai pridėk `ENV=stage\|prod`. |

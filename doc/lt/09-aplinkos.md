@@ -211,6 +211,24 @@ make files-backup ENV=prod [file=/kelias/files.tar.gz]
 - **setup-server** worker'is daro tai kas naktį kiekvienai aplinkai, kurios `BACKUP_FILE_PATHS` netuščias, ir laiko
   7 dienų + 4 savaičių kopijas (`files-<env>-…Z.tar.gz`); jo valdymo sąsajos skiltyje „Failai“ archyvus galima peržiūrėti.
 
+**Parsisiųsti į savo kompiuterį** – kaip [`make db-pull`](07-duomenu-baze.md#serverio-kopija-db-pull): tas pats serveris,
+raktas ir leidimai (setup-server *Prieiga* → raktas → „Kopijos“: `db` – parsisiųsti, `fresh` – užsakyti naują).
+
+```bash
+make files-pull                    # naujausia prod failų kopija į .generated/backups (0600); kodas nekeičiamas
+make files-pull extract=1          # + jos failai į vietinį kodą (tik BACKUP_FILE_PATHS keliai)
+make files-pull fresh=1 extract=1  # serveris dabar nuskaito taikinį ir padaro naują kopiją
+make files-pull from=stage         # stage (ar STAGE_ENVIRONMENTS aplinka)
+```
+
+- `extract=1` įrašo tik paprastus failus, kuriuos atitinka **šio** checkout'o `BACKUP_FILE_PATHS` (todėl jis turi būti
+  `env/common.env`, kaip serveryje): jie pakeičia vietinius, kiti failai nekeičiami ir netrinami, nuorodos (symlink)
+  praleidžiamos. Failų laikas – serverio.
+- `fresh=1`: jei failų kopija jaunesnė nei 30 min., serveris atiduoda ją. Jau parsisiųsta kopija antrą kartą nesiunčiama;
+  nutrūkęs ar ne iki galo perskaitomas archyvas neišsaugomas.
+- „no files backups yet (update setup-server)“ – serverio setup-server dar be failų kopijų (`bin/update`); „no prod files
+  backup of … yet“ – kopijos dar nebuvo (naktį ar `fresh=1`).
+
 ### Rollback
 
 ```bash

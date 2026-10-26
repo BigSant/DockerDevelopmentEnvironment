@@ -4,7 +4,7 @@ PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_
 PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
-.PHONY: init doctor pull shell ide-init ide-refresh db-backup files-backup db-pull ssh db-prepare bootstrap test-init setup-info
+.PHONY: init doctor pull shell ide-init ide-refresh db-backup files-backup db-pull files-pull ssh db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
@@ -23,6 +23,7 @@ help:
 	@echo 'db-backup [file=backup.sql.gz] [full=1]: export without the data of registry skip tables (full=1: all); setup-info: shared version'
 	@echo 'files-backup ENV=stage|prod|<extra> [file=files.tar.gz]: BACKUP_FILE_PATHS of the server code tree into a tar.gz'
 	@echo 'db-pull [from=prod|stage|<extra>] [full=1] [fresh=1] [import=1] [backup=1] [configure=1]: server backup over SSH'
+	@echo 'files-pull [from=prod|stage|<extra>] [fresh=1] [extract=1] [configure=1]: a files backup of the server (BACKUP_FILE_PATHS)'
 	@echo '        (newest registry backup; full=1 every table; fresh=1 a new one made now; asks for the server once)'
 	@echo 'ssh [from=prod|stage|<extra>] [root=1|readonly=1] [cmd="…"] | host=1 [cmd="…"] | docker="ps -a" | access=1:'
 	@echo '        php-fpm terminal or command on the server through setup-server (host=1 the server, docker= its containers)'
@@ -148,6 +149,9 @@ files-backup:
 
 db-pull:
 	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(import)),--import,) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(configure)),--configure,) $(if $(filter 1,$(full)),--full,) $(if $(filter 1,$(fresh)),--fresh,)
+
+files-pull:
+	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(fresh)),--fresh,) $(if $(filter 1,$(extract)),--extract,) $(if $(filter 1,$(configure)),--configure,)
 
 ssh:
 	@$(RUN_PROJECT) $@ $(if $(from),--from $(call quote,$(from)),) $(if $(filter 1,$(root)),--root,) $(if $(filter 1,$(readonly)),--readonly,) $(if $(filter 1,$(host)),--host,) $(if $(filter 1,$(access)),--access,) $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(docker),--docker $(call quote,$(docker)),)

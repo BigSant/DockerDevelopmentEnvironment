@@ -346,6 +346,8 @@ Import                   [##########..................]  37%  4.10 GB / 11.08 GB
 - **Kopijoje yra tikri klientų duomenys.** Failas privatus (`0600`); ištrink, kai nebereikia. Kasdieniam darbui be asmens duomenų – [dev rinkinys](#f-bazinis-rinkinys).
 - Kopija su [papildomomis schemomis](#papildomos-schemos) turi serverio schemų vardus (`USE`): vietinis `DATABASE_NAME` ir schemos turi sutapti su serverio.
 - Klaida „Cannot reach the backup server“ – patikrink VPN, serverio adresą (`make db-pull configure=1`) ir ar raktas įrašytas serveryje. „may not download backups of …“ – raktas negauna tos projekto aplinkos kopijų; „may not ask for a fresh backup of …“ – gauna, bet be `fresh` (abu – setup-server *Prieiga* → raktas → „Kopijos“). „too old“ – serverio setup-server dar be savaitinių ir šviežių kopijų (`bin/update`).
+- Failai, kurių nėra git'e (vertimai, `BACKUP_FILE_PATHS`), – tuo pačiu keliu: `make files-pull [fresh=1] [extract=1]`
+  ([failų kopijos](09-aplinkos.md#failų-kopijos-backup_file_paths)).
 
 ## H. Fixtures
 
