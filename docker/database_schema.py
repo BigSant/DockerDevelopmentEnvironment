@@ -19,9 +19,10 @@ from urllib.parse import quote
 
 MANIFEST = "schema.manifest.json"
 from database_client import SCHEMA_NAME, quoted, split_name
-# setup_migrations records applied migrations; it belongs to setup, not to the project schema.
+# setup_migrations records applied migrations, setup_translations written translations; they belong to setup, not to
+# the project schema.
 TABLES_SQL = ("SELECT HEX(TABLE_NAME) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
-              "AND TABLE_NAME <> 'setup_migrations' ORDER BY BINARY TABLE_NAME;\n")
+              "AND TABLE_NAME NOT IN ('setup_migrations', 'setup_translations') ORDER BY BINARY TABLE_NAME;\n")
 
 
 def main_directory(project):

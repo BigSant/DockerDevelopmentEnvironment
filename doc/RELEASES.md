@@ -21,6 +21,18 @@ change (say how). An empty section still releases a patch.
   server copy (e.g. from FTP) has. Guide: 06-aplikacija, "Ar parduotuvės repozitorija turi visą kodą". Nothing to
   change in projects.
 
+## 3.3.0
+
+- **Module translations from the environment repository, without losing the client's edits.** Since 3.0.0 a deploy
+  leaves module translations to the back office; a developer's ones now travel in the environment repository's
+  `translations/` (`legacy/` as PrestaShop's `$_MODULE` files, `database/<locale>/<domain>.json` as `ps_translation`
+  rows). Every PrestaShop deploy, after the module upgrades, writes each one the repository brings new or changed since a
+  deploy last wrote it (over the target's text); one it has not changed stays as the client edited it. Nothing is
+  deleted. `make translations-export module=… [domain=…] [lang=…]` writes the local shop's ones into the repository,
+  `make translations-apply ENV=prod [dry=1]` previews or runs the step alone. Setup's bookkeeping table
+  `setup_translations` needs no registry class. Nothing to change in projects: without `translations/` nothing happens.
+  Before the first deploy with it, `dry=1` lists every client edit the repository would overwrite.
+
 ## 3.2.0
 
 - **`make files-pull [from=prod] [fresh=1] [extract=1]`: those files on a developer machine.** The same server, key and

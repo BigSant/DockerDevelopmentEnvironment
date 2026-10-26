@@ -420,7 +420,14 @@ or content files, broad ignore rules and, with `live=DIR`, code only a server co
 `files-backup` (`project_files`) copies the code tree paths `BACKUP_FILE_PATHS` lists (files the server writes and git
 ignores, validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored
 include chain into a mirror `.generated/backups/.files-<env>/`, then an atomic `files-<env>-<UTC>Z.tar.gz` (members named
-from the code root). The setup-server worker runs it nightly and rotates the series. `files-pull` (ENV=local) downloads
+from the code root). The setup-server worker runs it nightly and rotates the series. `project_translations` brings the module translations a project keeps in its environment repository (`translations/legacy/`
+as PrestaShop's `$_MODULE` files, `translations/database/<locale>/<domain>.json` as translation table rows) to the target: a
+PrestaShop deploy, after the module upgrades, writes each entry whose text differs from the checksum `setup_translations`
+holds for it (what a deploy last wrote), over the target's text; an entry unchanged since is left to the back office.
+Nothing is deleted; a target file is rewritten only when every line of it parses. `translations-export` (ENV=local) writes
+the local shop's ones of named modules and domains into the repository; `translations-apply` runs the step alone (`dry=1`).
+`setup_translations` is setup's bookkeeping like `setup_migrations`: no registry class, not in the schema snapshot.
+`files-pull` (ENV=local) downloads
 the newest one through the db-pull channel (`database_pull`: connection, `info|fresh PROJECT ENV files`, `get`), reads the
 archive to its end before keeping it, and with `extract=1` writes only regular files this checkout's `BACKUP_FILE_PATHS`
 names into the local code tree (links, `..` and paths outside it are skipped; nothing is deleted).
