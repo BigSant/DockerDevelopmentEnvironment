@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 3.7.1
+
 - **The cron service no longer collects zombies.** supercronic ran as the container's PID 1 and reaps no orphan, so a
   child a job left behind (PHP starting `git`) stayed a zombie until the container stopped: a server's asana cron held
   3100 after ten days. The service runs with Docker's init (`init: true`), which reaps them; the next
