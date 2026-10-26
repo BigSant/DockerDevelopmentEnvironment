@@ -154,15 +154,17 @@ make deploy ENV=prod ref=v1.4.0
 1. **Release'as:** `git archive` iš kodo repozitorijos, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS` (PrestaShop), projekto `config/deploy/build.sh` (pvz. frontend'o `npm ci && npm run build`), jei jis yra.
 2. **DB kopija (tik su `backup=1`):** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). Pagal nutylėjimą nedaroma; rinkis `backup=1`, kai deploy'us keičia duomenis (migracijos, modulių upgrade'ai).
 3. **rsync** į `DEPLOY_SSH:DEPLOY_PATH/app/prod/public`:
-   - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml`, modulių ir temos modulių vertimai (`modules/*/translations/`, `themes/*/modules/*/translations/`) ir vertimų eksportai (`translations/export/`) ir kt. Vertimus redaguoja BO serveryje, todėl jie yra turinys: parduotuvės repo jų nelaiko (ignoruoja), o deploy'us jų neliečia. Kalbų paketai `translations/<locale>/` ir laiškai `mails/` yra kodas. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
+   - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml`, modulių ir temos modulių vertimai (`modules/*/translations/`, `themes/*/modules/*/translations/`) ir vertimų eksportai (`translations/export/`) ir kt. Vertimus redaguoja BO serveryje, todėl jie yra turinys: parduotuvės repo jų nelaiko (ignoruoja), o rsync jų neliečia; programuotojo vertimus atveža 7 žingsnis ([Vertimai](#vertimai-translations)). Kalbų paketai `translations/<locale>/` ir laiškai `mails/` yra kodas. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
    - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
    - PrestaShop moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
    - **Aplinkos failai.** Konteineriai iš `DEPLOY_PATH` prijungia ir aplinkos repo dalis (`config/`, schemos katalogą ir pan.). Kai `DEPLOY_PATH` nėra pats šio checkout'o projekto šaknis (kitas katalogas ar serveris), jos kopijuojamos ten pagal deploy'inamą commit'ą (`rsync --delete`: iš repo pašalintas failas dingsta ir taikinyje). `.generated/` (kopijos, build būsena) niekada nekopijuojamas. Tą patį daro `make deploy-images` prieš paleisdamas konteinerius.
 4. **Projekto hook'as** `config/deploy/after-rsync.sh`, jei jis yra: vykdomas taikinio `php-fpm` konteineryje (`sh -e`, kodo šaknyje), kai naujas kodas jau ten, pvz. `php bin/console doctrine:migrations:migrate --no-interaction`. Jam nepavykus deploy'us sustoja: migracijos ir cache valymas nevykdomi, o deploy'us įrašomas į istoriją kaip nepavykęs (`"failed": "after-rsync"`), nes naujas kodas jau taikinyje. Pataisęs deploy'ink iš naujo arba grįžk `rollback=1` į ankstesnį release'ą; kitas deploy'us failus šalina lyginant su tuo, kas iš tikrųjų taikinyje.
 5. **Modulių upgrade'ai** pasikeitusiems moduliams – tik PrestaShop (PS 1.6 – per administravimo skydelį). Generic deploy'us `ps_module` lentelės neskaito.
 6. **Setup SQL migracijos**, jei projektas jas turi (`database/migrations/`, be `DATABASE_AS_CODE=off`), ir schemos ataskaita.
-7. **Cache išvalymas:** PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas).
-8. **php-fpm perkrovimas** (visiems profiliams): `USR2` php-fpm master procesui. Nauji worker'iai pradeda su tuščiu OPcache, todėl prod iškart vykdo naują kodą. Vykdomos užklausos gauna iki 30 s pabaigti (`process_control_timeout` CORE image'e). `DEPLOY_PHP_RELOAD=off` perkrovimą išjungia (tada OPcache gali rodyti seną kodą iki konteinerio restart'o).
+7. **Vertimai** – tik PrestaShop, kai aplinkos repo turi `translations/`: įrašomi tie, kuriuos repo atneša nauji ar pakeisti nuo
+   paskutinio deploy'aus ([Vertimai](#vertimai-translations)).
+8. **Cache išvalymas:** PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas).
+9. **php-fpm perkrovimas** (visiems profiliams): `USR2` php-fpm master procesui. Nauji worker'iai pradeda su tuščiu OPcache, todėl prod iškart vykdo naują kodą. Vykdomos užklausos gauna iki 30 s pabaigti (`process_control_timeout` CORE image'e). `DEPLOY_PHP_RELOAD=off` perkrovimą išjungia (tada OPcache gali rodyti seną kodą iki konteinerio restart'o).
 
 PS priežiūros režimas deploy'aus metu neįjungiamas.
 
@@ -228,6 +230,38 @@ make files-pull from=stage         # stage (ar STAGE_ENVIRONMENTS aplinka)
   nutrūkęs ar ne iki galo perskaitomas archyvas neišsaugomas.
 - „no files backups yet (update setup-server)“ – serverio setup-server dar be failų kopijų (`bin/update`); „no prod files
   backup of … yet“ – kopijos dar nebuvo (naktį ar `fresh=1`).
+
+### Vertimai (`translations/`)
+
+Modulių vertimus serveryje redaguoja klientas (BO), todėl parduotuvės repo jų nelaiko, o rsync jų neliečia. Programuotojo
+vertimai keliauja per **aplinkos repo** `translations/`, o deploy'us juos sulieja su tuo, kas taikinyje:
+
+```text
+translations/legacy/modules/<modulis>/translations/<iso>.php     legacy vertimai, kaip juos rašo PS ($_MODULE[...] = '...';)
+translations/legacy/themes/<tema>/modules/<modulis>/translations/<iso>.php
+translations/database/<locale>/<domenas>[@<tema>].json             naujos sistemos vertimai (ps_translation eilutės)
+```
+
+```bash
+make translations-export module=mymodule,other      # vietinio admin'o vertimai (failai ir Modules.<Vardas>.* domenai) į translations/
+make translations-export domain=Shop.Theme.* lang=lt # konkretūs domenai (* – bet kas), tik lietuvių kalba
+make translations-apply ENV=prod dry=1               # ką deploy'us įrašytų ir ant kokio kitokio taikinio teksto
+make translations-apply ENV=prod                     # tas pats be deploy'aus (įrašius – cache ir php-fpm perkrovimas)
+```
+
+- **Kas įrašoma.** Kiekvienas raktas, kurį repo atneša **naują ar pakeistą** nuo to, kurį deploy'us paskutinį kartą įrašė,
+  įrašomas taikinyje – ir ant kliento pataisyto teksto. Raktas, kurio repo nekeitė, nebeliečiamas: ką klientas pataiso BO,
+  lieka, kol programuotojas nepakeičia būtent to vertimo. Ką ir kada įrašė, setup laiko taikinio DB lentelėje
+  `setup_translations` (kontrolinė suma kiekvienam raktui; registre jos klasifikuoti nereikia).
+- **Pirmas deploy'us** įrašo visus repo vertimus, todėl kliento jau pataisytus perrašytų: pirmiau `make translations-apply
+  ENV=prod dry=1` parodo kiekvieną tokį raktą (taikinio tekstas → repo tekstas). Prieš eksportą verta pasiimti serverio
+  vertimus (`make files-pull extract=1`, `make db-pull import=1`), kad eksportuotumei tai, kas jau gyva, su savo pakeitimais.
+- **Niekas netrinama:** repo pašalintas raktas taikinyje lieka. Failas perrašomas tik tada, kai visos jo eilutės yra
+  `$_MODULE[...] = '...';` (kitaip – praleidžiamas su pastaba); moduliui, kurio taikinyje nėra, failas nekuriamas; kalbos,
+  kurios taikinyje nėra, eilutės laukia (įrašomos, kai kalba atsiras).
+- **Eksportas** perrašo tų modulių (ir jų domenų) repo failus pagal vietinę aplinką, todėl git diff parodo, kas pasikeitė.
+  Domenas iš modulio vardo spėjamas `Modules.<Vardas>.*` (`ps_` numetamas, `_` – išmetami); kitam – `domain=`.
+- PS 1.6 neturi `ps_translation`: tik `translations/legacy/`. Generic profilis vertimų neturi.
 
 ### Rollback
 
