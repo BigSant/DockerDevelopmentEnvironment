@@ -336,7 +336,7 @@ Kai `SERVICES` turi `mailpit`, `MAIL_MODE=auto` pats nukreipia PrestaShop laišk
 
 ## Cron
 
-Cron veikia su [supercronic](https://github.com/aptible/supercronic). Crontab'as laikomas Git ir yra vienintelis tiesos šaltinis.
+Cron veikia su [supercronic](https://github.com/aptible/supercronic). Crontab'as laikomas Git ir yra vienintelis tiesos šaltinis. Konteineris paleidžiamas su Docker init (`init: true`): jis surenka užduočių paliktus procesus (pvz. PHP paleistą `git`), kurių supercronic pats nesurenka.
 
 ```dotenv
 SERVICES="cron"

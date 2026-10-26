@@ -475,6 +475,7 @@ class CronScheduleSettingTest(unittest.TestCase):
                 env.write("SERVICES=cron\n")
             cron = lambda: json.loads(Project(app, "local").capture(["config", "--format", "json"]))["services"]["cron"]
             self.assertEqual(cron()["environment"]["CRON_SCHEDULE"], "on")
+            self.assertTrue(cron()["init"], "Docker's init reaps the orphans of the jobs")
             with (app / "env/local.env").open("a") as env:
                 env.write("CRON_SCHEDULE=off\n")
             self.assertEqual(cron()["environment"]["CRON_SCHEDULE"], "off")

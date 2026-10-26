@@ -8,6 +8,9 @@ services:
     # supercronic runs the git crontab, every job wrapped to record its runs; a thin UI on :8080
     # (reached through nginx-proxy) shows jobs, history and "run now".
     entrypoint: ["/bin/sh", "/opt/setup/runtime/cron/cron-start.sh"]
+    # supercronic as PID 1 reaps no orphan: a child a job leaves behind (PHP starting git) stays a zombie for the
+    # container's life. Docker's init reaps them and forwards the stop signal.
+    init: true
     depends_on:
       php-fpm:
         condition: service_healthy
