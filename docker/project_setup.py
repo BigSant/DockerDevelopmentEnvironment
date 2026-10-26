@@ -33,7 +33,9 @@ def run_setup(project, timeout=90):
     from project_images import build_images
     steps = [
         ('init', lambda p: (initialize_directories(p), p)[1]),
-        ('bootstrap', lambda p: (bootstrap(p), git_hooks(p), p)[2]),
+        # bootstrap writes the missing domain, ports and database values and returns the project read again
+        # with them; the later steps must start the services from those, not from the stale settings.
+        ('bootstrap', lambda p: (lambda fresh: (git_hooks(fresh), fresh)[1])(bootstrap(p))),
         ('build', lambda p: (build_images(p), p)[1]),
         ('app-prepare', lambda p: (prepare_application(p), p)[1]),
         ('up', lambda p: (start_project(p, timeout), p)[1]),
