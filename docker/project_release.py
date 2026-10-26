@@ -15,6 +15,7 @@ import subprocess
 
 from project_environments import is_server
 from project_target import deploy_target
+from project_tool_access import push_tool_access, reload_proxy
 
 DOCKER_ROOT = Path(__file__).resolve().parent
 SETUP_ROOT = DOCKER_ROOT.parent
@@ -407,10 +408,18 @@ def deploy_images(project, transfer=True):
     # The containers mount the environment files from DEPLOY_PATH: they are there before anything starts.
     sync_environment(project, deploy_path, model)
     prepare_runtime_directories(project, model, deploy_path)
+    # setup-server's tool access is there before nginx-proxy starts with it (project_tool_access).
+    tool_access = push_tool_access(project, deploy_path)
     check_ports(project, context, lock['project'], model)
     recreate_detached(project, context, lock['project'], model)
     subprocess.run(['docker', '--context', context, 'compose', '-p', lock['project'], '-f', '-',
                     'up', '-d', '--no-build', '--pull', 'never', '--remove-orphans'],
                    input=json.dumps(model), text=True, check=True)
+    if tool_access:
+        # compose keeps an unchanged nginx-proxy running with the rules it rendered at its start.
+        try:
+            reload_proxy(project)
+        except ValueError as error:
+            print(f'Warning: {error}', flush=True)
     publish_release_info(project, deploy_path, images=True)
     return images

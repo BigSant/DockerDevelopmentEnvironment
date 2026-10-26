@@ -60,6 +60,8 @@ services:
       SETUP_DIRECT_CLIENTS: ${SETUP_DIRECT_CLIENTS:-0}
     volumes:
       - ${PROJECT_DATA_DIRECTORY}/ssl/:/etc/ssl/certs/:ro
+      # setup-server's tool access (make tool-access): who may open the tools, from where; empty elsewhere.
+      - ${PROJECT_DATA_DIRECTORY}/tool-access/:/etc/nginx/tool-access/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/nginx-proxy/:/etc/nginx/project.d/:ro
       - ${PROJECT_DOCKER_DIRECTORY}/config/nginx-proxy/${ENV}/:/etc/nginx/project.d.env/:ro
     # 127.0.0.1 (default): reachable only through the host proxy (local Nginx / DirectAdmin).

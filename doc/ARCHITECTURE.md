@@ -479,6 +479,12 @@ checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH`
 whenever `DEPLOY_PATH` is not the project root. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
+setup-server's tool access (`project_tool_access`): `tool-access/<env>/{users.htpasswd,allowed-ips}` beside
+`target.env` go to `data/<env>/tool-access/` on the target (rsync, renamed into place, 0644 for nginx's workers) in
+deploy-images before compose up and in `make tool-access`; nginx-proxy mounts it read-only and `access.sh` adds the
+addresses to every tool list but the site's and points the password tools without their own `<TOOL>_HTPASSWD` at the
+user file. nginx reads a user file per request; `make tool-access` (and deploy-images after up, since compose keeps an
+unchanged proxy) re-runs `access.sh` and `nginx -s reload` in the running proxy, so setup-server's grants hold at once.
 The Deployment variables list (`project_env_files.deployment_variables`, beside `PROCESS_SECRETS`) is setup's secrets for the env
 (DB passwords, PS keys of `PS_VERSION`; monitor password and metrics/monitor tokens optional) +
 `DEPLOY_REQUIRED_VARIABLES` + `DEPLOY_OPTIONAL_VARIABLES` + `APP_ENVIRONMENT` names the env files do not
