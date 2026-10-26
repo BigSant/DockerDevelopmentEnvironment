@@ -395,6 +395,11 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
     if migrations_enabled(project) and migrations_directory(project).is_dir():
         # Recorded with the deploy: rollback=1 names them for make db-rollback.
         entry['migrations'] = migrate(project)
+    if prestashop:
+        # Translations the environment repository brings new or changed since a deploy last wrote them.
+        from project_translations import apply_translations, repository_directory
+        if repository_directory(project).is_dir():
+            apply_translations(project)
     if project.settings.get('SCHEMA_DIRECTORY'):
         from database_schema import schema_report
         schema_report(project)

@@ -11,7 +11,17 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Module translations from the environment repository, without losing the client's edits.** Since 3.0.0 a deploy
+  leaves module translations to the back office; a developer's ones now travel in the environment repository's
+  `translations/` (`legacy/` as PrestaShop's `$_MODULE` files, `database/<locale>/<domain>.json` as `ps_translation`
+  rows). Every PrestaShop deploy, after the module upgrades, writes each one the repository brings new or changed since a
+  deploy last wrote it (over the target's text); one it has not changed stays as the client edited it. Nothing is
+  deleted. `make translations-export module=… [domain=…] [lang=…]` writes the local shop's ones into the repository,
+  `make translations-apply ENV=prod [dry=1]` previews or runs the step alone. Setup's bookkeeping table
+  `setup_translations` needs no registry class. Nothing to change in projects: without `translations/` nothing happens.
+  Before the first deploy with it, `dry=1` lists every client edit the repository would overwrite.
 
 ## 3.2.0
 

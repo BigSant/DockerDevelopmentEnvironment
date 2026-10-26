@@ -16,8 +16,8 @@ from database_client import split_name
 BASE_RULES = ('full', 'slice', 'faker', 'empty', 'drop')
 LIVE_RULES = ('import', 'skip', '-')
 DOCKER_ROOT = Path(__file__).resolve().parent
-# Setup's own bookkeeping (applied migrations) travels with the data and needs no classification.
-SETUP_TABLES = ('setup_migrations',)
+# Setup's own bookkeeping (applied migrations, written translations) travels with the data and needs no classification.
+SETUP_TABLES = ('setup_migrations', 'setup_translations')
 HEADER = ('# Project table registry: table  group  base-rule(full|slice|faker|empty|drop)  live-import(import|skip)\n'
           '# Read before the profile defaults; every table must be classified (make schema-resolve).\n'
           '# A table of an extra schema (DATABASE_EXTRA_SCHEMAS) is schema.table.\n')
