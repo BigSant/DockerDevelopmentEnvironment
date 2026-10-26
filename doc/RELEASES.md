@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 3.4.1
+
 - **`make shop-audit` is gone again.** It stays a standalone script outside setup (Forsena's environment repository,
   `bin/shop-audit`), which needs no setup and runs in any PrestaShop project. Nothing used the command.
 
