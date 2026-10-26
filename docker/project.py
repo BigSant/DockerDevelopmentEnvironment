@@ -279,8 +279,11 @@ class Project:
         attach_optional_config_mounts(self)
         active = self.active_model()['services']
         if is_server(environment):
+            from project_tool_access import server_addresses
+            # setup-server's addresses (tool-access/<env>/allowed-ips) join every tool's list on the target.
+            server_list = server_addresses(self)
             for tool in ALLOWLISTED_TOOLS:
-                if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS']):
+                if tool in active and not (settings[f'{tool.upper()}_ALLOWED_IPS'] or settings['ALLOWED_IPS'] or server_list):
                     raise ValueError(f'{tool} on {environment} requires {tool.upper()}_ALLOWED_IPS or ALLOWED_IPS')
             if 'metrics' in active:
                 check_token(settings, environment)
@@ -370,7 +373,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "tool-access", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -556,6 +559,11 @@ def main():
         elif args.action == "cron-reload":
             from project_deploy import reload_cron
             reload_cron(project)
+        elif args.action == "tool-access":
+            if not is_server(project.environment):
+                raise ValueError('make tool-access applies setup-server\'s tool access to a server: ENV=stage, prod or an extra environment')
+            from project_tool_access import apply_tool_access
+            apply_tool_access(project)
         elif args.action == "module-pull":
             from project_deploy import module_pull
             module_pull(project, args.name)

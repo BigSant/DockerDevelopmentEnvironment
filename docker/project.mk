@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy cron-reload pipeline-deploy deploy-variables module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy cron-reload tool-access pipeline-deploy deploy-variables module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -66,6 +66,7 @@ help:
 	@echo 'deploy-images ENV=stage|prod|<extra> [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
 	@echo 'deploy ENV=stage|prod|<extra> ref=TAG [backup=1] | rollback=1: release the code, (back up), rsync, hook, upgrade, migrate'
 	@echo 'cron-reload [ENV=stage|prod|<extra>]: the running cron container takes config/cron/ now (checked, no restart)'
+	@echo 'tool-access ENV=stage|prod|<extra>: the tool users and addresses setup-server keeps (tool-access/<env>/) to the server now'
 	@echo 'module-pull ENV=stage|prod|<extra> name=MODULE: copy a module that exists only on the target into the shop checkout'
 	@echo 'pipeline-deploy [ENV=stage|prod|<extra>]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, CRON, ROLLBACK, BACKUP)'
 	@echo 'deploy-variables [ENV=stage|prod|<extra>] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
@@ -129,6 +130,9 @@ deploy-images:
 	@$(RUN_PROJECT) $@ $(if $(filter 0,$(transfer)),--no-transfer,)
 
 cron-reload:
+	@$(RUN_PROJECT) $@
+
+tool-access:
 	@$(RUN_PROJECT) $@
 
 test-prepare:

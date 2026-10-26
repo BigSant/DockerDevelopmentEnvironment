@@ -90,6 +90,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make deploy ENV=stage\|prod ref=TAG [backup=1]` | Kodo release'as, DB kopija (tik su `backup=1`), rsync, projekto hook'as, PS modulių upgrade'ai, migracijos, cache. |
 | `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą. |
 | `make cron-reload ENV=stage\|prod` | Veikiantis cron konteineris perskaito `config/cron/` be restart'o: crontab'as sugeneruojamas iš naujo, patikrinamas `supercronic -test`, supercronic gauna `SIGUSR2`. Vykdomos užduotys nenutraukiamos; netinkamas crontab'as nepritaikomas. |
+| `make tool-access ENV=stage\|prod` | setup-server laikomus įrankių vartotojus ir adresus (`tool-access/<env>/` šalia `target.env`) nukopijuoja į taikinį ir perkrauna nginx-proxy: galioja iš karto. Žr. [Prieiga iš setup-server](05-servisai.md#slaptažodžiai-įrankiams-htpasswd). |
 | `make files-backup ENV=stage\|prod [file=…]` | `BACKUP_FILE_PATHS` keliai iš taikinio į `.generated/backups/files-<env>-…Z.tar.gz` ([failų kopijos](09-aplinkos.md#failų-kopijos-backup_file_paths)). |
 | `make files-pull [from=prod\|stage] [fresh=1] [extract=1]` | Naujausia (`fresh=1` – nauja) serverio failų kopija į `.generated/backups`, su `extract=1` – ir į vietinį kodą ([failų kopijos](09-aplinkos.md#failų-kopijos-backup_file_paths)). |
 | `make translations-migration name=VARDAS` | Vietiniai vertimai, pakeisti nuo atskaitos taško, į naują migraciją `translations/migrations/` ([vertimai](09-aplinkos.md#vertimai-translations)). |

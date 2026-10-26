@@ -11,7 +11,14 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **setup-server can decide who opens a server's tools, at once.** A build root may hold `tool-access/<env>/`
+  beside `target.env`: `users.htpasswd` guards every password tool (pma, mailpit, cron, backup, metrics, `PROXY_TOOLS`)
+  that has no `<TOOL>_HTPASSWD` of its own, `allowed-ips` joins every tool's IP list (never the site's) and satisfies
+  the stage/prod allowlist guard. `make deploy-images` and the new `make tool-access ENV=…` copy them to the target's
+  `data/<env>/tool-access/`, mounted read-only into nginx-proxy; `make tool-access` also renders the rules again and
+  reloads nginx-proxy, so a grant or a revocation holds without a deploy. Without the directory nothing changes.
 
 ## 3.5.0
 

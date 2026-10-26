@@ -258,6 +258,13 @@ IP sąrašas įleidžia visus to tinklo (pvz. VPN) klientus. Kad įrankį pasiek
 - Stage/prod tai slapti kintamieji: Bitbucket / GitHub Deployment variables (`make deploy-variables` juos išvardija, kai įrankis įjungtas, kaip neprivalomus). Lokaliai – `env/local.env` (vienguba kabute, nes hash'e yra `$`).
 - `dbmonitor` slaptažodžio negauna: jo neprivalomas bearer token'as naudoja tą pačią `Authorization` antraštę. Dėl tos pačios priežasties `METRICS_HTPASSWD` saugo visus `metrics.<domain>` puslapius, išskyrus `/metrics` (ten – `METRICS_TOKEN`). Svetainės taip pat neliečia – ją saugo pati aplikacija.
 
+**Prieiga iš setup-server.** Kai projektą deploy'ina setup-server, kas ir iš kur pasiekia įrankius, gali valdyti jis (setup-server README „Įrankių prieiga“). Build root'e šalia `target.env` jis laiko `tool-access/<env>/`:
+
+- `users.htpasswd` – po eilutę kiekvienam programuotojui, kuriam leista ši aplinka (`vardas:hash`). Jie saugo visus slaptažodžiu saugomus įrankius (`pma`, `mailpit`, `cron`, `backup`, `metrics`, `PROXY_TOOLS`), kurie neturi savo `<ĮRANKIS>_HTPASSWD` (savas sąrašas laimi). Tuščias failas – neįleidžiamas niekas.
+- `allowed-ips` – setup-server adresai (pvz. VPN serverio viešas IP), po vieną eilutėje. Jie pridedami prie kiekvieno įrankio IP sąrašo, bet ne prie svetainės, ir stage/prod įrankiui pakanka vien jų.
+
+Kiekvienas `make deploy-images` ir `make tool-access ENV=…` nukopijuoja juos į taikinio `data/<env>/tool-access/` (nginx-proxy jį mato kaip `/etc/nginx/tool-access`). `make tool-access` dar iš naujo sugeneruoja taisykles ir perkrauna nginx-proxy, todėl leidimas ar jo atėmimas galioja iš karto, be deploy'aus. Be `tool-access/<env>/` taikinys nekeičiamas.
+
 **Projekto įrankiai.** Projekto savo nginx-proxy svetainė (`config/nginx-proxy/<env>/*.conf`, pvz. Meilisearch skydelis) gauna tas pačias taisykles: `PROXY_TOOLS` (`env/common.env` ar `env/<env>.env`) išvardija jos vardus, o svetainė įtraukia `include /etc/nginx/setup-access/<vardas>.conf;`. Vardui galioja `<VARDAS>_ALLOWED_IPS` (arba `ALLOWED_IPS`) ir `<VARDAS>_HTPASSWD`; stage/prod be sąrašo įrankis uždarytas. Šias reikšmes nginx-proxy gauna per projekto compose failą, o slaptažodį projektas išvardija `DEPLOY_OPTIONAL_VARIABLES`:
 
 ```yaml

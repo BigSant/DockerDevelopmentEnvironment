@@ -11,6 +11,10 @@
 # off again for /metrics, which has such a token (sites.metrics.conf).
 # PROXY_TOOLS: a project's own nginx-proxy sites (config/nginx-proxy/), which include
 # /etc/nginx/setup-access/<name>.conf like setup's tools do.
+# setup-server's tool access (data/<env>/tool-access, mounted at /etc/nginx/tool-access; make tool-access): its
+# allowed-ips join every tool's list (never the site's), its users.htpasswd guards every password tool that has no
+# <NAME>_HTPASSWD of its own. nginx reads a user file on each request; make tool-access runs this script again and
+# reloads nginx for a changed list.
 set -euo pipefail
 
 output="${SETUP_ACCESS_DIR:-/etc/nginx/setup-access}"
@@ -67,12 +71,25 @@ for name in $project_names; do
 done
 password_names=" pma mailpit cron backup metrics $project_names "
 
+server="${SETUP_TOOL_ACCESS_DIR:-/etc/nginx/tool-access}"
+server_list=""
+if [[ -f "$server/allowed-ips" ]]; then
+    TOOL_ACCESS_ALLOWED_IPS="$(sed -e 's/#.*//' "$server/allowed-ips" | tr '\n' ' ')"
+    server_list="$(addresses TOOL_ACCESS_ALLOWED_IPS)"
+fi
+server_users=""
+[[ ! -f "$server/users.htpasswd" ]] || server_users="$server/users.htpasswd"
+
 for name in $setup_names $project_names; do
     setting="$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')_ALLOWED_IPS"
     [[ -n "${!setting:-}" ]] || setting=ALLOWED_IPS
     list="$(addresses "$setting")"
+    if [[ "$name" != site && -n "$server_list" ]]; then
+        list="$(printf '%s\n%s\n' "$list" "$server_list" | awk 'NF && !seen[$0]++')"
+    fi
     file=""
     [[ "$password_names" != *" $name "* ]] || file="$(users "$name")"
+    [[ -n "$file" || "$password_names" != *" $name "* ]] || file="$server_users"
     {
         if [[ -n "$list" ]]; then
             printf 'allow %s;\n' $list
