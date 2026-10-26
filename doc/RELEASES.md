@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.3.0
 
 - **Module translations from the environment repository, without losing the client's edits.** Since 3.0.0 a deploy
   leaves module translations to the back office; a developer's ones now travel in the environment repository's
