@@ -38,6 +38,9 @@ class DatabasePolicyTest(unittest.TestCase):
                 while php(connect).returncode:
                     if time.monotonic()>deadline: self.fail('Disposable DB did not become ready')
                     time.sleep(0.5)
+                empty=php('require '+json.dumps(str(ROOT/'docker/runtime/prestashop.php'))+';putenv("MAIL_MODE=off");putenv("PS_SMARTY_CACHE=off");applyPrestashopPolicy('+json.dumps(str(root))+');')
+                self.assertEqual(empty.returncode,0,empty.stderr)  # an empty database (make setup before db-load) starts
+                self.assertIn('No shop tables in the database yet',empty.stdout)
                 keys=['PS_SMARTY_CACHE','PS_SMARTY_FORCE_COMPILE','PS_CSS_THEME_CACHE','PS_JS_THEME_CACHE',
                       'PS_HTML_THEME_COMPRESSION','PS_JS_HTML_THEME_COMPRESSION','PS_MAIL_METHOD','SUPPLIER_API_URL']
                 setup=connect+"$db->exec('CREATE TABLE custom_configuration (id_configuration INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100), value VARCHAR(100), date_upd DATETIME) ENGINE=InnoDB');"

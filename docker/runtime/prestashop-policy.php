@@ -67,6 +67,10 @@ function applyPrestashopPolicy($root)
     $values = psPolicyValues();
     if (!$values) return;
     list($db, $table) = psPolicyConnection($root);
+    // make setup leaves a fresh database empty; make db-load / db-import apply the policy after loading data.
+    $exists = $db->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
+    $exists->execute(array($table));
+    if (!(int)$exists->fetchColumn()) { echo "No shop tables in the database yet: PS cache/mail policy applies after make db-load or db-import.\n"; return; }
     // Verify every key first. Do not invent rows or shop scopes for unknown PS versions.
     $select = $db->prepare("SELECT id_configuration, value FROM `$table` WHERE name = ?");
     $changes = array();
