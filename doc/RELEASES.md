@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.2.0
 
 - **`make files-pull [from=prod] [fresh=1] [extract=1]`: those files on a developer machine.** The same server, key and
   grants as `make db-pull` (`db` downloads, `fresh` has the worker read the target now); the archive lands in
