@@ -11,7 +11,16 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (major)
+
+- **A PrestaShop deploy no longer writes or deletes module translations.** `modules/*/translations/`,
+  `themes/*/modules/*/translations/` and `translations/export/` join the profile's protected paths: the back office
+  writes them on the server, so they are content, like `img/`. Language packs in `translations/<locale>/` and
+  `mails/` stay code. **Projects that track module translations in the shop repository must change:** those files
+  no longer reach the server with a deploy. Make sure the server has the versions you want, then untrack them
+  (`git rm -r --cached modules/*/translations`) and ignore `/modules/*/translations/` in the shop's `.gitignore`;
+  translations are edited in the back office from then on. A file an earlier release shipped there is not removed
+  either, so untracking deletes nothing on the server.
 
 ## 2.15.1
 

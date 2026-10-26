@@ -103,7 +103,8 @@ class DeployTest(unittest.TestCase):
         command = code_rsync_options(protected_paths(self.project) + ["/modules/serveronly/"])
         self.assertNotIn("--delete", command, "the target keeps files the code does not track")
         self.assertIn("--checksum", command)
-        for pattern in ("/var/", "/img/", "/app/config/parameters.php", "/modules/*/cache/", "/modules/serveronly/", "/.git/"):
+        for pattern in ("/var/", "/img/", "/app/config/parameters.php", "/modules/*/cache/", "/modules/serveronly/", "/.git/",
+                        "/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/export/"):
             self.assertIn(f"--exclude={pattern}", command)
         for tracked in ("/mails/", "/translations/", "/config/xml/"):
             self.assertNotIn(f"--exclude={tracked}", command, "paths the shop repository tracks are code")
@@ -224,6 +225,25 @@ class DeployTest(unittest.TestCase):
         self.assertEqual((public / "themes/shop/local/notes.txt").read_text(), "server\n", "project paths add to the PS list")
 
 
+    def test_module_translations_and_exports_are_server_content_and_language_packs_are_code(self):
+        content = ("modules/shop/translations/lt.php", "themes/shop/modules/shop/translations/lt.php",
+                   "translations/export/lt.zip")
+        self.commit("v2", {**{name: "repo\n" for name in content}, "translations/lt-LT/Admin.xlf": "pack v2\n"})
+        public = self.target / "app/public"
+        for name in content:
+            (public / name).parent.mkdir(parents=True, exist_ok=True)
+            (public / name).write_text("edited in the back office\n")
+        self.deploy(ref="v2")
+        for name in content:
+            self.assertEqual((public / name).read_text(), "edited in the back office\n", f"{name} is never overwritten")
+        self.assertEqual((public / "translations/lt-LT/Admin.xlf").read_text(), "pack v2\n", "a language pack is code")
+        self.commit("v3", {"index.php": "<?php // v3\n"}, removed=[*content, "translations/lt-LT/Admin.xlf"])
+        self.deploy(ref="v3")
+        for name in content:
+            self.assertTrue((public / name).is_file(), f"untracking {name} deletes nothing on the server")
+        self.assertFalse((public / "translations/lt-LT/Admin.xlf").exists(), "a dropped language pack file leaves with the code")
+
+
 class GenericDeployTest(unittest.TestCase):
     """An empty PROFILE deploys any PHP application: no PrestaShop step, every tracked file is code."""
 
@@ -318,6 +338,11 @@ class GenericDeployTest(unittest.TestCase):
         self.project.run = refuse
         with self.assertRaisesRegex(ValueError, "previous schedule stays running.*make cron-reload ENV=stage"):
             reload_cron(self.project)
+
+    def test_generic_projects_keep_translation_paths_as_code(self):
+        self.project.settings["PROFILE"] = ""
+        for pattern in ("/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/export/"):
+            self.assertNotIn(pattern, protected_paths(self.project))
 
     def test_generic_htaccess_and_robots_deploy_as_code(self):
         public = self.generic()

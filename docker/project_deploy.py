@@ -27,11 +27,14 @@ from project_prestashop import is_prestashop
 from project_target import deploy_target
 
 # PrestaShop paths written by the shop itself; a PrestaShop deploy never overwrites or deletes them.
-# Paths the shop repository tracks (mails/, translations/, config/xml/) are code like any other file.
+# Module and theme-module translations are content the back office writes on the server, and so are translation
+# exports. Paths the shop repository tracks (mails/, the language packs in translations/<locale>/, config/xml/)
+# are code like any other file.
 PRESTASHOP_WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/themes/',
                        '/app/config/parameters.php', '/config/settings.inc.php',
                        '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
-                       '/modules/*/var/', '/.htaccess', '/robots.txt', '/sitemap*.xml')
+                       '/modules/*/var/', '/modules/*/translations/', '/themes/*/modules/*/translations/',
+                       '/translations/export/', '/.htaccess', '/robots.txt', '/sitemap*.xml')
 # Checkouts and tool folders, never part of a release, for every profile.
 TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
 PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
