@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (major)
+## Unreleased
+
+## 3.0.0
 
 - **A PrestaShop deploy no longer writes or deletes module translations.** `modules/*/translations/`,
   `themes/*/modules/*/translations/` and `translations/export/` join the profile's protected paths: the back office
