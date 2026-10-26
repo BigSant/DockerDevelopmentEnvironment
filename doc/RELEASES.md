@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 3.0.1
+
 - **`make setup` finishes on a fresh clone with an empty database.** On an empty database the PHP start failed:
   the cache/mail policy failed on the missing `configuration` table and php-fpm restarted in a loop, so `make setup`
   never reached `make db-load`. The policy now waits for shop tables; `make db-load` and `make db-import` apply it
