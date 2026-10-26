@@ -370,7 +370,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "db-pull", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -410,7 +410,7 @@ def main():
     parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
     parser.add_argument('--name', help='module-pull: module directory name; migration-draft: file name after the time (default schema)')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
-    parser.add_argument('--output', help='New backup destination (.sql or .sql.gz)')
+    parser.add_argument('--output', help='New backup destination (db-backup: .sql or .sql.gz; files-backup: .tar.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
     parser.add_argument('--service', help='One enabled service for logs/restart')
     parser.add_argument('--follow', action='store_true')
@@ -480,6 +480,9 @@ def main():
             # Server backups follow the table registry: structure of every table, data of imported ones.
             # An export follows the table registry (skip tables: structure only); full=1 dumps everything.
             backup_database(project, args.output, registry=not args.full)
+        elif args.action == 'files-backup':
+            from project_files import backup_files
+            backup_files(project, args.output)
         elif args.action == "ide-init":
             initialize_ide(project, args.docker_server, args.ide_config_directory)
         elif args.action == "ide-refresh":

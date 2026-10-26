@@ -414,8 +414,12 @@ the back office writes; language packs in `translations/<locale>/` and `mails/` 
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
+`files-backup` (`project_files`) copies the code tree paths `BACKUP_FILE_PATHS` lists (files the server writes and git
+ignores, validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored
+include chain into a mirror `.generated/backups/.files-<env>/`, then an atomic `files-<env>-<UTC>Z.tar.gz` (members named
+from the code root). The setup-server worker runs it nightly and rotates the series.
 The release's files reach the **Deploy target** (`project_target.deploy_target`): this machine, or `DEPLOY_SSH=user@host`
-over ssh. Code push, removals, target-only module listing (directories only), `module-pull`, environment-file sync,
+over ssh. Code push, removals, target-only module listing (directories only), `module-pull`, `files-backup`, environment-file sync,
 runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with
 `BatchMode=yes` and `ConnectTimeout=15`, host keys checked as ssh is configured. The containers' Docker daemon is
 the separate `DEPLOY_CONTEXT`.
