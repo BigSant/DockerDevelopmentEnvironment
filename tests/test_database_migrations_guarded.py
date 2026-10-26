@@ -267,8 +267,8 @@ class MigrateTest(unittest.TestCase):
         self.queries.append(sql)
         if sql.startswith("SELECT name, checksum"):
             return list(self.applied.items())
-        if sql.startswith("SELECT name FROM setup_migrations ORDER BY"):
-            return [(name,) for name in reversed(list(self.applied))]
+        if sql.startswith("SELECT name FROM setup_migrations WHERE name NOT LIKE 'translations:%' ORDER BY"):
+            return [(name,) for name in reversed(list(self.applied)) if not name.startswith("translations:")]
         return []
 
     def write(self, sql):
@@ -314,6 +314,14 @@ class MigrateTest(unittest.TestCase):
         self.migrate()
         undone, _ = self.rollback(to="20260101000000-first.sql")
         self.assertEqual(undone, ["20260102000000-second.sql"], "to= keeps the named migration")
+
+    def test_rollback_leaves_the_translation_migrations_alone(self):
+        (self.migrations / "20260101000000-first.sql").write_text("SELECT 'up 1';\n-- Rollback: back\nSELECT 'down 1';\n")
+        self.migrate()
+        self.applied["translations:20260102000000-cart.json"] = "c" * 64  # the newest: make translations-migrate
+        undone, _ = self.rollback()
+        self.assertEqual(undone, ["20260101000000-first.sql"], "a translation migration has no way back and is no step")
+        self.assertEqual(list(self.applied), ["translations:20260102000000-cart.json"])
 
     def test_a_migration_without_a_finished_rollback_is_refused_before_anything_runs(self):
         (self.migrations / "20260101000000-first.sql").write_text("SELECT 1;\n-- Rollback: back\nSELECT 'down 1';\n")

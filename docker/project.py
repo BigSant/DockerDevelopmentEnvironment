@@ -370,7 +370,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-export", "translations-apply", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -380,7 +380,7 @@ def main():
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     parser.add_argument('--backup', action='store_true', help='Create a private backup first (db-import, db-load, db-pull import, deploy)')
     parser.add_argument('--dry', action='store_true', help='db-migrate/db-rollback: print the SQL without running it; '
-                        'translations-apply: show what would be written')
+                        'translations-migrate: show what would be written')
     parser.add_argument('--steps', type=int, default=1, help='db-rollback: how many applied migrations to roll back (default 1)')
     parser.add_argument('--to', help='db-rollback: roll back every migration applied after this one')
     parser.add_argument('--full', action='store_true', help='db-backup: dump the data of every table, ignoring registry skip rules; '
@@ -404,17 +404,15 @@ def main():
     parser.add_argument('--token-file', help='deploy-variables: access token file (0600); default BITBUCKET_ACCESS_TOKEN, '
                         'on GitHub GH_TOKEN or GITHUB_TOKEN')
     parser.add_argument('--names', action='store_true', help='deploy-variables: print the list only (no network)')
-    parser.add_argument('--module', help='phpunit: run only this module suite (or shop); translations-export: modules, '
-                        'comma-separated')
-    parser.add_argument('--domain', help='translations-export: translation domains (* allowed), comma-separated')
-    parser.add_argument('--lang', help='translations-export: only these languages (iso code or locale), comma-separated')
+    parser.add_argument('--module', help='phpunit: run only this module suite (or shop)')
     parser.add_argument('--filter', dest='test_filter', help='phpunit: --filter pattern')
     parser.add_argument('--no-sync', action='store_true', help='phpunit: do not refresh the test application copy first')
     parser.add_argument('--allow-dirty', action='store_true', help='release: allow uncommitted setup changes (not for real releases)')
     parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
     parser.add_argument('--release-ref', help='deploy: shop tag or commit to deploy')
     parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
-    parser.add_argument('--name', help='module-pull: module directory name; migration-draft: file name after the time (default schema)')
+    parser.add_argument('--name', help='module-pull: module directory name; migration-draft, translations-migration: file name after the time '
+                        '(default schema)')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (db-backup: .sql or .sql.gz; files-backup: .tar.gz)')
     parser.add_argument('--timeout', type=int, default=90, help='Container readiness timeout in seconds')
@@ -582,14 +580,20 @@ def main():
                                 reconfigure=args.configure)
             if not args.extract:
                 print(f'Put them in the code tree: make files-pull extract=1   (or by hand: tar -xzf {target})')
-        elif args.action == "translations-export":
-            from project_translations import export_translations
-            split = lambda value: [item.strip() for item in (value or '').split(',') if item.strip()]
-            export_translations(project, split(args.module), split(args.domain), [item.lower() for item in split(args.lang)])
-        elif args.action == "translations-apply":
-            from project_translations import apply_translations
-            report = apply_translations(project, dry=args.dry)
-            if report and report.written and not args.dry:
+        elif args.action == "translations-migration":
+            from project_translations import draft_migration
+            draft_migration(project, args.name)
+        elif args.action == "translations-base":
+            from project_prestashop import is_prestashop, generic_refusal
+            from project_translations import take_base
+            if not is_prestashop(project):
+                raise generic_refusal('translations-base')
+            if project.environment != 'local':
+                raise ValueError('make translations-base reads the local shop: run it with ENV=local')
+            take_base(project)
+        elif args.action == "translations-migrate":
+            from project_translations import migrate_translations
+            if migrate_translations(project, dry=args.dry) and project.environment != 'local':
                 # The shop reads the new texts only from a cleared cache and new php-fpm workers (OPcache), as after a deploy.
                 from project_deploy import clear_cache, reload_php
                 clear_cache(project)

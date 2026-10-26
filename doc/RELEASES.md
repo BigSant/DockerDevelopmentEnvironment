@@ -11,7 +11,17 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Module translations travel as migrations; 3.3.0's `translations-export` / `translations-apply` are gone.** The
+  3.3.0 approach compared whole files and domains, so an export carried the client's texts along and a stale local copy
+  could overwrite newer client edits. Now `make translations-migration name=…` drafts
+  `translations/migrations/<time>-<name>.json` with only what changed in the local shop since the base
+  (`.generated/translations/base.json`, retaken by `db-pull import=1`, `db-import`, `db-load` and `files-pull extract=1`),
+  and every PrestaShop deploy applies each pending migration once, writing only its translations, recorded in
+  `setup_migrations` as `translations:<file>` (the 3.3.0 table `setup_translations` is no longer used; drop it if a
+  deploy made it). `make translations-migrate [ENV=…] [dry=1]` applies them alone, locally a teammate's too. No project
+  used 3.3.0's `translations/legacy|database/`.
 
 ## 3.4.1
 

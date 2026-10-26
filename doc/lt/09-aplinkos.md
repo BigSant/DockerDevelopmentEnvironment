@@ -161,8 +161,8 @@ make deploy ENV=prod ref=v1.4.0
 4. **Projekto hook'as** `config/deploy/after-rsync.sh`, jei jis yra: vykdomas taikinio `php-fpm` konteineryje (`sh -e`, kodo šaknyje), kai naujas kodas jau ten, pvz. `php bin/console doctrine:migrations:migrate --no-interaction`. Jam nepavykus deploy'us sustoja: migracijos ir cache valymas nevykdomi, o deploy'us įrašomas į istoriją kaip nepavykęs (`"failed": "after-rsync"`), nes naujas kodas jau taikinyje. Pataisęs deploy'ink iš naujo arba grįžk `rollback=1` į ankstesnį release'ą; kitas deploy'us failus šalina lyginant su tuo, kas iš tikrųjų taikinyje.
 5. **Modulių upgrade'ai** pasikeitusiems moduliams – tik PrestaShop (PS 1.6 – per administravimo skydelį). Generic deploy'us `ps_module` lentelės neskaito.
 6. **Setup SQL migracijos**, jei projektas jas turi (`database/migrations/`, be `DATABASE_AS_CODE=off`), ir schemos ataskaita.
-7. **Vertimai** – tik PrestaShop, kai aplinkos repo turi `translations/`: įrašomi tie, kuriuos repo atneša nauji ar pakeisti nuo
-   paskutinio deploy'aus ([Vertimai](#vertimai-translations)).
+7. **Vertimų migracijos** – tik PrestaShop, kai aplinkos repo turi `translations/migrations/`: kiekviena dar nepritaikyta,
+   po vieną kartą ([Vertimai](#vertimai-translations)).
 8. **Cache išvalymas:** PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas).
 9. **php-fpm perkrovimas** (visiems profiliams): `USR2` php-fpm master procesui. Nauji worker'iai pradeda su tuščiu OPcache, todėl prod iškart vykdo naują kodą. Vykdomos užklausos gauna iki 30 s pabaigti (`process_control_timeout` CORE image'e). `DEPLOY_PHP_RELOAD=off` perkrovimą išjungia (tada OPcache gali rodyti seną kodą iki konteinerio restart'o).
 
@@ -234,34 +234,43 @@ make files-pull from=stage         # stage (ar STAGE_ENVIRONMENTS aplinka)
 ### Vertimai (`translations/`)
 
 Modulių vertimus serveryje redaguoja klientas (BO), todėl parduotuvės repo jų nelaiko, o rsync jų neliečia. Programuotojo
-vertimai keliauja per **aplinkos repo** `translations/`, o deploy'us juos sulieja su tuo, kas taikinyje:
-
-```text
-translations/legacy/modules/<modulis>/translations/<iso>.php     legacy vertimai, kaip juos rašo PS ($_MODULE[...] = '...';)
-translations/legacy/themes/<tema>/modules/<modulis>/translations/<iso>.php
-translations/database/<locale>/<domenas>[@<tema>].json             naujos sistemos vertimai (ps_translation eilutės)
-```
+vertimai keliauja kaip **migracijos** aplinkos repo `translations/migrations/` – kaip SQL migracijos: kiekviena pritaikoma
+vieną kartą ir įrašo tik savo vertimus, todėl kliento pataisos neliečiamos ir į git nepatenka.
 
 ```bash
-make translations-export module=mymodule,other      # vietinio admin'o vertimai (failai ir Modules.<Vardas>.* domenai) į translations/
-make translations-export domain=Shop.Theme.* lang=lt # konkretūs domenai (* – bet kas), tik lietuvių kalba
-make translations-apply ENV=prod dry=1               # ką deploy'us įrašytų ir ant kokio kitokio taikinio teksto
-make translations-apply ENV=prod                     # tas pats be deploy'aus (įrašius – cache ir php-fpm perkrovimas)
+make db-pull import=1 && make files-pull extract=1   # serverio vertimai vietinėje aplinkoje = atskaitos taškas
+# … verti vietiniame BO …
+make translations-migration name=krepselio-tekstai   # translations/migrations/<laikas>-krepselio-tekstai.json: tik tai, ką pakeitei
+make translations-migrate                            # kolegų migracijos vietinėje aplinkoje
+make translations-migrate ENV=prod dry=1             # ką deploy'us įrašytų (ir ant kokio taikinio teksto); deploy'us tai daro pats
 ```
 
-- **Kas įrašoma.** Kiekvienas raktas, kurį repo atneša **naują ar pakeistą** nuo to, kurį deploy'us paskutinį kartą įrašė,
-  įrašomas taikinyje – ir ant kliento pataisyto teksto. Raktas, kurio repo nekeitė, nebeliečiamas: ką klientas pataiso BO,
-  lieka, kol programuotojas nepakeičia būtent to vertimo. Ką ir kada įrašė, setup laiko taikinio DB lentelėje
-  `setup_translations` (kontrolinė suma kiekvienam raktui; registre jos klasifikuoti nereikia).
-- **Pirmas deploy'us** įrašo visus repo vertimus, todėl kliento jau pataisytus perrašytų: pirmiau `make translations-apply
-  ENV=prod dry=1` parodo kiekvieną tokį raktą (taikinio tekstas → repo tekstas). Prieš eksportą verta pasiimti serverio
-  vertimus (`make files-pull extract=1`, `make db-pull import=1`), kad eksportuotumei tai, kas jau gyva, su savo pakeitimais.
-- **Niekas netrinama:** repo pašalintas raktas taikinyje lieka. Failas perrašomas tik tada, kai visos jo eilutės yra
-  `$_MODULE[...] = '...';` (kitaip – praleidžiamas su pastaba); moduliui, kurio taikinyje nėra, failas nekuriamas; kalbos,
-  kurios taikinyje nėra, eilutės laukia (įrašomos, kai kalba atsiras).
-- **Eksportas** perrašo tų modulių (ir jų domenų) repo failus pagal vietinę aplinką, todėl git diff parodo, kas pasikeitė.
-  Domenas iš modulio vardo spėjamas `Modules.<Vardas>.*` (`ps_` numetamas, `_` – išmetami); kitam – `domain=`.
-- PS 1.6 neturi `ps_translation`: tik `translations/legacy/`. Generic profilis vertimų neturi.
+```json
+{
+  "legacy":   {"modules/mymodule/translations/lt.php": {"<{mymodule}prestashop>mymodule_5f3c…": "Pirkinių krepšelis"}},
+  "database": {"lt-LT": {"Modules.Mymodule.Shop": {"Add to cart": "Į krepšelį"}, "Shop.Theme.Actions@classic": {"Buy": "Pirkti"}}}
+}
+```
+
+- **Juodraštis.** `make translations-migration` palygina vietinius vertimus (`modules/*/translations/<iso>.php`,
+  `themes/*/modules/*/translations/<iso>.php` ir `ps_translation` eilutes) su atskaitos tašku
+  `.generated/translations/base.json` ir į naują failą surašo tik naujus ar pakeistus raktus; atskaitos taškas pasislenka.
+  Jį iš naujo paima `db-pull import=1`, `db-import`, `db-load` (DB dalį) ir `files-pull extract=1` (failus), todėl serverio
+  ir kliento tekstai yra jame, o ne juodraštyje. Pirmą kartą (be atskaitos taško) komanda jį tik paima: tada versk ir paleisk
+  dar kartą. `make translations-base` – paimti iš naujo ranka (pvz. po importo ne per setup). Failą peržiūrėk ir commit'ink;
+  ką ištrinsi, neįrašoma.
+- **Pritaikymas.** Kiekvienas PrestaShop deploy'us po modulių upgrade'ų pritaiko dar nepritaikytas migracijas (vardo
+  tvarka) ir įrašo jas į `setup_migrations` kaip `translations:<failas>` – atskiros lentelės nėra. Migracijos vertimai
+  įrašomi ant to, kas taikinyje; kiti raktai ir failai neliečiami, niekas netrinama. Pritaikyta migracija daugiau
+  nevykdoma, todėl ką klientas vėliau pataiso BO, lieka. Pakeista jau pritaikyta migracija nevykdoma iš naujo (pastaba):
+  taisymui – nauja migracija. `make db-rollback` jų neatšaukia.
+- **Ko taikinys neturi:** modulio – failas nekuriamas, kalbos – eilutė praleidžiama (abu parodomi, migracija įrašoma).
+  Taikinio failas, kuriame yra daugiau nei `$_MODULE[...] = '...';` eilutės, neperrašomas: deploy'us sustoja, migracija
+  neįrašoma, kol failas sutvarkomas.
+- Vietinėje aplinkoje `make translations-migrate` pritaiko kolegų migracijas ir jų tekstus įrašo į atskaitos tašką (tavo
+  kitas juodraštis jų nebeneš). Su `db-pull import=1` atkeliauja ir prod `setup_migrations`: pritaikomos tik tos, kurių
+  prod dar neturi.
+- PS 1.6 neturi `ps_translation`: tik `legacy`. Generic profilis vertimų migracijų neturi.
 
 ### Rollback
 

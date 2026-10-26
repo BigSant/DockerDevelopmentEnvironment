@@ -273,4 +273,7 @@ def pull_files(project, source='prod', fresh=False, extract=False, run=subproces
     if extract:
         step(count, count, f'Extract into the code tree ({SETTING})')
         extract_archive(project, target)
+        # The server's translation files are where the next translation migration is drafted from.
+        from project_translations import take_base
+        take_base(project, database=False)
     return target

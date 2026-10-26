@@ -300,7 +300,7 @@ def drop_all_tables(project):
                                                       "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'VIEW';\n")]
     statements = ['SET SESSION foreign_key_checks = 0;']
     statements += [f'DROP VIEW IF EXISTS {identifier(view)};' for view in views]
-    statements += [f'DROP TABLE IF EXISTS {identifier(table)};' for table in [*tables, 'setup_migrations', 'setup_translations']]
+    statements += [f'DROP TABLE IF EXISTS {identifier(table)};' for table in [*tables, 'setup_migrations']]
     project.database.execute('\n'.join(statements) + '\n')
 
 

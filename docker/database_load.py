@@ -169,6 +169,9 @@ def run_load(project, plan, backup=False):
                   + ", ".join(sorted(skipped)[:10]) + (" ..." if len(skipped) > 10 else ""))
         if plan.kind != 'fixtures':
             after_load(project)
+            # The loaded translations are where the next translation migration is drafted from.
+            from project_translations import database_loaded
+            database_loaded(project)
     if plan.kind == 'dump':
         print("Dump and after-import SQL completed.")
     elif plan.kind == 'dataset':

@@ -497,7 +497,9 @@ def rollback(project, steps=1, to=None, dry=False):
     to=<identity> rolls back everything applied after that migration (it stays); otherwise the last steps."""
     require_enabled(project)
     applied_migrations(project)
-    rows = [row[0] for row in project.database.query(f'SELECT name FROM {TABLE} ORDER BY applied_at DESC, name DESC;\n')]
+    # Translation migrations (translations:<file>, project_translations) have no way back: not rolled back.
+    rows = [row[0] for row in project.database.query(f"SELECT name FROM {TABLE} WHERE name NOT LIKE 'translations:%' "
+                                                     'ORDER BY applied_at DESC, name DESC;\n')]
     if to:
         if to not in rows:
             raise ValueError(f'{to} is not applied here; applied: {", ".join(rows[:5]) or "none"}')
