@@ -409,7 +409,8 @@ then reloads php-fpm for every profile (`USR2` to PID 1 via the shell builtin; t
 `process_control_timeout = 30s` so workers finish their requests) so OPcache serves the new code
 (`DEPLOY_PHP_RELOAD=off` opts out).
 Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
-`.htaccess`, `robots.txt`, `sitemap*.xml`) only for PrestaShop, plus tool folders and
+`.htaccess`, `robots.txt`, `sitemap*.xml`, and the module/theme-module translations and `translations/export/`
+the back office writes; language packs in `translations/<locale>/` and `mails/` stay code) only for PrestaShop, plus tool folders and
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
