@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.7.0
 
 - **`make deploy-images` sends only the images the target lacks.** Each image is compared with the target's by its
   layers and start configuration (an image ID differs between the classic and the containerd image store); the ones
