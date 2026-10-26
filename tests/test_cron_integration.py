@@ -28,7 +28,8 @@ class CronIntegrationTest(unittest.TestCase):
     def container(self, *arguments, entrypoint="/bin/sh", environment=()):
         name = f"setup-cron-{uuid.uuid4().hex[:8]}"
         settings = [option for setting in environment for option in ("-e", setting)]
-        subprocess.run(["docker", "run", "-d", "--rm", "--name", name, "--network", "none", "--memory", "256m", "--user",
+        # --init as compose runs the cron service (init: true).
+        subprocess.run(["docker", "run", "-d", "--rm", "--init", "--name", name, "--network", "none", "--memory", "256m", "--user",
                         f"{os.getuid()}:{os.getgid()}", "-e", "ENV=local", "-e", "TZ=Europe/Vilnius", *settings,
                         "-v", f"{ROOT}/docker/runtime:/opt/setup/runtime:ro", "-v", f"{self.root / 'cron.d'}:/etc/cron.d",
                         "-v", f"{self.root / 'history'}:/var/lib/setup-cron", "--entrypoint", entrypoint, IMAGE, *arguments],
@@ -47,6 +48,18 @@ class CronIntegrationTest(unittest.TestCase):
         time.sleep(7.5)
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
         return len(starts.read_text().split()) if starts.exists() else 0
+
+    def zombies(self, name):
+        found = subprocess.run(["docker", "exec", name, "sh", "-c", "grep -l '^State:.Z' /proc/[0-9]*/status | wc -l"],
+                               capture_output=True, text=True)
+        return int(found.stdout.strip() or 0)
+
+    def test_a_jobs_orphans_are_reaped(self):
+        # A job that leaves a child behind, as PHP starting git in the background does: it outlives the job, then ends.
+        (self.root / "cron.d/orphans").write_text("* * * * * * * sh -c 'sleep 1 & exit 0'\n")
+        name = self.container("-c", "exec supercronic /etc/cron.d/orphans")
+        time.sleep(6)
+        self.assertEqual(self.zombies(name), 0, "Docker's init (compose init: true) reaps what supercronic leaves")
 
     def test_supercronic_skips_a_run_while_the_previous_one_is_still_running(self):
         without, with_overlap = self.starts(False), self.starts(True)
