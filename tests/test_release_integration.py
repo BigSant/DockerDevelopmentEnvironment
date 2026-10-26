@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -65,10 +66,24 @@ class ReleaseTargetTest(unittest.TestCase):
         # DEPLOY_PATH is inside the throwaway daemon, which has no ssh: the file steps (environment files, runtime
         # directories, tool access, release info) are the Deploy target's and tested on their own; this test is
         # about images and the context.
-        with contextlib.redirect_stdout(io.StringIO()), patch("project_release.release_model", return_value=model), \
-                patch("project_release.sync_environment"), patch("project_release.prepare_runtime_directories"), \
-                patch("project_release.push_tool_access", return_value=False), patch("project_release.publish_release_info"):
+        steps = (patch("project_release.release_model", return_value=model), patch("project_release.sync_environment"),
+                 patch("project_release.prepare_runtime_directories"), patch("project_release.push_tool_access", return_value=False),
+                 patch("project_release.publish_release_info"))
+        # The stream compressed as from a classic image store (the target's docker load reads zstd), when zstd is here.
+        first = io.StringIO()
+        with contextlib.ExitStack() as stack, contextlib.redirect_stdout(first):
+            for step in steps + (patch("project_release.saves_compressed", return_value=False),):
+                stack.enter_context(step)
             self.assertEqual(deploy_images(project), ["alpine:latest"])
+        self.assertIn("sending 1 images", first.getvalue())
+        self.assertEqual(", zstd" in first.getvalue(), bool(shutil.which("zstd")))
+        # Again: the target has the same image (whatever its image store calls it), nothing travels.
+        again = io.StringIO()
+        with contextlib.ExitStack() as stack, contextlib.redirect_stdout(again):
+            for step in steps:
+                stack.enter_context(step)
+            self.assertEqual(deploy_images(project), ["alpine:latest"])
+        self.assertIn("has the 1 images already: nothing to send", again.getvalue())
         self.assertFalse(any(release.glob("*compose*")), "the model (with env secrets) is piped, never stored")
         for _ in range(30):
             started = subprocess.run(["docker", "exec", self.target, "cat", "/srv/shop/data/app/started"], capture_output=True)

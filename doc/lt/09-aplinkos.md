@@ -61,7 +61,7 @@ Stage/prod konteineriai veikia kaip hosting'o (DirectAdmin) vartotojas `APP_UID`
 ```text
 build serveris (kol jo nėra – programuotojo kompiuteris)
   ├─ make release        → sukuria image'us iš commit'into setup, užrašo lock failą
-  ├─ make deploy-images  → docker save | ssh | docker load, paleidžia konteinerius serveryje
+  ├─ make deploy-images  → docker save | ssh | docker load (tik trūkstami), paleidžia konteinerius serveryje
   └─ make deploy ref=…   → paruošia kodo release'ą, DB kopija, rsync, hook'as, upgrade'ai, migracijos
                                 │
 LIVE serveris: tik Docker, kodas, duomenys ir DirectAdmin web serveris
@@ -133,7 +133,7 @@ Sukuria visus prod image'us iš commit'into setup ir užrašo `.generated/releas
 make deploy-images ENV=prod
 ```
 
-Nusiunčia image'us į `DEPLOY_CONTEXT` (`docker save` → `docker load`) ir paleidžia konteinerius serveryje. Compose modelis su env reikšmėmis sugeneruojamas siuntimo metu ir perduodamas tiesiai, į diską nerašomas. Jame projekto keliai pakeisti į `DEPLOY_PATH`; prieš paleidžiant ten nukopijuojami prijungiami aplinkos failai (žr. „Aplinkos failai“ žemiau). `transfer=0` – image'ai jau serveryje, tik paleisti.
+Nusiunčia image'us į `DEPLOY_CONTEXT` (`docker save` → `docker load`) ir paleidžia konteinerius serveryje. Siunčiami tik tie image'ai, kurių serveris neturi arba turi kitą build'ą: lyginami sluoksniai ir paleidimo konfigūracija, todėl atnaujinus setup paprastai keliauja tik PHP image'as, o DB ir įrankių image'ai lieka. Jei build mašinos Docker naudoja klasikinį image store'ą (jo `docker save` sluoksnių nesuspaudžia), srautas suspaudžiamas `zstd` (jei įdiegtas); containerd store'as juos saugo jau suspaustus. Compose modelis su env reikšmėmis sugeneruojamas siuntimo metu ir perduodamas tiesiai, į diską nerašomas. Jame projekto keliai pakeisti į `DEPLOY_PATH`; prieš paleidžiant ten nukopijuojami prijungiami aplinkos failai (žr. „Aplinkos failai“ žemiau). `transfer=0` – image'ai jau serveryje, tik paleisti.
 
 Prieš paleisdamas konteinerius `make deploy-images`:
 

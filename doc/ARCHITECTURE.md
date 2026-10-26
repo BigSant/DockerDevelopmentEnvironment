@@ -393,8 +393,10 @@ the environment it asked for.
 `.generated/release/<env>/images.lock.json` (setup version, image ids, base digests; Trivy warns when
 installed). A release keeps no host path except the read-only `/proc` of the metrics service and the read-only
 Docker socket of its network-less collectors (named volumes, such as its HTTP log volume, pass through unchanged).
-`make deploy-images` streams the images with `docker save` into `DEPLOY_CONTEXT` and starts
-the release model there. The model is rendered at deploy time and piped, never stored, because it
+`make deploy-images` streams the images the target lacks with `docker save` into `DEPLOY_CONTEXT` and starts
+the release model there. An image is the target's already when its layers and start configuration match (its ID would
+not: the classic and the containerd image store name images differently); a classic-store build machine compresses the
+stream with `zstd`, a containerd-store one saves compressed layers already. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of
 active services (no `build`, e.g. `getmeili/meilisearch` from a project compose file) are pulled when
 missing and locked (`images` + `external` digests) so `docker save` ships them; a release with an image

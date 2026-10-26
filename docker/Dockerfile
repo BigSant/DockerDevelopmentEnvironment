@@ -10,6 +10,32 @@ ARG PS_RELEASE_IMAGE=''
 
 FROM ${PS_RELEASE_IMAGE} AS release
 
+# The official PrestaShop release (PS_RELEASE=on) unpacked to /opt/prestashop/release/<version>, or nothing.
+FROM php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX} AS ps-release
+ARG PS_RELEASE=off
+ARG PS_VERSION=''
+ARG PS_RELEASE_SHA256=''
+COPY --from=release /var/www/html /opt/prestashop/release-image/
+RUN set -eu; mkdir -p /opt/prestashop/release; \
+    if [ "${PS_RELEASE}" = on ]; then \
+        target="/opt/prestashop/release/${PS_VERSION}"; \
+        if [ -f /opt/prestashop/release-image/index.php ]; then \
+            mv /opt/prestashop/release-image "$target"; \
+        else \
+            url="https://github.com/PrestaShop/PrestaShop/releases/download/${PS_VERSION}/prestashop_${PS_VERSION}.zip"; \
+            mkdir -p /tmp/ps "$target"; curl -fsSL "$url" -o /tmp/ps/release.zip; \
+            sum="$(sha256sum /tmp/ps/release.zip | cut -d' ' -f1)"; echo "PrestaShop ${PS_VERSION} release sha256: $sum"; \
+            if [ -n "${PS_RELEASE_SHA256}" ] && [ "$sum" != "${PS_RELEASE_SHA256}" ]; then echo 'Release checksum mismatch' >&2; exit 1; fi; \
+            cd /tmp/ps && unzip -q release.zip; \
+            if [ -f prestashop.zip ]; then unzip -q prestashop.zip -d "$target"; \
+            elif [ -d prestashop ]; then cp -a prestashop/. "$target/"; \
+            else echo 'Unknown PrestaShop release layout' >&2; exit 1; fi; \
+            cd / && rm -rf /tmp/ps; \
+        fi; \
+        test -f "$target/index.php"; \
+    fi; \
+    rm -rf /opt/prestashop/release-image
+
 FROM php-fpm-base-${ENV}-${PHP_VERSION}-${XDEBUG_VERSION}-${COMPOSER_VERSION}${SETUP_IMAGE_SUFFIX} AS base
 
 # Re-declare ARGs needed inside this stage (ARGs before the first FROM are only visible to FROM).
@@ -42,29 +68,8 @@ RUN mkdir -m 0777 -p /usr/local/etc/php/project.r /usr/local/etc/php/project.r.e
 
 # Optional official PrestaShop release, kept in the image for PS_RELEASE_PATHS and comparison.
 # It is never copied into the project automatically; make setup copies only the listed paths.
-ARG PS_RELEASE=off
-ARG PS_VERSION=''
-ARG PS_RELEASE_SHA256=''
-COPY --from=release /var/www/html /opt/prestashop/release-image/
-RUN set -eu; mkdir -p /opt/prestashop/release; \
-    if [ "${PS_RELEASE}" = on ]; then \
-        target="/opt/prestashop/release/${PS_VERSION}"; \
-        if [ -f /opt/prestashop/release-image/index.php ]; then \
-            mv /opt/prestashop/release-image "$target"; \
-        else \
-            url="https://github.com/PrestaShop/PrestaShop/releases/download/${PS_VERSION}/prestashop_${PS_VERSION}.zip"; \
-            mkdir -p /tmp/ps "$target"; curl -fsSL "$url" -o /tmp/ps/release.zip; \
-            sum="$(sha256sum /tmp/ps/release.zip | cut -d' ' -f1)"; echo "PrestaShop ${PS_VERSION} release sha256: $sum"; \
-            if [ -n "${PS_RELEASE_SHA256}" ] && [ "$sum" != "${PS_RELEASE_SHA256}" ]; then echo 'Release checksum mismatch' >&2; exit 1; fi; \
-            cd /tmp/ps && unzip -q release.zip; \
-            if [ -f prestashop.zip ]; then unzip -q prestashop.zip -d "$target"; \
-            elif [ -d prestashop ]; then cp -a prestashop/. "$target/"; \
-            else echo 'Unknown PrestaShop release layout' >&2; exit 1; fi; \
-            cd / && rm -rf /tmp/ps; \
-        fi; \
-        test -f "$target/index.php"; \
-    fi; \
-    rm -rf /opt/prestashop/release-image
+# Prepared in its stage above: one layer here (a move in this stage would store it twice).
+COPY --from=ps-release /opt/prestashop/release/ /opt/prestashop/release/
 
 # Setup runtime (start, templates, PrestaShop adapters, cron) and the profiles' table registry defaults
 # (the backup service reads them) travel in the image so a release target needs no setup checkout;

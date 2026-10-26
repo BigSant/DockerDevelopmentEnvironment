@@ -387,6 +387,61 @@ def publish_release_info(project, deploy_path, images=False):
               f'the next deploy writes it', flush=True)
 
 
+# The configuration a container starts from: with the layers, what an image is in either Docker image store and after
+# docker save | load. Its ID is not: the containerd store names the manifest, the classic one the configuration.
+FINGERPRINT_CONFIG = ('Cmd', 'Entrypoint', 'Env', 'ExposedPorts', 'Healthcheck', 'Labels', 'StopSignal', 'User', 'Volumes',
+                      'WorkingDir')
+
+
+def image_fingerprint(name, context=None):
+    """The layers and start configuration of an image this Docker (or the context's) has; '' when it lacks it."""
+    command = ['docker', *(['--context', context] if context else []), 'image', 'inspect', '--format', '{{json .}}', name]
+    result = subprocess.run(command, capture_output=True, text=True)
+    try:
+        image = json.loads(result.stdout) if result.returncode == 0 else {}
+    except ValueError:
+        image = {}
+    layers = (image.get('RootFS') or {}).get('Layers') or []
+    if not layers:
+        return ''
+    config = image.get('Config') or {}
+    return json.dumps({'layers': layers, 'os': image.get('Os'), 'architecture': image.get('Architecture'),
+                       'config': {key: config.get(key) or None for key in FINGERPRINT_CONFIG}}, sort_keys=True)
+
+
+def saves_compressed():
+    """Whether this Docker keeps images in the containerd store, whose docker save carries the compressed layers."""
+    result = subprocess.run(['docker', 'info', '--format', '{{json .DriverStatus}}'], capture_output=True, text=True)
+    return 'io.containerd.snapshotter' in result.stdout
+
+
+def send_images(context, images):
+    """docker save | zstd | docker load of the images the context lacks or holds in another build: a setup update or
+    an image-related change rebuilds one or two of them, the database and tool images stay where they are. The classic
+    image store saves the layers uncompressed: zstd (when this machine has it) shrinks them about threefold and docker
+    load reads it as it is. The containerd store saves them compressed already."""
+    local = {name: image_fingerprint(name) for name in images}
+    stale = [name for name in images if not local[name] or local[name] != image_fingerprint(name, context)]
+    if not stale:
+        print(f'==> Docker context {context} has the {len(images)} images already: nothing to send', flush=True)
+        return
+    kept = len(images) - len(stale)
+    compress = not saves_compressed() and shutil.which('zstd')
+    print(f'==> sending {len(stale)} images to Docker context {context}' + (f' ({kept} there already)' if kept else '') +
+          (', zstd' if compress else ''), flush=True)
+    save = subprocess.Popen(['docker', 'save', *stale], stdout=subprocess.PIPE)
+    stages, stream = [save], save.stdout
+    if compress:
+        pack = subprocess.Popen(['zstd', '-q', '-T0', '-3', '-c'], stdin=save.stdout, stdout=subprocess.PIPE)
+        # Only zstd reads the save now: a failed load ends both through a broken pipe.
+        save.stdout.close()
+        stages, stream = [save, pack], pack.stdout
+    load = subprocess.run(['docker', '--context', context, 'load'], stdin=stream, capture_output=True, text=True)
+    stream.close()
+    if any([stage.wait() for stage in stages]) or load.returncode:
+        raise ValueError(f'Image transfer to {context} failed: {load.stderr.strip()[-300:]}')
+
+
 def deploy_images(project, transfer=True):
     """Load the release images into the target's Docker and start the release model there."""
     context, deploy_path = release_settings(project)
@@ -396,12 +451,7 @@ def deploy_images(project, transfer=True):
     lock = json.loads((directory / LOCK_NAME).read_text())
     images = sorted(lock['images'])
     if transfer:
-        print(f'==> sending {len(images)} images to Docker context {context}', flush=True)
-        save = subprocess.Popen(['docker', 'save', *images], stdout=subprocess.PIPE)
-        load = subprocess.run(['docker', '--context', context, 'load'], stdin=save.stdout, capture_output=True, text=True)
-        save.stdout.close()
-        if save.wait() or load.returncode:
-            raise ValueError(f'Image transfer to {context} failed: {load.stderr.strip()[-300:]}')
+        send_images(context, images)
     print(f'==> starting {lock["project"]} on {context}', flush=True)
     # Rendered now from env (secrets may come from the pipeline's environment) and piped, never stored.
     model = release_model(project, deploy_path)
