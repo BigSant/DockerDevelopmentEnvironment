@@ -31,6 +31,8 @@ services:
       DEPLOY_PATH: ${DEPLOY_PATH-}
       DEPLOY_SSH: ${DEPLOY_SSH-}
       DEPLOY_PROTECTED_PATHS: ${DEPLOY_PROTECTED_PATHS-}
+      # Code tree paths the server writes and git ignores (e.g. modules/*/translations/): make files-backup.
+      BACKUP_FILE_PATHS: ${BACKUP_FILE_PATHS-}
       DEPLOY_PHP_RELOAD: ${DEPLOY_PHP_RELOAD-}
       # Deployment variables (Bitbucket) / environment secrets (GitHub) beyond setup's own
       # (make pipeline-deploy, make deploy-variables): names only.

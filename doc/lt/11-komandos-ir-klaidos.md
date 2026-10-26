@@ -90,6 +90,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make deploy ENV=stage\|prod ref=TAG [backup=1]` | Kodo release'as, DB kopija (tik su `backup=1`), rsync, projekto hook'as, PS modulių upgrade'ai, migracijos, cache. |
 | `make deploy ENV=stage\|prod rollback=1` | Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą. |
 | `make cron-reload ENV=stage\|prod` | Veikiantis cron konteineris perskaito `config/cron/` be restart'o: crontab'as sugeneruojamas iš naujo, patikrinamas `supercronic -test`, supercronic gauna `SIGUSR2`. Vykdomos užduotys nenutraukiamos; netinkamas crontab'as nepritaikomas. |
+| `make files-backup ENV=stage\|prod [file=…]` | `BACKUP_FILE_PATHS` keliai iš taikinio į `.generated/backups/files-<env>-…Z.tar.gz` ([failų kopijos](09-aplinkos.md#failų-kopijos-backup_file_paths)). |
 | `make module-pull ENV=stage\|prod name=MODULIS` | Nukopijuoja tik serveryje esantį modulį į vietinį parduotuvės kodą (tik `PROFILE=prestashop`). |
 | `make pipeline-deploy [ENV=stage\|prod]` | Bitbucket arba GitHub Actions deploy žingsnis build root'e: patikros, checkout'as, `env/<env>.env`, `release`/`deploy-images`/`deploy`/`cron-reload` pagal `REF`, `IMAGES`, `CRON`, `ROLLBACK`, `BACKUP`. Žr. [Bitbucket Pipelines](09-aplinkos.md#bitbucket-pipelines), [GitHub Actions](09-aplinkos.md#github-actions). |
 | `make deploy-variables [ENV=stage\|prod] [names=1] [from=FAILAS [replace=1]] [token=KELIAS]` | Palygina Bitbucket Deployment variables arba GitHub aplinkos secrets ir variables (`CI_PROVIDER`) su setup sąrašu, su `from` sukuria trūkstamus. Žr. [Deployment variables](09-aplinkos.md#deployment-variables), [GitHub'e](09-aplinkos.md#make-deploy-variables-githube). |
@@ -104,7 +105,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `service` | `restart`, `logs` | `service=php-fpm`. |
 | `follow`, `tail` | `logs` | `follow=1 tail=200`. |
 | `cmd`, `dir` | `composer`, `npm`, `phpstan`, `phpcs`, `e2e`, `doctrine` | `cmd="run build"`. Skaidoma į argumentus, ne shell: `&&` neveikia. |
-| `file` | `db-import`, `db-import-plan`, `db-backup` | `file=/kelias/dump.sql.gz`. |
+| `file` | `db-import`, `db-import-plan`, `db-backup`, `files-backup` | `file=/kelias/dump.sql.gz` (`files-backup` – `.tar.gz`). |
 | `skip`, `backup`, `db-fixtures` | `db-import` | `skip=1 backup=1`. |
 | `full` | `db-backup` | `full=1`. |
 | `set`, `replace`, `backup` | `db-load`, `db-dataset`, `test-prepare`, `db-fixtures-*` | `set=dev replace=1`. |
@@ -166,6 +167,10 @@ Pirmiau visada sugeneruok šviežią modelį su `make config`. Testinei aplinkai
 | `Cannot pull … for the release` / `Release images are not on this machine` | Išorinio image'o (pvz. `getmeili/meilisearch`) nepavyko parsisiųsti arba image'as nesukurtas; release'as nerašo lock'o, kurio `docker save` neperduotų. |
 | `config/deploy/after-rsync.sh failed (exit N); the deploy stopped` | Projekto hook'as nepavyko: naujas kodas taikinyje (istorijoje pažymėtas kaip nepavykęs), bet migracijos ir cache valymas nevykdyti. Pataisyk ir deploy'ink iš naujo arba `rollback=1`. |
 | `DEPLOY_PROTECTED_PATHS entry is not a plain path inside the code tree` | Saugomas kelias turi būti santykinis kodo medžio kelias be `..`, pvz. `var/data/`. |
+| `BACKUP_FILE_PATHS entry is not a plain path inside the code tree` | Tas pats `BACKUP_FILE_PATHS` keliui, pvz. `modules/*/translations/`. |
+| `BACKUP_FILE_PATHS is empty: nothing to back up` | `make files-backup` reikia `BACKUP_FILE_PATHS` (`env/common.env`). |
+| `files-backup copies a server environment's files` | `make files-backup` – tik `ENV=stage`, `prod` ar `STAGE_ENVIRONMENTS` aplinkai. |
+| `rsync from … failed (exit N); no backup written` | Taikinys nepasiektas arba nėra kodo katalogo; archyvas neparašytas, ankstesni lieka. |
 | `This project needs setup … or newer (SETUP_MIN_VERSION in env/common.env)` | Projektui reikia naujesnio setup: `git -C ~/Projects/setup pull`, serveryje – naujesnis release tag'as. |
 | `Run this from a Staging or Production deployment step` / `BITBUCKET_DEPLOYMENT_ENVIRONMENT is not set` | `make pipeline-deploy` veikia tik Bitbucket žingsnyje su `deployment: Staging` arba `Production`. Kitaip pavadintai aplinkai pridėk `ENV=stage\|prod`. |
 | `DEPLOY_ENVIRONMENT is not set` / `neither BITBUCKET_DEPLOYMENT_ENVIRONMENT nor GITHUB_ACTIONS is set` | GitHub job'as turi `environment: staging\|production` ir tą patį vardą perduoda `DEPLOY_ENVIRONMENT` (žr. `templates/pipelines/github-deploy.yml`). Be jokio CI komanda neveikia. |

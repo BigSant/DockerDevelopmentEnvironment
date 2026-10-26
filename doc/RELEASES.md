@@ -11,7 +11,13 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **`make files-backup ENV=stage|prod`: a copy of the files the server writes and git ignores.** The new setting
+  `BACKUP_FILE_PATHS` (same syntax as `DEPLOY_PROTECTED_PATHS`, e.g. `"modules/*/translations/ themes/*/lang/"`) lists
+  them; the command copies only those paths from the Deploy target (read only, rsync into a mirror beside the backups) into
+  `.generated/backups/files-<env>-<UTC time>Z.tar.gz`. The setup-server worker makes one every night and shows them in its
+  web UI. Nothing to change in projects; set `BACKUP_FILE_PATHS` in `env/common.env` to use it.
 
 - **`make setup` finishes on a fresh clone with an empty database.** On an empty database the PHP start failed:
   the cache/mail policy failed on the missing `configuration` table and php-fpm restarted in a loop, so `make setup`

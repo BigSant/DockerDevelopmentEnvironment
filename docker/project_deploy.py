@@ -43,16 +43,23 @@ KEEP_RELEASES = 3
 MODULE_VERSION = re.compile(r"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
 
 
-def protected_paths(project):
-    """Paths of the code tree a deploy never overwrites or deletes: the profile's, the tools', the project's."""
-    patterns = [*(PRESTASHOP_WRITABLE if is_prestashop(project) else ()), *TOOL_PATHS]
-    for entry in (project.settings.get('DEPLOY_PROTECTED_PATHS') or '').split():
+def code_tree_patterns(project, setting):
+    """A setting's code tree paths (DEPLOY_PROTECTED_PATHS, BACKUP_FILE_PATHS) as rsync patterns anchored at the code
+    root: a directory ends with /, * matches within one name, nothing leads out of the tree."""
+    patterns = []
+    for entry in (project.settings.get(setting) or '').split():
         parts = entry.strip('/').split('/')
         if not PROTECTED_PATH.fullmatch(entry) or any(part in ('.', '..') for part in parts) or not parts[0].strip('*'):
-            raise ValueError(f'DEPLOY_PROTECTED_PATHS entry is not a plain path inside the code tree: {entry!r} '
+            raise ValueError(f'{setting} entry is not a plain path inside the code tree: {entry!r} '
                              '(e.g. var/data/ for a directory, config/local.php for a file)')
         patterns.append('/' + entry.lstrip('/'))
     return patterns
+
+
+def protected_paths(project):
+    """Paths of the code tree a deploy never overwrites or deletes: the profile's, the tools', the project's."""
+    return [*(PRESTASHOP_WRITABLE if is_prestashop(project) else ()), *TOOL_PATHS,
+            *code_tree_patterns(project, 'DEPLOY_PROTECTED_PATHS')]
 
 
 def deploy_directory(project):

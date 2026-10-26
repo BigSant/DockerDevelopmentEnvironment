@@ -188,6 +188,29 @@ git -C public status
 
 Modulis nukopijuojamas į `app/public/modules/mymodule`. Peržiūrėk ir commit'ink jį į parduotuvės repozitoriją. Jei toks katalogas lokaliai jau yra, komanda atsisako (kodo kopija laimi).
 
+### Failų kopijos (`BACKUP_FILE_PATHS`)
+
+Kai kuriuos failus parduotuvė rašo pati taikinyje, o git juos ignoruoja (pvz. administravimo skydelyje redaguoti modulių
+vertimai). Kodo repozitorijoje jų nėra, todėl juos saugo atskira kopija. Keliai išvardijami `env/common.env` (aplinkos
+`env/<env>.env` reikšmė laimi), ta pačia sintakse kaip `DEPLOY_PROTECTED_PATHS`: nuo kodo šaknies, katalogas baigiasi `/`,
+`*` – bet koks vardas vienoje vietoje.
+
+```dotenv
+BACKUP_FILE_PATHS="modules/*/translations/ themes/*/lang/ config/local.php"
+```
+
+```bash
+make files-backup ENV=prod [file=/kelias/files.tar.gz]
+```
+
+- rsync nukopijuoja tik šiuos kelius iš `DEPLOY_SSH:DEPLOY_PATH/app/<env>/public` (ar vietinio katalogo) į veidrodį
+  `.generated/backups/.files-<env>/` (kitą kartą siunčiama tik tai, kas pasikeitė; ištrintas taikinyje failas dingsta ir
+  veidrodyje), tada į `.generated/backups/files-<env>-<UTC laikas>Z.tar.gz` (0600; vardai nuo kodo šaknies, pvz.
+  `modules/shop/translations/lt.php`). Archyvas rašomas į laikiną failą ir pervadinamas tik baigus.
+- Taikinyje niekas nerašoma; slaptažodžių ir konteinerių nereikia. Kelias, kuriam taikinyje nieko neatitiko, – įspėjimas, ne klaida.
+- **setup-server** worker'is daro tai kas naktį kiekvienai aplinkai, kurios `BACKUP_FILE_PATHS` netuščias, ir laiko
+  7 dienų + 4 savaičių kopijas (`files-<env>-…Z.tar.gz`); jo valdymo sąsajos skiltyje „Failai“ archyvus galima peržiūrėti.
+
 ### Rollback
 
 ```bash
