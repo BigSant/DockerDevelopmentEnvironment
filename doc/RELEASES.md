@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.1.0
 
 - **`make files-backup ENV=stage|prod`: a copy of the files the server writes and git ignores.** The new setting
   `BACKUP_FILE_PATHS` (same syntax as `DEPLOY_PROTECTED_PATHS`, e.g. `"modules/*/translations/ themes/*/lang/"`) lists
