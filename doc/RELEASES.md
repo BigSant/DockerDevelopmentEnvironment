@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.6.0
 
 - **setup-server can decide who opens a server's tools, at once.** A build root may hold `tool-access/<env>/`
   beside `target.env`: `users.htpasswd` guards every password tool (pma, mailpit, cron, backup, metrics, `PROXY_TOOLS`)
