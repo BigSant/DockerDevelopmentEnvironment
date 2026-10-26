@@ -370,7 +370,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-export", "translations-apply", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "pipeline-deploy", "deploy-variables", "module-pull", "shop-audit", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-export", "translations-apply", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -414,6 +414,7 @@ def main():
     parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
     parser.add_argument('--release-ref', help='deploy: shop tag or commit to deploy')
     parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
+    parser.add_argument('--live', help='shop-audit: a copy of the server code tree (e.g. from FTP) to compare with')
     parser.add_argument('--name', help='module-pull: module directory name; migration-draft: file name after the time (default schema)')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
     parser.add_argument('--output', help='New backup destination (db-backup: .sql or .sql.gz; files-backup: .tar.gz)')
@@ -558,6 +559,9 @@ def main():
         elif args.action == "cron-reload":
             from project_deploy import reload_cron
             reload_cron(project)
+        elif args.action == "shop-audit":
+            from project_shop_audit import print_audit
+            print_audit(project, args.live)
         elif args.action == "module-pull":
             from project_deploy import module_pull
             module_pull(project, args.name)
