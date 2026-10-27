@@ -3,8 +3,8 @@
 setup-server keeps it in the build root, beside target.env: tool-access/<env>/users.htpasswd (a line per developer
 granted the environment, name:crypt hash) and tool-access/<env>/allowed-ips (its addresses, one per line). Every
 deploy and make tool-access copy them to data/<env>/tool-access/ on the target, which nginx-proxy mounts (access.sh):
-the users guard every password tool without its own <TOOL>_HTPASSWD, the addresses join every tool's IP list (never
-the site's). make tool-access also renders the rules again and reloads nginx-proxy, so a grant or a revocation holds
+the users guard every password tool, beside the users of its own <TOOL>_HTPASSWD when it has one, the addresses
+join every tool's IP list (never the site's). make tool-access also renders the rules again and reloads nginx-proxy, so a grant or a revocation holds
 at once, without a deploy. A build root without tool-access/<env>/ leaves the target as it is.
 """
 

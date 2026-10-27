@@ -260,7 +260,7 @@ IP sąrašas įleidžia visus to tinklo (pvz. VPN) klientus. Kad įrankį pasiek
 
 **Prieiga iš setup-server.** Kai projektą deploy'ina setup-server, kas ir iš kur pasiekia įrankius, gali valdyti jis (setup-server README „Įrankių prieiga“). Build root'e šalia `target.env` jis laiko `tool-access/<env>/`:
 
-- `users.htpasswd` – po eilutę kiekvienam programuotojui, kuriam leista ši aplinka (`vardas:hash`). Jie saugo visus slaptažodžiu saugomus įrankius (`pma`, `mailpit`, `cron`, `backup`, `metrics`, `PROXY_TOOLS`), kurie neturi savo `<ĮRANKIS>_HTPASSWD` (savas sąrašas laimi). Tuščias failas – neįleidžiamas niekas.
+- `users.htpasswd` – po eilutę kiekvienam programuotojui, kuriam leista ši aplinka (`vardas:hash`). Jie saugo visus slaptažodžiu saugomus įrankius (`pma`, `mailpit`, `cron`, `backup`, `metrics`, `PROXY_TOOLS`), kartu su įrankio savo `<ĮRANKIS>_HTPASSWD`, jei jis yra: įleidžia ir vieno, ir kito sąrašo vartotojas (vardas, esantis abiejuose, tikrinamas pagal įrankio savą slaptažodį). Tuščias failas – įrankis be savo sąrašo neįleidžia nieko, su savu – tik jo vartotojus.
 - `allowed-ips` – setup-server adresai (pvz. VPN serverio viešas IP), po vieną eilutėje. Jie pridedami prie kiekvieno įrankio IP sąrašo, bet ne prie svetainės, ir stage/prod įrankiui pakanka vien jų.
 
 Kiekvienas `make deploy-images` ir `make tool-access ENV=…` nukopijuoja juos į taikinio `data/<env>/tool-access/` (nginx-proxy jį mato kaip `/etc/nginx/tool-access`). `make tool-access` dar iš naujo sugeneruoja taisykles ir perkrauna nginx-proxy, todėl leidimas ar jo atėmimas galioja iš karto, be deploy'aus. Be `tool-access/<env>/` taikinys nekeičiamas.
