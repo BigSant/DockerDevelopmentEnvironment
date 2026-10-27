@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.8.0
 
 - **A tool's own password and setup-server's tool access both log in.** A tool with its own `<TOOL>_HTPASSWD` (a
   project passing its dashboard login to `CRON_HTPASSWD`, say) used to ignore setup-server's users altogether; its
