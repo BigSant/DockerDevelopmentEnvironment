@@ -86,7 +86,9 @@ class ProjectFingerprintTest(unittest.TestCase):
             self.assertTrue(services["php-fpm"]["build"]["args"]["SETUP_PHP_IMAGE"].endswith(suffixes["php-fpm-core"]))
             labels = services["webserver"]["build"]["labels"]
             self.assertEqual(labels["setup.fingerprint"], suffixes["webserver"])
-            self.assertEqual(services["php-fpm"]["build"]["labels"]["setup.project"], "example")
+            for service in ("php-fpm-core", "php-fpm"):
+                self.assertNotIn("setup.project", services[service]["build"]["labels"],
+                                 "projects with the same build share one image, which a target only tags")
 
 
 class PrunePlanTest(unittest.TestCase):

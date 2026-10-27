@@ -76,7 +76,13 @@ class DeployTest(unittest.TestCase):
             settings={"DEPLOY_PATH": str(self.target), "DEPLOY_CONTEXT": "shop-stage", "DEPLOY_SSH": "", "APP_UID": "1012",
                       "APP_GID": "1013", "PS_VERSION": "9.0.2", "PROFILE": "prestashop"},
             process_env={"HOST_UID": "1012", "HOST_GID": "1013"}, run=lambda args, profiles=None: self.calls.append(args),
-            data_directory=self.root / "data", active_model=lambda: compose_model(self.root))
+            data_directory=self.root / "data", active_model=lambda: compose_model(self.root), name="shop-stage")
+        # Where the containers run from is checked against the target's Docker (test_release); here it is recorded.
+        self.root_checks = []
+        checker = patch("project_release.check_project_root",
+                        lambda project, context, model, path: self.root_checks.append((context, path, sorted(model["services"]))))
+        checker.start()
+        self.addCleanup(checker.stop)
         output = contextlib.redirect_stdout(io.StringIO())
         self.output = output.__enter__()
         self.addCleanup(output.__exit__, None, None, None)
@@ -169,8 +175,19 @@ class DeployTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no commit 'v9'"):
             self.build("v9")
 
+    def test_containers_of_another_project_root_stop_the_deploy_before_anything_changes(self):
+        def foreign(project, context, model, path):
+            raise ValueError("The shop-stage containers on shop-stage run from /home/other/shop/app/public")
+
+        with patch("project_release.check_project_root", foreign), self.assertRaisesRegex(ValueError, "/home/other/shop"):
+            self.deploy(ref="v1", backup=True)
+        self.assertEqual(self.calls, [], "no backup, hook or upgrade in another project's containers")
+        self.assertFalse((self.target / "app/public/index.php").exists(), "no code reached the target")
+
     def test_deploy_updates_code_keeps_server_files_and_rolls_back(self):
         self.deploy(ref="v1", backup=True)
+        self.assertEqual(self.root_checks, [("shop-stage", str(self.target), ["php-fpm"])],
+                         "the release model's containers are checked against DEPLOY_PATH on the target")
         public = self.target / "app/public"
         self.assertEqual((public / "index.php").read_text(), "<?php // v1\n")
         self.assertIn("First deploy: nothing removed", self.output.getvalue())

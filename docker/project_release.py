@@ -6,6 +6,7 @@ setup file. The target is reached through a Docker context (ssh://user@host for 
 model carries env values (passwords), so it is rendered at deploy time and piped, never written.
 """
 
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -214,6 +215,37 @@ def check_ports(project, context, compose_project, model):
                          'another stack); free it first, nothing was started')
 
 
+def check_project_root(project, context, model, deploy_path):
+    """Stop before anything changes when this compose project's containers on the target run from another root.
+
+    Another environment repository with the same PROJECT_NAME on the server names its containers, network and compose
+    project alike: its deploy would replace this one's containers and run its hooks and migrations in them. Only the
+    binds the model places under DEPLOY_PATH are compared, so containers an older setup started are checked too."""
+    ids = subprocess.run(['docker', '--context', context, 'ps', '-aq', '--filter', f'label=com.docker.compose.project={project.name}'],
+                         capture_output=True, text=True).stdout.split()
+    if not ids:
+        return
+    found = subprocess.run(['docker', '--context', context, 'inspect', *ids], capture_output=True, text=True)
+    if found.returncode:
+        return
+    root = deploy_path.rstrip('/')
+    inside = lambda path: path == root or path.startswith(root + '/')
+    foreign = set()
+    for container in json.loads(found.stdout):
+        service = model['services'].get((container.get('Config', {}).get('Labels') or {}).get('com.docker.compose.service', ''))
+        if not service:
+            continue
+        targets = {volume.get('target') for volume in service.get('volumes', [])
+                   if volume.get('type') == 'bind' and inside(volume.get('source', ''))}
+        foreign.update(mount['Source'] for mount in container.get('Mounts') or [] if mount.get('Type') == 'bind'
+                       and mount.get('Destination') in targets and not inside(mount.get('Source', '')))
+    if foreign:
+        raise ValueError(f'The {project.name} containers on {context} run from {", ".join(sorted(foreign))}, outside '
+                         f'DEPLOY_PATH {deploy_path}: another project with the same PROJECT_NAME runs there (give this one '
+                         f'its own PROJECT_NAME in env/common.env), or this project moved (stop the old containers first: '
+                         f'docker --context {context} compose -p {project.name} down). Nothing was changed')
+
+
 def recreate_detached(project, context, compose_project, model):
     """Remove this project's containers that miss one of the networks the model gives them; compose up recreates them.
 
@@ -401,12 +433,53 @@ def image_fingerprint(name, context=None):
         image = json.loads(result.stdout) if result.returncode == 0 else {}
     except ValueError:
         image = {}
+    return inspected_fingerprint(image)
+
+
+def inspected_fingerprint(image):
+    """image_fingerprint of one docker image inspect object."""
     layers = (image.get('RootFS') or {}).get('Layers') or []
     if not layers:
         return ''
     config = image.get('Config') or {}
     return json.dumps({'layers': layers, 'os': image.get('Os'), 'architecture': image.get('Architecture'),
                        'config': {key: config.get(key) or None for key in FINGERPRINT_CONFIG}}, sort_keys=True)
+
+
+def target_builds(context):
+    """{fingerprint: (image ID, a name of it)} of every image the context's Docker holds, named or not."""
+    listed = subprocess.run(['docker', '--context', context, 'image', 'ls', '--quiet', '--no-trunc'],
+                            capture_output=True, text=True)
+    ids = sorted(set(listed.stdout.split())) if listed.returncode == 0 else []
+    if not ids:
+        return {}
+    # An image removed since the listing fails the command; the others are printed all the same.
+    result = subprocess.run(['docker', '--context', context, 'image', 'inspect', *ids], capture_output=True, text=True)
+    try:
+        images = json.loads(result.stdout or '[]')
+    except ValueError:
+        return {}
+    builds = {}
+    for image in images if isinstance(images, list) else ():
+        fingerprint = inspected_fingerprint(image)
+        if fingerprint and image.get('Id'):
+            builds.setdefault(fingerprint, (image['Id'], (image.get('RepoTags') or [image['Id'][:19]])[0]))
+    return builds
+
+
+def tag_present(context, stale, local):
+    """Tag on the context the stale images whose build it holds under another name (a project with the same image
+    build as one already there: the same layers and start configuration); the names that still have to travel."""
+    builds = target_builds(context)
+    sending = []
+    for name in stale:
+        image_id, other = builds.get(local[name]) or (None, None)
+        if image_id and subprocess.run(['docker', '--context', context, 'image', 'tag', image_id, name],
+                                       capture_output=True, text=True).returncode == 0:
+            print(f'==> {name}: the same build is on {context} as {other}; tagged there, not sent', flush=True)
+        else:
+            sending.append(name)
+    return sending
 
 
 def saves_compressed():
@@ -417,11 +490,14 @@ def saves_compressed():
 
 def send_images(context, images):
     """docker save | zstd | docker load of the images the context lacks or holds in another build: a setup update or
-    an image-related change rebuilds one or two of them, the database and tool images stay where they are. The classic
+    an image-related change rebuilds one or two of them, the database and tool images stay where they are, and an
+    image whose build the context holds under another name (another project's) is only tagged there. The classic
     image store saves the layers uncompressed: zstd (when this machine has it) shrinks them about threefold and docker
     load reads it as it is. The containerd store saves them compressed already."""
     local = {name: image_fingerprint(name) for name in images}
     stale = [name for name in images if not local[name] or local[name] != image_fingerprint(name, context)]
+    if stale:
+        stale = tag_present(context, stale, local)
     if not stale:
         print(f'==> Docker context {context} has the {len(images)} images already: nothing to send', flush=True)
         return
@@ -442,6 +518,74 @@ def send_images(context, images):
         raise ValueError(f'Image transfer to {context} failed: {load.stderr.strip()[-300:]}')
 
 
+# A setup image the target has not tagged for a day: another project's deploy may have just sent it and not started it.
+PRUNE_GRACE = timedelta(days=1)
+
+
+def same_docker(context):
+    """Whether the context is this machine's own Docker daemon (a local target, or ssh:// to localhost)."""
+    ids = [subprocess.run(['docker', *command, 'info', '--format', '{{.ID}}'], capture_output=True, text=True)
+           for command in ([], ['--context', context])]
+    return any(result.returncode or not result.stdout.strip() for result in ids) or ids[0].stdout == ids[1].stdout
+
+
+def tagged_at(image):
+    """When the image was last loaded or tagged, None when its Docker does not say."""
+    value = ((image.get('Metadata') or {}).get('LastTagTime') or '')[:19]
+    try:
+        moment = datetime.strptime(value, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return moment if moment.year > 1 else None
+
+
+def prune_target_images(context, now=None):
+    """Remove the setup images on the target that no container there uses, running or stopped, and that nothing has
+    tagged for PRUNE_GRACE: a setup update leaves each project's previous builds behind under their old names, and
+    targets have no make image-prune. A project whose containers have been gone longer gets its images sent again.
+    A target on this machine's own Docker is left alone: its images are the build machine's (other projects' release
+    locks, the build-only PHP parents), which make image-prune looks after."""
+    if same_docker(context):
+        return []
+    docker = ['docker', '--context', context]
+    containers = subprocess.run([*docker, 'ps', '-aq'], capture_output=True, text=True)
+    if containers.returncode:
+        return []
+    used = set()
+    if containers.stdout.split():
+        found = subprocess.run([*docker, 'inspect', *containers.stdout.split()], capture_output=True, text=True)
+        if found.returncode:
+            return []
+        used = {container.get('Image') for container in json.loads(found.stdout)}
+    listed = subprocess.run([*docker, 'image', 'ls', '--no-trunc', '--quiet', '--filter', 'label=setup.managed=1'],
+                            capture_output=True, text=True)
+    ids = sorted(set(listed.stdout.split()) - used) if listed.returncode == 0 else []
+    if not ids:
+        return []
+    found = subprocess.run([*docker, 'image', 'inspect', *ids], capture_output=True, text=True)
+    try:
+        images = json.loads(found.stdout or '[]')
+    except ValueError:
+        return []
+    limit = (now or datetime.now(timezone.utc)) - PRUNE_GRACE
+    removed, count, size = [], 0, 0
+    for image in images if isinstance(images, list) else ():
+        moment = tagged_at(image)
+        if image.get('Id') in used or moment is None or moment > limit:
+            continue
+        # By name, never forced: a container that has just started on one of them keeps it (docker refuses).
+        names = image.get('RepoTags') or [image['Id']]
+        gone = [name for name in names if subprocess.run([*docker, 'image', 'rm', name], capture_output=True,
+                                                         text=True).returncode == 0]
+        removed += gone
+        if len(gone) == len(names):
+            count, size = count + 1, size + (image.get('Size') or 0)
+    if removed:
+        print(f'==> removed {count} setup images no container on {context} uses ({size / 1e9:.1f} GB): '
+              f'{", ".join(removed)}', flush=True)
+    return removed
+
+
 def deploy_images(project, transfer=True):
     """Load the release images into the target's Docker and start the release model there."""
     context, deploy_path = release_settings(project)
@@ -450,11 +594,12 @@ def deploy_images(project, transfer=True):
         raise ValueError(f'Build the release first: make release ENV={project.environment}')
     lock = json.loads((directory / LOCK_NAME).read_text())
     images = sorted(lock['images'])
+    # Rendered now from env (secrets may come from the pipeline's environment) and piped, never stored.
+    model = release_model(project, deploy_path)
+    check_project_root(project, context, model, deploy_path)
     if transfer:
         send_images(context, images)
     print(f'==> starting {lock["project"]} on {context}', flush=True)
-    # Rendered now from env (secrets may come from the pipeline's environment) and piped, never stored.
-    model = release_model(project, deploy_path)
     # The containers mount the environment files from DEPLOY_PATH: they are there before anything starts.
     sync_environment(project, deploy_path, model)
     prepare_runtime_directories(project, model, deploy_path)
@@ -471,5 +616,10 @@ def deploy_images(project, transfer=True):
             reload_proxy(project)
         except ValueError as error:
             print(f'Warning: {error}', flush=True)
+    if transfer:
+        try:
+            prune_target_images(context)
+        except (OSError, ValueError) as error:
+            print(f'Warning: the target\'s unused setup images were not removed ({error})', flush=True)
     publish_release_info(project, deploy_path, images=True)
     return images

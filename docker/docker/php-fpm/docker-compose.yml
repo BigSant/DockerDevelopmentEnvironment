@@ -31,13 +31,14 @@ services:
       - network_app
 
   # CORE project layer (profile overlay, rendered drop-in directories); built before php-fpm.
+  # No project label here or on php-fpm: projects with the same build share one image, which a target that has it
+  # under another project's name only tags (make deploy-images).
   php-fpm-core:
     image: ${PROJECT_NAME}-php-fpm-core-${IMAGE_ENV:-${ENV}}${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
     build:
       labels:
         setup.managed: "1"
         setup.service: php-fpm-core
-        setup.project: ${PROJECT_NAME}
         setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM_CORE:-}
       context: ${ROOT_DIRECTORY}
       dockerfile: ${ROOT_DIRECTORY}/Dockerfile
@@ -75,7 +76,6 @@ services:
       labels:
         setup.managed: "1"
         setup.service: php-fpm
-        setup.project: ${PROJECT_NAME}
         setup.fingerprint: ${SETUP_IMAGE_SUFFIX_PHP_FPM:-}
       # The project Dockerfile (or the CORE pass-through) extends the CORE image only.
       context: ${DOCKERFILE_DIRECTORY}
