@@ -11,9 +11,7 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
-
-## 3.8.0
+## Unreleased (minor)
 
 - **A second project with the same image build reaches a server without sending it.** `make deploy-images` sent an
   image whenever the target had nothing under its name, so each new project on a server shipped its whole PHP image
@@ -31,6 +29,9 @@ change (say how). An empty section still releases a patch.
   left each project's previous builds behind (about 2.4 GB for a PrestaShop PHP image). Once the containers run, the
   setup images that no container on the server uses and that nothing has sent or tagged for a day are removed, by
   name and never forced; other images stay, and so does everything when the target is the build machine's own Docker.
+
+## 3.8.0
+
 - **A tool's own password and setup-server's tool access both log in.** A tool with its own `<TOOL>_HTPASSWD` (a
   project passing its dashboard login to `CRON_HTPASSWD`, say) used to ignore setup-server's users altogether; its
   user file now holds both, the tool's own first, so a name in both keeps the tool's own password. `make tool-access`
