@@ -211,6 +211,159 @@ class ReleaseTest(unittest.TestCase):
         self.assertFalse([call for call in calls if 'save' in call or 'load' in call])
         self.assertIn('has the 3 images already: nothing to send', out.getvalue())
 
+    def test_an_image_the_target_holds_under_another_name_is_tagged_not_sent(self):
+        # Two projects with the same build: the second one's PHP image is the first one's under another name.
+        layers = lambda *ids: {'RootFS': {'Layers': list(ids)}, 'Config': {'Cmd': ['php-fpm']}, 'Os': 'linux',
+                               'Architecture': 'amd64'}
+        here = {'shop-php-fpm-stage-s1': layers('l1', 'l2'), 'mysql-stage-8.4-s2': layers('l3'), 'new:1': layers('l4')}
+        there = {'sha256:other': {**layers('l1', 'l2'), 'Id': 'sha256:other', 'RepoTags': ['forsena-php-fpm-stage-s1']},
+                 'sha256:dangling': {**layers('l3'), 'Id': 'sha256:dangling', 'RepoTags': []}}
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            remote = '--context' in command
+            if command[-2:] == ['{{json .DriverStatus}}']:
+                return subprocess.CompletedProcess(command, 0, '[["Backing Filesystem","extfs"]]', '')
+            if remote and 'ls' in command:
+                return subprocess.CompletedProcess(command, 0, 'sha256:other\nsha256:dangling\nsha256:other\n', '')
+            if 'inspect' in command and '--format' not in command:
+                found = [there[i] for i in command[5:] if i in there]
+                return subprocess.CompletedProcess(command, 0 if len(found) == len(command[5:]) else 1, json.dumps(found), '')
+            if 'inspect' in command:
+                found = None if remote else here.get(command[-1])
+                return subprocess.CompletedProcess(command, 0 if found else 1, json.dumps(found) if found else '', '')
+            return subprocess.CompletedProcess(command, 0, '', '')
+
+        class Stage:
+            stdout = io.BytesIO(b'tar')
+            def __init__(self, command, **kwargs): calls.append(command)
+            def wait(self): return 0
+
+        with patch('project_release.subprocess.run', run), patch('project_release.subprocess.Popen', Stage), \
+                patch('project_release.shutil.which', return_value=None), contextlib.redirect_stdout(io.StringIO()) as out:
+            project_release.send_images('shop-stage', sorted(here))
+        inspected = [call for call in calls if call[3:5] == ['image', 'inspect'] and '--format' not in call]
+        self.assertEqual(inspected[0][5:], ['sha256:dangling', 'sha256:other'], 'each target image is inspected once')
+        self.assertIn(['docker', '--context', 'shop-stage', 'image', 'tag', 'sha256:other', 'shop-php-fpm-stage-s1'], calls)
+        self.assertIn(['docker', '--context', 'shop-stage', 'image', 'tag', 'sha256:dangling', 'mysql-stage-8.4-s2'], calls,
+                      'an image without a name is a build all the same')
+        self.assertIn(['docker', 'save', 'new:1'], calls, 'only the build the target has under no name travels')
+        self.assertIn('shop-php-fpm-stage-s1: the same build is on shop-stage as forsena-php-fpm-stage-s1; tagged there',
+                      out.getvalue())
+        self.assertIn('sending 1 images to Docker context shop-stage (2 there already)', out.getvalue())
+
+        # A tag the target refuses leaves the image to travel, as do images gone from the target since its listing.
+        calls.clear()
+        refuse = lambda command, **kwargs: (subprocess.CompletedProcess(command, 1, '', 'denied') if 'tag' in command
+                                            else run(command, **kwargs))
+        with patch('project_release.subprocess.run', refuse), patch('project_release.subprocess.Popen', Stage), \
+                patch('project_release.shutil.which', return_value=None), contextlib.redirect_stdout(io.StringIO()):
+            project_release.send_images('shop-stage', sorted(here))
+        self.assertIn(['docker', 'save', *sorted(here)], calls)
+        there.clear()
+        calls.clear()
+        with patch('project_release.subprocess.run', run), patch('project_release.subprocess.Popen', Stage), \
+                patch('project_release.shutil.which', return_value=None), contextlib.redirect_stdout(io.StringIO()):
+            project_release.send_images('shop-stage', sorted(here))
+        self.assertFalse([call for call in calls if 'tag' in call])
+        self.assertIn(['docker', 'save', *sorted(here)], calls)
+
+    def test_containers_running_from_another_project_root_stop_the_deploy(self):
+        project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=shop-stage\n')
+        model = release_model(project, '/home/shop/site')
+        code = next(v['target'] for v in model['services']['php-fpm']['volumes']
+                    if v.get('type') == 'bind' and v['source'].startswith('/home/shop/site/'))
+        container = lambda service, *mounts: {'Name': f'/{service}', 'Config': {'Labels': {'com.docker.compose.service': service}},
+                                             'Mounts': [{'Type': 'bind', 'Source': source, 'Destination': target}
+                                                        for source, target in mounts]}
+        running = []
+
+        def run(command, **kwargs):
+            if command[3:5] == ['ps', '-aq']:
+                self.assertIn('label=com.docker.compose.project=release-demo-stage', command)
+                return subprocess.CompletedProcess(command, 0, ''.join(f'{i}\n' for i in range(len(running))), '')
+            if command[3] == 'inspect':
+                return subprocess.CompletedProcess(command, 0, json.dumps(running), '')
+            self.fail(f'nothing else runs: {command}')
+
+        with patch('project_release.subprocess.run', run):
+            project_release.check_project_root(project, 'shop-stage', model, '/home/shop/site')  # nothing there yet
+            running[:] = [container('php-fpm', ('/home/shop/site/app/stage/public', code), ('/proc', '/host/proc')),
+                          container('playwright', ('/elsewhere', code))]
+            # Its own root (binds outside DEPLOY_PATH in the model and services it lacks are not compared).
+            project_release.check_project_root(project, 'shop-stage', model, '/home/shop/site')
+            project_release.check_project_root(project, 'shop-stage', model, '/home/shop/site/')
+            running[0] = container('php-fpm', ('/home/other/site/app/stage/public', code))
+            with self.assertRaisesRegex(ValueError, 'run from /home/other/site/app/stage/public, outside DEPLOY_PATH '
+                                        '/home/shop/site: another project with the same PROJECT_NAME.*compose -p '
+                                        'release-demo-stage down'):
+                project_release.check_project_root(project, 'shop-stage', model, '/home/shop/site')
+            # A sibling directory is not inside DEPLOY_PATH.
+            running[0] = container('php-fpm', ('/home/shop/site2/app/stage/public', code))
+            with self.assertRaisesRegex(ValueError, 'site2'):
+                project_release.check_project_root(project, 'shop-stage', model, '/home/shop/site')
+
+        directory = project_release.release_directory(project)
+        directory.mkdir(parents=True)
+        (directory / 'images.lock.json').write_text(json.dumps({'project': 'release-demo-stage', 'images': {'a:1': 'x'}}))
+        with patch('project_release.check_project_root', side_effect=ValueError('another project')), \
+                patch('project_release.send_images') as sent, patch('project_release.sync_environment') as synced, \
+                self.assertRaisesRegex(ValueError, 'another project'):
+            deploy_images(project)
+        sent.assert_not_called()
+        synced.assert_not_called()
+
+    def test_the_target_loses_the_setup_images_no_container_uses_for_a_day(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc)
+        image = lambda id, tags, tagged, size=10**9: {'Id': id, 'RepoTags': tags, 'Size': size,
+                                                      'Metadata': {'LastTagTime': tagged}}
+        images = {'sha256:running': image('sha256:running', ['shop-php-fpm-stage-snew'], '2026-10-01T00:00:00.5Z'),
+                  'sha256:old': image('sha256:old', ['shop-php-fpm-stage-sold', 'other-php-fpm-stage-sold'],
+                                      '2026-10-20T08:00:00.123456789Z', 2 * 10**9),
+                  'sha256:dangling': image('sha256:dangling', [], '2026-10-25T08:00:00Z'),
+                  'sha256:fresh': image('sha256:fresh', ['mysql-stage-8.4-snew'], '2026-10-27T09:00:00Z'),
+                  'sha256:unknown': image('sha256:unknown', ['pma-stage-5.2-sold'], '0001-01-01T00:00:00Z'),
+                  'sha256:refused': image('sha256:refused', ['mailpit-stage-1-sold'], '2026-10-01T00:00:00Z')}
+        daemons = {'local': 'build-machine', 'remote': 'presta8'}
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            remote = '--context' in command
+            if command[-1] == '{{.ID}}':
+                return subprocess.CompletedProcess(command, 0, daemons['remote' if remote else 'local'] + '\n', '')
+            if command[3:] == ['ps', '-aq']:
+                return subprocess.CompletedProcess(command, 0, 'c1\nc2\n', '')
+            if command[3] == 'inspect':
+                return subprocess.CompletedProcess(command, 0, json.dumps([{'Image': 'sha256:running'}, {'Image': 'sha256:gone'}]), '')
+            if command[3:5] == ['image', 'ls']:
+                self.assertIn('label=setup.managed=1', command, 'only setup images, never the server\'s own')
+                return subprocess.CompletedProcess(command, 0, '\n'.join(images) + '\n', '')
+            if command[3:5] == ['image', 'inspect']:
+                self.assertNotIn('sha256:running', command)
+                return subprocess.CompletedProcess(command, 0, json.dumps([images[i] for i in command[5:]]), '')
+            if command[3:5] == ['image', 'rm']:
+                self.assertNotIn('-f', command, 'never forced: a container started meanwhile keeps its image')
+                return subprocess.CompletedProcess(command, 1 if 'mailpit' in command[-1] else 0, '', '')
+            self.fail(f'unexpected {command}')
+
+        with patch('project_release.subprocess.run', run), contextlib.redirect_stdout(io.StringIO()) as out:
+            removed = project_release.prune_target_images('presta8-stage', now=now)
+        self.assertEqual(removed, ['sha256:dangling', 'shop-php-fpm-stage-sold', 'other-php-fpm-stage-sold'],
+                         'every name of an old build goes; an untagged one goes by its ID')
+        # Used, tagged within the day or at an unknown time: not tried. Refused by Docker: kept, and not counted.
+        self.assertEqual([call[-1] for call in calls if call[3:5] == ['image', 'rm']],
+                         ['sha256:dangling', 'shop-php-fpm-stage-sold', 'other-php-fpm-stage-sold', 'mailpit-stage-1-sold'])
+        self.assertIn('removed 2 setup images no container on presta8-stage uses (3.0 GB): sha256:dangling, ', out.getvalue())
+        # A target on this machine's own Docker keeps the build machine's images.
+        daemons['remote'] = 'build-machine'
+        calls.clear()
+        with patch('project_release.subprocess.run', run):
+            self.assertEqual(project_release.prune_target_images('default', now=now), [])
+        self.assertEqual([call[-3:] for call in calls], [['info', '--format', '{{.ID}}']] * 2)
+
     def test_release_stops_when_an_image_cannot_be_had(self):
         project = self.external_project()
         lock_file = project_release.release_directory(project) / 'images.lock.json'
@@ -252,7 +405,9 @@ class ReleaseTest(unittest.TestCase):
         # The dashboard's release card: the images have just started on DEPLOY_PATH.
         published.assert_called_once_with(project, '/home/shop/site', images=True)
         # Neither Docker knows the images (the inspections find nothing): both travel.
-        calls = [call for call in calls if 'inspect' not in call and 'info' not in call and call[0] != 'zstd']
+        calls = [call for call in calls if not {'inspect', 'info', 'ls'} & set(call) and call[0] != 'zstd']
+        self.assertEqual(calls.pop(0)[3:], ['ps', '-aq', '--filter', 'label=com.docker.compose.project=release-demo-stage'],
+                         'where the containers run from is checked before anything travels')
         self.assertEqual(calls[0], ['docker', 'save', 'a:1', 'b:1'])
         self.assertEqual(calls[1], ['docker', '--context', 'shop-stage', 'load'])
         self.assertEqual(calls[2], ['prepare', '/home/shop/site'], 'the directories exist before the containers start')

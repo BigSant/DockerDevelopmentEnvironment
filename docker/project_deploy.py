@@ -330,8 +330,10 @@ def newer(candidate, current):
 
 
 def deploy_code(project, ref=None, backup=False, rollback=False):
-    from project_release import release_settings
-    _, deploy_path = release_settings(project)
+    from project_release import check_project_root, release_model, release_settings
+    context, deploy_path = release_settings(project)
+    # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
+    check_project_root(project, context, release_model(project, deploy_path), deploy_path)
     php_reload(project)  # a bad value stops the deploy before anything changes
     entries = history(project)
     if rollback:

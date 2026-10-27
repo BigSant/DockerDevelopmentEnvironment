@@ -13,6 +13,22 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased (minor)
 
+- **A second project with the same image build reaches a server without sending it.** `make deploy-images` sent an
+  image whenever the target had nothing under its name, so each new project on a server shipped its whole PHP image
+  (about 2.4 GB for PrestaShop) although an identical one ran there for another project. It now looks for the image's
+  layers and start configuration among all the target's images and, when they are there, only tags them with the new
+  name. The PHP images no longer carry the `setup.project` label, which made otherwise identical builds differ (nothing
+  read it): the next `make release` rebuilds them from the build cache, with the same layers.
+- **A deploy stops when the server's containers of its name belong to another project.** Containers, network and
+  compose project are named after `PROJECT_NAME` and the environment, so an environment repository copied as the start
+  of a new project and deployed to the same server without a new `PROJECT_NAME` replaced the first project's
+  containers, and `make deploy` ran its hooks and migrations in them. `make deploy-images` and `make deploy` now
+  compare the paths those containers mount with `DEPLOY_PATH` and stop before changing anything when they lie
+  elsewhere; the message says how to rename the project or stop the old containers of a project that moved.
+- **`make deploy-images` clears the server's unused setup images.** Servers had no image prune, so every setup update
+  left each project's previous builds behind (about 2.4 GB for a PrestaShop PHP image). Once the containers run, the
+  setup images that no container on the server uses and that nothing has sent or tagged for a day are removed, by
+  name and never forced; other images stay, and so does everything when the target is the build machine's own Docker.
 - **A tool's own password and setup-server's tool access both log in.** A tool with its own `<TOOL>_HTPASSWD` (a
   project passing its dashboard login to `CRON_HTPASSWD`, say) used to ignore setup-server's users altogether; its
   user file now holds both, the tool's own first, so a name in both keeps the tool's own password. `make tool-access`

@@ -395,7 +395,14 @@ installed). A release keeps no host path except the read-only `/proc` of the met
 Docker socket of its network-less collectors (named volumes, such as its HTTP log volume, pass through unchanged).
 `make deploy-images` streams the images the target lacks with `docker save` into `DEPLOY_CONTEXT` and starts
 the release model there. An image is the target's already when its layers and start configuration match (its ID would
-not: the classic and the containerd image store name images differently); a classic-store build machine compresses the
+not: the classic and the containerd image store name images differently). An image whose build the target holds under
+another name (another project with the same PHP build: the PHP images carry no project label) is tagged there, not
+sent. Before anything travels, `make deploy-images` (and `make deploy`, whose hooks run in those containers) stops when
+the target's containers of the compose project `<PROJECT_NAME>-<env>` bind their project paths from outside
+`DEPLOY_PATH`: another environment repository with the same `PROJECT_NAME` would replace them. Once the model runs,
+it removes the target's `setup.managed` images that no container there uses and nothing loaded or tagged for a day
+(by name, never forced; none when the context is this machine's own daemon, whose images `make image-prune` keeps). A
+classic-store build machine compresses the
 stream with `zstd`, a containerd-store one saves compressed layers already. The model is rendered at deploy time and piped, never stored, because it
 holds env secrets; it maps project paths to `DEPLOY_PATH` and contains no setup path. External images of
 active services (no `build`, e.g. `getmeili/meilisearch` from a project compose file) are pulled when
