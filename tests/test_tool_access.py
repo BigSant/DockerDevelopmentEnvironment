@@ -65,14 +65,23 @@ class ProxyRulesTest(unittest.TestCase):
         self.assertEqual(read('metrics'), 'allow 192.0.2.5;\nallow 198.51.100.7;\nallow 203.0.113.10;\ndeny all;\n')
         self.assertEqual(read('dbmonitor'), read('pma'))
 
-    def test_server_users_guard_the_password_tools_without_their_own(self):
+    def test_server_users_guard_the_password_tools_beside_their_own(self):
         (self.server / 'users.htpasswd').write_text(USERS)
-        result, read = self.rules(ALLOWED_IPS='198.51.100.7', CRON_HTPASSWD='ops:$apr1$x$y', PROXY_TOOLS='search')
+        result, read = self.rules(ALLOWED_IPS='198.51.100.7', CRON_HTPASSWD='ops:$apr1$x$y ana:$apr1$own$pass',
+                                  PROXY_TOOLS='search')
         self.assertEqual(result.returncode, 0, result.stderr)
         users = self.server / 'users.htpasswd'
         for name in ('pma', 'mailpit', 'backup', 'metrics', 'search'):
             self.assertEqual(read(name), f'allow 198.51.100.7;\ndeny all;\nauth_basic "{name}";\nauth_basic_user_file {users};\n', name)
-        self.assertIn(str(self.output / 'access/cron.htpasswd'), read('cron'), "a tool's own users win")
+        joined = self.output / 'access/cron.htpasswd'
+        self.assertIn(f'auth_basic_user_file {joined};', read('cron'))
+        self.assertEqual(joined.read_text(), 'ops:$apr1$x$y\nana:$apr1$own$pass\ntomas:$6$salt$sha512.crypt.hash\n',
+                         "either login opens it; a name in both keeps the tool's own password")
+        self.assertEqual(stat.S_IMODE(joined.stat().st_mode), 0o644)
+        # A revocation reaches the joined file with the next run (make tool-access), the tool's own users stay.
+        (self.server / 'users.htpasswd').write_text('')
+        self.assertEqual(self.rules(ALLOWED_IPS='198.51.100.7', CRON_HTPASSWD='ops:$apr1$x$y')[0].returncode, 0)
+        self.assertEqual(joined.read_text(), 'ops:$apr1$x$y\n')
         self.assertNotIn('auth_basic', read('dbmonitor'), 'its bearer token takes the Authorization header')
         self.assertNotIn('auth_basic', read('site'))
 

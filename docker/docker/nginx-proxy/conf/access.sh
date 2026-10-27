@@ -12,9 +12,9 @@
 # PROXY_TOOLS: a project's own nginx-proxy sites (config/nginx-proxy/), which include
 # /etc/nginx/setup-access/<name>.conf like setup's tools do.
 # setup-server's tool access (data/<env>/tool-access, mounted at /etc/nginx/tool-access; make tool-access): its
-# allowed-ips join every tool's list (never the site's), its users.htpasswd guards every password tool that has no
-# <NAME>_HTPASSWD of its own. nginx reads a user file on each request; make tool-access runs this script again and
-# reloads nginx for a changed list.
+# allowed-ips join every tool's list (never the site's), its users.htpasswd guards every password tool, beside the
+# users of the tool's own <NAME>_HTPASSWD when it has one: either login opens it. nginx reads a user file on each
+# request; make tool-access runs this script again (a joined file takes the new users) and reloads nginx.
 set -euo pipefail
 
 output="${SETUP_ACCESS_DIR:-/etc/nginx/setup-access}"
@@ -88,8 +88,19 @@ for name in $setup_names $project_names; do
         list="$(printf '%s\n%s\n' "$list" "$server_list" | awk 'NF && !seen[$0]++')"
     fi
     file=""
-    [[ "$password_names" != *" $name "* ]] || file="$(users "$name")"
-    [[ -n "$file" || "$password_names" != *" $name "* ]] || file="$server_users"
+    if [[ "$password_names" == *" $name "* ]]; then
+        file="$(users "$name")"
+        if [[ -z "$file" ]]; then
+            file="$server_users"
+        elif [[ -n "$server_users" ]]; then
+            # The tool's own users, then setup-server's: nginx checks the first line of a name only, so a name in
+            # both keeps the tool's own password.
+            awk -F: 'NR == FNR { seen[$1] = 1; print; next } NF && $1 !~ /^#/ && !seen[$1]++' \
+                "$file" "$server_users" > "$file.tmp"
+            chmod 0644 "$file.tmp"
+            mv -f "$file.tmp" "$file"
+        fi
+    fi
     {
         if [[ -n "$list" ]]; then
             printf 'allow %s;\n' $list
