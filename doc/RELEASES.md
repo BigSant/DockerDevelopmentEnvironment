@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.8.0
 
 - **A second project with the same image build reaches a server without sending it.** `make deploy-images` sent an
   image whenever the target had nothing under its name, so each new project on a server shipped its whole PHP image
