@@ -286,10 +286,12 @@ class DeployTest(unittest.TestCase):
         self.assertEqual((public / "themes/shop/local/notes.txt").read_text(), "server\n", "project paths add to the PS list")
 
 
-    def test_module_translations_and_exports_are_server_content_and_language_packs_are_code(self):
+    def test_translations_language_packs_and_exports_are_server_content_and_mails_are_code(self):
+        # Language packs are written on the server too: installing or updating a pack in the back office, and translation
+        # modules (ets_translate) that add their units to translations/<locale>/*.xlf.
         content = ("modules/shop/translations/lt.php", "themes/shop/modules/shop/translations/lt.php",
-                   "translations/export/lt.zip")
-        self.commit("v2", {**{name: "repo\n" for name in content}, "translations/lt-LT/Admin.xlf": "pack v2\n"})
+                   "translations/export/lt.zip", "translations/lt-LT/Admin.xlf")
+        self.commit("v2", {**{name: "repo\n" for name in content}, "mails/lt/order.html": "mail v2\n"})
         public = self.target / "app/public"
         for name in content:
             (public / name).parent.mkdir(parents=True, exist_ok=True)
@@ -297,12 +299,12 @@ class DeployTest(unittest.TestCase):
         self.deploy(ref="v2")
         for name in content:
             self.assertEqual((public / name).read_text(), "edited in the back office\n", f"{name} is never overwritten")
-        self.assertEqual((public / "translations/lt-LT/Admin.xlf").read_text(), "pack v2\n", "a language pack is code")
-        self.commit("v3", {"index.php": "<?php // v3\n"}, removed=[*content, "translations/lt-LT/Admin.xlf"])
+        self.assertEqual((public / "mails/lt/order.html").read_text(), "mail v2\n", "a mail template is code")
+        self.commit("v3", {"index.php": "<?php // v3\n"}, removed=[*content, "mails/lt/order.html"])
         self.deploy(ref="v3")
         for name in content:
             self.assertTrue((public / name).is_file(), f"untracking {name} deletes nothing on the server")
-        self.assertFalse((public / "translations/lt-LT/Admin.xlf").exists(), "a dropped language pack file leaves with the code")
+        self.assertFalse((public / "mails/lt/order.html").exists(), "a dropped mail template leaves with the code")
 
 
 class GenericDeployTest(unittest.TestCase):

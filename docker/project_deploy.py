@@ -34,7 +34,10 @@ PRESTASHOP_WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/
                        '/app/config/parameters.php', '/config/settings.inc.php',
                        '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
                        '/modules/*/var/', '/modules/*/translations/', '/themes/*/modules/*/translations/',
-                       '/translations/export/', '/.htaccess', '/robots.txt', '/sitemap*.xml')
+                       '/translations/*-*/', '/translations/export/', '/.htaccess', '/robots.txt', '/sitemap*.xml')
+# The PrestaShop content files backups always copy: the translations the back office and translation modules write on
+# the server, which the shop repository does not hold; BACKUP_FILE_PATHS adds a project's own.
+PRESTASHOP_BACKUP_FILES = ('/modules/*/translations/', '/themes/*/modules/*/translations/', '/translations/*-*/')
 # Checkouts and tool folders, never part of a release, for every profile.
 TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
 PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
@@ -60,6 +63,12 @@ def protected_paths(project):
     """Paths of the code tree a deploy never overwrites or deletes: the profile's, the tools', the project's."""
     return [*(PRESTASHOP_WRITABLE if is_prestashop(project) else ()), *TOOL_PATHS,
             *code_tree_patterns(project, 'DEPLOY_PROTECTED_PATHS')]
+
+
+def backup_file_patterns(project):
+    """The code tree paths files backups copy: the profile's, then BACKUP_FILE_PATHS (rsync patterns, as code_tree_patterns)."""
+    patterns = [*(PRESTASHOP_BACKUP_FILES if is_prestashop(project) else ()), *code_tree_patterns(project, 'BACKUP_FILE_PATHS')]
+    return list(dict.fromkeys(patterns))
 
 
 def deploy_directory(project):
