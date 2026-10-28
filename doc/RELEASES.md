@@ -13,6 +13,10 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+- **The shop .gitignore rules are written down.** `doc/lt/06-aplikacija.md` "Parduotuvės .gitignore" and ADR 2 say
+  how a PrestaShop shop's .gitignore is written (one, at the root, explicit paths in five groups), what is code and
+  what is server content, and how to change it safely while a server still deploys by `git checkout`.
+
 ## 5.2.0
 
 - **A deploy clears the application cache only when it changes what the cache holds.** `make deploy cache=auto`

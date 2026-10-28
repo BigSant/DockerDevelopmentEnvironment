@@ -119,6 +119,58 @@ Pakeitus `PS_RELEASE` ar `PS_VERSION`, paleisk `make setup`.
 
 Jei projektas keičia branduolio priklausomybes, jo `composer.json` ir `composer.lock` laikomi aplinkos repozitorijoje `config/composer/`. `make setup` juos nukopijuoja į parduotuvę ir paleidžia `composer install` (stage/prod – be dev paketų). Tada release `vendor/` nekopijuojamas, net jei jis nurodytas `PS_RELEASE_PATHS`.
 
+## Parduotuvės .gitignore
+
+Parduotuvės repozitorija laiko **kodą**, ir tik jį. Viskas, ką git ignoruoja, priklauso vienai iš kelių grupių ir yra
+išvardinta aiškiu keliu nuo parduotuvės šaknies. Viskas kita sekama. Sprendimai ir jų priežastys:
+[ADR 2](../adr/0002-the-shop-repository-holds-code-only.md).
+
+**Taisyklės**
+
+- **Vienas `.gitignore`, šaknyje.** Modulių ir temų `.gitignore` (jų autorių) nelaikomi: jų taisyklės perkeliamos į
+  šaknies failą, keliais nuo šaknies (`data/*.xml` faile `modules/x/.gitignore` → `/modules/x/data/*.xml`), tai, ką
+  šaknies failas jau dengia, išmetama. Savo `.gitignore` palieka tik composer paketai `vendor/` kataloguose. Tai
+  tikrina commit hook'as ([F skyrius](08-kodo-kokybe.md#f-patikros-prieš-commitą-ir-pushą-git-hookai)).
+- **Jokių taisyklių pagal plėtinį ar katalogo vardą bet kur** (`*.png`, `*.svg`, `cache/`, `log/`, `.htaccess`,
+  `composer.lock`, `tests`, `vendor/`, `bin/*`): jos tyliai paslepia modulių kodą. Leidžiamos tik įrankių būsenos
+  taisyklės, kurios bet kur reiškia tą patį (`.idea/`, `.vscode/`, `node_modules/`, `.phpunit.result.cache`,
+  `.DS_Store`, `.asana-memory-session`).
+- **Komentarai paprasti, po vieną eilutę**, prasideda grupės numeriu: `# 3. Content: …`, `# 5c. PrestaRock modules:
+  content (as group 3)`. Taisyklė, kuri dėl eilės stovi kitos grupės viduje, gauna savo grupės komentarą.
+- **Grupės:**
+
+| Grupė | Kas | Pavyzdžiai |
+| --- | --- | --- |
+| 1. Release | Nepakeistas PS branduolys iš release'o: `PS_RELEASE_PATHS` ir šaknies `composer.json`/`composer.lock` | `/vendor/`, `/bin/`, `/docs/`, `/translations/cldr/`, `/translations/default/`, `/config/defines.inc.php`, `/themes/classic/`, admin katalogas (`PS_ADMIN_DIR`) |
+| 2. Generated | Ką rašo setup, PrestaShop ar build'as | `/app/config/parameters.php`, `/.htaccess`, `/robots.txt`, `/*sitemap*.xml`, `/var/`, `/config/themes/`, `/config/xml/*.xml`, `/modules/*/config*.xml`, `/modules/*/logs/`, temos build'o rezultatas (`/themes/x/assets/js/`, `/themes/x/assets/css/`) |
+| 3. Content | LIVE failai, kurių deploy'us neliečia | `/img/`, `/upload/`, `/download/`, `/cache/` (apsaugas `index.php`/`.htaccess` atneša setup iš release'o), `/invoices/`, `/translations/*-*/` (kalbų paketai), `/translations/export/`, `/modules/*/translations/`, `/modules/*/cache/`, `/modules/*/var/` |
+| 4. Tools | Redaktorių, AI ir build įrankių būsena | `.idea/`, `.vscode/`, `.claude/`, `node_modules/`, `.phpunit.result.cache`, `/deploy/` |
+| 5. Atskiri moduliai | Vieno modulio keliai, sugrupuoti pagal kūrėją: PrestaShop (5a), trečiųjų šalių, PrestaRock; kiekvienoje – generated ir content | `/modules/ps_banner/img/`, `/modules/prpigu/data/pigu_product_export.xml`, `/modules/prproductlogistics/config/credentials.json` |
+
+**Kas yra kodas (sekama):** modulių `vendor/` (įskaitant `psr/log`, `psr/cache`), testai ir jų fixture'ai, laiškų
+šablonai `mails/` (ir modulių bei temos `mails/`), modulių `composer.lock`, modulių katalogų apsaugos (`.htaccess`,
+`index.php`, kurių joks release neatneša, pvz. `modules/prvarlefeed/var/.htaccess`), temų ir modulių paveikslėliai bei
+šriftai, `override/`, `admin-api/`, `js/`, `pdf/`.
+
+**Kas ne kodas, nors atrodo:** modulių `config.xml` ir `config_<iso>.xml` (juos rašo PrestaShop,
+`Module::_generateConfigXml()`), kalbų paketai `translations/<locale>/` (rašo paketų diegimas BO ir vertimo moduliai,
+pvz. `ets_translate`), build'o rezultatas (`assets/`, `views/js/front/` – jį kuria
+[`config/deploy/build.sh`](13-php-ir-build-irankiai.md) kiekviename release'e), modulio paslaptys
+(`config/credentials.json`).
+
+**Kai keiti `.gitignore`**
+
+1. Sąrašą, ką pakeitimas atidengia ar paslepia, pasitikrink su LIVE kopija (pvz. FTP), ne tik su lokaliu medžiu:
+   lokali kopija dažnai senesnė (pvz. LIVE kalbų paketai turėjo 44 failais daugiau). `git status --ignored` prieš ir po
+   pakeitimo turi skirtis tik tuo, ką norėjai pakeisti.
+2. Failą, kuris jau sekamas, `.gitignore` neišima: jis lieka sekamas. Išimti – `git rm --cached` (diske lieka).
+3. **Kol serveris kodą gauna kitaip nei setup deploy'umi** (pvz. webhook'as `git checkout -f master`), `git rm --cached`
+   po merge'o **ištrina tą failą serveryje**. Setup deploy'us saugomų kelių netrina niekada, todėl tokius pakeitimus
+   merge'ink tik serveriui perėjus į setup deploy'ų. Tas pats su naujai sekamais failais: `checkout -f` perrašo
+   serverio kopiją repo versija, todėl prieš merge'ą palygink juos su LIVE (hash'ais).
+4. Failas, kurio niekas negeneruoja ir neatneša (modulio apsauga, testas), iš git neišimamas, net jei taisyklė jį laiko
+   ignoruotinu: pataisyk taisyklę (`/modules/*/var/*` + `!/modules/*/var/.htaccess`, ne `/modules/*/var/`).
+
 ## Papildomi PS parametrai
 
 Situacija: tavo modulis skaito `supplier_api_url` iš PS parametrų.
