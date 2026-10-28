@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 3.10.0
 
 - **The release's files reach the protected paths.** A deploy never wrote `img/`, `cache/` and the other protected
   paths, so a new server got neither the release's guards there (`cache/.htaccess` denying the compiled templates,
