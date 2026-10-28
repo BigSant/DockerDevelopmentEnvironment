@@ -11,7 +11,16 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (major)
+
+- **A PrestaShop shop keeps one .gitignore, at its root.** A module author's own .gitignore silently hid shop files the
+  shop's .gitignore means to track (module `vendor/` parts, tests, mail templates, images). `make setup` and
+  `make git-hooks` now give a PrestaShop shop a pre-commit check: its own repository (`app/public/.git`) gets a
+  pre-commit of its own, a shop folder of the environment repository a part of that one's. A commit that would hold
+  another .gitignore (tracked, or new and not ignored; `vendor/` packages keep theirs) stops with the list and what to
+  do. **Shops with such files must change:** merge their rules into the root .gitignore, anchored at the shop root,
+  drop the ones it covers and the ones that hide code, and `git rm` the files (`git commit --no-verify` skips the
+  check once).
 
 ## 4.0.0
 

@@ -327,6 +327,9 @@ fingerprint is outdated; it removes only with `apply=1`.
   self-contained programs and run through `project.run`.
 - `database/schema/`: one normalised `CREATE TABLE` per table plus a manifest; the pre-commit hook
   (`make schema-hook-install`) exports it, stops the commit on change and drafts a guarded migration.
+  Before it, a PrestaShop shop's pre-commit runs `gitignore_check.py`: a .gitignore other than the shop root's
+  (vendor/ packages excepted) stops the commit with what to merge; a shop with a repository of its own gets a
+  pre-commit there with that check alone (`git_hooks.shop_gitignore`).
   It only warns when the DB is unreachable. With one database the files are flat; with
   `DATABASE_EXTRA_SCHEMAS` every schema has its own directory (`<DATABASE_NAME>/`, `<schema>/`; the
   manifest names an extra schema's table `schema.table`). Only the export picks the layout (a change is a

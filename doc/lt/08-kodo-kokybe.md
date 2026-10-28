@@ -204,7 +204,7 @@ kataloge, o setup'o hook'as jas tik paleidžia:
 
 | Hook'as | Ką paleidžia |
 | --- | --- |
-| `pre-commit` | Setup'o schemos patikrą ([DB kaip kodas](07-duomenu-baze.md#b-schema-git-ir-commit-hookas)), tada `bin/pre-commit`. Nepraėjus schemai projekto scriptas nepaleidžiamas. |
+| `pre-commit` | PrestaShop parduotuvės vieno `.gitignore` patikrą (žr. žemiau), setup'o schemos patikrą ([DB kaip kodas](07-duomenu-baze.md#b-schema-git-ir-commit-hookas)), tada `bin/pre-commit`. Nepraėjus patikrai projekto scriptas nepaleidžiamas. |
 | `pre-push` | `bin/pre-push`. Git jam perduoda remote'o vardą ir adresą argumentais, o push'inamas šakas – įvestimi (`<vietinė šaka> <sha> <remote šaka> <sha>`). |
 
 - Scriptas turi būti vykdomas (`chmod +x`). Jo išėjimo kodas sustabdo commit'ą ar push'ą.
@@ -214,6 +214,16 @@ kataloge, o setup'o hook'as jas tik paleidžia:
 - Kieno nors kito hook'o, symlink'o ar `core.hooksPath` tvarkyklės setup neliečia: praneša ir palieka. Setup'o
   hook'ą atpažįsta iš žymės `# Shared setup git hook v1` (ir senesnio schemos hook'o) ir perrašo.
 - Kartą praleisti: `git commit --no-verify`, push'o atveju – ta pati `--no-verify` parinktis.
+
+**Vienas parduotuvės `.gitignore` (PrestaShop).** Modulio autoriaus `.gitignore` tyliai paslepia failus, kuriuos
+parduotuvės `.gitignore` nori sekti (modulio `vendor/`, testus, laiškus, paveikslėlius). Todėl visos taisyklės laikomos
+parduotuvės šaknies `.gitignore`, keliais nuo šaknies, o commit'as, kuriame būtų dar vienas `.gitignore`, sustoja su
+sąrašu ir nurodymu: taisykles apjungti į šaknies `.gitignore` (`data/*.xml` faile `modules/x/.gitignore` →
+`/modules/x/data/*.xml`), sutvarkyti (išmesti tai, ką šaknies failas jau dengia, ir taisykles, slepiančias kodą), tada
+failus pašalinti (`git rm`). Savo `.gitignore` palieka tik composer paketai `vendor/` kataloguose. Tikrinama tai, kas
+būtų repozitorijoje: sekami ir nauji, neignoruojami `.gitignore`. Kai parduotuvė turi savo repozitoriją
+(`app/public/.git`), setup jai įrašo atskirą `pre-commit` (tik ši patikra); kai ji yra aplinkos repozitorijos
+katalogas, patikra eina aplinkos `pre-commit` su keliu (pvz. `public/`). Generic profilis netikrinamas.
 
 Pavyzdys: projektas, kurio push'as į `master` deploy'ina, `bin/pre-push` faile paleidžia testus tik tokiam push'ui:
 
