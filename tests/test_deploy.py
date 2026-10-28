@@ -20,7 +20,7 @@ from fake_database import FakeDatabase
 import project_deploy
 from project_deploy import (build_code, code_rsync_options, deploy_code, module_pull, module_versions, newer,
                             protected_paths, upgrade_modules)
-from project_target import SshTarget
+from project_target import LocalTarget, SshTarget
 
 
 def git(directory, *args):
@@ -104,6 +104,32 @@ class DeployTest(unittest.TestCase):
                 patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
                 patch("project_deploy.upgrade_modules", lambda project, release: self.calls.append(["upgrade"])):
             return deploy_code(self.project, **options)
+
+    def test_release_files_reach_the_protected_paths_the_code_rsync_leaves_out(self):
+        release, target = self.root / "release", self.root / "server"
+        for name, text in {"cache/.htaccess": "Deny from all\n", "cache/index.php": "release\n", "img/index.php": "release\n",
+                           "img/c/index.php": "release\n", "img/admin/add.gif": "new\n", "img/admin/new.gif": "new\n",
+                           "upload/index.php": "release\n", "vendor/autoload.php": "code\n"}.items():
+            (release / name).parent.mkdir(parents=True, exist_ok=True)
+            (release / name).write_text(text)
+        for name, text in {"cache/index.php": "server\n", "img/c/10.jpg": "content\n", "img/admin/add.gif": "old\n",
+                           "img/admin/server-only.gif": "kept\n"}.items():
+            (target / name).parent.mkdir(parents=True, exist_ok=True)
+            (target / name).write_text(text)
+        self.project.settings.update({"PS_RELEASE": "on", "PS_RELEASE_PATHS": "admin vendor img/admin"})
+        self.assertEqual(project_deploy.protected_release_files(self.project, release),
+                         [("img", False), ("upload", False), ("cache", False), ("img/admin", True)],
+                         "the directories the release has, then its own paths inside them; admin and vendor travel as code")
+        project_deploy.push_protected_release_files(self.project, release, LocalTarget(), str(target))
+        self.assertEqual((target / "cache/.htaccess").read_text(), "Deny from all\n", "a missing guard arrives")
+        self.assertEqual((target / "cache/index.php").read_text(), "server\n", "a file the target has stays")
+        self.assertEqual((target / "img/c/10.jpg").read_text(), "content\n")
+        self.assertEqual((target / "img/c/index.php").read_text(), "release\n")
+        self.assertEqual((target / "img/admin/add.gif").read_text(), "new\n", "a release path follows the release")
+        self.assertEqual((target / "img/admin/server-only.gif").read_text(), "kept\n", "never --delete")
+        self.assertFalse((target / "vendor").exists())
+        self.project.settings["PS_RELEASE"] = ""
+        self.assertEqual(project_deploy.protected_release_files(self.project, release), [], "no release, nothing to send")
 
     def test_rsync_spares_writable_paths_and_target_only_modules(self):
         command = code_rsync_options(protected_paths(self.project) + ["/modules/serveronly/"])
