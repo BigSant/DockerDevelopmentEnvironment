@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.1.0
 
 - **A release's build steps run as this machine's user.** `composer install`, the `PS_RELEASE_PATHS` copies and
   `config/deploy/build.sh` ran in the release image as `APP_UID`, the hosting account on the server, while the release
