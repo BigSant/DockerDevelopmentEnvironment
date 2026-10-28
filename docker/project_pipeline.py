@@ -32,6 +32,8 @@ images yet, when setup moved since they were built, or when the commits from the
 one touch what the images or the containers are made of; a rollback stays code-only. CRON (default auto:
 when those commits touch config/cron/) runs make cron-reload after the deploy, because the running cron
 container reads its crontab only at start and nothing above recreates it for a changed mounted file.
+CACHE (default auto) goes to make deploy, which clears the application cache when the deploy changes what it
+holds (cache_needed); yes always, no never.
 A failure returns the checkout and env file to the previously live commit, unless this run already
 restarted the containers on the new images: then nothing is undone and the step prints the way back.
 """
@@ -55,9 +57,9 @@ RESERVED_PREFIXES = ('GITHUB_', 'RUNNER_', 'ACTIONS_')
 ENVIRONMENT_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 # One ref variable; the per-layout names of the former project scripts keep working.
 REF_VARIABLES = ('REF', 'APP_REF', 'SHOP_REF')
-SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('ROLLBACK', 'no'), ('BACKUP', 'no'))
-# Switches the step can decide itself from the commits it deploys.
-AUTO_SWITCHES = ('IMAGES', 'CRON')
+SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('CACHE', 'auto'), ('ROLLBACK', 'no'), ('BACKUP', 'no'))
+# Switches that take auto: the step decides IMAGES and CRON from the commits it deploys, make deploy decides CACHE.
+AUTO_SWITCHES = ('IMAGES', 'CRON', 'CACHE')
 # What the images and containers are made of, in the environment repository: IMAGES=auto rebuilds when the
 # deployed commits touch it (env/<env>.env.example is added per environment). config/ is mounted, but Apache,
 # nginx and the PHP startup read it at container start; config/cron/ is left to CRON (make cron-reload), and
@@ -419,9 +421,9 @@ def run_step(step, environ, provider, deployment, ref, switches):
             step.make('deploy-images', *(['transfer=0'] if step.same_host else []))
         state['deploy'] = True
         if rollback:
-            step.make('deploy', 'rollback=1')
+            step.make('deploy', 'rollback=1', f'cache={switches["CACHE"]}')
         else:
-            step.make('deploy', f'ref={ref}', f'backup={1 if switches["BACKUP"] == "yes" else 0}')
+            step.make('deploy', f'ref={ref}', f'backup={1 if switches["BACKUP"] == "yes" else 0}', f'cache={switches["CACHE"]}')
         state['restore'] = False
         if not step.separate:
             # Setup decides what it deployed; the checkout follows it if the two ever disagree.

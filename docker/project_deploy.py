@@ -39,6 +39,13 @@ PRESTASHOP_WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/
 # The PrestaShop content files backups always copy: the translations the back office and translation modules write on
 # the server, which the shop repository does not hold; BACKUP_FILE_PATHS adds a project's own.
 PRESTASHOP_BACKUP_FILES = ('/modules/*/translations/', '/themes/*/modules/*/translations/', '/translations/*-*/')
+# What makes PrestaShop's application cache (var/cache: the Symfony container and routes, Twig, the translation
+# catalogue) stale when a deploy changes it: cache=auto clears it then only. DEPLOY_CACHE_CLEAR_PATHS adds a
+# project's own (gitignore-like: a name without / matches at any depth). An override only when one is added or
+# removed: the class index lists the override files, a changed one is read as it is.
+PRESTASHOP_CACHE_PATHS = ('*.yml', '*.yaml', '*.xlf', '*.twig')
+PRESTASHOP_CACHE_ADDED_PATHS = ('override/',)
+CACHE_VALUES = ('auto', 'yes', 'no')
 # Checkouts and tool folders, never part of a release, for every profile.
 TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
 PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
@@ -288,6 +295,66 @@ def after_rsync(project):
     return True
 
 
+def cache_patterns(project):
+    """The code tree paths whose change makes a deploy clear the application cache (cache=auto)."""
+    return [*(PRESTASHOP_CACHE_PATHS if is_prestashop(project) else ()),
+            *(project.settings.get('DEPLOY_CACHE_CLEAR_PATHS') or '').split()]
+
+
+def cache_path_matches(name, pattern):
+    """A code tree path against a DEPLOY_CACHE_CLEAR_PATHS pattern: dir/ covers what is under it, a name without /
+    matches at any depth (*.yml), any other is anchored at the code root (config/*.php)."""
+    from fnmatch import fnmatchcase
+    pattern = pattern.lstrip('/')
+    if pattern.endswith('/'):
+        return name.startswith(pattern)
+    if '/' not in pattern:
+        return fnmatchcase(name.rsplit('/', 1)[-1], pattern)
+    return fnmatchcase(name, pattern)
+
+
+def changed_code(project, previous, commit):
+    """{code tree path: A, D or M} of what the shop commits between two deployed ones change (a rename is a D and an
+    A); None when Git cannot compare them."""
+    result = subprocess.run(['git', '-C', str(shop_checkout(project)), 'diff', '--name-status', '--no-renames',
+                             '--relative', '-z', previous, commit], capture_output=True)
+    if result.returncode:
+        return None
+    fields = result.stdout.decode(errors='replace').split('\0')
+    return {fields[index + 1]: fields[index][0] for index in range(0, len(fields) - 1, 2) if fields[index]}
+
+
+def cache_needed(project, entries, commit, rollback=False, translations=()):
+    """cache=auto: (yes or no, the reason) — whether this deploy changes what the application cache holds. A module
+    upgrade is no reason: the team runs those and clears the cache with them (cache=yes)."""
+    if rollback:
+        return True, 'a rollback'
+    if not entries:
+        return True, 'the first deploy'
+    previous = entries[-1]
+    if previous.get('failed'):
+        return True, f'the previous deploy ({previous["commit"][:12]}) failed'
+    if translations:
+        return True, f'translation migrations applied: {" ".join(translations)}'
+    if is_prestashop(project) and previous.get('ps_version') != project.settings.get('PS_VERSION'):
+        return True, (f'PrestaShop {previous["ps_version"]} -> {project.settings.get("PS_VERSION")}'
+                      if previous.get('ps_version') else 'the previous deploy recorded no PrestaShop version')
+    patterns = cache_patterns(project)
+    added = PRESTASHOP_CACHE_ADDED_PATHS if is_prestashop(project) else ()
+    if not patterns:
+        return True, 'no DEPLOY_CACHE_CLEAR_PATHS: every deploy clears the cache'
+    changed = changed_code(project, previous['commit'], commit)
+    if changed is None:
+        return True, f'the shop repository cannot compare {previous["commit"][:12]} with {commit[:12]}'
+    matched = [name for name, status in changed.items()
+               if any(cache_path_matches(name, pattern) for pattern in patterns)
+               or (status in 'AD' and any(cache_path_matches(name, pattern) for pattern in added))]
+    if matched:
+        more = f' (+{len(matched) - 5} more)' if len(matched) > 5 else ''
+        return True, f'changed since {previous["commit"][:12]}: {" ".join(matched[:5])}{more}'
+    return False, f'nothing cache-related changed since {previous["commit"][:12]}'
+
+
 def clear_cache(project):
     if is_prestashop(project):
         project.run(['exec', '-T', 'php-fpm', 'php', '/opt/setup/runtime/prestashop-command.php', 'cache-clear'])
@@ -378,8 +445,10 @@ def newer(candidate, current):
         return candidate != current
 
 
-def deploy_code(project, ref=None, backup=False, rollback=False):
+def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
     from project_release import check_project_root, release_model, release_settings
+    if cache not in CACHE_VALUES:
+        raise ValueError(f'cache must be auto, yes or no, not {cache!r}')
     context, deploy_path = release_settings(project)
     # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
     check_project_root(project, context, release_model(project, deploy_path), deploy_path)
@@ -455,7 +524,18 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
     if project.settings.get('SCHEMA_DIRECTORY'):
         from database_schema import schema_report
         schema_report(project)
-    clear_cache(project)
+    if cache == 'auto':
+        clear, reason = cache_needed(project, entries, commit, rollback, entry.get('translations') or [])
+        print(f"==> CACHE=auto: {'yes' if clear else 'no'} ({reason})", flush=True)
+    else:
+        clear = cache == 'yes'
+        if not clear:
+            print('==> CACHE=no: the application cache is left as it is', flush=True)
+    if clear:
+        clear_cache(project)
+    entry['cache'] = clear
+    if prestashop:
+        entry['ps_version'] = project.settings.get('PS_VERSION')
     reload_php(project)
     record(project, entry)
     from project_release import publish_release_info

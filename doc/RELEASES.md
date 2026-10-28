@@ -11,7 +11,16 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **A deploy clears the application cache only when it changes what the cache holds.** `make deploy cache=auto`
+  (the default, and the pipelines' new `CACHE` variable; `yes` always, `no` never) clears it after a rollback, a first
+  deploy or a failed previous one, applied translation migrations, another `PS_VERSION`, or shop commits since the
+  last deploy that touch `*.yml`, `*.yaml`, `*.xlf` or `*.twig`, add or remove an `override/` file (a changed one
+  needs no clear), or match the new `DEPLOY_CACHE_CLEAR_PATHS`; the step log says why. A PrestaShop deploy cleared
+  `var/cache` every time before, so the first requests after each deploy rebuilt it. Module upgrades are no reason:
+  the team runs them and deploys with `cache=yes` when needed. A generic project without `DEPLOY_CACHE_CLEAR_PATHS`
+  clears every time, as before. A pipeline copied from the templates gets the variable by adding it there.
 
 ## 5.1.0
 

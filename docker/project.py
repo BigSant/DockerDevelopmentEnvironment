@@ -414,6 +414,8 @@ def main():
     parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
     parser.add_argument('--release-ref', help='deploy: shop tag or commit to deploy')
     parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
+    parser.add_argument('--deploy-cache', default='auto', choices=('auto', 'yes', 'no'),
+                        help='deploy: clear the application cache (auto = when the deploy changes what it holds)')
     parser.add_argument('--name', help='module-pull: module directory name; migration-draft, translations-migration: file name after the time '
                         '(default schema)')
     parser.add_argument('--refresh-test', action='store_true', help='Stop and refresh the isolated test application checkout')
@@ -555,7 +557,7 @@ def main():
             deploy_images(project, transfer=not args.no_transfer)
         elif args.action == "deploy":
             from project_deploy import deploy_code
-            deploy_code(project, args.release_ref, backup=args.backup, rollback=args.rollback)
+            deploy_code(project, args.release_ref, backup=args.backup, rollback=args.rollback, cache=args.deploy_cache)
         elif args.action == "cron-reload":
             from project_deploy import reload_cron
             reload_cron(project)

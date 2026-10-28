@@ -192,29 +192,29 @@ class OneRepositoryTest(Fixture):
         self.assert_root("A")
 
         self.run_step(0, REF=c["A"])
-        self.assert_log(f"make deploy ENV=prod ref={c['A']} backup=0 | head=A config=A env=A")
+        self.assert_log(f"make deploy ENV=prod ref={c['A']} backup=0 cache=auto | head=A config=A env=A")
         env = parse_dotenv((self.app / "env/prod.env").read_text())
         self.assertEqual((env["APP_UID"], env["APP_GID"]), (str(os.getuid()), str(os.getgid())))
         self.run_step(0, APP_REF=c["B"])
         self.assert_log("head=B config=B env=B")
         self.run_step(0, BACKUP="yes")
-        self.assert_log(f"make deploy ENV=prod ref={c['C']} backup=1 | head=C config=C env=C")
+        self.assert_log(f"make deploy ENV=prod ref={c['C']} backup=1 cache=auto | head=C config=C env=C")
         self.assert_root("C")
 
         # rollback runs the previous release with its own config
         self.run_step(0, ROLLBACK="yes")
-        self.assert_log("make deploy ENV=prod rollback=1 | head=B config=B env=B")
+        self.assert_log("make deploy ENV=prod rollback=1 cache=auto | head=B config=B env=B")
         self.assert_root("B")
 
         # failed after the rsync: the config returns to the live commit
         self.run_step(3, FAIL="after-rsync")
-        self.assert_log(f"make deploy ENV=prod ref={c['C']} backup=0 | head=C config=C env=C")
+        self.assert_log(f"make deploy ENV=prod ref={c['C']} backup=0 cache=auto | head=C config=C env=C")
         self.assert_out("back at the previously live commit")
         self.assert_root("B")
 
         # rollback after a failed deploy returns to the last completed release
         self.run_step(0, ROLLBACK="yes")
-        self.assert_log("rollback=1 | head=B config=B env=B")
+        self.assert_log("rollback=1 cache=auto | head=B config=B env=B")
         self.assert_root("B")
 
         # failed before the rsync (nothing recorded)
@@ -253,7 +253,7 @@ class OneRepositoryTest(Fixture):
         warning = next(line for line in self.output.splitlines() if line.startswith("Warning: empty Deployment variables"))
         self.assertEqual(warning.rsplit(":", 1)[1].split(),
                          ["DATABASE_MONITOR_PASSWORD", "METRICS_HTPASSWD", "HTPASSWD_BUILDER", "ERP_API_KEY", "GRAFANA_TOKEN", "GRAFANA_BASE_URL"])
-        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0 | head=C config=C env=C")
+        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0 cache=auto | head=C config=C env=C")
         every = {name: "set-VALUE" for name in deployment_variables(self.app, "prod")}
         self.run_step(0, **every)
         self.assertNotIn("Warning", self.output)
@@ -333,7 +333,7 @@ class OneRepositoryTest(Fixture):
         self.assert_out("ENV=stage does not match the Bitbucket deployment environment production")
         # A deployment environment with another name needs ENV.
         self.run_step(0, environment="prod", BITBUCKET_DEPLOYMENT_ENVIRONMENT="production-eu")
-        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0")
+        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0 cache=auto")
         self.assert_root("C")
 
 
@@ -371,16 +371,16 @@ class SeparateCodeRepositoryTest(Fixture):
         self.run_step(0, SHOP_REF="v1", IMAGES="yes")
         self.assert_log("make release ENV=prod | head=E2 config=E2 env=E2")
         self.assert_log("make deploy-images ENV=prod | head=E2")
-        self.assert_log("make deploy ENV=prod ref=v1 backup=0 | head=E2 config=E2 env=E2")
+        self.assert_log("make deploy ENV=prod ref=v1 backup=0 cache=auto | head=E2 config=E2 env=E2")
         self.assert_root("E2")
         # The example names the hosting account; nothing is added for a remote target.
         self.assertEqual((self.app / "env/prod.env").read_text(), (self.app / "env/prod.env.example").read_text())
         self.assertEqual(git(self.app / "public", "rev-parse", "HEAD"), self.shop["V1"])
 
         self.run_step(0, REF="v2")
-        self.assert_log("make deploy ENV=prod ref=v2 backup=0")
+        self.assert_log("make deploy ENV=prod ref=v2 backup=0 cache=auto")
         self.run_step(0, ROLLBACK="yes")
-        self.assert_log("make deploy ENV=prod rollback=1 | head=E2")
+        self.assert_log("make deploy ENV=prod rollback=1 cache=auto | head=E2")
         history = json.loads((self.app / ".generated/release/prod/deployments.json").read_text())
         self.assertEqual(history[-1]["commit"], self.shop["V1"])
 
@@ -446,7 +446,7 @@ class GitHubOneRepositoryTest(GitHub, OneRepositoryTest):
         self.run_step(64, environment="stage")
         self.assert_out("ENV=stage does not match the GitHub deployment environment production")
         self.run_step(0, environment="prod", DEPLOY_ENVIRONMENT="Production-EU")
-        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0")
+        self.assert_log(f"make deploy ENV=prod ref={self.commits['C']} backup=0 cache=auto")
         # GitHub's environment names are matched without case, as Bitbucket's.
         self.run_step(0, DEPLOY_ENVIRONMENT="Production")
         self.assert_root("C")
@@ -497,11 +497,11 @@ class GitHubSeparateCodeRepositoryTest(GitHub, SeparateCodeRepositoryTest):
         self.assert_root("E1")
         self.secrets["PS_SECRET"] = "PS_SECRET-VALUE"
         self.run_step(0, SHOP_REF="v1", IMAGES="yes")
-        self.assert_log("make deploy ENV=prod ref=v1 backup=0 | head=E2 config=E2 env=E2")
+        self.assert_log("make deploy ENV=prod ref=v1 backup=0 cache=auto | head=E2 config=E2 env=E2")
         self.assert_root("E2")
         self.run_step(0, SHOP_REF="v2")
         self.run_step(0, ROLLBACK="yes", REF="")
-        self.assert_log("make deploy ENV=prod rollback=1 | head=E2")
+        self.assert_log("make deploy ENV=prod rollback=1 cache=auto | head=E2")
 
 
 class ExtraEnvironmentTest(Fixture):
@@ -528,7 +528,7 @@ class ExtraEnvironmentTest(Fixture):
 
     def test_the_deployment_environment_of_its_own_name_deploys_that_environment(self):
         self.run_step(0, REF=self.commits["A"])
-        self.assert_log(f"make deploy ENV=mdv ref={self.commits['A']} backup=0 | head=A config=A env=A")
+        self.assert_log(f"make deploy ENV=mdv ref={self.commits['A']} backup=0 cache=auto | head=A config=A env=A")
         self.assertTrue((self.app / "env/mdv.env").is_file())
         self.assertTrue((self.app / ".generated/release/mdv/deployments.json").is_file())
         self.run_step(64, REF=self.commits["B"])
@@ -644,7 +644,7 @@ class AutoSwitchTest(Fixture):
         self.write_lock()
         self.run_step(0, IMAGES="auto", ROLLBACK="yes")
         self.assertNotIn("make release", self.make_log(), "a rollback stays code-only")
-        self.assert_log("make deploy ENV=prod rollback=1")
+        self.assert_log("make deploy ENV=prod rollback=1 cache=auto")
 
     def test_cron_auto_reloads_after_the_deploy_when_the_crontab_changed(self):
         c = self.commits
@@ -654,7 +654,7 @@ class AutoSwitchTest(Fixture):
         self.run_step(0, REF=c["C"])
         self.assert_out(f"CRON=auto: yes (changed since {c['B'][:12]}: config/cron/crontab)")
         self.assertEqual([line.split(" |")[0] for line in self.make_log().splitlines()],
-                         [f"make deploy ENV=prod ref={c['C']} backup=0", "make cron-reload ENV=prod"],
+                         [f"make deploy ENV=prod ref={c['C']} backup=0 cache=auto", "make cron-reload ENV=prod"],
                          "after the deploy, on the deployed checkout")
         self.assert_log("make cron-reload ENV=prod | head=C")
         # a rollback over a crontab change reloads too
@@ -681,7 +681,7 @@ class TemplateTest(unittest.TestCase):
         model = yaml.safe_load((ROOT / "templates/pipelines/bitbucket-pipelines.yml").read_text())
         for name, deployment in (("deploy-stage", "Staging"), ("deploy-production", "Production")):
             variables, step = model["pipelines"]["custom"][name]
-            self.assertEqual([v["name"] for v in variables["variables"]], ["REF", "IMAGES", "CRON", "ROLLBACK", "BACKUP"])
+            self.assertEqual([v["name"] for v in variables["variables"]], ["REF", "IMAGES", "CRON", "CACHE", "ROLLBACK", "BACKUP"])
             self.assertEqual(step["step"]["deployment"], deployment)
             self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["step"]["script"])
             self.assertIn("self.hosted", step["step"]["runs-on"])
@@ -695,7 +695,7 @@ class TemplateTest(unittest.TestCase):
         from project_pipeline import SECRETS_JSON, VARIABLES_JSON
         model = yaml.safe_load((ROOT / "templates/pipelines/github-deploy.yml").read_text())
         inputs = model[True]["workflow_dispatch"]["inputs"]  # YAML 1.1 reads the key on as true
-        self.assertEqual(list(inputs), ["environment", "ref", "images", "cron", "rollback", "backup"])
+        self.assertEqual(list(inputs), ["environment", "ref", "images", "cron", "cache", "rollback", "backup"])
         self.assertEqual(inputs["environment"]["options"], list(DEPLOYMENT_ENVIRONMENTS))
         for name, options, default in (("images", ["auto", "no", "yes"], "auto"), ("cron", ["auto", "no", "yes"], "auto"),
                                        ("rollback", ["no", "yes"], "no"), ("backup", ["no", "yes"], "no")):
@@ -709,7 +709,8 @@ class TemplateTest(unittest.TestCase):
         [step] = job["steps"]
         self.assertEqual(step["env"], {
             "DEPLOY_ENVIRONMENT": "${{ inputs.environment }}", "REF": "${{ inputs.ref }}",
-            "IMAGES": "${{ inputs.images }}", "CRON": "${{ inputs.cron }}", "ROLLBACK": "${{ inputs.rollback }}", "BACKUP": "${{ inputs.backup }}",
+            "IMAGES": "${{ inputs.images }}", "CRON": "${{ inputs.cron }}", "CACHE": "${{ inputs.cache }}",
+            "ROLLBACK": "${{ inputs.rollback }}", "BACKUP": "${{ inputs.backup }}",
             "BUILD_ROOT": "${{ vars.BUILD_ROOT }}", SECRETS_JSON: "${{ toJSON(secrets) }}",
             VARIABLES_JSON: "${{ toJSON(vars) }}"})
         self.assertIn('make -C "$BUILD_ROOT/app" pipeline-deploy', step["run"])

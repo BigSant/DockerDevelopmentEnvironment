@@ -210,6 +210,64 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(self.calls, [], "no backup, hook or upgrade in another project's containers")
         self.assertFalse((self.target / "app/public/index.php").exists(), "no code reached the target")
 
+    def test_cache_auto_clears_only_when_the_deploy_changes_what_the_cache_holds(self):
+        cleared = lambda: ["exec", "-T", "php-fpm", "php", "/opt/setup/runtime/prestashop-command.php", "cache-clear"] in self.calls
+        self.deploy(ref="v1")
+        self.assertTrue(cleared(), "the first deploy clears")
+        self.assertIn("CACHE=auto: yes (the first deploy)", self.output.getvalue())
+        steps = [
+            ("v2", {"index.php": "<?php // v2\n"}, (), False, "nothing cache-related changed"),
+            ("v3", {"modules/shop/config/services.yml": "services: {}\n"}, (), True, "modules/shop/config/services.yml"),
+            ("v4", {"themes/t/templates/a.twig": "x\n"}, (), True, "themes/t/templates/a.twig"),
+            ("v5", {"modules/shop/translations/lt-LT/Shop.lt-LT.xlf": "<xliff/>\n"}, (), True, ".xlf"),
+            ("v6", {"override/classes/Cart.php": "<?php // new\n"}, (), True, "override/classes/Cart.php"),
+            ("v7", {"override/classes/Cart.php": "<?php // changed\n"}, (), False, "nothing cache-related changed"),
+            ("v8", {"index.php": "<?php // v8\n"}, ("override/classes/Cart.php",), True, "override/classes/Cart.php"),
+        ]
+        for tag, files, removed, expected, reason in steps:
+            with self.subTest(tag=tag):
+                self.commit(tag, files, removed=removed)
+                self.calls.clear()
+                self.output.truncate(0)
+                self.output.seek(0)
+                self.deploy(ref=tag)
+                self.assertEqual(cleared(), expected, self.output.getvalue())
+                self.assertIn(f"CACHE=auto: {'yes' if expected else 'no'} (", self.output.getvalue())
+                self.assertIn(reason, self.output.getvalue())
+                self.assertEqual(project_deploy.history(self.project)[-1]["cache"], expected)
+        # A project's own paths; cache=yes and cache=no whatever changed.
+        self.project.settings["DEPLOY_CACHE_CLEAR_PATHS"] = "config/*.php"
+        self.commit("v9", {"config/local.php": "<?php\n"})
+        self.calls.clear()
+        self.deploy(ref="v9")
+        self.assertTrue(cleared())
+        self.commit("v10", {"modules/shop/config/routes.yml": "x: {}\n"})
+        self.calls.clear()
+        self.deploy(ref="v10", cache="no")
+        self.assertFalse(cleared(), "cache=no leaves it")
+        self.assertIn("CACHE=no", self.output.getvalue())
+        self.commit("v11", {"index.php": "<?php // v11\n"})
+        self.calls.clear()
+        self.deploy(ref="v11", cache="yes")
+        self.assertTrue(cleared(), "cache=yes clears it")
+        with self.assertRaisesRegex(ValueError, "cache must be auto, yes or no"):
+            self.deploy(ref="v11", cache="maybe")
+
+    def test_cache_auto_reasons_beyond_the_code(self):
+        entries = [{"commit": "a" * 40, "ps_version": "9.0.2"}]
+        needed = lambda **options: project_deploy.cache_needed(self.project, options.pop("entries", entries), "b" * 40, **options)
+        self.assertEqual(needed(rollback=True), (True, "a rollback"))
+        self.assertEqual(needed(entries=[{**entries[0], "failed": "after-rsync"}])[0], True)
+        self.assertEqual(needed(translations=["20261028-a.json"]), (True, "translation migrations applied: 20261028-a.json"))
+        self.project.settings["PS_VERSION"] = "9.1.4"
+        self.assertEqual(needed(), (True, "PrestaShop 9.0.2 -> 9.1.4"))
+        self.assertEqual(needed(entries=[{"commit": "a" * 40}]), (True, "the previous deploy recorded no PrestaShop version"))
+        self.project.settings["PS_VERSION"] = "9.0.2"
+        self.assertTrue(needed()[1].startswith("the shop repository cannot compare"), "unknown commits clear, to be safe")
+        self.project.settings["PROFILE"] = ""
+        self.assertEqual(needed(), (True, "no DEPLOY_CACHE_CLEAR_PATHS: every deploy clears the cache"),
+                         "a generic project without paths clears as before")
+
     def test_deploy_updates_code_keeps_server_files_and_rolls_back(self):
         self.deploy(ref="v1", backup=True)
         self.assertEqual(self.root_checks, [("shop-stage", str(self.target), ["php-fpm"])],

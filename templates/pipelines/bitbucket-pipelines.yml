@@ -39,6 +39,10 @@ pipelines:
           description: Reload the crontab in the running cron container after the deploy (auto = when config/cron changed)
           default: "auto"
           allowed-values: ["auto", "no", "yes"]
+        - name: CACHE
+          description: Clear the application cache after the deploy (auto = when the deploy changes what it holds)
+          default: "auto"
+          allowed-values: ["auto", "no", "yes"]
         - name: ROLLBACK
           default: "no"
           allowed-values: ["no", "yes"]

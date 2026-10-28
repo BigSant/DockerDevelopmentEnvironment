@@ -72,6 +72,8 @@ services:
       PHPSTAN_BASELINE_FILE: ${PHPSTAN_BASELINE_FILE-}
       PLAYWRIGHT_COMMAND: ${PLAYWRIGHT_COMMAND-npx playwright test}
       CACHE_CLEAR_COMMAND: ${CACHE_CLEAR_COMMAND-}
+      # Code tree paths whose change makes a deploy clear the application cache (cache=auto), besides the profile's.
+      DEPLOY_CACHE_CLEAR_PATHS: ${DEPLOY_CACHE_CLEAR_PATHS-}
       PROFILES: ${COMPOSE_PROFILES-}
       SERVICES: ${SERVICES-}
       ALLOWED_IPS: ${ALLOWED_IPS-}
