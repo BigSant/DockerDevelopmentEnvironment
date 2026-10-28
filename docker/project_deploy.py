@@ -167,17 +167,43 @@ def write_manifest(project, release, commit):
     return files
 
 
+def is_protected(patterns, name):
+    """Whether a code tree path (relative) is one of the protected paths or inside one."""
+    from fnmatch import fnmatch
+    return any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*') for pattern in patterns)
+
+
 def removed_files(project, previous, current):
     """Files of the previously deployed release that the new one no longer ships (never protected paths)."""
-    from fnmatch import fnmatch
     if not previous or not manifest_path(project, previous).is_file():
         return []
     before = set(manifest_path(project, previous).read_text().split('\n')) - {''}
     after = set(manifest_path(project, current).read_text().split('\n')) - {''}
     patterns = protected_paths(project)
-    protected = lambda name: any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*')
-                                 for pattern in patterns)
-    return sorted(name for name in before - after if not protected(name))
+    return sorted(name for name in before - after if not is_protected(patterns, name))
+
+
+def protected_release_files(project, release):
+    """(directory, overwrite) of the release copy's PrestaShop release files inside protected paths, which the code rsync
+    leaves out: a PS_RELEASE_PATHS entry there (img/admin) is the release's and follows it, a protected directory gets
+    only the files the target lacks (cache/.htaccess, the index.php guards), never one the target has."""
+    if not is_prestashop(project) or project.settings.get('PS_RELEASE') != 'on':
+        return []
+    from project_application import seeded_directories
+    patterns = protected_paths(project)
+    seeded = [(directory, False) for directory in seeded_directories() if (release / directory).is_dir()]
+    paths = (project.settings.get('PS_RELEASE_PATHS') or '').split()
+    followed = [(path, True) for path in paths if path != 'admin' and is_protected(patterns, path) and (release / path).is_dir()]
+    return seeded + followed
+
+
+def push_protected_release_files(project, release, target, path):
+    """Send the release files the code rsync leaves out of the protected paths; parents first, the target keeps the rest."""
+    for directory, overwrite in protected_release_files(project, release):
+        print(f'==> release files in {directory}/ ' + ('(the release\'s own)' if overwrite else '(only those the target lacks)'),
+              flush=True)
+        target.push(f'{release}/{directory}/', f'{path}/{directory}/', '-a', '--human-readable',
+                    *(['--checksum'] if overwrite else ['--ignore-existing']))
 
 
 def _run_hook(project, release, hook):
@@ -368,6 +394,7 @@ def deploy_code(project, ref=None, backup=False, rollback=False):
         backup_file = backup_database(project, registry=True)
     print(f'==> rsync {release} -> {target.label}{path}', flush=True)
     target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
+    push_protected_release_files(project, release, target, path)
     if not manifest_path(project, commit).is_file():
         write_manifest(project, release, commit)
     removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)

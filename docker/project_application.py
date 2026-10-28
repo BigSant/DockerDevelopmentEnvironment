@@ -40,7 +40,25 @@ def plan_application(project):
         commands.append(f'test -e {source} || {{ echo "Release has no {path}" >&2; exit 1; }}; '
                         f'rm -rf {destination} && mkdir -p "$(dirname {destination})" && '
                         f'cp -R --preserve=mode,timestamps {source} {destination} && echo "Release: {path} -> {target}"')
+    if settings['PS_RELEASE'] == 'on':
+        commands += [seed_command(version, directory) for directory in seeded_directories()]
     return commands, composer
+
+
+def seeded_directories():
+    """The protected directories (setup's PrestaShop writable paths without a wildcard) that take the files the release
+    ships there and the shop lacks: cache/.htaccess, the index.php guards, img/ defaults. The shop writes the rest."""
+    from project_deploy import PRESTASHOP_WRITABLE
+    return [path.strip('/') for path in PRESTASHOP_WRITABLE if path.endswith('/') and '*' not in path]
+
+
+def seed_command(version, directory, releases='/opt/prestashop/release', shop='/var/www/html'):
+    """Copy the release's files of one directory that the shop lacks; an existing file, the shop's, is never replaced.
+    tar --skip-old-files rather than cp -n, whose exit status differs between coreutils versions."""
+    source = shlex.quote(f'{releases}/{version}/{directory}')
+    destination = shlex.quote(f'{shop}/{directory}')
+    return (f'if [ -d {source} ]; then mkdir -p {destination} && tar -C {source} -cf - . | '
+            f'tar -C {destination} --skip-old-files -xf - && echo "Release: missing files of {directory}/ added"; fi')
 
 
 def tracked_files(web_directory, relative):

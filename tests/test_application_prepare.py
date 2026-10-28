@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'docker')]
 from create_project import scaffold
 from project import Project
-from project_application import plan_application, prepare_application
+from project_application import plan_application, prepare_application, seed_command, seeded_directories
 
 
 class ApplicationPrepareTest(unittest.TestCase):
@@ -43,7 +43,7 @@ class ApplicationPrepareTest(unittest.TestCase):
         self.common('PS_RELEASE=on\nPS_RELEASE_PATHS=vendor admin\nPS_ADMIN_DIR=admin123\n')
         commands, composer = plan_application(Project(self.app))
         self.assertFalse(composer)
-        self.assertEqual(len(commands), 2)
+        self.assertEqual(len(commands), 2 + len(seeded_directories()), 'the listed paths, then the protected directories')
         self.assertIn('/opt/prestashop/release/9.0.2/vendor /var/www/html/vendor', commands[0])
         self.assertIn('/opt/prestashop/release/9.0.2/admin /var/www/html/admin123', commands[1])
         self.assertIn('rm -rf /var/www/html/admin123', commands[1])
@@ -55,11 +55,12 @@ class ApplicationPrepareTest(unittest.TestCase):
         (self.app / 'config/composer/composer.lock').write_text('{}\n')
         project = Project(self.app)
         commands, composer = plan_application(project)
-        self.assertEqual((commands, composer), ([], True))
+        self.assertTrue(composer)
+        self.assertFalse([command for command in commands if 'release/9.0.2/vendor ' in command], 'composer.lock defines vendor/')
         with patch.object(Project, 'run') as run, contextlib.redirect_stdout(io.StringIO()):
             prepare_application(project)
         self.assertEqual((self.app / 'public/composer.lock').read_text(), '{}\n')
-        run.assert_called_once()
+        self.assertEqual(run.call_count, 2, 'the release files of the protected directories, then composer')
         self.assertEqual(run.call_args.args[0][:7], ['run', '--rm', '--no-deps', '--entrypoint', 'composer', 'php-fpm', 'install'])
         self.assertNotIn('--no-dev', run.call_args.args[0])
 
@@ -81,6 +82,31 @@ class ApplicationPrepareTest(unittest.TestCase):
         subprocess.run(['git', '-C', str(web), 'add', 'classes/Tools.php'], check=True)
         with self.assertRaisesRegex(ValueError, 'tracked by the shop repository'):
             plan_application(Project(self.app))
+
+    def test_protected_directories_take_only_the_release_files_the_shop_lacks(self):
+        self.assertEqual(seeded_directories(), ['var', 'img', 'upload', 'download', 'cache', 'config/themes',
+                                                'app/Resources/translations', 'translations/export'])
+        self.assertEqual(plan_application(Project(self.app)), ([], False), 'PS_RELEASE off: nothing from a release')
+        self.common('PS_RELEASE=on\n')
+        commands, _ = plan_application(Project(self.app))
+        self.assertEqual(commands, [seed_command('9.0.2', directory) for directory in seeded_directories()])
+        self.assertIn('--skip-old-files', commands[0])
+        # The command itself: the release's missing files arrive, the shop's own stay, no release directory is no error.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, text in {'release/9.0.2/cache/.htaccess': 'Deny from all\n', 'release/9.0.2/cache/index.php': 'release\n',
+                               'release/9.0.2/cache/smarty/compile/index.php': 'release\n', 'shop/cache/index.php': 'shop\n',
+                               'shop/cache/smarty/compile/page.tpl.php': 'compiled\n'}.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text)
+            for name in ('cache', 'upload'):
+                subprocess.run(['sh', '-c', seed_command('9.0.2', name, root / 'release', root / 'shop')], check=True,
+                               capture_output=True)
+            self.assertEqual((root / 'shop/cache/.htaccess').read_text(), 'Deny from all\n')
+            self.assertEqual((root / 'shop/cache/index.php').read_text(), 'shop\n', 'a file the shop has is never replaced')
+            self.assertEqual((root / 'shop/cache/smarty/compile/index.php').read_text(), 'release\n')
+            self.assertEqual((root / 'shop/cache/smarty/compile/page.tpl.php').read_text(), 'compiled\n')
+            self.assertFalse((root / 'shop/upload').exists(), 'a directory the release lacks is left alone')
 
     def test_paths_require_release_on(self):
         self.common('PS_RELEASE_PATHS=vendor\n')

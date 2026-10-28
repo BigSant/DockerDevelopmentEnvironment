@@ -11,7 +11,15 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **The release's files reach the protected paths.** A deploy never wrote `img/`, `cache/` and the other protected
+  paths, so a new server got neither the release's guards there (`cache/.htaccess` denying the compiled templates,
+  the `index.php` files) nor a `PS_RELEASE_PATHS` entry inside one (`img/admin`, `img/flags`, `img/jquery-ui`);
+  locally nothing filled a missing guard either, and shops tracked them in git for it. `make setup` now copies the
+  release files a protected directory lacks and never replaces one; a deploy sends the same files the target lacks
+  and the release paths inside protected paths in full, without `--delete`. A shop repository can ignore these
+  directories whole.
 
 ## 3.9.0
 

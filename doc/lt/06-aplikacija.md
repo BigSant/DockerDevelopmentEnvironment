@@ -109,6 +109,7 @@ PS_RELEASE_PATHS=vendor
 - `PS_RELEASE=on` kuriant PHP image'ą įdeda `PS_VERSION` release į `/opt/prestashop/release/<versija>`. PS 1.7+ release imamas iš oficialaus `prestashop/prestashop` image'o, PS 1.6 – iš GitHub zip (`PS_RELEASE_SHA256` gali užfiksuoti jo kontrolinę sumą). Release'as paruošiamas atskirame build etape ir į image'ą įdedamas vienu sluoksniu (apie 0,5 GB).
 - `make setup` žingsnis `app-prepare` nukopijuoja **tik** `PS_RELEASE_PATHS` katalogus. Kiekvienas katalogas sinchronizuojamas pilnai: senas turinys pašalinamas ir nukopijuojamas release turinys.
 - `admin` kopijuojant pervadinamas į `PS_ADMIN_DIR`, jei jis nurodytas.
+- Saugomi katalogai (`var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, `app/Resources/translations/`, `translations/export/`) iš release'o gauna **tik trūkstamus** failus: `cache/.htaccess`, apsauginius `index.php`, numatytuosius `img/` failus. Esamas failas niekada neperrašomas, todėl turinys ir runtime failai lieka. Parduotuvės repo šių failų laikyti nereikia.
 - `install/` niekada nekopijuojamas. Katalogas, kuriame yra parduotuvės Git sekamų failų, atmetamas: release niekada neperrašo sekamo kodo.
 - Kopijuojama tik `make setup` metu lokaliai ir build serveryje ruošiant deploy'aus release'ą, niekada konteinerio starto metu. Todėl pašalinti moduliai „neprisikelia“, o `install/` negrįžta.
 

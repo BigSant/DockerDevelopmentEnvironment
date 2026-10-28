@@ -410,7 +410,10 @@ missing and locked (`images` + `external` digests) so `docker save` ships them; 
 that is not on the build machine stops before writing the lock.
 `make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
 `config/deploy/build.sh` with `HOME`/npm/Composer caches in `/tmp`), backs up the target DB by registry,
-rsyncs without `--delete`, removes only files the previous release shipped and never a protected path,
+rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
+directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of
+them; `make setup` fills the same directories locally with `tar --skip-old-files`), removes only files the
+previous release shipped and never a protected path,
 runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy and records
 it as `failed`, so later removals and `rollback=1` follow the code the target really holds),
 upgrades changed modules, runs setup migrations when the project has them, reports and clears caches,
