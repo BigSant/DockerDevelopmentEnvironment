@@ -63,7 +63,21 @@ PrestaShop parduotuvės `vendor/` gali atsirasti dviem būdais (žr. [aplikacijo
 - `PS_RELEASE=on` ir `PS_RELEASE_PATHS=vendor` – nukopijuojamas iš oficialaus release;
 - projekto `config/composer/composer.json` ir `composer.lock` – `make setup` juos nukopijuoja į parduotuvę ir paleidžia `composer install`.
 
-Deploy'aus metu build serveris vykdo `composer install --no-dev` release image'e, o asset'us (pvz. `npm ci && npm run build`) gali surinkti projekto `config/deploy/build.sh`. Jis veikia kaip `APP_UID` be namų katalogo, todėl `HOME`, npm ir Composer podėliai yra `/tmp`.
+Deploy'aus metu build serveris vykdo `composer install --no-dev` release image'e, o asset'us (pvz. `npm ci && npm run build`) gali surinkti projekto `config/deploy/build.sh`. Jis veikia build kompiuterio naudotojo vardu (release'o kopija yra jo; failų savininką taikinyje lemia deploy'aus paskyra) be namų katalogo, todėl `HOME` ir Composer podėlis yra `/tmp`.
+
+`build.sh` gauna ir katalogą, kuris išlieka tarp release'ų: `SETUP_BUILD_CACHE` (`/setup-build-cache`, build kompiuteryje `.generated/build-cache/` aplinkos repozitorijoje). Jame laikomas npm podėlis (`npm ci` atsisiunčia tik tai, ko dar neturi), o projektas gali ten laikyti savo build'ų rezultatus ir build'ą praleisti, kai šaltiniai nepasikeitė, pvz.:
+
+```sh
+key=$( (cd themes/mytheme/_dev && find . -path ./node_modules -prune -o -type f -print | LC_ALL=C sort \
+        | xargs -d '\n' sha256sum) | sha256sum | cut -c1-16)
+archive="$SETUP_BUILD_CACHE/builds/mytheme-$key.tar"
+if [ -f "$archive" ]; then tar -xf "$archive"; else
+    (cd themes/mytheme/_dev && npm ci && npm run build) && rm -rf themes/mytheme/_dev/node_modules
+    mkdir -p "$SETUP_BUILD_CACHE/builds" && tar -cf "$archive" themes/mytheme/assets
+fi
+```
+
+Release'o kopija į serverį nusiunčiama tokia, kokia yra, todėl `node_modules` po build'o ištrink.
 
 Prieš keisdamas PHP versiją seno projekto `composer.lock` patikrink naujame PHP image'e:
 

@@ -11,7 +11,17 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **A release's build steps run as this machine's user.** `composer install`, the `PS_RELEASE_PATHS` copies and
+  `config/deploy/build.sh` ran in the release image as `APP_UID`, the hosting account on the server, while the release
+  copy they write belongs to the build machine's account: on a build server deploying to another server's account
+  they failed with permission denied. The copy is the build machine's (the target's files belong to the account the
+  deploy writes them as), so they run as its user now.
+- **`config/deploy/build.sh` gets a cache kept between releases.** `SETUP_BUILD_CACHE` (`/setup-build-cache`,
+  `.generated/build-cache/` of the environment repository) holds npm's cache, so `npm ci` downloads only what it lacks,
+  and the builds a project stores there: a build whose sources did not change can unpack its output instead of
+  running again (`doc/lt/13-php-ir-build-irankiai.md`).
 
 ## 5.0.0
 
