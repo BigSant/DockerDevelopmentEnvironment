@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.2.0
 
 - **A deploy clears the application cache only when it changes what the cache holds.** `make deploy cache=auto`
   (the default, and the pipelines' new `CACHE` variable; `yes` always, `no` never) clears it after a rollback, a first
