@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (major)
+## Unreleased
+
+## 4.0.0
 
 - **Language packs are server content.** `translations/<locale>/` (e.g. `translations/lt-LT/`) is written on the server:
   installing or updating a pack in the back office replaces its `*.xlf`, and translation modules add to them
