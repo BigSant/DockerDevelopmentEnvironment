@@ -420,7 +420,11 @@ them; `make setup` fills the same directories locally with `tar --skip-old-files
 previous release shipped and never a protected path,
 runs `config/deploy/after-rsync.sh` in the target's php-fpm (`sh -e`; failure stops the deploy and records
 it as `failed`, so later removals and `rollback=1` follow the code the target really holds),
-upgrades changed modules, runs setup migrations when the project has them, reports and clears caches,
+upgrades changed modules, runs setup migrations when the project has them, reports and clears caches (cache=auto,
+the default and the pipeline's CACHE: only when the deploy changes what they hold, `cache_needed`: a rollback, the
+first deploy, a failed previous one, applied translation migrations, another PS_VERSION, or shop commits touching
+`*.yml`/`*.yaml`/`*.xlf`/`*.twig`, adding or removing an override, or DEPLOY_CACHE_CLEAR_PATHS; a module upgrade
+is no reason),
 then reloads php-fpm for every profile (`USR2` to PID 1 via the shell builtin; the CORE image sets
 `process_control_timeout = 30s` so workers finish their requests) so OPcache serves the new code
 (`DEPLOY_PHP_RELOAD=off` opts out).

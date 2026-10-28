@@ -167,7 +167,12 @@ make deploy ENV=prod ref=v1.4.0
 6. **Setup SQL migracijos**, jei projektas jas turi (`database/migrations/`, be `DATABASE_AS_CODE=off`), ir schemos ataskaita.
 7. **Vertimų migracijos** – tik PrestaShop, kai aplinkos repo turi `translations/migrations/`: kiekviena dar nepritaikyta,
    po vieną kartą ([Vertimai](#vertimai-translations)).
-8. **Cache išvalymas:** PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas).
+8. **Cache išvalymas** (`cache=auto`, numatytasis; `cache=yes` – visada, `cache=no` – niekada): PrestaShop – PS cache; kitiems profiliams – `CACHE_CLEAR_COMMAND` php-fpm konteineryje, o jei jis nenurodytas, cache nevalomas (parodomas pranešimas). `auto` valo tik tada, kai deploy'us pakeičia tai, ką cache laiko, ir log'e parašo priežastį (`==> CACHE=auto: no (nothing cache-related changed since …)`):
+   - rollback'as, pirmas deploy'us ar ankstesnis nepavykęs deploy'us;
+   - pritaikytos vertimų migracijos, pasikeitė `PS_VERSION`;
+   - parduotuvės commit'ai nuo paskutinio deploy'aus keičia `*.yml`, `*.yaml`, `*.xlf`, `*.twig` (Symfony konteineris ir maršrutai, vertimų katalogas, Twig šablonai), prideda ar pašalina `override/` failą (overrides sąrašas `class_index.php`; pakeistas esamas override valymo nereikalauja) arba keičia projekto `DEPLOY_CACHE_CLEAR_PATHS` kelius.
+
+   Modulių upgrade'ai cache neišvalo: juos atlieka komanda ir, jei reikia, deploy'ina su `cache=yes`. Kitas profilis be `DEPLOY_CACHE_CLEAR_PATHS` valo kiekvieną kartą, kaip anksčiau.
 9. **php-fpm perkrovimas** (visiems profiliams): `USR2` php-fpm master procesui. Nauji worker'iai pradeda su tuščiu OPcache, todėl prod iškart vykdo naują kodą. Vykdomos užklausos gauna iki 30 s pabaigti (`process_control_timeout` CORE image'e). `DEPLOY_PHP_RELOAD=off` perkrovimą išjungia (tada OPcache gali rodyti seną kodą iki konteinerio restart'o).
 
 PS priežiūros režimas deploy'aus metu neįjungiamas.
@@ -302,6 +307,7 @@ Paleidimo kintamieji (pipeline'o `variables`):
 | `REF` | Tuščias | Ką deploy'inti: tag'as arba commit'as. Viena repozitorija: tuščias reiškia pipeline commit'ą. Atskira kodo repozitorija: kodo repo ref'as, privalomas (išskyrus `ROLLBACK=yes`). Seni vardai `APP_REF` ir `SHOP_REF` irgi veikia. Jei nurodyti keli skirtingi, komanda atsisako. |
 | `IMAGES` | `no` | `yes`: prieš kodą `make release` ir `make deploy-images` (kai taikinys yra pats build serveris – `transfer=0`). Pirmam deploy'ui ir pakeitus serverio env būtina. `auto` (šablonų numatytasis): žingsnis sprendžia pats, žr. žemiau. |
 | `CRON` | `auto` | Po deploy'aus `make cron-reload`: veikiantis cron konteineris perskaito `config/cron/`. `auto` – kai deploy'inami commit'ai keičia `config/cron/`; `yes` – visada; `no` – niekada. |
+| `CACHE` | `auto` | `make deploy cache=…`: aplikacijos cache išvalymas po deploy'aus. `auto` – kai deploy'us pakeičia tai, ką cache laiko (žr. 8 žingsnį aukščiau); `yes` – visada; `no` – niekada. |
 | `ROLLBACK` | `no` | `yes`: `make deploy rollback=1`. `REF` ignoruojamas. |
 | `BACKUP` | `no` | `yes`: `make deploy backup=1`, prieš hook'us ir migracijas pasidaroma DB kopija. |
 

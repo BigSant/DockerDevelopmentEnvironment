@@ -43,6 +43,11 @@ on:
         type: choice
         options: ["auto", "no", "yes"]
         default: "auto"
+      cache:
+        description: Clear the application cache after the deploy (auto = when the deploy changes what it holds)
+        type: choice
+        options: ["auto", "no", "yes"]
+        default: "auto"
       rollback:
         description: Deploy the previous release again
         type: choice
@@ -75,6 +80,7 @@ jobs:
           REF: ${{ inputs.ref }}
           IMAGES: ${{ inputs.images }}
           CRON: ${{ inputs.cron }}
+          CACHE: ${{ inputs.cache }}
           ROLLBACK: ${{ inputs.rollback }}
           BACKUP: ${{ inputs.backup }}
           BUILD_ROOT: ${{ vars.BUILD_ROOT }}

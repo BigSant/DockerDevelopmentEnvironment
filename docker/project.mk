@@ -64,7 +64,7 @@ help:
 	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
 	@echo 'release ENV=stage|prod|<extra>: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod|<extra> [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
-	@echo 'deploy ENV=stage|prod|<extra> ref=TAG [backup=1] | rollback=1: release the code, (back up), rsync, hook, upgrade, migrate'
+	@echo 'deploy ENV=stage|prod|<extra> ref=TAG [backup=1] | rollback=1 [cache=auto|yes|no]: release the code, (back up), rsync, hook, upgrade, migrate, clear the cache when needed'
 	@echo 'cron-reload [ENV=stage|prod|<extra>]: the running cron container takes config/cron/ now (checked, no restart)'
 	@echo 'tool-access ENV=stage|prod|<extra>: the tool users and addresses setup-server keeps (tool-access/<env>/) to the server now'
 	@echo 'module-pull ENV=stage|prod|<extra> name=MODULE: copy a module that exists only on the target into the shop checkout'
@@ -115,7 +115,7 @@ release:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(allow_dirty)),--allow-dirty,)
 
 deploy:
-	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,)
+	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,) $(if $(cache),--deploy-cache $(call quote,$(cache)),)
 
 pipeline-deploy:
 	@$(RUN_PROJECT) $@
