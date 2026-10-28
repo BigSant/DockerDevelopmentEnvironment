@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (major)
+## Unreleased
+
+## 5.0.0
 
 - **A PrestaShop shop keeps one .gitignore, at its root.** A module author's own .gitignore silently hid shop files the
   shop's .gitignore means to track (module `vendor/` parts, tests, mail templates, images). `make setup` and
