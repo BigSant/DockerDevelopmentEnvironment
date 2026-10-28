@@ -422,12 +422,14 @@ then reloads php-fpm for every profile (`USR2` to PID 1 via the shell builtin; t
 (`DEPLOY_PHP_RELOAD=off` opts out).
 Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
 `.htaccess`, `robots.txt`, `sitemap*.xml`, and the module/theme-module translations and `translations/export/`
-the back office writes; language packs in `translations/<locale>/` and `mails/` stay code) only for PrestaShop, plus tool folders and
+the back office writes, and the language packs in `translations/<locale>/` that pack installs and translation modules write
+on the server; `mails/` stays code) only for PrestaShop, plus tool folders and
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
-`files-backup` (`project_files`) copies the code tree paths `BACKUP_FILE_PATHS` lists (files the server writes and git
-ignores, validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored
+`files-backup` (`project_files`) copies the code tree paths of `backup_file_patterns` (files the server writes and git
+ignores: for PrestaShop always the module, theme-module and language pack translations, then `BACKUP_FILE_PATHS`,
+validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored
 include chain into a mirror `.generated/backups/.files-<env>/`, then an atomic `files-<env>-<UTC>Z.tar.gz` (members named
 from the code root). The setup-server worker runs it nightly and rotates the series. `project_translations` brings the module translations developers make as migrations in the environment repository
 (`translations/migrations/<14 digits>-<name>.json`: `legacy` $_MODULE files by code-tree path, `database` translation
@@ -439,8 +441,8 @@ which loads (`db-import`, `db-load`, `db-pull import=1`) and `files-pull extract
 reach a migration. `translations-migrate` applies pending ones alone (locally, they also join the base).
 `files-pull` (ENV=local) downloads
 the newest one through the db-pull channel (`database_pull`: connection, `info|fresh PROJECT ENV files`, `get`), reads the
-archive to its end before keeping it, and with `extract=1` writes only regular files this checkout's `BACKUP_FILE_PATHS`
-names into the local code tree (links, `..` and paths outside it are skipped; nothing is deleted).
+archive to its end before keeping it, and with `extract=1` writes only regular files this checkout's backup paths
+name into the local code tree (links, `..` and paths outside it are skipped; nothing is deleted).
 The release's files reach the **Deploy target** (`project_target.deploy_target`): this machine, or `DEPLOY_SSH=user@host`
 over ssh. Code push, removals, target-only module listing (directories only), `module-pull`, `files-backup`, environment-file sync,
 runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with

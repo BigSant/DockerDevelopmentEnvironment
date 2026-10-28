@@ -59,6 +59,26 @@ class FilesBackupTest(unittest.TestCase):
             with self.subTest(entry=entry), self.assertRaisesRegex(ValueError, "BACKUP_FILE_PATHS entry"):
                 code_tree_patterns(self.project, "BACKUP_FILE_PATHS")
 
+    def test_a_prestashop_project_always_backs_up_its_translations(self):
+        from project_deploy import backup_file_patterns
+        self.assertEqual(backup_file_patterns(self.project),
+                         ["/modules/*/translations/", "/themes/*/lang/", "/config/local.php", "/var/missing/"],
+                         "a generic project: its own paths only")
+        self.project.settings["PROFILE"] = "prestashop"
+        self.assertEqual(backup_file_patterns(self.project),
+                         ["/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/*-*/",
+                          "/themes/*/lang/", "/config/local.php", "/var/missing/"], "the profile's first, each path once")
+        self.project.settings["BACKUP_FILE_PATHS"] = ""
+        (self.target / "app/public/translations/lt-LT").mkdir(parents=True)
+        (self.target / "app/public/translations/lt-LT/Admin.lt-LT.xlf").write_text("<xliff/>\n")
+        (self.target / "app/public/translations/default").mkdir()
+        (self.target / "app/public/translations/default/Admin.xlf").write_text("<xliff/>\n")
+        path, _ = self.backup("prestashop.tar.gz")
+        names = self.members(path)
+        self.assertIn("translations/lt-LT/Admin.lt-LT.xlf", names, "an installed language pack, without BACKUP_FILE_PATHS")
+        self.assertIn("modules/shop/translations/lt.php", names)
+        self.assertNotIn("translations/default/Admin.xlf", names, "the release's own catalogue is no content")
+
     def test_include_chain_descends_only_where_a_pattern_leads(self):
         self.assertEqual(include_filters(["/modules/*/translations/", "/modules/*/mails/", "/config/local.php"]),
                          ["--include=/modules/", "--include=/modules/*/", "--include=/modules/*/translations/***",

@@ -11,7 +11,18 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (major)
+
+- **Language packs are server content.** `translations/<locale>/` (e.g. `translations/lt-LT/`) is written on the server:
+  installing or updating a pack in the back office replaces its `*.xlf`, and translation modules add to them
+  (`ets_translate` wrote 143 files in each of anodas's `et-EE` and `lv-LV` on LIVE). A deploy that ships them as code
+  replaced those with the repository's copy. They are now a protected path of the PrestaShop profile, as the module
+  translations are; `mails/` stays code. **Projects that track language packs in the shop repository must change:**
+  `git rm -r --cached translations/*-*/` and ignore `/translations/*-*/` (the files stay on every server, a deploy never
+  deletes a protected path); until then a deploy leaves them as they are on the target and no longer updates them.
+- **Files backups always copy a PrestaShop project's translations.** `make files-backup` (and setup-server's nightly
+  run) takes `modules/*/translations/`, `themes/*/modules/*/translations/` and `translations/*-*/` without any setting;
+  `BACKUP_FILE_PATHS` adds a project's own paths to them, and `make files-pull extract=1` writes the same paths.
 
 ## 3.10.0
 

@@ -1,4 +1,5 @@
-"""Files backups: the code tree paths BACKUP_FILE_PATHS lists, copied from the Deploy target into a tar.gz here, and
+"""Files backups: the code tree paths BACKUP_FILE_PATHS lists (a PrestaShop project's translations always), copied from
+the Deploy target into a tar.gz here, and
 make files-pull, which downloads the newest one setup-server keeps (as make db-pull does a database backup).
 
 make files-backup ENV=stage|prod|<extra> [file=PATH.tar.gz]
@@ -11,7 +12,7 @@ complete: a failed run publishes nothing. Nothing on the target is written; no s
 make files-pull [from=prod|stage|<extra>] [fresh=1] [extract=1]   (ENV=local)
 The same server, key and grants as make db-pull (setup-server: db downloads, fresh asks for a new one): `info
 PROJECT ENV files`, `get …`, `fresh PROJECT ENV files`. The archive lands in .generated/backups (0600) and is read to
-its end on the way; extract=1 writes its regular files that BACKUP_FILE_PATHS of this checkout names into the local
+its end on the way; extract=1 writes its regular files that the paths of this checkout name into the local
 code tree (they replace what is there; nothing else is touched or deleted, links are skipped).
 """
 
@@ -88,16 +89,16 @@ def size_text(value):
 
 
 def backup_files(project, destination=None):
-    from project_deploy import code_path, code_tree_patterns
+    from project_deploy import backup_file_patterns, code_path
     from project_release import release_settings
     from project_storage import require_space
     from project_target import deploy_target
     environment = project.environment
     if not is_server(environment):
         raise ValueError('files-backup copies a server environment\'s files: ENV=stage, prod or one STAGE_ENVIRONMENTS lists')
-    patterns = code_tree_patterns(project, SETTING)
+    patterns = backup_file_patterns(project)
     if not patterns:
-        raise ValueError(f'{SETTING} is empty: nothing to back up (e.g. {SETTING}="modules/*/translations/" in env/common.env)')
+        raise ValueError(f'{SETTING} is empty: nothing to back up (e.g. {SETTING}="var/data/" in env/common.env)')
     _, deploy_path = release_settings(project, remote=False)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
     target = Path(destination).expanduser().absolute() if destination else (
@@ -198,8 +199,8 @@ def listed(name, patterns):
 
 def extract_archive(project, path):
     """Write the archive's regular files that this checkout's BACKUP_FILE_PATHS names into the local code tree."""
-    from project_deploy import code_tree_patterns
-    patterns = code_tree_patterns(project, SETTING)
+    from project_deploy import backup_file_patterns
+    patterns = backup_file_patterns(project)
     if not patterns:
         raise ValueError(f'{SETTING} is empty in this checkout: set it as on the server (env/common.env) to extract')
     root = Path(project.web_directory).resolve()
