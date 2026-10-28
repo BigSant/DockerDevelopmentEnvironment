@@ -99,7 +99,7 @@ class DeployTest(unittest.TestCase):
 
     def deploy(self, plan=([], False), **options):
         with patch("project_deploy.php_image", return_value="php:test"), \
-                patch("project_deploy.in_release_image", lambda project, release, command: self.calls.append(["image", command])), \
+                patch("project_deploy.in_release_image", lambda project, release, command, cache=None: self.calls.append(["image", command])), \
                 patch("project_application.plan_application", return_value=plan), \
                 patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
                 patch("project_deploy.upgrade_modules", lambda project, release: self.calls.append(["upgrade"])):
@@ -351,7 +351,7 @@ class GenericDeployTest(unittest.TestCase):
     def deploy(self, **options):
         self.project.database = FakeDatabase()
         with patch("project_deploy.php_image", return_value="php:test"), \
-                patch("project_deploy.in_release_image", lambda project, release, command: self.calls.append(["image", command])), \
+                patch("project_deploy.in_release_image", lambda project, release, command, cache=None: self.calls.append(["image", command])), \
                 patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
                 patch("database_migrations_guarded.migrate", lambda project: self.calls.append(["migrate"])), \
                 patch("database_schema.schema_report", lambda project: self.calls.append(["schema-report"])):
@@ -503,15 +503,35 @@ class GenericDeployTest(unittest.TestCase):
         self.deploy(ref="g1")
         self.assertIn(["image", "sh /var/www/html/.setup-build.sh"], self.calls)
 
+    def test_the_build_step_keeps_its_cache_in_the_environment_repository(self):
+        seen = []
+        hook = self.root / "build.sh"
+        hook.write_text("npm ci\n")
+        release = self.root / "release"
+        release.mkdir()
+        with patch("project_deploy.in_release_image", lambda project, release, command, cache=None: seen.append((command, cache))):
+            project_deploy._run_hook(self.project, release, hook)
+        self.assertEqual(seen, [("sh /var/www/html/.setup-build.sh", self.root / "app/.generated/build-cache")],
+                         "kept between releases, beside the backups, never in the code")
+        self.assertFalse((release / ".setup-build.sh").exists(), "the copied hook leaves the release")
+
     def test_build_step_has_writable_tool_caches_in_the_release_image(self):
         calls = []
         with patch("project_deploy.php_image", return_value="php:test"), \
                 patch("project_deploy.subprocess.run", lambda command, **kwargs: calls.append(command)):
             project_deploy.in_release_image(self.project, Path("/release"), "npm ci")
+            project_deploy.in_release_image(self.project, Path("/release"), "sh build.sh", cache=self.root / "cache")
         command = " ".join(calls[0])
         for variable in ("HOME=/tmp", "NPM_CONFIG_CACHE=/tmp/setup-npm-cache", "COMPOSER_HOME=/tmp/composer"):
-            self.assertIn(f"-e {variable}", command, "the hosting account has no home directory in the image")
-        self.assertIn("--user 1012:1013", command)
+            self.assertIn(f"-e {variable}", command, "the user has no home directory in the image")
+        self.assertIn(f"--user {os.getuid()}:{os.getgid()}", command,
+                      "the release copy is this machine's: APP_UID (1012) owns the target's files, not these")
+        self.assertNotIn("setup-build-cache", command)
+        cached = " ".join(calls[1])
+        self.assertIn(f"-v {self.root / 'cache'}:/setup-build-cache", cached)
+        self.assertIn("-e SETUP_BUILD_CACHE=/setup-build-cache", cached)
+        self.assertIn("-e NPM_CONFIG_CACHE=/setup-build-cache/npm", cached, "npm's cache stays between releases")
+        self.assertTrue((self.root / "cache").is_dir())
 
     def test_module_pull_is_a_prestashop_command(self):
         self.generic()

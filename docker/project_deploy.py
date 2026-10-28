@@ -17,6 +17,7 @@ rollback=1 deploys the previous release again; the database comes back from the 
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -115,12 +116,25 @@ def php_image(project):
     return image
 
 
-def in_release_image(project, release, command):
+def build_cache(project):
+    """The folder a project's build step keeps between releases (npm's cache, the builds it stores)."""
+    return Path(project.directory) / '.generated/build-cache'
+
+
+def in_release_image(project, release, command, cache=None):
+    """Run a command in the release PHP image on the release copy, as this machine's user: the copy is this machine's
+    (the target's files belong to the account the deploy writes them as). cache: a folder mounted as
+    /setup-build-cache (SETUP_BUILD_CACHE), npm's cache in it."""
     image = php_image(project)
-    # The hosting account has no home directory in the image: npm/Composer caches go to /tmp.
-    subprocess.run(['docker', 'run', '--rm', '--network', 'host', '--user', f'{project.process_env["HOST_UID"]}:'
-                    f'{project.process_env["HOST_GID"]}', '-e', 'HOME=/tmp', '-e', 'NPM_CONFIG_CACHE=/tmp/setup-npm-cache',
-                    '-e', 'COMPOSER_HOME=/tmp/composer', '-v', f'{release}:/var/www/html',
+    mounts = ['-v', f'{release}:/var/www/html']
+    # The user has no home directory in the image: npm/Composer caches go to /tmp, or to the kept cache folder.
+    npm = '/tmp/setup-npm-cache'
+    if cache:
+        Path(cache).mkdir(mode=0o700, parents=True, exist_ok=True)
+        mounts += ['-v', f'{cache}:/setup-build-cache', '-e', 'SETUP_BUILD_CACHE=/setup-build-cache']
+        npm = '/setup-build-cache/npm'
+    subprocess.run(['docker', 'run', '--rm', '--network', 'host', '--user', f'{os.getuid()}:{os.getgid()}',
+                    '-e', 'HOME=/tmp', '-e', f'NPM_CONFIG_CACHE={npm}', '-e', 'COMPOSER_HOME=/tmp/composer', *mounts,
                     '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
 
 
@@ -220,7 +234,7 @@ def _run_hook(project, release, hook):
     script = release / '.setup-build.sh'
     shutil.copy2(hook, script)
     try:
-        in_release_image(project, release, 'sh /var/www/html/.setup-build.sh')
+        in_release_image(project, release, 'sh /var/www/html/.setup-build.sh', cache=build_cache(project))
     finally:
         script.unlink(missing_ok=True)
 
