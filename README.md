@@ -49,4 +49,9 @@ naujausias release tag'as visada yra `master`. Pakeitimas įrašo savo eilutę p
 be žymės – patch, `(minor)` – nauja funkcija be pakeitimų projektuose, `(major)` – projektai turi keistis. `VERSION`
 ir tag'ų ranka nekeisk.
 
+Tas pats sėkmingas release atominiu push pastumia `deploy/local` šaką. setup-server
+`bin/install-auto-update` laikmatis gali iš jos automatiškai atnaujinti vietinį `master` kloną:
+tik fast-forward, tik be vietinių pakeitimų, su vietiniais testais ir grąžinimu po nesėkmės.
+Žr. [vietinio atnaujinimo paruošimą](doc/lt/02-pradzia.md#automatinis-bendro-setup-atnaujinimas).
+
 Testai: `python3 -m unittest discover -s tests`.

@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 import uuid
@@ -247,8 +248,15 @@ class EndpointMixin:
         write_docker_state(self.docker_state)
 
     def start(self, php=(), **env):
+        # No PHP-FPM is running for the generic endpoint fixture. A bound, non-listening socket
+        # refuses immediately and cannot be taken by another service; never resolve Docker names
+        # or contact an inherited service on a developer's host. PHP-specific tests override it.
+        unavailable_fpm = socket.socket()
+        unavailable_fpm.bind(('127.0.0.1', 0))
+        self.addCleanup(unavailable_fpm.close)
         port = free_port()
         settings = {"METRICS_TOKEN": TOKEN, "METRICS_PROC_ROOT": str(self.proc), "METRICS_DISK_PATH": str(self.work / "disk"),
+                    "METRICS_PHP_FPM_ADDRESS": '127.0.0.1:{}'.format(unavailable_fpm.getsockname()[1]),
                     "METRICS_STATE_DIR": str(self.work / "state"), "METRICS_SAMPLE_SECONDS": "0.1",
                     "METRICS_DISK_WRITE_MB": "1", "METRICS_URLS": "", "METRICS_SUPPORT_LEVEL": "2",
                     "METRICS_HTTP_LOG_DIR": str(self.http), "METRICS_LOGS_DIR": str(self.logs), "DOMAIN": "demo.local",
@@ -277,6 +285,35 @@ class EndpointMixin:
 class EndpointTest(EndpointMixin, unittest.TestCase):
     def setUp(self):
         self.prepare()
+
+    def test_default_fixture_does_not_contact_an_ambient_php_fpm_service(self):
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen()
+        listener.settimeout(0.1)
+        connections = []
+        stopped = threading.Event()
+
+        def accept():
+            while not stopped.is_set():
+                try:
+                    connection, _ = listener.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    return
+                connections.append(True)
+                connection.close()
+
+        worker = threading.Thread(target=accept, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join, 2)
+        self.addCleanup(listener.close)
+        self.addCleanup(stopped.set)
+        with patch.dict(os.environ, {'METRICS_PHP_FPM_ADDRESS': '127.0.0.1:{}'.format(listener.getsockname()[1])}):
+            body = fetch(self.start(), token=TOKEN)[2]
+        self.assertIn('setup_metrics_group_up{group="php"} 0', body)
+        self.assertEqual(connections, [], 'the default fixture must not contact an ambient PHP-FPM service')
 
     def test_a_scrape_serves_the_snapshot_and_collects_nothing(self):
         base = self.start(METRICS_SAMPLE_SECONDS="1")

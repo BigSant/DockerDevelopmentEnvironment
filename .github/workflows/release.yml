@@ -38,5 +38,7 @@ jobs:
           git commit -q -am "Release $version" -m "Automatic release of $TESTED, whose CI passed (tools/release.py)."
           git tag "v$version"
           # Refused when master moved meanwhile: that commit's run releases it.
-          git push origin "HEAD:refs/heads/master" "refs/tags/v$version"
+          # Local machines fetch deploy/local, never an untested master commit. Publish the release,
+          # its tag and the approved channel together; a concurrent master push rejects all three.
+          git push --atomic origin "HEAD:refs/heads/master" "refs/tags/v$version" "HEAD:refs/heads/deploy/local"
           echo "Released v$version"

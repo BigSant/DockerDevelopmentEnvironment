@@ -13,6 +13,14 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+- **CI-approved local updates.** Release publication now atomically advances `deploy/local` together with
+  master and its release tag. setup-server's optional local updater follows this channel, preserving clean
+  master checkouts and running local health checks; failed or pending CI never publishes an update.
+- **Host metrics tests keep PHP-FPM isolated.** Their default endpoint uses a reserved, non-listening
+  loopback socket rather than a Docker hostname or an inherited service. Local DNS timeouts no longer
+  delay these tests; PHP-specific tests still provide their own FastCGI fixture. The host cron UI fixture
+  also uses a loopback proxy, so a DNS lookup cannot outlast the short job whose live output it checks.
+
 ## 5.3.0
 
 - **Mail subjects are content, translated by migrations.** `mails/<iso>/lang.php` (and a theme's

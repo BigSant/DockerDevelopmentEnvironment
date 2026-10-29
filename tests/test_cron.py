@@ -215,6 +215,8 @@ class CronUiTest(unittest.TestCase):
             probe.bind((host, 0))
             port = probe.getsockname()[1]
         env = {**os.environ, "ENV": environment, "TZ": "Europe/Vilnius", "CRON_DIRECTORY": str(self.root / "cron.d"),
+               # This is a host-side fixture, not a Docker network with nginx-proxy's DNS alias.
+               "CRON_UI_PROXY": "127.0.0.1",
                "CRON_HISTORY_DIR": str(self.root / "history"), "CRON_RUN": str(CRON / "cron-run.sh"),
                "CRON_CRONTAB": str(self.root / "crontab.wrapped"), "CRON_UI_TOKEN_FILE": str(self.root / "token"),
                "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", **settings}

@@ -1,9 +1,12 @@
 """tools/release.py: the automatic release of every merge to master (VERSION and doc/RELEASES.md)."""
 
 from pathlib import Path
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +75,74 @@ class ReleaseToolTest(unittest.TestCase):
         text, version = release.release((ROOT / "doc/RELEASES.md").read_text(), (ROOT / "VERSION").read_text().strip())
         self.assertTrue(release.VERSION.fullmatch(version))
         self.assertIn(f"## Unreleased\n\n## {version}\n", text)
+
+
+class ReleasePublicationTest(unittest.TestCase):
+    """Execute the workflow's publication step against a real bare remote, without GitHub credentials."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.remote = self.root / 'remote.git'
+        self.checkout = self.root / 'checkout'
+        self.command('git', 'init', '--bare', str(self.remote))
+        self.command('git', 'init', '-b', 'master', str(self.checkout))
+        self.git('config', 'user.name', 'Release test')
+        self.git('config', 'user.email', 'test@example.invalid')
+        self.git('remote', 'add', 'origin', str(self.remote))
+        (self.checkout / 'tools').mkdir()
+        (self.checkout / 'doc').mkdir()
+        shutil.copyfile(ROOT / 'tools/release.py', self.checkout / 'tools/release.py')
+        (self.checkout / 'VERSION').write_text('2.14.1\n')
+        (self.checkout / 'doc/RELEASES.md').write_text(NOTES.format(marker=''))
+        self.git('add', '.')
+        self.git('commit', '-qm', 'A tested change')
+        self.git('push', '-q', 'origin', 'master')
+        self.before = self.git('rev-parse', 'HEAD')
+
+    def command(self, *arguments):
+        result = subprocess.run(arguments, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def git(self, *arguments):
+        return self.command('git', '-C', str(self.checkout), *arguments)
+
+    def publish(self, tested=None):
+        workflow = (ROOT / '.github/workflows/release.yml').read_text()
+        script = textwrap.dedent(workflow.split('        run: |\n', 1)[1])
+        return subprocess.run(['bash', '-c', script], cwd=self.checkout,
+                              env={**os.environ, 'TESTED': tested or self.before},
+                              capture_output=True, text=True, timeout=30)
+
+    def remote_ref(self, ref):
+        return self.command('git', '-C', str(self.remote), 'rev-parse', '--verify', ref)
+
+    def test_release_tag_master_and_local_channel_are_the_same_commit(self):
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commit = self.remote_ref('refs/heads/master')
+        self.assertNotEqual(commit, self.before)
+        self.assertEqual(self.remote_ref('refs/tags/v2.14.2'), commit)
+        self.assertEqual(self.remote_ref('refs/heads/deploy/local'), commit)
+
+    def test_a_channel_push_rejection_publishes_neither_master_nor_the_tag(self):
+        hook = self.remote / 'hooks/update'
+        hook.write_text('#!/bin/sh\n[ "$1" != refs/heads/deploy/local ]\n')
+        hook.chmod(0o755)
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.remote_ref('refs/heads/master'), self.before)
+        for ref in ('refs/tags/v2.14.2', 'refs/heads/deploy/local'):
+            result = subprocess.run(['git', '-C', str(self.remote), 'show-ref', '--verify', ref], capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_a_stale_ci_result_does_not_publish_anything(self):
+        result = self.publish('0' * 40)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_ref('refs/heads/master'), self.before)
+        self.assertEqual((self.checkout / 'VERSION').read_text().strip(), '2.14.1')
 
 
 if __name__ == "__main__":

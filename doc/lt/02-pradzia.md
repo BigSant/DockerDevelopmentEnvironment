@@ -41,6 +41,20 @@ Jei nori tik pažiūrėti, ko trūksta, nieko nekeisdamas:
 
 Po setup atnaujinimo `make setup` ar `make bootstrap` gali parašyti, kad pagalbiniai scriptai pasikeitė. Tada dar kartą paleisk `install-host`.
 
+### Automatinis bendro setup atnaujinimas
+
+setup `Release` workflow po sėkmingo CI paskelbia release tag'ą ir `deploy/local` šaką vienu atominiu push.
+Greta turint [setup-server](https://github.com/BigSant/DockerDevelopmentEnvironmentServer), jo
+`bin/install-auto-update` gali įdiegti vietinį vienos minutės systemd laikmatį. Jis per esamą Git SSH prieigą
+atnaujina abu dabartinius `master` klonus į CI patvirtintus commit'us; API rakto ar self-hosted runner'io nereikia.
+
+Vietiniai pakeitimai, neįtraukti failai, nepublikuoti commit'ai, kita pasirinkta šaka ar vykstantis `make`
+atnaujinimą atideda. Po atnaujinimo vykdomi abiejų repo testai, o nesėkmė grąžina ankstesnius commit'us
+neprarandant darbo. Įdiegtos root pagalbinių scriptų kopijos automatiškai neperrašomos — joms vis tiek reikia
+aukščiau aprašyto `install-host` (rankiniu būdu paruoštame CachyOS paketus ir kopijas prižiūrėk rankomis).
+Tikslios diegimo, būsenos ir išjungimo komandos yra setup-server README skyriuje
+„Automatinis vietinių klonų atnaujinimas“.
+
 ## B. Esamas projektas iš švaraus clone'o
 
 Situacija: kolega jau turi projektą, tu nori jį paleisti savo kompiuteryje. Pavyzdys su Forsena, kur aplinka ir parduotuvė yra atskiros repozitorijos:

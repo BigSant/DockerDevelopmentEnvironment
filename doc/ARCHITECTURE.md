@@ -10,6 +10,11 @@ One shared checkout (`~/Projects/setup`) builds and runs an isolated Docker stac
 recipe, image and command lives here. Nothing is copied into projects except what `create-project`
 scaffolds once.
 
+The Release workflow publishes `master`, its version tag and `deploy/local` atomically after CI.
+setup-server's optional local updater follows `deploy/local` over Git SSH and fast-forwards clean
+administrator-owned master checkouts only. It keeps local edits/branches, runs both repositories' A-level
+tests and journals rollback/recovery. It updates Git sources, not installed root-owned host helper copies.
+
 ```
 setup/
   create-project, create_project.py   new project scaffold / wizard (writes the --ci bitbucket|github pipeline)
