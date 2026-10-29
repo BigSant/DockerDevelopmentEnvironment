@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 5.3.1
+
 - **CI-approved local updates.** Release publication now atomically advances `deploy/local` together with
   master and its release tag. setup-server's optional local updater follows this channel, preserving clean
   master checkouts and running local health checks; failed or pending CI never publishes an update.
