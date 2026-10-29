@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.3.0
 
 - **Mail subjects are content, translated by migrations.** `mails/<iso>/lang.php` (and a theme's
   `themes/<theme>/mails/<iso>/lang.php`), the `$_LANGMAIL` file the back office writes when a mail subject is
