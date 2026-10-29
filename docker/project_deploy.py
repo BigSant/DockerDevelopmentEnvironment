@@ -28,17 +28,19 @@ from project_prestashop import is_prestashop
 from project_target import deploy_target
 
 # PrestaShop paths written by the shop itself; a PrestaShop deploy never overwrites or deletes them.
-# Module and theme-module translations are content the back office writes on the server, and so are translation
-# exports. Paths the shop repository tracks (mails/, the language packs in translations/<locale>/, config/xml/)
-# are code like any other file.
+# Module and theme-module translations and the mail subjects (mails/<iso>/lang.php) are content the back office
+# writes on the server, and so are translation exports. Paths the shop repository tracks (the mail templates in
+# mails/, config/xml/) are code like any other file.
 PRESTASHOP_WRITABLE = ('/var/', '/img/', '/upload/', '/download/', '/cache/', '/config/themes/',
                        '/app/config/parameters.php', '/config/settings.inc.php',
                        '/app/Resources/translations/', '/themes/*/cache/', '/themes/*/assets/cache/', '/modules/*/cache/',
                        '/modules/*/var/', '/modules/*/translations/', '/themes/*/modules/*/translations/',
+                       '/mails/*/lang.php', '/themes/*/mails/*/lang.php',
                        '/translations/*-*/', '/translations/export/', '/.htaccess', '/robots.txt', '/sitemap*.xml')
 # The PrestaShop content files backups always copy: the translations the back office and translation modules write on
 # the server, which the shop repository does not hold; BACKUP_FILE_PATHS adds a project's own.
-PRESTASHOP_BACKUP_FILES = ('/modules/*/translations/', '/themes/*/modules/*/translations/', '/translations/*-*/')
+PRESTASHOP_BACKUP_FILES = ('/modules/*/translations/', '/themes/*/modules/*/translations/', '/mails/*/lang.php',
+                           '/themes/*/mails/*/lang.php', '/translations/*-*/')
 # What makes PrestaShop's application cache (var/cache: the Symfony container and routes, Twig, the translation
 # catalogue) stale when a deploy changes it: cache=auto clears it then only. DEPLOY_CACHE_CLEAR_PATHS adds a
 # project's own (gitignore-like: a name without / matches at any depth). An override only when one is added or

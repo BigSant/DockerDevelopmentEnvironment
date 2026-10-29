@@ -1,13 +1,16 @@
 """Translation migrations: the module translations a developer makes, brought to a PrestaShop target once each.
 
-Module translations are the shop's content (the back office edits them; a deploy does not write them). What a
-developer translates travels as migrations in the environment repository, translations/migrations/<14 digits>-<name>.json:
+Module translations and mail subjects are the shop's content (the back office edits them; a deploy does not write
+them). What a developer translates travels as migrations in the environment repository,
+translations/migrations/<14 digits>-<name>.json:
 
-  {"legacy":   {"modules/<module>/translations/<iso>.php": {"<{module}prestashop>file_md5": "text"}},
+  {"legacy":   {"modules/<module>/translations/<iso>.php": {"<{module}prestashop>file_md5": "text"},
+                "mails/<iso>/lang.php": {"Subject": "text"}},
    "database": {"<locale>": {"<domain>[@<theme>]": {"key": "text"}}}}
 
-legacy are the $_MODULE files (also themes/<theme>/modules/<module>/translations/<iso>.php), database the translation
-table rows. Like setup's SQL migrations, each is applied once per database, in name order, and recorded in
+legacy are the $_MODULE files (also themes/<theme>/modules/<module>/translations/<iso>.php) and the $_LANGMAIL mail
+subject files (also themes/<theme>/mails/<iso>/lang.php); the mail templates beside them are code. database are the
+translation table rows. Like setup's SQL migrations, each is applied once per database, in name order, and recorded in
 setup_migrations as translations:<file> (no table of its own): every translation it holds is written over what the
 target has; nothing else is touched, and an applied migration is never run again, so whatever clients edit in the back
 office stays. A module or language the target lacks gets nothing (noted). Nothing is deleted.
@@ -36,11 +39,12 @@ BASE = '.generated/translations/base.json'
 RECORD = 'translations:'
 NAME = re.compile(r'\d{14}-[a-z0-9-]+\.json')
 LEGACY_FILE = re.compile(r'(?:themes/[A-Za-z0-9_.-]+/)?modules/([A-Za-z0-9_-]+)/translations/([a-z]{2,5})\.php')
+MAIL_FILE = re.compile(r'(?:themes/[A-Za-z0-9_.-]+/)?mails/([a-z]{2,5})/lang\.php')
 LOCALE = re.compile(r'[a-z]{2,3}(?:-[A-Za-z]{2,4})?')
 DOMAIN = re.compile(r'[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*(?:@[A-Za-z0-9_.-]+)?')
-# One legacy entry, as PrestaShop writes it: $_MODULE['key'] = 'text'; (PHP single-quoted strings).
-ENTRY = re.compile(r"\$_MODULE\[\s*'((?:[^'\\]|\\.)*)'\s*\]\s*=\s*'((?:[^'\\]|\\.)*)'\s*;", re.S)
-HEADER = "<?php\n\nglobal $_MODULE;\n$_MODULE = array();\n"
+MODULE, MAIL = '_MODULE', '_LANGMAIL'
+LEGACY_GLOBS = ('modules/*/translations/*.php', 'themes/*/modules/*/translations/*.php', 'mails/*/lang.php',
+                'themes/*/mails/*/lang.php')
 SHOWN = 60
 
 
@@ -53,19 +57,27 @@ def php_quote(text):
     return "'" + text.replace('\\', '\\\\').replace("'", "\\'") + "'"
 
 
-def parse_legacy(text):
-    """{key: text} of a legacy translation file, or None when it holds anything else than its entries."""
+def variable(path):
+    """The array a legacy file holds: $_MODULE (module translations), $_LANGMAIL (mail subjects); None: no such file."""
+    return MODULE if LEGACY_FILE.fullmatch(path) else MAIL if MAIL_FILE.fullmatch(path) else None
+
+
+def parse_legacy(text, name=MODULE):
+    """{key: text} of a legacy translation file, or None when it holds anything else than its entries: one entry as
+    PrestaShop writes it is $_MODULE['key'] = 'text'; (PHP single-quoted strings; $_LANGMAIL in a mail subject file)."""
+    entry = re.compile(rf"\${name}\[\s*'((?:[^'\\]|\\.)*)'\s*\]\s*=\s*'((?:[^'\\]|\\.)*)'\s*;", re.S)
     entries = {}
-    for match in ENTRY.finditer(text):
+    for match in entry.finditer(text):
         entries[php_unquote(match[1])] = php_unquote(match[2])
-    rest = ENTRY.sub('', text)
-    rest = re.sub(r'<\?php|\?>|global\s+\$_MODULE\s*;|\$_MODULE\s*=\s*array\(\s*\)\s*;|\$_MODULE\s*=\s*\[\s*\]\s*;', '', rest)
+    rest = entry.sub('', text)
+    rest = re.sub(rf'<\?php|\?>|global\s+\${name}\s*;|\${name}\s*=\s*array\(\s*\)\s*;|\${name}\s*=\s*\[\s*\]\s*;', '', rest)
     rest = re.sub(r'//[^\n]*|#[^\n]*|/\*.*?\*/', '', rest, flags=re.S)
-    return entries if not rest.strip() and text.count('$_MODULE[') == len(ENTRY.findall(text)) else None
+    return entries if not rest.strip() and text.count(f'${name}[') == len(entry.findall(text)) else None
 
 
-def legacy_text(entries):
-    return HEADER + ''.join(f'$_MODULE[{php_quote(key)}] = {php_quote(value)};\n' for key, value in entries.items())
+def legacy_text(entries, name=MODULE):
+    return (f'<?php\n\nglobal ${name};\n${name} = array();\n' +
+            ''.join(f'${name}[{php_quote(key)}] = {php_quote(value)};\n' for key, value in entries.items()))
 
 
 def shown(text):
@@ -98,8 +110,9 @@ def checked(data, where):
 
     def texts(value):
         return isinstance(value, dict) and all(isinstance(key, str) and isinstance(text, str) for key, text in value.items())
-    if not isinstance(legacy, dict) or not all(LEGACY_FILE.fullmatch(path) and texts(entries) for path, entries in legacy.items()):
-        raise ValueError(f'{where}: "legacy" maps modules/<module>/translations/<iso>.php to {{key: text}}')
+    if not isinstance(legacy, dict) or not all(variable(path) and texts(entries) for path, entries in legacy.items()):
+        raise ValueError(f'{where}: "legacy" maps modules/<module>/translations/<iso>.php or mails/<iso>/lang.php '
+                         'to {key: text}')
     if not isinstance(database, dict) or not all(
             LOCALE.fullmatch(locale) and isinstance(domains, dict) and
             all(DOMAIN.fullmatch(domain) and texts(entries) for domain, entries in domains.items())
@@ -118,14 +131,14 @@ def local_translations(project, files=True, database=True):
     """Every translation of the local shop: its legacy files and translation table rows."""
     found = empty()
     code = Path(project.web_directory) if files else None
-    for path in sorted([*code.glob('modules/*/translations/*.php'), *code.glob('themes/*/modules/*/translations/*.php')]) \
-            if files else []:
+    for path in sorted(path for pattern in LEGACY_GLOBS for path in code.glob(pattern)) if files else []:
         relative = path.relative_to(code).as_posix()
-        if not LEGACY_FILE.fullmatch(relative):
+        name = variable(relative)
+        if not name:
             continue
-        entries = parse_legacy(path.read_text(errors='surrogateescape'))
+        entries = parse_legacy(path.read_text(errors='surrogateescape'), name)
         if entries is None:
-            print(f'Warning: {relative} holds more than $_MODULE lines; left out of translations')
+            print(f'Warning: {relative} holds more than ${name} lines; left out of translations')
         elif entries:
             found['legacy'][relative] = entries
     if database and has_table(project):
@@ -233,7 +246,7 @@ def draft_migration(project, name):
 
 
 # --- Applying them --------------------------------------------------------------------------------
-READ = 'd=$(dirname "$1"); [ -f "$1" ] && exec cat -- "$1"; [ -e "$1" ] && exit 2; [ -d "$(dirname "$d")" ] || exit 4; exit 3'
+READ = '[ -f "$1" ] && exec cat -- "$1"; [ -e "$1" ] && exit 2; [ -d "$2" ] || exit 4; exit 3'
 
 
 class LocalCode:
@@ -248,16 +261,23 @@ class LocalCode:
         Path(path).write_bytes(Path(source).read_bytes())
 
 
+def owner(path):
+    """The folder a legacy file belongs to, which the target must have for it to be written: the module's folder, or
+    the language's mails/<iso>/ (its templates are there once the language is installed)."""
+    return str(Path(path).parent if MAIL_FILE.search(path) else Path(path).parent.parent)
+
+
 def read_target(target, path):
-    """(state, text): ('file', text), ('missing', None) when the module is there, ('no-module', None) when it is not."""
+    """(state, text): ('file', text), ('missing', None) when its module (mails/<iso>/) is there, ('no-module', None)
+    when it is not."""
     if target.local:
         file = Path(path)
         if file.is_file():
             return 'file', file.read_text(errors='surrogateescape')
         if file.exists():
             raise ValueError(f'{path} is not a regular file')
-        return ('missing', None) if file.parent.parent.is_dir() else ('no-module', None)
-    result = target.run(target.ssh('sh', '-c', READ, 'sh', path), capture_output=True)
+        return ('missing', None) if Path(owner(path)).is_dir() else ('no-module', None)
+    result = target.run(target.ssh('sh', '-c', READ, 'sh', path, owner(path)), capture_output=True)
     if result.returncode == 0:
         return 'file', result.stdout.decode(errors='surrogateescape')
     if result.returncode in (3, 4):
@@ -302,12 +322,15 @@ def apply_legacy(target, root, legacy, report):
     for relative, entries in legacy.items():
         path = f'{root}/{relative}'
         state, text = read_target(target, path)
+        name = variable(relative)
         if state == 'no-module':
-            report.skipped.append(f'{relative}: no module {LEGACY_FILE.fullmatch(relative)[1]} here')
+            module = LEGACY_FILE.fullmatch(relative)
+            report.skipped.append(f'{relative}: ' + (f'no module {module[1]} here' if module else
+                                                     f'no {owner(relative)}/ here (language not installed)'))
             continue
-        current = parse_legacy(text) if text is not None else {}
+        current = parse_legacy(text, name) if text is not None else {}
         if current is None:
-            raise ValueError(f'{relative} here holds more than $_MODULE lines: fix it by hand, then migrate again')
+            raise ValueError(f'{relative} here holds more than ${name} lines: fix it by hand, then migrate again')
         merged = dict(current)
         for key, new in entries.items():
             old = current.get(key)
@@ -319,7 +342,7 @@ def apply_legacy(target, root, legacy, report):
             merged[key] = new
             report.written += 1
         if merged != current and not report.dry:
-            write_target(target, path, legacy_text(merged))
+            write_target(target, path, legacy_text(merged, name))
 
 
 def apply_database(project, database, report):

@@ -11,8 +11,16 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
 
+- **Mail subjects are content, translated by migrations.** `mails/<iso>/lang.php` (and a theme's
+  `themes/<theme>/mails/<iso>/lang.php`), the `$_LANGMAIL` file the back office writes when a mail subject is
+  translated, joins the module translations: a PrestaShop deploy never writes or deletes it, files backups copy it, and
+  translation migrations draft and apply it like a `$_MODULE` file (`"legacy": {"mails/lt/lang.php": {…}}`), only where
+  the language's `mails/<iso>/` exists. The mail templates beside it stay code. A shop repository that tracks one
+  untracks it (`git rm --cached mails/*/lang.php`, once the server deploys with setup) and ignores `/mails/*/lang.php`
+  and `/themes/*/mails/*/lang.php` in group 3. Files backups warn about unmatched `BACKUP_FILE_PATHS` entries only, no
+  longer about the profile's paths a shop does not have.
 - **The shop .gitignore rules are written down.** `doc/lt/06-aplikacija.md` "Parduotuvės .gitignore" and ADR 2 say
   how a PrestaShop shop's .gitignore is written (one, at the root, explicit paths in five groups), what is code and
   what is server content, and how to change it safely while a server still deploys by `git checkout`.

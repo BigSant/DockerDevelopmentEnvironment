@@ -143,17 +143,18 @@ išvardinta aiškiu keliu nuo parduotuvės šaknies. Viskas kita sekama. Sprendi
 | --- | --- | --- |
 | 1. Release | Nepakeistas PS branduolys iš release'o: `PS_RELEASE_PATHS` ir šaknies `composer.json`/`composer.lock` | `/vendor/`, `/bin/`, `/docs/`, `/translations/cldr/`, `/translations/default/`, `/config/defines.inc.php`, `/themes/classic/`, admin katalogas (`PS_ADMIN_DIR`) |
 | 2. Generated | Ką rašo setup, PrestaShop ar build'as | `/app/config/parameters.php`, `/.htaccess`, `/robots.txt`, `/*sitemap*.xml`, `/var/`, `/config/themes/`, `/config/xml/*.xml`, `/modules/*/config*.xml`, `/modules/*/logs/`, temos build'o rezultatas (`/themes/x/assets/js/`, `/themes/x/assets/css/`) |
-| 3. Content | LIVE failai, kurių deploy'us neliečia | `/img/`, `/upload/`, `/download/`, `/cache/` (apsaugas `index.php`/`.htaccess` atneša setup iš release'o), `/invoices/`, `/translations/*-*/` (kalbų paketai), `/translations/export/`, `/modules/*/translations/`, `/modules/*/cache/`, `/modules/*/var/` |
+| 3. Content | LIVE failai, kurių deploy'us neliečia | `/img/`, `/upload/`, `/download/`, `/cache/` (apsaugas `index.php`/`.htaccess` atneša setup iš release'o), `/invoices/`, `/translations/*-*/` (kalbų paketai), `/translations/export/`, `/modules/*/translations/`, `/mails/*/lang.php` (laiškų temos), `/modules/*/cache/`, `/modules/*/var/` |
 | 4. Tools | Redaktorių, AI ir build įrankių būsena | `.idea/`, `.vscode/`, `.claude/`, `node_modules/`, `.phpunit.result.cache`, `/deploy/` |
 | 5. Atskiri moduliai | Vieno modulio keliai, sugrupuoti pagal kūrėją: PrestaShop (5a), trečiųjų šalių, PrestaRock; kiekvienoje – generated ir content | `/modules/ps_banner/img/`, `/modules/prpigu/data/pigu_product_export.xml`, `/modules/prproductlogistics/config/credentials.json` |
 
 **Kas yra kodas (sekama):** modulių `vendor/` (įskaitant `psr/log`, `psr/cache`), testai ir jų fixture'ai, laiškų
-šablonai `mails/` (ir modulių bei temos `mails/`), modulių `composer.lock`, modulių katalogų apsaugos (`.htaccess`,
+šablonai `mails/` (`*.html`, `*.txt`; ir modulių bei temos `mails/`), modulių `composer.lock`, modulių katalogų apsaugos (`.htaccess`,
 `index.php`, kurių joks release neatneša, pvz. `modules/prvarlefeed/var/.htaccess`), temų ir modulių paveikslėliai bei
 šriftai, `override/`, `admin-api/`, `js/`, `pdf/`.
 
 **Kas ne kodas, nors atrodo:** modulių `config.xml` ir `config_<iso>.xml` (juos rašo PrestaShop,
-`Module::_generateConfigXml()`), kalbų paketai `translations/<locale>/` (rašo paketų diegimas BO ir vertimo moduliai,
+`Module::_generateConfigXml()`), laiškų temos `mails/<iso>/lang.php` (rašo BO vertimai; programuotojo temos keliauja
+[vertimų migracija](09-aplinkos.md#vertimai-translations)), kalbų paketai `translations/<locale>/` (rašo paketų diegimas BO ir vertimo moduliai,
 pvz. `ets_translate`), build'o rezultatas (`assets/`, `views/js/front/` – jį kuria
 [`config/deploy/build.sh`](13-php-ir-build-irankiai.md) kiekviename release'e), modulio paslaptys
 (`config/credentials.json`).

@@ -429,18 +429,19 @@ then reloads php-fpm for every profile (`USR2` to PID 1 via the shell builtin; t
 `process_control_timeout = 30s` so workers finish their requests) so OPcache serves the new code
 (`DEPLOY_PHP_RELOAD=off` opts out).
 Every application-specific step follows `PROFILE`: protected paths are `PRESTASHOP_WRITABLE` (with
-`.htaccess`, `robots.txt`, `sitemap*.xml`, and the module/theme-module translations and `translations/export/`
-the back office writes, and the language packs in `translations/<locale>/` that pack installs and translation modules write
-on the server; `mails/` stays code) only for PrestaShop, plus tool folders and
+`.htaccess`, `robots.txt`, `sitemap*.xml`, and the module/theme-module translations, mail subjects
+(`mails/<iso>/lang.php`, also a theme's) and `translations/export/` the back office writes, and the language packs in `translations/<locale>/` that pack installs and translation modules write
+on the server; the mail templates in `mails/` stay code) only for PrestaShop, plus tool folders and
 `DEPLOY_PROTECTED_PATHS` for all; `ps_module`, module upgrades, target-only module protection,
 `module-pull` and the PS cache clear are PrestaShop-only; generic projects clear with `CACHE_CLEAR_COMMAND`.
 `rollback=1` redeploys the previous completed release (failed ones and redeploys of the current commit are skipped).
 `files-backup` (`project_files`) copies the code tree paths of `backup_file_patterns` (files the server writes and git
-ignores: for PrestaShop always the module, theme-module and language pack translations, then `BACKUP_FILE_PATHS`,
+ignores: for PrestaShop always the module, theme-module and language pack translations and the mail subjects, then
+`BACKUP_FILE_PATHS` (only its entries warn when they match nothing),
 validated as `DEPLOY_PROTECTED_PATHS` by `code_tree_patterns`) from the target, read only: rsync with an anchored
 include chain into a mirror `.generated/backups/.files-<env>/`, then an atomic `files-<env>-<UTC>Z.tar.gz` (members named
 from the code root). The setup-server worker runs it nightly and rotates the series. `project_translations` brings the module translations developers make as migrations in the environment repository
-(`translations/migrations/<14 digits>-<name>.json`: `legacy` $_MODULE files by code-tree path, `database` translation
+(`translations/migrations/<14 digits>-<name>.json`: `legacy` $_MODULE files and $_LANGMAIL mail subject files by code-tree path, `database` translation
 table rows by locale and domain[@theme]). A PrestaShop deploy, after the module upgrades, applies each pending one once,
 in name order, writing its translations over the target's and recording it in `setup_migrations` as
 `translations:<file>` (no table of its own; `db-rollback` skips them). Nothing else is touched or deleted. Drafts

@@ -18,17 +18,19 @@ tracked what the server owns: module translations the back office edits, and a G
   ignores by explicit path in five groups: release, generated, content, tools, single modules (by who makes them).
   No rule by file type or folder name anywhere, except tool state that means the same everywhere (`.idea/`,
   `node_modules/`).
-- Code, tracked: module `vendor/`, tests and fixtures, mail templates (`mails/`, module and theme mails), module
+- Code, tracked: module `vendor/`, tests and fixtures, mail templates (`mails/`, module and theme mails; not the subject
+  files `mails/<iso>/lang.php`), module
   guards no release ships, images and fonts of themes and modules, overrides, core code outside `PS_RELEASE_PATHS`.
 - Not tracked:
   - the release's own files (`PS_RELEASE_PATHS`; the guards of `img/`, `upload/`, `download/`, `cache/`, which setup
     copies into those protected folders when missing, so the folders are ignored whole);
-  - content the server writes: module translations, language packs `translations/<locale>/` (pack installs in the
+  - content the server writes: module translations, mail subjects `mails/<iso>/lang.php`, language packs `translations/<locale>/` (pack installs in the
     back office, translation modules such as `ets_translate`), `img/` content, uploads, invoices, module data;
   - generated files: `config*.xml` of modules, `var/`, sitemaps, build output (`config/deploy/build.sh` builds it in
     every release);
   - secrets (`parameters.php`, a module's `credentials.json`).
-- A translation developers make travels as a setup translation migration (database rows, legacy module files), not as
+- A translation developers make travels as a setup translation migration (database rows, legacy module files, mail
+  subject files), not as
   a language pack file.
 
 ## Consequences

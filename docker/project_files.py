@@ -1,5 +1,5 @@
-"""Files backups: the code tree paths BACKUP_FILE_PATHS lists (a PrestaShop project's translations always), copied from
-the Deploy target into a tar.gz here, and
+"""Files backups: the code tree paths BACKUP_FILE_PATHS lists (a PrestaShop project's translations and mail subjects
+always), copied from the Deploy target into a tar.gz here, and
 make files-pull, which downloads the newest one setup-server keeps (as make db-pull does a database backup).
 
 make files-backup ENV=stage|prod|<extra> [file=PATH.tar.gz]
@@ -89,7 +89,7 @@ def size_text(value):
 
 
 def backup_files(project, destination=None):
-    from project_deploy import backup_file_patterns, code_path
+    from project_deploy import PRESTASHOP_BACKUP_FILES, backup_file_patterns, code_path
     from project_release import release_settings
     from project_storage import require_space
     from project_target import deploy_target
@@ -125,7 +125,9 @@ def backup_files(project, destination=None):
         print('warning: some files vanished on the target while they were copied; the others are in the backup')
     finally:
         os.chmod(mirror, 0o700)  # rsync -a gives it the code root's mode
-    for pattern in unmatched(mirror, patterns):
+    # The profile's paths are there or not as the shop has them (a theme's mail subjects seldom are): only the
+    # project's own entries are worth a warning.
+    for pattern in unmatched(mirror, [pattern for pattern in patterns if pattern not in PRESTASHOP_BACKUP_FILES]):
         print(f'warning: {SETTING} entry {pattern} matched nothing on the target')
     files, size = write_archive(mirror, target)
     print(f'Backed up {files} files ({size_text(size)}) of {SETTING} into {target}')

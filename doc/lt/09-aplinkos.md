@@ -157,7 +157,7 @@ make deploy ENV=prod ref=v1.4.0
 1. **Release'as:** `git archive` iš kodo repozitorijos, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS` (PrestaShop), projekto `config/deploy/build.sh` (pvz. frontend'o `npm ci && npm run build`), jei jis yra.
 2. **DB kopija (tik su `backup=1`):** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). Pagal nutylėjimą nedaroma; rinkis `backup=1`, kai deploy'us keičia duomenis (migracijos, modulių upgrade'ai).
 3. **rsync** į `DEPLOY_SSH:DEPLOY_PATH/app/prod/public`:
-   - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml`, modulių ir temos modulių vertimai (`modules/*/translations/`, `themes/*/modules/*/translations/`), kalbų paketai (`translations/<locale>/`, pvz. `translations/lt-LT/`) ir vertimų eksportai (`translations/export/`) ir kt. Vertimus redaguoja BO serveryje, o kalbų paketus serveryje rašo paketų diegimas ar atnaujinimas BO ir vertimo moduliai (pvz. `ets_translate` papildo `*.xlf`), todėl jie yra turinys: parduotuvės repo jų nelaiko (ignoruoja), o rsync jų neliečia; programuotojo vertimus atveža 7 žingsnis ([Vertimai](#vertimai-translations)). Laiškai `mails/` yra kodas. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
+   - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml`, modulių ir temos modulių vertimai (`modules/*/translations/`, `themes/*/modules/*/translations/`), laiškų temos (`mails/<iso>/lang.php`, `themes/*/mails/<iso>/lang.php`), kalbų paketai (`translations/<locale>/`, pvz. `translations/lt-LT/`) ir vertimų eksportai (`translations/export/`) ir kt. Vertimus redaguoja BO serveryje, o kalbų paketus serveryje rašo paketų diegimas ar atnaujinimas BO ir vertimo moduliai (pvz. `ets_translate` papildo `*.xlf`), todėl jie yra turinys: parduotuvės repo jų nelaiko (ignoruoja), o rsync jų neliečia; programuotojo vertimus atveža 7 žingsnis ([Vertimai](#vertimai-translations)). Laiškų šablonai `mails/` (`*.html`, `*.txt`) yra kodas. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
    - release'o failai saugomuose keliuose atvežami atskirai: saugomi katalogai gauna tik tuos release failus, kurių taikinys neturi (`cache/.htaccess`, apsauginiai `index.php`), o `PS_RELEASE_PATHS` keliai saugomų katalogų viduje (pvz. `img/admin`) – visus release failus, be `--delete`;
    - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
    - PrestaShop moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
@@ -203,7 +203,8 @@ Modulis nukopijuojamas į `app/public/modules/mymodule`. Peržiūrėk ir commit'
 
 Kai kuriuos failus parduotuvė rašo pati taikinyje, o git juos ignoruoja (pvz. administravimo skydelyje redaguoti modulių
 vertimai). Kodo repozitorijoje jų nėra, todėl juos saugo atskira kopija. PrestaShop profilis visada kopijuoja vertimus:
-`modules/*/translations/`, `themes/*/modules/*/translations/` ir kalbų paketus `translations/*-*/`. Projekto keliai
+`modules/*/translations/`, `themes/*/modules/*/translations/`, laiškų temas `mails/*/lang.php`,
+`themes/*/mails/*/lang.php` ir kalbų paketus `translations/*-*/`. Projekto keliai
 išvardijami `env/common.env` (aplinkos `env/<env>.env` reikšmė laimi) ir pridedami prie profilio, ta pačia sintakse kaip
 `DEPLOY_PROTECTED_PATHS`: nuo kodo šaknies, katalogas baigiasi `/`, `*` – bet koks vardas vienoje vietoje.
 
@@ -243,7 +244,8 @@ make files-pull from=stage         # stage (ar STAGE_ENVIRONMENTS aplinka)
 
 ### Vertimai (`translations/`)
 
-Modulių vertimus serveryje redaguoja klientas (BO), todėl parduotuvės repo jų nelaiko, o rsync jų neliečia. Programuotojo
+Modulių vertimus ir laiškų temas (`mails/<iso>/lang.php`) serveryje redaguoja klientas (BO), todėl parduotuvės repo jų
+nelaiko, o rsync jų neliečia (laiškų šablonai `*.html`, `*.txt` šalia jų – kodas). Programuotojo
 vertimai keliauja kaip **migracijos** aplinkos repo `translations/migrations/` – kaip SQL migracijos: kiekviena pritaikoma
 vieną kartą ir įrašo tik savo vertimus, todėl kliento pataisos neliečiamos ir į git nepatenka.
 
@@ -257,13 +259,15 @@ make translations-migrate ENV=prod dry=1             # ką deploy'us įrašytų 
 
 ```json
 {
-  "legacy":   {"modules/mymodule/translations/lt.php": {"<{mymodule}prestashop>mymodule_5f3c…": "Pirkinių krepšelis"}},
+  "legacy":   {"modules/mymodule/translations/lt.php": {"<{mymodule}prestashop>mymodule_5f3c…": "Pirkinių krepšelis"},
+               "mails/lt/lang.php": {"Order confirmation": "Užsakymo patvirtinimas"}},
   "database": {"lt-LT": {"Modules.Mymodule.Shop": {"Add to cart": "Į krepšelį"}, "Shop.Theme.Actions@classic": {"Buy": "Pirkti"}}}
 }
 ```
 
 - **Juodraštis.** `make translations-migration` palygina vietinius vertimus (`modules/*/translations/<iso>.php`,
-  `themes/*/modules/*/translations/<iso>.php` ir `ps_translation` eilutes) su atskaitos tašku
+  `themes/*/modules/*/translations/<iso>.php`, laiškų temas `mails/<iso>/lang.php`, `themes/*/mails/<iso>/lang.php` ir
+  `ps_translation` eilutes) su atskaitos tašku
   `.generated/translations/base.json` ir į naują failą surašo tik naujus ar pakeistus raktus; atskaitos taškas pasislenka.
   Jį iš naujo paima `db-pull import=1`, `db-import`, `db-load` (DB dalį) ir `files-pull extract=1` (failus), todėl serverio
   ir kliento tekstai yra jame, o ne juodraštyje. Pirmą kartą (be atskaitos taško) komanda jį tik paima: tada versk ir paleisk
@@ -274,8 +278,9 @@ make translations-migrate ENV=prod dry=1             # ką deploy'us įrašytų 
   įrašomi ant to, kas taikinyje; kiti raktai ir failai neliečiami, niekas netrinama. Pritaikyta migracija daugiau
   nevykdoma, todėl ką klientas vėliau pataiso BO, lieka. Pakeista jau pritaikyta migracija nevykdoma iš naujo (pastaba):
   taisymui – nauja migracija. `make db-rollback` jų neatšaukia.
-- **Ko taikinys neturi:** modulio – failas nekuriamas, kalbos – eilutė praleidžiama (abu parodomi, migracija įrašoma).
-  Taikinio failas, kuriame yra daugiau nei `$_MODULE[...] = '...';` eilutės, neperrašomas: deploy'us sustoja, migracija
+- **Ko taikinys neturi:** modulio ar laiškų kalbos (`mails/<iso>/`) – failas nekuriamas, kalbos – eilutė praleidžiama
+  (visa parodoma, migracija įrašoma). Taikinio failas, kuriame yra daugiau nei `$_MODULE[...] = '...';` (laiškų temose –
+  `$_LANGMAIL[...]`) eilutės, neperrašomas: deploy'us sustoja, migracija
   neįrašoma, kol failas sutvarkomas.
 - Vietinėje aplinkoje `make translations-migrate` pritaiko kolegų migracijas ir jų tekstus įrašo į atskaitos tašką (tavo
   kitas juodraštis jų nebeneš). Su `db-pull import=1` atkeliauja ir prod `setup_migrations`: pritaikomos tik tos, kurių

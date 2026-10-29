@@ -66,8 +66,9 @@ class FilesBackupTest(unittest.TestCase):
                          "a generic project: its own paths only")
         self.project.settings["PROFILE"] = "prestashop"
         self.assertEqual(backup_file_patterns(self.project),
-                         ["/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/*-*/",
-                          "/themes/*/lang/", "/config/local.php", "/var/missing/"], "the profile's first, each path once")
+                         ["/modules/*/translations/", "/themes/*/modules/*/translations/", "/mails/*/lang.php",
+                          "/themes/*/mails/*/lang.php", "/translations/*-*/", "/themes/*/lang/", "/config/local.php",
+                          "/var/missing/"], "the profile's first, each path once")
         self.project.settings["BACKUP_FILE_PATHS"] = ""
         (self.target / "app/public/translations/lt-LT").mkdir(parents=True)
         (self.target / "app/public/translations/lt-LT/Admin.lt-LT.xlf").write_text("<xliff/>\n")

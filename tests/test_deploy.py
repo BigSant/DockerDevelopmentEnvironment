@@ -136,7 +136,8 @@ class DeployTest(unittest.TestCase):
         self.assertNotIn("--delete", command, "the target keeps files the code does not track")
         self.assertIn("--checksum", command)
         for pattern in ("/var/", "/img/", "/app/config/parameters.php", "/modules/*/cache/", "/modules/serveronly/", "/.git/",
-                        "/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/export/"):
+                        "/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/export/",
+                        "/mails/*/lang.php", "/themes/*/mails/*/lang.php"):
             self.assertIn(f"--exclude={pattern}", command)
         for tracked in ("/mails/", "/translations/", "/config/xml/"):
             self.assertNotIn(f"--exclude={tracked}", command, "paths the shop repository tracks are code")
@@ -462,7 +463,8 @@ class GenericDeployTest(unittest.TestCase):
 
     def test_generic_projects_keep_translation_paths_as_code(self):
         self.project.settings["PROFILE"] = ""
-        for pattern in ("/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/export/"):
+        for pattern in ("/modules/*/translations/", "/themes/*/modules/*/translations/", "/translations/export/",
+                        "/mails/*/lang.php"):
             self.assertNotIn(pattern, protected_paths(self.project))
 
     def test_generic_htaccess_and_robots_deploy_as_code(self):

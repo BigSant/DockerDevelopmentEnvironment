@@ -1,5 +1,6 @@
 """Translation migrations: drafted from what changed in the local shop since the base, applied once per database
-(recorded in setup_migrations), writing only their own translations: legacy module files and translation table rows."""
+(recorded in setup_migrations), writing only their own translations: legacy module files, mail subject files and
+translation table rows."""
 
 import contextlib
 import io
@@ -198,16 +199,54 @@ class TranslationMigrationsTest(unittest.TestCase):
 
         def run(command, **options):
             calls.append(command)
-            code = {"/p/modules/a/translations/lt.php": 0, "/p/modules/b/translations/lt.php": 3,
-                    "/p/modules/c/translations/lt.php": 4}.get(command[-1].split()[-1], 1)
+            path, owner = command[-1].split()[-2:]
+            code = {("/p/modules/a/translations/lt.php", "/p/modules/a"): 0, ("/p/modules/b/translations/lt.php", "/p/modules/b"): 3,
+                    ("/p/modules/c/translations/lt.php", "/p/modules/c"): 4,
+                    ("/p/mails/lt/lang.php", "/p/mails/lt"): 3}.get((path, owner), 1)
             return subprocess.CompletedProcess(command, code, LT.encode() if code == 0 else b"", b"denied" if code == 1 else b"")
         target = SshTarget("deploy@shop.example", run)
         self.assertEqual(read_target(target, "/p/modules/a/translations/lt.php"), ("file", LT))
         self.assertEqual(read_target(target, "/p/modules/b/translations/lt.php"), ("missing", None))
         self.assertEqual(read_target(target, "/p/modules/c/translations/lt.php"), ("no-module", None))
+        self.assertEqual(read_target(target, "/p/mails/lt/lang.php"), ("missing", None), "a mail subject file needs mails/<iso>/")
         with self.assertRaisesRegex(ValueError, "Cannot read deploy@shop.example:/p/x/translations/lt.php .exit 1.: denied"):
             read_target(target, "/p/x/translations/lt.php")
         self.assertIn("BatchMode=yes", calls[0])
+
+    def test_mail_subjects_are_drafted_and_migrated_like_module_files(self):
+        subjects = legacy_text({"Order confirmation": "Užsakymo patvirtinimas", "Client subject": "Kliento tema"}, "_LANGMAIL")
+        self.assertIn("global $_LANGMAIL;\n$_LANGMAIL = array();\n$_LANGMAIL['Order confirmation'] = ", subjects)
+        self.assertEqual(parse_legacy(subjects + "?>\n", "_LANGMAIL")["Client subject"], "Kliento tema")
+        self.assertIsNone(parse_legacy(subjects), "a $_LANGMAIL file is no $_MODULE file")
+        for code in (self.local, self.server_code):
+            (code / "mails/lt").mkdir(parents=True)
+            (code / "mails/lt/lang.php").write_text(subjects)
+            (code / "mails/lt/order_conf.html").write_text("<p>template</p>")
+        self.quiet(take_base, self.local_project)
+        (self.local / "mails/lt/lang.php").write_text(legacy_text(
+            {"Order confirmation": "Jūsų užsakymas", "Client subject": "Kliento tema", "New subject": "Nauja tema"}, "_LANGMAIL"))
+        path = self.quiet(draft_migration, self.local_project, "subjects")
+        self.assertEqual(json.loads(path.read_text())["legacy"],
+                         {"mails/lt/lang.php": {"Order confirmation": "Jūsų užsakymas", "New subject": "Nauja tema"}},
+                         "the templates beside it are code, not translations")
+        (self.server_code / "mails/lt/lang.php").write_text(legacy_text(
+            {"Order confirmation": "Užsakymo patvirtinimas", "Client subject": "Kliento pataisa"}, "_LANGMAIL"))
+        self.quiet(migrate_translations, self.prod)
+        self.assertEqual(parse_legacy((self.server_code / "mails/lt/lang.php").read_text(), "_LANGMAIL"),
+                         {"Order confirmation": "Jūsų užsakymas", "Client subject": "Kliento pataisa", "New subject": "Nauja tema"})
+        migrations = self.root / "app/translations/migrations"
+        (migrations / "20991231000000-lv.json").write_text(json.dumps(
+            {"legacy": {"mails/lv/lang.php": {"Order confirmation": "Pasūtījums"},
+                        "themes/framework/mails/lt/lang.php": {"Theme subject": "Temos tema"}}}))
+        (self.server_code / "themes/framework/mails/lt").mkdir(parents=True)
+        self.quiet(migrate_translations, self.prod)
+        self.assertIn("skipped: mails/lv/lang.php: no mails/lv/ here (language not installed)", self.output)
+        self.assertFalse((self.server_code / "mails/lv").exists())
+        self.assertEqual(parse_legacy((self.server_code / "themes/framework/mails/lt/lang.php").read_text(), "_LANGMAIL"),
+                         {"Theme subject": "Temos tema"})
+        (migrations / "20991231000001-bad.json").write_text(json.dumps({"legacy": {"mails/lt/order_conf.html": {"a": "b"}}}))
+        with self.assertRaisesRegex(ValueError, '"legacy" maps modules/<module>/translations/<iso>.php or mails/<iso>/lang.php'):
+            self.quiet(migrate_translations, self.prod)
 
     def test_generic_projects_and_prestashop_16(self):
         self.prod.settings["PROFILE"] = ""
