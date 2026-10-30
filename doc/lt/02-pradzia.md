@@ -44,6 +44,12 @@ Po setup atnaujinimo `make setup` ar `make bootstrap` gali parašyti, kad pagalb
 ### Automatinis bendro setup atnaujinimas
 
 setup `Release` workflow po sėkmingo CI paskelbia release tag'ą ir `deploy/local` šaką vienu atominiu push.
+
+Visi `Setup compatibility` ir `Release` job'ai vykdomi vietiniame šios repo runner'yje su žymomis
+`[self-hosted, linux, setup.build]`, įskaitant PHP versijų, DB ir release integracijos testus.
+Repozitorijos šakos push paleidžia CI ir pateikia jos PR patikras. Išorinių fork PR šie workflow
+automatiškai nepaleidžia; patikrintą išorinį pakeitimą pirmiausia perkelk į šios repo šaką.
+Release ir vietinis aplinkos atnaujinimas vyksta tik po sėkmingo `master` CI.
 Greta turint [setup-server](https://github.com/BigSant/DockerDevelopmentEnvironmentServer), jo
 `bin/install-auto-update` gali įdiegti vietinį vienos minutės systemd laikmatį. Jis per esamą Git SSH prieigą
 atnaujina abu dabartinius `master` klonus į CI patvirtintus commit'us; API rakto ar self-hosted runner'io nereikia.

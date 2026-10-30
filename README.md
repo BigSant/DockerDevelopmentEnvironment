@@ -58,7 +58,10 @@ tik fast-forward, tik be vietinių pakeitimų, su vietiniais testais ir grąžin
 runner'yje `[self-hosted, linux, setup.build]`. Jis paleidžia vietinę atnaujinimo paslaugą ir patikrina
 švarius klonus bei sutapimą su CI patvirtintais kanalais. Runner'į paruošia setup-server
 `bin/install-runner --provider github`; jo paskyrai reikia neinteraktyvaus leidimo paleisti
-`setup-server-auto-update.service`. PR patikros lieka GitHub runner'iuose. Neprijungus vietinio runner'io
+`setup-server-auto-update.service`. Visi `Setup compatibility` ir `Release` job'ai vykdomi šiame vietiniame
+runner'yje. CI tikrina kiekvieną repozitorijos šakos push, todėl PR iš tos pačios repo patikras gauna iš savo
+šakos commit'o. Išorinių fork PR šie workflow automatiškai nepaleidžia; peržiūrėtą pakeitimą pirmiausia
+reikia perkelti į patikimą šios repo šaką. Neprijungus vietinio runner'io
 šis job'as lauks eilėje; esamas vietinis timer'is ir toliau tikrina kanalą nepriklausomai.
 
 Testai: `python3 -m unittest discover -s tests`.

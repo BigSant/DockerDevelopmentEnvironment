@@ -553,6 +553,14 @@ version (`(minor)`/`(major)` on the heading, else a patch), writes `VERSION`, an
 tags `vX.Y.Z` and pushes both. The newest release tag is therefore master, which is what prod builds need
 (`project_release` takes setup only at an exact release tag for ENV=prod) and what setup-server's update takes.
 
+All jobs in `Setup compatibility` and `Release` run on the repository's self-hosted worker with labels
+`[self-hosted, linux, setup.build]`, including the complete PHP/database/release test matrices. One worker
+executes one job at a time, so the PHP image matrix's shared test-image tag is not used concurrently.
+CI runs on pushes to repository branches (and version tags), supplying checks for same-repository PRs;
+external fork PRs do not trigger these workflows. Reviewed fork changes must first reach a trusted
+repository branch. Only a successful master push can publish a release or update channel. The release
+checkout keeps its scoped credentials for publication; test checkouts use `persist-credentials: false`.
+
 ## 9. Rules — do not break these
 
 1. Never write to a project's `public/` (the shop repository) except the documented `app-prepare` paths.
