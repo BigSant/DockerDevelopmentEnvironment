@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 5.3.2
+
 - **Local GitHub runner deployment.** After publishing a CI-approved release, `Release` runs a dependent
   job on the repository's `setup.build` self-hosted runner. It starts the existing local updater and checks
   that both clean working copies match their approved channels and contain the tested change. The timer
