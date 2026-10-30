@@ -13,6 +13,10 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+- **Run CI on the local worker.** All compatibility, release-publication and deployment jobs use the
+  repository's `setup.build` self-hosted runner. Pushes to repository branches supply PR checks; fork PRs
+  do not trigger these workflows automatically. CI checkouts do not retain their GitHub credentials.
+
 ## 5.3.2
 
 - **Local GitHub runner deployment.** After publishing a CI-approved release, `Release` runs a dependent
