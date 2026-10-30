@@ -42,3 +42,42 @@ jobs:
           # its tag and the approved channel together; a concurrent master push rejects all three.
           git push --atomic origin "HEAD:refs/heads/master" "refs/tags/v$version" "HEAD:refs/heads/deploy/local"
           echo "Released v$version"
+  local-update:
+    name: Update and verify the local environment
+    needs: release
+    runs-on: [self-hosted, linux, setup.build]
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    concurrency:
+      group: local-environment-update
+      cancel-in-progress: false
+    steps:
+      - name: Apply the CI-approved versions on this worker
+        env:
+          EXPECTED_COMPONENT: setup
+          EXPECTED_COMMIT: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          sudo -n systemctl start setup-server-auto-update.service
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          state = json.loads((Path(os.environ['SETUP_SERVER_ROOT']) / 'auto-update/status.json').read_text())
+          if state.get('result') not in ('updated', 'up_to_date'):
+              raise SystemExit('Local update did not succeed; inspect the service journal')
+          heads = {}
+          for side, directory in state['paths'].items():
+              def git(*arguments):
+                  return subprocess.check_output(['git', '-C', directory, *arguments], text=True).strip()
+              head = git('rev-parse', 'HEAD')
+              if head != state['targets'][side] or head != git('rev-parse', 'refs/remotes/origin/deploy/local'):
+                  raise SystemExit(side + ': local checkout is not the current CI-approved commit')
+              if git('status', '--porcelain', '--untracked-files=normal'):
+                  raise SystemExit(side + ': local edits appeared; deployment verification stopped')
+              heads[side] = head
+          component = os.environ['EXPECTED_COMPONENT']
+          subprocess.run(['git', '-C', state['paths'][component], 'merge-base', '--is-ancestor',
+                          os.environ['EXPECTED_COMMIT'], heads[component]], check=True)
+          print('Local checkouts, health checks and installed server refresh succeeded:', heads)
+          PY

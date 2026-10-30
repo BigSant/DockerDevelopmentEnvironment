@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import itertools
 import shutil
 import subprocess
 import sys
@@ -111,7 +112,8 @@ class ReleasePublicationTest(unittest.TestCase):
 
     def publish(self, tested=None):
         workflow = (ROOT / '.github/workflows/release.yml').read_text()
-        script = textwrap.dedent(workflow.split('        run: |\n', 1)[1])
+        body = workflow.split('        run: |\n', 1)[1].splitlines(keepends=True)
+        script = textwrap.dedent(''.join(itertools.takewhile(lambda line: not line.strip() or line.startswith('          '), body)))
         return subprocess.run(['bash', '-c', script], cwd=self.checkout,
                               env={**os.environ, 'TESTED': tested or self.before},
                               capture_output=True, text=True, timeout=30)

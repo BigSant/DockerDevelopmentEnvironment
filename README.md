@@ -54,4 +54,11 @@ Tas pats sėkmingas release atominiu push pastumia `deploy/local` šaką. setup-
 tik fast-forward, tik be vietinių pakeitimų, su vietiniais testais ir grąžinimu po nesėkmės.
 Žr. [vietinio atnaujinimo paruošimą](doc/lt/02-pradzia.md#automatinis-bendro-setup-atnaujinimas).
 
+`Release` workflow po release publikavimo taip pat paleidžia `local-update` job'ą šios repozitorijos
+runner'yje `[self-hosted, linux, setup.build]`. Jis paleidžia vietinę atnaujinimo paslaugą ir patikrina
+švarius klonus bei sutapimą su CI patvirtintais kanalais. Runner'į paruošia setup-server
+`bin/install-runner --provider github`; jo paskyrai reikia neinteraktyvaus leidimo paleisti
+`setup-server-auto-update.service`. PR patikros lieka GitHub runner'iuose. Neprijungus vietinio runner'io
+šis job'as lauks eilėje; esamas vietinis timer'is ir toliau tikrina kanalą nepriklausomai.
+
 Testai: `python3 -m unittest discover -s tests`.
