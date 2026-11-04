@@ -429,9 +429,15 @@ followed, one leading out is refused), the manifest is a JSON list (`manifests/<
 an older `.txt` newline list is never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps
 the newest `KEEP_RELEASES` distinct completed releases, removals take only `safe_names`, and the targets remove with
 `remove_inside.py` (from a descriptor of the code root, every directory opened `O_PATH|O_NOFOLLOW` relative to the one
-before, a link followed only while its relative target stays inside the root, `unlink` relative to the last: no path
-is resolved twice and a 0300 directory works; Python 3.5-compatible, on a server with `python3` 3.3+ via `-c`, else a
-path-checked shell loop that counts every failure). What the removal step could not do stays pending in the history:
+before (without `O_PATH`, a directory that cannot be opened is entered by path after `lstat` shows a real
+directory), a link followed only while its relative target stays inside the root, `unlink` relative to the last: no
+path is resolved twice and a 0300 directory works). A name is removed only if its resolved entry is neither what the
+new release ships (its manifest, every directory on the way, each resolved the same way) nor under a protected path:
+`legacy -> actual` never lets `legacy/old.php` remove the new `actual/old.php`. The helper is Python 3.5-compatible;
+`SshTarget` asks the server once for `python3` 3.3+ and sends it JSON with the names as hex bytes; the pending names
+come back on fd 3 (the server's own output goes to stderr) and only names sent are taken. Without it, a shell loop
+removes only where the way holds no link, and a directory it cannot enter or a failed `rm` stays pending with a
+non-zero exit. What the removal step could not do stays pending in the history:
 a deploy is `"removals": "pending"` until its removal step is done (the next deploy removes against every release
 still on the target, `removal_sources`), and `pending_removals` names files left because their way leaves the root. `make -f docker/project.mk setup-capabilities` lists abilities without a project
 (`deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); `release-hardened-v1` is not

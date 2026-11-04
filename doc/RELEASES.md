@@ -40,6 +40,8 @@ change (say how). An empty section still releases a patch.
   every failure). Links inside the code tree (`public -> actual`) and protected directories linking inside the release
   (`cache -> var/cache`) keep working, a directory without read permission (0300) too, the helper runs on the server's
   Python 3.3+, and a removal that failed or had to be left stays pending in the history until a later deploy does it.
+  A stale name never removes, through a link, a file the new release ships or a protected path; the server's pending
+  names come back on their own channel.
   New `make -f docker/project.mk setup-capabilities` lists `deploy-attempt-v1`, `deploy-health-v1`,
   `deploy-status-v1` and `release-build-network-v1`; `release-hardened-v1` is not offered yet.
 - **The release build's network is a project setting.** `RELEASE_BUILD_NETWORK=host|bridge|none` (default `host`, as

@@ -3,6 +3,7 @@
 The containers' Docker daemon is a separate setting (DEPLOY_CONTEXT) and not handled here. Both targets
 answer the same operations; paths are the target's own."""
 
+import json
 import os
 from pathlib import Path
 import re
@@ -20,12 +21,24 @@ RSYNC_SSH = ['-e', shlex.join(['ssh', *SSH_OPTIONS])]
 # removed only inside the root, every failure counted; it checks paths, so it is not proof against a target that
 # changes its own tree meanwhile.
 REMOVE_HELPER = (Path(__file__).resolve().parent / 'remove_inside.py').read_text()
+# Without python3 3.3+ on the server: each name's directory resolved (cd -P); a removal only where the way holds no
+# link (removing through one needs the helper's checks against the new release), inside the root. A directory gone
+# holds nothing; one that cannot be entered, a way out of the root or a failed rm stays pending (written to fd 3, never
+# mixed with output) and a cd or rm failure makes the exit status non-zero.
 REMOVE_INSIDE_SH = ('root=$1; shift; status=0; for name do '
-                    'dir=$(cd -P -- "$(dirname -- "$name")" 2>/dev/null && pwd -P) || continue; '
-                    'case "$dir/" in "$root"/*) rm -f -- "$dir/${name##*/}" || status=1;; '
+                    'parent=$(dirname -- "$name"); '
+                    'if [ ! -e "$parent" ] && [ ! -L "$parent" ]; then continue; fi; '
+                    'if ! dir=$(cd -P -- "$parent" 2>/dev/null && pwd -P); then '
+                    'echo "setup: cannot enter the directory of $name; it stays pending" >&2; '
+                    'printf \'%s\\0\' "$name" >&3; status=1; continue; fi; '
+                    'if [ "$parent" = . ]; then expected=$root; else expected=$root/$parent; fi; '
+                    'if [ "$dir" != "$expected" ]; then case "$dir/" in '
+                    '"$root"/*) echo "setup: keeping $name: its way holds a link, which only the server\'s python3 '
+                    '3.3+ removes through" >&2;; '
                     '*) echo "setup: not removing $name: outside the code tree; it stays pending" >&2; '
-                    'printf \'%s\\0\' "$name";; esac; done; exit $status')
-# The helper runs on python3 >= 3.3 (descriptor-relative calls); it is written for 3.5 and older servers fall back.
+                    'printf \'%s\\0\' "$name" >&3;; esac; continue; fi; '
+                    'if ! rm -f -- "$dir/${name##*/}"; then printf \'%s\\0\' "$name" >&3; status=1; fi; '
+                    'done; exit $status')
 PYTHON_CHECK = "import sys; sys.exit(0 if sys.version_info >= (3, 3) else 1)"
 
 
@@ -73,12 +86,14 @@ class LocalTarget:
         folder = Path(path)
         return {child.name for child in folder.iterdir() if child.is_dir()} if folder.is_dir() else set()
 
-    def remove(self, path, names):
+    def remove(self, path, names, keep=(), protected=()):
         """Removes code tree files with the descriptor walk of remove_inside: a name never leaves path, through a
-        link (one inside path is followed) or a directory the application swaps meanwhile. Returns the names left
-        because their way leaves path (not removed: the caller keeps them pending); a failed removal raises."""
+        link (one inside path is followed) or a directory the application swaps meanwhile, and never removes what the
+        new release ships (keep) or protects, once resolved. Returns the names left because their way leaves path
+        (not removed: the caller keeps them pending); a failed removal raises."""
         from remove_inside import remove_inside
-        failed, left = remove_inside(path, [os.fsencode(name) for name in names], err=sys.stdout)
+        failed, left, _ = remove_inside(path, [os.fsencode(name) for name in names],
+                                        [os.fsencode(name) for name in keep], list(protected), err=sys.stdout)
         if failed:
             raise OSError(f'{failed} files of the code tree could not be removed (above)')
         return [os.fsdecode(name) for name in left]
@@ -99,6 +114,7 @@ class SshTarget:
     def __init__(self, host, run=subprocess.run):
         self.host, self.run = host, run
         self.label = host + ':'
+        self.python = None  # whether the server has python3 3.3+ for the removal helper, once asked
 
     def ssh(self, *command):
         return ['ssh', *SSH_OPTIONS, self.host, shlex.join(command)]
@@ -118,23 +134,32 @@ class SshTarget:
                           capture_output=True, text=True)
         return set(result.stdout.split('\n')) - {''} if result.returncode == 0 else set()
 
-    def remove(self, path, names):
-        """As LocalTarget.remove, on the server: each name's directory is resolved there (cd -P) and must lie inside
-        path, so neither a name nor a link the target holds leads a removal outside the code tree."""
+    def remove(self, path, names, keep=(), protected=()):
+        """As LocalTarget.remove, on the server: the helper with the server's python3 3.3+ (asked once), else the
+        shell loop of REMOVE_INSIDE_SH. Names travel on standard input only; the names left pending come back on
+        file descriptor 3 (the server's own output goes to standard error), and only names sent are taken."""
         if not names:
             return []
-        listing = ''.join(f'{name}\0' for name in names).encode()
-        command = ['ssh', *SSH_OPTIONS, self.host,
-                   f'cd {shlex.quote(path)} && if python3 -c {shlex.quote(PYTHON_CHECK)} >/dev/null 2>&1; then '
-                   f'python3 -c {shlex.quote(REMOVE_HELPER)} .; else '
-                   f'echo "setup: no python3 3.3+ on the server: removals checked by path" >&2; root=$(pwd -P) && '
-                   f'xargs -0 sh -c {shlex.quote(REMOVE_INSIDE_SH)} sh "$root"; fi']
+        if self.python is None:
+            self.python = self.run(self.ssh('python3', '-c', PYTHON_CHECK), capture_output=True).returncode == 0
+        if self.python:
+            request = {'remove': [os.fsencode(name).hex() for name in names],
+                       'keep': [os.fsencode(name).hex() for name in keep], 'protected': list(protected)}
+            listing = json.dumps(request).encode()
+            remote = f'cd {shlex.quote(path)} && python3 -c {shlex.quote(REMOVE_HELPER)} . 3 3>&1 1>&2'
+        else:
+            listing = ''.join(f'{name}\0' for name in names).encode()
+            remote = (f'cd {shlex.quote(path)} && echo "setup: no python3 3.3+ on the server: removals checked by path" >&2'
+                      f' && root=$(pwd -P) && xargs -0 sh -c {shlex.quote(REMOVE_INSIDE_SH)} sh "$root" 3>&1 1>&2')
+        command = ['ssh', *SSH_OPTIONS, self.host, remote]
         result = self.run(command, input=listing, capture_output=True)
         if result.stderr:
             print(os.fsdecode(result.stderr).rstrip())
         if result.returncode:
             raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
-        return [os.fsdecode(name) for name in (result.stdout or b'').split(b'\0') if name]
+        sent = set(names)
+        returned = [os.fsdecode(name) for name in (result.stdout or b'').split(b'\0') if name]
+        return [name for name in returned if name in sent]
 
     def listening(self):
         result = self.run(self.ssh('ss', '-Hltn'), capture_output=True, text=True)

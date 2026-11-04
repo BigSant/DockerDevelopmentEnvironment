@@ -352,7 +352,8 @@ def release_directory_present(release, directory):
     from remove_inside import LeavesRoot, open_root, walk
     top = open_root(release)
     try:
-        os.close(walk(top, os.fsencode(directory.strip('/')).split(b'/')))
+        found, _ = walk(top, os.fsencode(directory.strip('/')).split(b'/'))
+        found.close()
         return True
     except FileNotFoundError:
         return False
@@ -360,7 +361,7 @@ def release_directory_present(release, directory):
         raise ValueError(f'The release build left a link at {directory} leading out of the release (or a file where a '
                          f'directory belongs) in {release}; nothing is copied to the target') from None
     finally:
-        os.close(top)
+        top.close()
 
 
 def push_protected_release_files(project, release, target, path):
@@ -679,7 +680,9 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
             write_manifest(project, release, commit)
         stage[0] = 'removals'
         removed = removed_files(project, entries, commit)
-        left = target.remove(path, removed) or []
+        # The target resolves each name and keeps what the new release ships or protects there (a link may lead a
+        # stale name onto one of its files).
+        left = target.remove(path, removed, keep=read_manifest(project, commit) or [], protected=excludes) or []
         if left:
             # Not removed is not done: kept in the history, the next deploy tries them again.
             entry['pending_removals'] = left
