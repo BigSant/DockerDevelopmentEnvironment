@@ -428,10 +428,9 @@ code is copied: a link inside the release, such as `cache -> var/cache`, is foll
 manifest is a JSON list (`manifests/<sha12>.json`, walked without following links; an older `.txt` newline list is
 never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps the newest `KEEP_RELEASES`
 distinct completed releases, and removals take only `safe_names`.
-**Removal threat model: trusted content.** Removals run only for trusted releases and targets: untrusted (agent)
-stage deploys are refused by their workflows while `release-hardened-v1` is not offered, and protection against a
-hostile tree (links planted or swapped during the removal) is future work: setup's copy, pruning and removal of a
-release and a target in an isolated container, which `release-hardened-v1` will announce. `remove_inside.py` (local,
+**Removal threat model.** On this machine (`LocalTarget`) and over ssh, removals assume trusted releases and targets.
+An untrusted (agent) release is deployed only with release isolation (below), where the same helper runs in the
+sandbox container and a hostile tree reaches nothing but its own mounts. `remove_inside.py` (local,
 and on a server with `python3` 3.3+ via `-c`; Python 3.5 syntax) works on bytes only (names, the new release's files
 and the protected patterns travel as the hex of their bytes, so the server's locale never matters): each name's
 directory is resolved with `os.path.realpath` (its last part stays, so a stale link is removed itself), and the name
@@ -443,9 +442,28 @@ The reply is one framed block (start line, JSON length, JSON, end line) on fd 3,
 stderr; output around it is ignored and only names that were sent are taken. What the removal step could not do
 stays pending in the history: a deploy is `"removals": "pending"` until its removal step is done (the next deploy
 removes against every release still on the target, `removal_sources`), and `pending_removals` names the files it
-could not remove yet. `make -f docker/project.mk setup-capabilities` lists abilities without a project
-(`deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); `release-hardened-v1` is not
-offered until the release copy and the target are handled in an isolated container; the build hook gets
+could not remove yet.
+**Release isolation** (`release_sandbox`, `RELEASE_ISOLATION=container`, the project's setting or the job's
+environment, which can only switch it on): every operation of `make deploy` on the release copy or on the target's
+code tree runs in a throwaway container of the `setup-release-sandbox:<Dockerfile hash>` image
+(`docker/docker/release-sandbox`: Alpine by digest with `python3`, `rsync`, GNU `tar`; built here on first use) that
+mounts only the release directory (read only unless setup writes into it), the target code directory and setup's
+`sandbox_ops.py` and `remove_inside.py` (read only), with `--network none`, `--read-only` (a small `noexec` tmpfs at
+`/tmp`), `--cap-drop ALL`, `no-new-privileges`, pid and memory limits and an unprivileged user (this machine's account
+for the release, `APP_UID:APP_GID` for the target). In it: exporting the `git archive` into the release, writing
+`.setup-build.sh`, `.setup-release` and the `config/composer` files, the manifest (printed as JSON and checked here:
+a list of plain relative names, at most 500 000 and 64 MiB; others are left out, so never removed), the code rsync,
+the protected directories, the listing of the target's module directories and the removals. This machine's Python
+reads only trusted things (history, attempt files, setup's own env repository) and that checked output. Isolation
+needs a target on this machine (no `DEPLOY_SSH`; untrusted deploys to another server stay refused) and a release build
+off the host network (`RELEASE_BUILD_NETWORK` defaults to `bridge`, `host` is refused); both are checked before
+anything changes. Without it every step works on this machine as before. Not in the sandbox: pruning old release
+copies (`shutil.rmtree`, which never follows links), `release_built` (`lstat`), the PrestaShop module upgrade's reading
+of module versions from the release and the composer.json check (both reads that change nothing), and setup-server's
+own `sync_environment`. `make -f docker/project.mk setup-capabilities` lists abilities (`deploy-attempt-v1`,
+`deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads
+that environment's env files as data and adds `release-hardened-v1` only when isolation is set there, its target is on
+this machine and Docker answers; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of

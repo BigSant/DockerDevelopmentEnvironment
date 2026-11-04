@@ -139,8 +139,10 @@ def build_cache(project):
 
 
 def release_build_network(project):
-    """RELEASE_BUILD_NETWORK, checked: host unless the project chooses bridge or none."""
-    network = project.settings.get('RELEASE_BUILD_NETWORK') or 'host'
+    """RELEASE_BUILD_NETWORK, checked: host unless the project chooses bridge or none; with release isolation bridge
+    unless the project chooses none (host is refused: release_sandbox.check)."""
+    from release_sandbox import isolation
+    network = project.settings.get('RELEASE_BUILD_NETWORK') or ('bridge' if isolation(project) else 'host')
     if network not in RELEASE_BUILD_NETWORKS:
         raise ValueError(f"RELEASE_BUILD_NETWORK must be host, bridge or none, not {network!r}")
     return network
@@ -211,9 +213,16 @@ def build_code(project, ref):
     if release.exists():
         shutil.rmtree(release)
     release.mkdir(parents=True)
+    # With release isolation the export, setup's writes into the copy and its manifest happen in the sandbox.
+    from release_sandbox import Sandbox, isolation
+    sandbox = Sandbox(project, release) if isolation(project) else None
+    write = sandbox.write if sandbox else lambda name, data: write_release_file(release, name, data)
     print(f'==> exporting {ref} ({commit[:12]}) from {shop}', flush=True)
     archive = subprocess.Popen(['git', '-C', str(shop), 'archive', '--format=tar', commit], stdout=subprocess.PIPE)
-    subprocess.run(['tar', '-x', '-C', str(release)], stdin=archive.stdout, check=True)
+    if sandbox:
+        sandbox.extract(archive.stdout)
+    else:
+        subprocess.run(['tar', '-x', '-C', str(release)], stdin=archive.stdout, check=True)
     archive.stdout.close()
     if archive.wait():
         raise ValueError(f'git archive of {commit[:12]} failed')
@@ -221,7 +230,7 @@ def build_code(project, ref):
     if (composer / 'composer.json').is_file():
         for name in ('composer.json', 'composer.lock'):
             if (composer / name).is_file():
-                write_release_file(release, name, (composer / name).read_bytes())
+                write(name, (composer / name).read_bytes())
     if (release / 'composer.json').is_file():
         print('==> composer install --no-dev', flush=True)
         in_release_image(project, release, 'composer install --no-dev --optimize-autoloader --no-interaction --no-progress')
@@ -232,9 +241,9 @@ def build_code(project, ref):
     hook = project.directory / 'config/deploy/build.sh'
     if hook.is_file():
         print('==> config/deploy/build.sh', flush=True)
-        _run_hook(project, release, hook)
-    write_manifest(project, release, commit)
-    write_release_file(release, '.setup-release', (json.dumps({'ref': ref, 'commit': commit}) + '\n').encode())
+        _run_hook(project, release, hook, write)
+    write_manifest(project, release, commit, sandbox.manifest() if sandbox else None)
+    write('.setup-release', (json.dumps({'ref': ref, 'commit': commit}) + '\n').encode())
     prune_releases(project, keep=release)
     return release, commit
 
@@ -257,16 +266,17 @@ def read_manifest(project, commit):
     return None
 
 
-def write_manifest(project, release, commit):
+def write_manifest(project, release, commit, files=None):
     """Every file the release ships; the next deploy removes what it drops from this list only. Links (to files or
-    directories) are entries and never followed."""
-    files = []
-    for directory, folders, names in os.walk(release):
-        base = Path(directory)
-        for name in names + [folder for folder in folders if (base / folder).is_symlink()]:
-            if not name.startswith('.setup-'):
-                files.append((base / name).relative_to(release).as_posix())
-    files.sort()
+    directories) are entries and never followed. files: the list the release sandbox made (checked), else walked here."""
+    if files is None:
+        files = []
+        for directory, folders, names in os.walk(release):
+            base = Path(directory)
+            for name in names + [folder for folder in folders if (base / folder).is_symlink()]:
+                if not name.startswith('.setup-'):
+                    files.append((base / name).relative_to(release).as_posix())
+    files = sorted(files)
     target = manifest_path(project, commit)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(files) + '\n')
@@ -370,10 +380,10 @@ def push_protected_release_files(project, release, target, path):
                     *(['--checksum'] if overwrite else ['--ignore-existing']))
 
 
-def _run_hook(project, release, hook):
+def _run_hook(project, release, hook, write=None):
     """Project build step (assets, translations) inside the release image, on the release copy."""
     script = release / '.setup-build.sh'
-    write_release_file(release, script.name, hook.read_bytes())
+    (write or (lambda name, data: write_release_file(release, name, data)))(script.name, hook.read_bytes())
     try:
         in_release_image(project, release, 'sh /var/www/html/.setup-build.sh', cache=build_cache(project))
     finally:
@@ -619,6 +629,10 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
     # A rollback's stages are one event, rollback, which make pipeline-deploy writes.
     events = Attempt(project.directory, project.environment, None if rollback else attempt)
     context, deploy_path = release_settings(project)
+    from release_sandbox import Sandbox, check as check_isolation, isolation
+    isolated = isolation(project)
+    if isolated:
+        check_isolation(project)  # before anything changes: a target on this machine, no host network for the build
     # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
     check_project_root(project, context, release_model(project, deploy_path), deploy_path)
     php_reload(project)  # a bad value stops the deploy before anything changes
@@ -642,7 +656,9 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         if not ref:
             raise ValueError('Name the shop release to deploy: make deploy ENV=... ref=TAG')
         release, commit = build_code(project, ref)
-    target, path = deploy_target(project), code_path(project, deploy_path)
+    path = code_path(project, deploy_path)
+    # Release isolation: the copy, the protected directories, the module listing and the removals in the sandbox.
+    target = Sandbox(project, release, path) if isolated else deploy_target(project)
     prestashop = is_prestashop(project)
     excludes = protected_paths(project)
     # PrestaShop modules installed only on the target stay; for other profiles modules/ is plain code.
@@ -674,7 +690,7 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         push_protected_release_files(project, release, target, path)
         stage[0] = 'manifest'
         if not manifest_path(project, commit).is_file():
-            write_manifest(project, release, commit)
+            write_manifest(project, release, commit, target.manifest() if isolated else None)
         stage[0] = 'removals'
         removed = removed_files(project, entries, commit)
         # The target resolves each name and keeps what the new release ships or protects there (a link may lead a

@@ -1,4 +1,5 @@
 # Included by the identical Makefile distributed to every project.
+SETUP_DIRECTORY ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 ENV ?= local
 PROJECT_DIRECTORY ?= $(if $(filter app,$(notdir $(patsubst %/,%,$(dir $(PROJECT_DOCKER_DIRECTORY))))),$(abspath $(PROJECT_DOCKER_DIRECTORY)/../..),$(abspath $(PROJECT_DOCKER_DIRECTORY)/..))
 PYTHON ?= python3
@@ -6,13 +7,14 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh db-backup files-backup db-pull files-pull translations-migration translations-migrate translations-base ssh db-prepare bootstrap test-init setup-info
 .PHONY: db-fixtures-plan db-fixtures-load setup-capabilities
-# What this setup can do, for a project's workflow to probe before it trusts a deploy to it; needs no project:
-#   make -s -f <setup>/docker/project.mk setup-capabilities
-# release-hardened-v1 (a release build that cannot reach the build machine's files, in isolation) is not offered yet:
-# a workflow that needs it before an untrusted deploy refuses that deploy.
+# What this setup can do, for a project's workflow to probe before it trusts a deploy to it, running only setup:
+#   make -s -f <setup>/docker/project.mk setup-capabilities                       what any project gets
+#   make -s -f <setup>/docker/project.mk setup-capabilities PROJECT_DOCKER_DIRECTORY=<root>/app ENV=stage
+# The second also says release-hardened-v1 when that environment isolates its deploys (RELEASE_ISOLATION=container,
+# a target on this machine, Docker here); it reads the project's env files as data and runs none of its code.
 SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1
 setup-capabilities:
-	@echo '$(SETUP_CAPABILITIES)'
+	@$(if $(PROJECT_DOCKER_DIRECTORY),$(RUN_PROJECT) $@,echo '$(SETUP_CAPABILITIES)')
 
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)

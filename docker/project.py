@@ -373,7 +373,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "deploy-health", "deploy-status", "cron-reload", "tool-access", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "deploy-health", "deploy-status", "setup-capabilities", "cron-reload", "tool-access", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -454,6 +454,14 @@ def main():
             # Before Project, as pipeline-deploy: a workflow step without the environment's secrets runs it.
             from project_deploy_health import deploy_health
             return deploy_health(args.docker_directory, args.env, attempt=args.attempt, rollback=args.rollback)
+        if args.action == 'setup-capabilities':
+            # Data only: the env files of ENV, no project code (before Project, which would also need its secrets).
+            from release_sandbox import BASE_CAPABILITIES, CAPABILITY, capabilities
+            hardened, reason = capabilities(args.docker_directory, args.env)
+            print(' '.join(BASE_CAPABILITIES + ((CAPABILITY,) if hardened else ())))
+            if reason:
+                print(f'{CAPABILITY}: no ({reason})', file=sys.stderr)
+            return 0
         if args.action == 'deploy-status':
             from project_attempts import deploy_status
             run = {'operation': args.operation, 'request_id': args.request_id,

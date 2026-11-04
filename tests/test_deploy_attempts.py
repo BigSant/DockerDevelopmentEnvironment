@@ -841,9 +841,11 @@ class CapabilityTest(unittest.TestCase):
         offered = set(result.stdout.split())
         self.assertTrue({"deploy-attempt-v1", "deploy-health-v1", "deploy-status-v1", "release-build-network-v1"} <= offered,
                         result.stdout)
-        # Not advertised until the release copy and the target are handled in isolation (re-check H1-H3): a
-        # workflow that needs it refuses untrusted stage deploys meanwhile.
+        # Only a project environment can be isolated (setup-capabilities PROJECT_DOCKER_DIRECTORY=... ENV=...:
+        # test_release_sandbox_integration): without a project it is never offered.
         self.assertNotIn("release-hardened-v1", offered)
+        from release_sandbox import BASE_CAPABILITIES
+        self.assertEqual(sorted(offered), sorted(BASE_CAPABILITIES), "make and the runner name the same abilities")
 
 
 class LockTest(unittest.TestCase):

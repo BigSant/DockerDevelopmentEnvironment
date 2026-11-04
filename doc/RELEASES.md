@@ -11,7 +11,15 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Release isolation for untrusted code (`release-hardened-v1`).** With `RELEASE_ISOLATION=container` (a project
+  setting, or the job's environment) everything `make deploy` does with the release copy or the target's code tree
+  runs in a throwaway `setup-release-sandbox` container: only those two directories and setup's helpers mounted, no
+  network, a read-only root, no capabilities, an unprivileged user. The release build's network defaults to `bridge`
+  there (`host` refused), and it needs a target on this machine. `make -f docker/project.mk setup-capabilities
+  PROJECT_DOCKER_DIRECTORY=… ENV=…` adds `release-hardened-v1` only when all of that holds for the environment.
+  Projects that set nothing deploy as before. New B level `tests/run --sandbox` (CI runs it).
 
 ## 5.4.0
 

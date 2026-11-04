@@ -475,14 +475,28 @@ make -s deploy-status ENV=prod attempt=ID fetch=1       # pirma git fetch (ar de
 
 `make deploy-status` nieko nekeičia ir gali būti kartojamas. Ilgo bandymo senesni įvykiai dokumente praleidžiami (`events_omitted`), kad jis būtų ne didesnis nei 64 KiB; bandymo faile lieka visi. Dokumente: bandymo `outcome` (`in_progress`, `live`, `refused`, `not_deployed`, `failed_after_code`, `rolled_back`, `rollback_failed`, `unknown_attempt`) ir įvykiai, veikiantis release'as, paskutiniai 20 istorijos įrašų (kopijų tik failų vardai), Deployment variables **vardai** (ir kurie neprivalomi buvo tušti), naujausia setup-server naktinė kopija ir build root išdėstymas. Jokių reikšmių, env failų turinio ar atsakymų turinio; dokumentas ne didesnis nei 64 KiB. `run_id=`, `run_attempt=`, `request_id=`, `operation=` įrašomi į jo `run` dalį.
 
-**Setup galimybės.** Workflow, prieš patikėdamas setup'ui nepatikimą (agento šakos) stage deploy'ų, gali paklausti, ką šis setup moka, nevykdydamas jokio projekto kodo:
+**Setup galimybės.** Workflow, prieš patikėdamas setup'ui nepatikimą (agento šakos) stage deploy'ų, gali paklausti, ką šis setup moka, nevykdydamas jokio projekto kodo (env failai skaitomi kaip duomenys):
 
 ```bash
 make -s -f "$SETUP_DIRECTORY/docker/project.mk" setup-capabilities
 # deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1
+make -s -f "$SETUP_DIRECTORY/docker/project.mk" setup-capabilities PROJECT_DOCKER_DIRECTORY="$ROOT/app" ENV=stage
+# deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 release-hardened-v1
 ```
 
-`release-hardened-v1` (build'as ir trynimai izoliuotame konteineryje, kad release'o kodas negalėtų pasiekti serverio failų) kol kas **nesiūlomas**. Workflow, kuriam jo reikia (pvz. zarskis.lt prieš agento šakos stage deploy'ų), tokio deploy'aus atsisako. Jau dabar setup savo failus release'e rašo naujais failais per `rename`, iš release'o nekopijuoja katalogų, kurių nuoroda veda už jo, ir failų sąrašus laiko JSON. Trynimai skirti tik patikimam turiniui; izoliuotas kopijavimas ir trynimas konteineryje yra būsimas darbas, kurį paskelbs `release-hardened-v1`.
+`release-hardened-v1` parodomas tik antru būdu ir tik tada, kai tos aplinkos deploy'ai izoliuoti: `RELEASE_ISOLATION=container`, taikinys šiame serveryje (be `DEPLOY_SSH`) ir Docker čia atsako. Kitaip stderr paaiškina kodėl, o workflow nepatikimo deploy'aus atsisako.
+
+### Release'o izoliacija (`RELEASE_ISOLATION=container`)
+
+Agento šakos stage deploy'us kuria release'ą iš nepatikimo kodo: jo Composer scriptai ir `build.sh` gali palikti nuorodas į serverio failus, hard link'us, keistus vardus, o veikianti aplikacija – keisti savo katalogus deploy'aus metu. Su `RELEASE_ISOLATION=container` (projekto nustatymas `env/common.env` ar aplinkos pavyzdyje, arba job'o aplinkos kintamasis) visa, ką `make deploy` daro su release'o kopija ir taikinio kodo medžiu, vyksta vienkartiniame konteineryje:
+
+- konteineris prijungia tik release'o katalogą, taikinio kodo katalogą ir setup'o pagalbinius scriptus (tik skaityti); be tinklo (`--network none`), šakninė failų sistema tik skaitymui, be teisių (`--cap-drop ALL`, `no-new-privileges`), neprivilegijuotas naudotojas (taikiniui – `APP_UID:APP_GID`);
+- jame: kodo išpakavimas į release'ą, setup'o failų (`.setup-build.sh`, `.setup-release`, `config/composer`) rašymas, failų sąrašas, kodo ir saugomų katalogų kopijavimas (`rsync`), modulių katalogų sąrašas ir trynimai;
+- nuoroda į serverio kelią konteineryje veda į paties konteinerio failų sistemą, todėl jokio serverio failo nepasiekia; šio serverio Python skaito tik patikimus dalykus ir patikrintą konteinerio išvestį (failų sąrašą);
+- release'o build'as (Composer, `build.sh`) jau vyksta release PHP image'e; su izoliacija jo tinklas pagal nutylėjimą `bridge`, `RELEASE_BUILD_NETWORK=host` atmetamas;
+- tik taikiniui šiame serveryje: su `DEPLOY_SSH` izoliacija atmetama, todėl nepatikimi deploy'ai į kitą serverį lieka draudžiami.
+
+Konteinerio image'as `setup-release-sandbox` (Alpine pagal digest) sukuriamas pirmą kartą prireikus. Be šio nustatymo `make deploy` dirba kaip anksčiau.
 
 **Aplinkos užraktas.** Kiekvienas `make pipeline-deploy` paleidimas (su `DEPLOY_ATTEMPT` ar be jo), `make deploy` ir `make deploy-health` istoriją rašo tik turėdami aplinkos užraktą `.generated/release/<env>/deploy.lock` (tuščias, niekada netrinamas failas). Antras paleidimas į tą pačią aplinką laukia, kol pirmas baigs. Paleidimo `make` žingsniai užraktą paveldi: jei paleidimas nutraukiamas, užraktas lieka, kol baigiasi jo dar dirbantis žingsnis. Seni release'ai valomi taip, kad liktų paskutiniai sėkmingi (ir rollback'o tikslas), kad ir kiek nepavykusių deploy'ų buvo po jų. `make deploy` įrašą į istoriją įrašo iškart po kodo nukopijavimo kaip `"failed": "incomplete"` ir baigęs jį pakeičia. Jei nepavyksta vėlesnis žingsnis, įraše lieka to žingsnio vardas (`after-rsync`, `migrations`, `cache`, `reload`, …). Taip istorija visada rodo, koks kodas yra taikinyje, net jei deploy'us nutrūko.
 

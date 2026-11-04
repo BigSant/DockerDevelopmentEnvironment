@@ -1076,6 +1076,26 @@ class GenericDeployTest(unittest.TestCase):
         self.assertEqual((code / "vär/x.php").read_text(), "protected\n")
         self.assertFalse((code / "ąčę.php").exists())
 
+    def test_release_isolation_is_off_unless_chosen_and_then_keeps_the_build_off_the_host_network(self):
+        """RELEASE_ISOLATION (none by default): with container the build network defaults to bridge (host is refused
+        before anything changes: test_release_sandbox_integration); any other value is refused."""
+        from project_deploy import release_build_network
+        from release_sandbox import isolation, refusal
+        self.assertFalse(isolation(self.project))
+        self.assertEqual(release_build_network(self.project), "host", "a project that sets nothing builds as before")
+        self.project.settings["RELEASE_ISOLATION"] = "container"
+        self.assertTrue(isolation(self.project))
+        self.assertEqual(release_build_network(self.project), "bridge")
+        self.assertIn("refuses RELEASE_BUILD_NETWORK=host", refusal({"RELEASE_BUILD_NETWORK": "host"}))
+        self.assertIn("needs a deploy target on this machine", refusal({"DEPLOY_SSH": "shop@host.example"}))
+        self.assertIsNone(refusal({"RELEASE_BUILD_NETWORK": "none"}))
+        self.project.settings["RELEASE_ISOLATION"] = "maybe"
+        with self.assertRaisesRegex(ValueError, "RELEASE_ISOLATION must be none or container"):
+            isolation(self.project)
+        self.project.settings["RELEASE_ISOLATION"] = ""
+        with patch.dict(os.environ, {"RELEASE_ISOLATION": "container"}):
+            self.assertTrue(isolation(self.project), "the job's environment can switch it on")
+
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
         import fcntl
