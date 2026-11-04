@@ -24,6 +24,11 @@ change (say how). An empty section still releases a patch.
 - **Live commit per environment.** `IMAGES=auto` and `CRON=auto` also compare with the environment's last completed
   deploy when the build root's checkout differs (stage and prod from one build root), and a run killed midway is
   repaired by the next one before it starts.
+- **One deploy at a time per environment, and a history that names the code on the target.** Every
+  `make pipeline-deploy` run, `make deploy` and `make deploy-health` holds `.generated/release/<env>/deploy.lock`; a
+  second run waits. `make deploy` records its entry right after the copy (`"failed": "incomplete"` until it completes,
+  else the step that failed after the copy), so a deploy that fails in migrations, the cache clear or the reload no
+  longer leaves the history behind the target. History writes are atomic.
 - **Monorepo build roots keep their deploy target.** When the build root is itself the clone (setup-server's
   `--monorepo`), `make pipeline-deploy` refuses a commit that tracks `target.env` or `target.<env>.env` at the
   repository root before checking it out, so git never overwrites the server's deploy target.

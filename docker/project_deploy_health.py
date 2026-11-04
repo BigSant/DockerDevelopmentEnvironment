@@ -2,7 +2,7 @@
 
 The pages: the project's fixed smoke list DEPLOY_HEALTH_PATHS (env/common.env, an environment's example may override
 it) plus DEPLOY_HEALTH_EXTRA from the caller's process environment (AI OS passes the changed pages), at most 30,
-duplicates dropped. One GET each, no redirect followed, 10 s timeout; 200-399 passes, a timeout, a connection error
+duplicates dropped. One GET each, no redirect followed, 10 s for the whole request; 200-399 passes, a timeout, a connection error
 or a 5xx is tried once more after 5 s. Only the status, the time and the tries are kept, never a body.
 
 Where: on a target on this host (no DEPLOY_SSH) http://<PUBLISH_ADDRESS, else 127.0.0.1>:<LOCALHOST_PORT><path> with
@@ -28,6 +28,7 @@ import re
 import socket
 import ssl
 import sys
+import threading
 import time
 
 from project_attempts import Attempt, check_attempt, read_history, write_history
@@ -89,35 +90,58 @@ class Endpoint:
                 except ValueError:
                     raise Refusal('DEPLOY_HEALTH_ADDRESS must be an IPv4 or IPv6 address (where the site is served)') from None
 
-    def connection(self):
+    def connection(self, timeout=TIMEOUT):
         if self.local:
-            return HTTPConnection(self.address, self.port, timeout=TIMEOUT)
+            return HTTPConnection(self.address, self.port, timeout=timeout)
         if not self.address:
-            return HTTPSConnection(self.domain, self.port, timeout=TIMEOUT, context=ssl.create_default_context())
+            return HTTPSConnection(self.domain, self.port, timeout=timeout, context=ssl.create_default_context())
         address = self.address
 
         class Pinned(HTTPSConnection):
             def connect(self):
                 sock = socket.create_connection((address, self.port), self.timeout)
                 self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
-        return Pinned(self.domain, self.port, timeout=TIMEOUT, context=ssl.create_default_context())
+        return Pinned(self.domain, self.port, timeout=timeout, context=ssl.create_default_context())
 
-    def get(self, path, body=False):
-        """(status or None, the error word, the body when asked): one GET, no redirect followed."""
+    def get(self, path, body=False, deadline=None):
+        """(status or None, the error word, the body when asked): one GET, no redirect followed. One monotonic deadline
+        (TIMEOUT, or the caller's earlier one) bounds the connect, the headers and the body together: a socket timeout
+        alone restarts with every byte, so at the deadline a watchdog shuts the socket down."""
+        deadline = min(deadline or float('inf'), time.monotonic() + TIMEOUT)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, 'timeout', b''
         headers = {'Host': self.domain, 'User-Agent': 'setup-deploy-health', 'Cache-Control': 'no-cache'}
         if self.local:
             headers['X-Forwarded-Proto'] = 'https'
-        connection = self.connection()
+        connection = self.connection(timeout=remaining)
+        expired = threading.Event()
+
+        def expire():
+            expired.set()
+            sock = connection.sock
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+        watchdog = threading.Timer(remaining, expire)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             connection.request('GET', path, headers=headers)
             response = connection.getresponse()
             data = response.read(RELEASE_BODY_LIMIT) if body else b''
+            if expired.is_set():
+                return None, 'timeout', b''
             return response.status, None, data
         except (socket.timeout, TimeoutError):
             return None, 'timeout', b''
-        except (OSError, HTTPException, ssl.SSLError) as error:
-            return None, type(error).__name__, b''
+        except (OSError, HTTPException, ssl.SSLError, ValueError) as error:
+            return None, 'timeout' if expired.is_set() else type(error).__name__, b''
         finally:
+            watchdog.cancel()
             connection.close()
 
 
@@ -143,7 +167,7 @@ def release_seen(endpoint, path, expected, sleep, wait=RELEASE_WAIT):
     """The commit the release page reports, asked until it is the expected one or the wait is over."""
     deadline, seen = time.monotonic() + wait, None
     while True:
-        status, _, body = endpoint.get(path, body=True)
+        status, _, body = endpoint.get(path, body=True, deadline=deadline)
         if status == 200:
             try:
                 value = json.loads(body.decode()).get('release')

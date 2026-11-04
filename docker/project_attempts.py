@@ -7,7 +7,8 @@ events of each stage. Events are appended and never rewritten, and every write i
 place, so a reader never sees half a file and a killed run leaves the stages it finished. make deploy-status prints
 the dde-deploy-status/v1 document from these files and the history; it changes nothing.
 
-A deploy without DEPLOY_ATTEMPT writes none of this: no attempt file, no `attempt` field, no lock.
+A deploy without DEPLOY_ATTEMPT writes none of this: no attempt file, no `attempt` field. Every writer of the
+environment's history (make pipeline-deploy, make deploy, make deploy-health) holds its lock, deploy.lock.
 """
 
 from contextlib import contextmanager
@@ -99,10 +100,13 @@ def is_known(directory, environment, attempt):
 
 @contextmanager
 def environment_lock(directory, environment, environ=None):
-    """The environment's attempt lock, held for one pipeline run; its make steps (LOCK_VARIABLE) do not wait."""
+    """The environment's deploy lock, a stable file never removed: every writer of its history and attempt files waits
+    for it. A pipeline run holds it for the whole run; its make steps (LOCK_VARIABLE names the file) do not wait."""
     import fcntl
-    path = release_root(directory, environment) / 'attempts/.lock'
-    if (environ or os.environ).get(LOCK_VARIABLE) == str(path):
+    path = release_root(directory, environment) / 'deploy.lock'
+    held = (environ or os.environ).get(LOCK_VARIABLE)
+    # Compared as real paths: the step's make children name the same directory in their own way (a link, ..).
+    if held and os.path.realpath(held) == os.path.realpath(path):
         yield path
         return
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

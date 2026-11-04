@@ -39,9 +39,11 @@ restarted the containers on the new images: then nothing is undone and the step 
 
 The live commit the auto switches compare with is the build root's checkout and, when it differs (a build root that
 deploys stage and prod, or one a killed run left behind), also the environment's last completed deploy in its history:
-a switch says yes when either comparison needs it. A run leaves .generated/release/<env>/pipeline-run.json while it
-works; finding one, the next run first does what the killed run's own end would have done (the checkout back at the
-commit before it, or at the code it already deployed).
+a switch says yes when either comparison needs it. Every run holds the environment's lock
+(.generated/release/<env>/deploy.lock, project_attempts.environment_lock) from its checks to its end; a second run
+waits. It keeps .generated/release/<env>/pipeline-run.json (replaced atomically, removed only by the run that wrote it)
+while it works; finding one, the next run first does what the killed run's own end would have done (the checkout back
+at the commit before it, or at the code it already deployed), and an unreadable one is refused and left for a person.
 
 A monorepo build root (setup-server's --monorepo: the build root is the clone and holds app/Makefile) keeps the
 server's target.env / target.<env>.env beside app/, untracked (.git/info/exclude); a commit that tracks either is
@@ -56,8 +58,10 @@ Opt-in, for a caller that tracks its deploys (AI OS; project_attempts):
       that commit (none: no deploy yet).
   HEALTH=auto|yes|no (auto): after the deploy, make deploy-health when the deployed commit configures it
       (DEPLOY_HEALTH_PATHS or DEPLOY_HEALTH_RELEASE_PATH) or the caller passes DEPLOY_HEALTH_EXTRA; no leaves it to the
-      caller's own step. On prod, a failed check (or a failed after-rsync hook) rolls back automatically
-      (make deploy rollback=1) and checks again. A project that configures none of it deploys as before.
+      caller's own step. On prod, a failed check (or any failure after the code was copied: the hook, migrations,
+      cache, reload) rolls back automatically (make deploy rollback=1) and checks again; the attempt is rolled_back
+      only when that check passes. A project that configures none of it deploys as before.
+GitHub's DEPLOY_VARIABLES_JSON / DEPLOY_SECRETS_JSON are expanded first, so each of these may come from them too.
 """
 
 import json
@@ -68,7 +72,7 @@ import subprocess
 import sys
 
 from project_attempts import (LOCK_VARIABLE, Attempt, COMMIT, check_attempt, environment_lock, is_known, live_commit,
-                              now, read_history, release_root)
+                              now, read_history, release_root, write_json)
 from project_env_files import (TARGET_KEYS, deployment_variables, file_settings,
                                needed_setup_version, project_root, read_dotenv, target_file, target_settings)
 from project_environments import DEPLOYMENT_ENVIRONMENTS, NAME, RESERVED, is_server, server_environments
@@ -230,7 +234,7 @@ class Step:
         self.child['SETUP_DIRECTORY'] = str(SETUP_ROOT)
         self.history = directory / '.generated/release' / environment / 'deployments.json'
         self.marker = release_root(directory, environment) / RUN_MARKER
-        self.marker_handle, self.marker_data = None, {}
+        self.marker_data = None  # this run's marker, once it wrote one
 
     def say(self, message):
         print(message, file=self.err, flush=True)
@@ -316,51 +320,29 @@ class Step:
             raise StepFailed(f'make {target} failed (exit {status})', status, target)
 
     def mark(self, **fields):
-        """The run's marker, locked while the run works: a run that finds one unlocked knows the last one was killed."""
-        import fcntl
-        if self.marker_handle is None:
-            self.marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            handle = open(self.marker, 'a+')
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                handle.close()
-                raise self.running() from None
-            self.marker_handle = handle
-        self.marker_data.update(fields)
-        self.marker_handle.seek(0)
-        self.marker_handle.truncate()
-        self.marker_handle.write(json.dumps(self.marker_data) + '\n')
-        self.marker_handle.flush()
-        os.fsync(self.marker_handle.fileno())
+        """The run's marker while it works, replaced atomically: the run holds the environment's lock, so a marker the
+        next run finds is a killed run's."""
+        self.marker_data = {**(self.marker_data or {}), **fields}
+        write_json(self.marker, self.marker_data)
 
     def unmark(self):
-        self.marker.unlink(missing_ok=True)
-        if self.marker_handle is not None:
-            self.marker_handle.close()
-            self.marker_handle = None
-
-    def running(self):
-        return Refusal(f'Another make pipeline-deploy of ENV={self.environment} is running in this build root '
-                       f'({self.marker} is locked); wait for it to finish')
+        """Removes the marker only if this run wrote it."""
+        if self.marker_data is not None:
+            self.marker.unlink(missing_ok=True)
+            self.marker_data = None
 
     def repair(self, head, record):
-        """A killed run's leftovers: what its own end would have done. Returns the build root's commit afterwards."""
-        import fcntl
+        """A killed run's leftovers: what its own end would have done. Returns the build root's commit afterwards.
+        An unreadable marker is refused and left for a person: it is the only record of where that run stopped."""
         if not self.marker.is_file():
             return head
-        with open(self.marker) as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise self.running() from None
-            try:
-                left = json.loads(handle.read())
-                entries = read_history(self.directory, self.environment)
-                grown = len(entries) > left['entries']
-            except (ValueError, KeyError, TypeError):
-                raise Refusal(f'{self.marker} is not a pipeline run marker: check the build root and remove it') from None
-            return self.repaired(head, record, left, entries, grown)
+        try:
+            left = json.loads(self.marker.read_text())
+            entries = read_history(self.directory, self.environment)
+            grown = len(entries) > left['entries']
+        except (ValueError, KeyError, TypeError):
+            raise Refusal(f'{self.marker} is not a pipeline run marker: check the build root, then remove it') from None
+        return self.repaired(head, record, left, entries, grown)
 
     def repaired(self, head, record, left, entries, grown):
         """The killed run's end: its code deployed (follow it), its images restarted (stay), else back to its start."""
@@ -379,7 +361,7 @@ class Step:
                      f'the commit before that run.')
         if commit != head:
             self.checkout(commit)
-        self.unmark()
+        self.marker.unlink()  # the killed run's, repaired: this run holds the environment's lock
         interrupted = Attempt(self.directory, self.environment, left.get('attempt'))
         if interrupted and interrupted.outcome() == 'in_progress':
             interrupted.event('interrupted', 'failed', code_reached=grown)
@@ -428,6 +410,10 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
     deployment = environ.get(provider.environment, '') if provider.environment else ''
     try:
         environment = environment_of(environment, deployment, provider)
+        # GitHub's variables and secrets first: DEPLOY_ATTEMPT and the switches may come from them.
+        for duplicate in expand_json(environ):
+            print(f'Warning: {duplicate} is both a secret and a configuration variable; the secret is used.',
+                  file=err)
         attempt = environ.get(ATTEMPT_VARIABLE, '')
         if attempt:
             check_attempt(attempt)
@@ -435,9 +421,7 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
         print(refusal, file=err)
         print('Nothing was changed.', file=err)
         return USAGE
-    if not attempt and not environ.get(EXPECTED_VARIABLE):
-        return checked_step(directory, root, environment, environ, provider, deployment, out, err)
-    # One attempt at a time per environment: its check, its acceptance and its run.
+    # One run at a time per environment, with or without an attempt: its checks, its acceptance and its changes.
     with environment_lock(directory, environment, environ) as lock:
         environ[LOCK_VARIABLE] = str(lock)
         return checked_step(directory, root, environment, environ, provider, deployment, out, err)
@@ -468,9 +452,6 @@ def checked_step(directory, root, environment, environ, provider, deployment, ou
         return USAGE
 
     try:
-        for duplicate in expand_json(environ):
-            print(f'Warning: {duplicate} is both a secret and a configuration variable; the secret is used.',
-                  file=err)
         switches = {}
         for name, default in SWITCHES:
             switches[name] = environ.get(name) or default
@@ -645,10 +626,12 @@ def auto_rollback(step, record, switches):
         record.update(outcome='rollback_failed')
         return ''
     record.event('rollback', 'ok', to=to)
-    record.update(outcome='rolled_back')
-    # The check marks the attempt rolled_back or rollback_failed itself.
+    # rolled_back only once the rolled-back release passes its check; a refused or killed check is no pass.
     if step.run_make('deploy-health', *attempt, 'rollback=1'):
         step.say(f'The rollback to {to[:12]} did not pass its health check: ENV={step.environment} may not be serving.')
+        record.update(outcome='rollback_failed')
+    else:
+        record.update(outcome='rolled_back')
     return to
 
 
@@ -728,10 +711,9 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
         state['restore'], state['deployed'] = False, True
         if rollback:
             record.event('rollback', 'ok', to=history_commit(step.history, 'last'))
-        if follow:
-            record.update(outcome='rolled_back')
-        elif not checked:
-            record.update(outcome='live')
+        if not checked:
+            # Nothing to check: the deploy (or the follow-up rollback) is its own result.
+            record.update(outcome='rolled_back' if follow else 'live')
         if not step.separate:
             # Setup decides what it deployed; the checkout follows it if the two ever disagree.
             deployed = history_commit(step.history, 'last')
@@ -744,6 +726,8 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
             status = step.run_make('deploy-health', *attempt, *(['rollback=1'] if follow else []))
             if status:
                 step.say(f'The health check of ENV={step.environment} failed.')
+            if follow:
+                record.update(outcome='rollback_failed' if status else 'rolled_back')
             if status and step.environment == 'prod' and not rollback:
                 to = auto_rollback(step, record, switches)
                 if to:
@@ -771,8 +755,10 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
             record.event(reason, 'failed')
             step.unmark()
             return status
-        if reached and history[-1].get('failed') == 'after-rsync':
-            reason = 'hook'
+        if reached and history[-1].get('failed'):
+            # make deploy records the step that failed after the copy (incomplete: it was killed).
+            failed = history[-1]['failed']
+            reason = {'after-rsync': 'hook', 'incomplete': 'interrupted'}.get(failed, failed)
         if reached and health and step.environment == 'prod' and not rollback:
             record.update(outcome='failed_after_code', reason=reason)
             auto_rollback(step, record, switches)

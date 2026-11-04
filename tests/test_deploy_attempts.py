@@ -58,11 +58,12 @@ else:
     entry = {'ref': options['ref'], 'commit': git('rev-parse', 'HEAD'), 'rollback': False}
 if options.get('attempt'):
     entry['attempt'] = options['attempt']
-if fail == 'after-rsync' and options.get('rollback') != '1':
-    entry['failed'] = 'after-rsync'
+after_copy = fail in ('after-rsync', 'migrations') and options.get('rollback') != '1'
+if after_copy:
+    entry['failed'] = fail
 history.parent.mkdir(parents=True, exist_ok=True)
 history.write_text(json.dumps(entries + [entry]))
-sys.exit(3 if fail == 'after-rsync' and options.get('rollback') != '1' else 0)
+sys.exit({'after-rsync': 3, 'migrations': 2}[fail] if after_copy else 0)
 '''
 
 HEALTH = 'DEPLOY_HEALTH_PATHS="/"\nDEPLOY_HEALTH_RELEASE_PATH=/_health\n'
@@ -104,6 +105,7 @@ class Target:
 
 class AttemptFixture(pipeline.Fixture):
     common = pipeline.COMMON
+    checked = ""  # commits whose env/common.env adds the health settings to `common`
 
     def setUp(self):
         super().setUp()
@@ -111,7 +113,7 @@ class AttemptFixture(pipeline.Fixture):
         self.site = Target(self)
 
         def files(name, extra=None):
-            return {"env/common.env": self.common, "config/mark": f"{name}\n", "public/index.php": f"<?php // {name}\n",
+            return {"env/common.env": self.common + (HEALTH if name in self.checked else ""), "config/mark": f"{name}\n", "public/index.php": f"<?php // {name}\n",
                     "env/prod.env.example": EXAMPLE.format(name=name, domain="fixture.test", port=self.site.port, env="prod"),
                     "env/stage.env.example": EXAMPLE.format(name=name, domain="stage.fixture.test", port=self.site.port,
                                                             env="stage"), **(extra or {})}
@@ -162,8 +164,10 @@ class AttemptTest(AttemptFixture):
         self.run_step(3, FAIL="after-rsync")
         self.assertEqual(self.heads(), [f"make deploy ENV=prod ref={c['C']} backup=0 cache=auto"])
         release = self.app / ".generated/release/prod"
-        self.assertEqual(sorted(path.name for path in release.iterdir()), ["deployments.json"],
-                         "no attempts, no lock, no run marker left behind")
+        self.assertEqual(sorted(path.name for path in release.iterdir()), ["deploy.lock", "deployments.json"],
+                         "no attempts and no run marker left behind; only the environment's lock, empty, which every run "
+                         "holds")
+        self.assertEqual((release / "deploy.lock").read_text(), "")
         self.assertEqual([sorted(entry) for entry in self.history()], [["commit", "ref", "rollback"]] * 3 +
                          [["commit", "failed", "ref", "rollback"]])
         self.assertNotIn("health", self.output)
@@ -255,21 +259,77 @@ class AttemptTest(AttemptFixture):
         self.assertEqual((repair["checkout_repaired"], repair["interrupted_attempt"]), (True, U(11)))
         self.assertFalse(marker.exists())
         self.assert_root("B")
-        # A marker its run still holds is no leftover: the second run waits for nothing and changes nothing.
-        import fcntl
-        marker.write_text(json.dumps({"from": c["A"], "target": c["C"], "attempt": None, "images": False, "entries": 9}))
-        with open(marker) as held:
-            fcntl.flock(held, fcntl.LOCK_EX)
-            self.run_step(64, REF=c["C"])
-            self.assert_out("Another make pipeline-deploy of ENV=prod is running in this build root")
-            self.assertEqual(self.make_log(), "")
-        self.assert_root("B")
         # Killed after make deploy recorded its code: the build root follows the deployed commit.
         marker.write_text(json.dumps({"from": c["A"], "target": c["B"], "attempt": None, "images": False, "entries": 0}))
         git(self.app, "checkout", "-q", "--detach", c["A"])
         self.run_step(0, REF=c["C"])
         self.assert_out(f"A killed run deployed {c['B'][:12]} to ENV=prod but did not finish; the build root follows it.")
         self.assert_root("C")
+
+    def test_a_second_run_waits_for_the_first_and_never_removes_its_marker(self):
+        """Review 1/3: every run, with or without an attempt, holds the environment's stable lock; a run that does not
+        own the marker never removes it."""
+        import fcntl
+        c = self.commits
+        self.run_step(0, REF=c["A"])
+        release = self.app / ".generated/release/prod"
+        marker = release / "pipeline-run.json"
+        # The first run, still working: it holds the environment's lock (and, as before, its marker).
+        marker.write_text(json.dumps({"from": c["A"], "target": c["B"], "attempt": None, "images": False, "entries": 1}))
+        lock = open(release / "deploy.lock", "a")
+        held = open(marker)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        self.log.write_text("")
+        env = {"PATH": f"{self.work / 'bin'}:{os.environ['PATH']}", "HOME": os.environ.get("HOME", str(self.work)),
+               "MAKE_LOG": str(self.log), **self.ci_environment(), "REF": c["C"]}
+        second = subprocess.Popen([sys.executable, str(ROOT / "docker/project.py"), "--docker-directory", str(self.app),
+                                   "--project-directory", str(self.app.parent), "--env", "local", "pipeline-deploy"],
+                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired, msg="the second run waits for the lock"):
+                second.wait(timeout=2)
+            self.assertTrue(marker.is_file(), "the first run's marker stays")
+            self.assertEqual(self.make_log(), "")
+        finally:
+            # The first run ends: its own end removes its marker, then the lock goes.
+            marker.unlink(missing_ok=True)
+            held.close()
+            lock.close()
+        output = second.communicate(timeout=60)[0]
+        self.assertEqual(second.returncode, 0, output)
+        self.assertNotIn("killed run", output)
+        self.assert_root("C")
+
+    def test_a_marker_the_run_cannot_read_is_kept_for_a_person(self):
+        """Review 5: an unreadable marker refuses the run and stays; the run never removes what it does not own."""
+        c = self.commits
+        marker = self.app / ".generated/release/prod/pipeline-run.json"
+        marker.parent.mkdir(parents=True)
+        marker.write_text('{"from": "')
+        self.run_step(64, REF=c["B"])
+        self.assert_out("is not a pipeline run marker")
+        self.assertEqual(marker.read_text(), '{"from": "')
+        self.assert_root("A")
+        marker.unlink()
+        # The run writes its marker by atomic replacement: no temporary file is left beside it.
+        self.run_step(0, REF=c["B"])
+        self.assertEqual(sorted(p.name for p in marker.parent.iterdir() if p.name.startswith(".")), [])
+
+    def test_the_attempt_id_may_come_from_the_github_json(self):
+        """Review 7: DEPLOY_ATTEMPT (and DEPLOY_EXPECTED_LIVE) set as GitHub variables work as process variables."""
+        c = self.commits
+        github = {"GITHUB_ACTIONS": "true", "DEPLOY_ENVIRONMENT": "production", "GITHUB_SHA": c["C"],
+                  "BITBUCKET_DEPLOYMENT_ENVIRONMENT": None, "BITBUCKET_COMMIT": None,
+                  "DEPLOY_SECRETS_JSON": json.dumps(dict(pipeline.REQUIRED))}
+        for name in pipeline.REQUIRED:
+            github[name] = None
+        variables = json.dumps({"DEPLOY_ATTEMPT": U(16), "DEPLOY_EXPECTED_LIVE": "none"})
+        self.run_step(0, REF=c["B"], DEPLOY_VARIABLES_JSON=variables, **github)
+        self.assertEqual(self.attempt(U(16))["expected_live"], "none")
+        self.run_step(64, REF=c["C"], DEPLOY_VARIABLES_JSON=variables, **github)
+        self.assert_out(f"Attempt {U(16)} is known in ENV=prod already")
+        self.assert_root("B")
 
     def test_a_run_restarted_on_a_newer_setup_goes_on_with_its_attempt(self):
         c = self.commits
@@ -377,6 +437,15 @@ class HealthPipelineTest(AttemptFixture):
         self.assertEqual((self.attempt(U(24))["outcome"], self.attempt(U(24))["reason"]), ("rolled_back", "hook"))
         self.assert_root("A")
 
+    def test_a_failure_after_the_copy_rolls_prod_back_with_its_reason(self):
+        """Review 2: migrations (or cache, reload) failing after the copy: the code reached the target."""
+        c = self.commits
+        self.run_step(0, REF=c["A"])
+        self.run_step(2, REF=c["B"], DEPLOY_ATTEMPT=U(29), FAIL="migrations")
+        self.assertEqual(self.heads()[1:], [f"make deploy ENV=prod rollback=1 cache=auto attempt={U(29)}",
+                                            f"make deploy-health ENV=prod attempt={U(29)} rollback=1"])
+        self.assertEqual((self.attempt(U(29))["outcome"], self.attempt(U(29))["reason"]), ("rolled_back", "migrations"))
+
     def test_stage_keeps_the_failed_code_and_says_so(self):
         c = self.commits
         stage = {"environment": "stage", "BITBUCKET_DEPLOYMENT_ENVIRONMENT": "staging"}
@@ -402,8 +471,9 @@ class HealthPipelineTest(AttemptFixture):
                          "true")
         # The workflow's Roll back step: the same attempt follows its own failed deploy.
         self.run_step(0, ROLLBACK="yes", DEPLOY_ATTEMPT=U(28), HEALTH="no")
-        self.assertEqual(self.attempt(U(28))["outcome"], "rolled_back")
+        self.assertEqual(self.attempt(U(28))["outcome"], "failed_after_code", "rolled_back only once its check passed")
         self.project("--env", "prod", "deploy-health", "--attempt", U(28), "--rollback")
+        self.assertEqual(self.attempt(U(28))["outcome"], "rolled_back")
         self.assertEqual(self.stages(U(28))[-2:], [("rollback", "ok"), ("health_after_rollback", "ok")])
         self.run_step(64, ROLLBACK="yes", DEPLOY_ATTEMPT=U(28))
         self.assert_out("is known in ENV=prod already (outcome: rolled_back)")
@@ -416,6 +486,21 @@ class HealthPipelineTest(AttemptFixture):
         self.assertEqual(self.heads()[-2:], ["make deploy ENV=prod rollback=1 cache=auto", "make deploy-health ENV=prod rollback=1"])
         self.assertEqual(self.history()[1].get("failed"), "health")
         self.assertFalse(list((self.app / ".generated/release/prod").glob("attempts/*.json")))
+
+
+class HealthIntroducedTest(AttemptFixture):
+    """Review 4: a release that first enables the check fails; the release rolled back to has no check to pass."""
+    checked = "BCD"
+
+    def test_a_rollback_whose_check_cannot_pass_is_rollback_failed(self):
+        c = self.commits
+        self.run_step(0, REF=c["A"], DEPLOY_ATTEMPT=U(30))
+        self.site.broken.add(c["B"])
+        self.run_step(1, REF=c["B"], DEPLOY_ATTEMPT=U(31))
+        self.assert_log(f"make deploy-health ENV=prod attempt={U(31)} rollback=1")
+        record = self.attempt(U(31))
+        self.assertEqual((record["outcome"], record["reason"]), ("rollback_failed", "health"))
+        self.assertEqual(self.stages(U(31))[-1], ("rollback", "ok"), "the code went back; its check did not pass")
 
 
 class MonorepoTest(pipeline.Fixture):
@@ -549,6 +634,44 @@ class HealthCheckTest(unittest.TestCase):
         self.check(1)
         self.assertIn("release /_health: unreadable", self.output)
 
+    def test_a_slow_page_cannot_outlast_its_deadline(self):
+        """Review 6: a server that drips its answer is cut off at the request's deadline, not per received byte."""
+        import socket
+        import time
+        from unittest.mock import patch
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(8)
+        self.addCleanup(listener.close)
+
+        def drip():
+            while True:
+                try:
+                    connection, _ = listener.accept()
+                except OSError:
+                    return
+                threading.Thread(target=slowly, args=(connection,), daemon=True).start()
+
+        def slowly(connection):
+            with connection:
+                try:
+                    connection.recv(4096)
+                    connection.sendall(b"HTTP/1.1 200 OK\r\n")
+                    for _ in range(40):  # 8 s of one header byte every 0.2 s
+                        connection.sendall(b"X")
+                        time.sleep(0.2)
+                except OSError:
+                    pass
+
+        threading.Thread(target=drip, daemon=True).start()
+        (self.directory / "env/prod.env.example").write_text(f"DOMAIN=shop.test\nLOCALHOST_PORT={listener.getsockname()[1]}\n")
+        self.settings({"DEPLOY_HEALTH_PATHS": "/"})
+        started = time.monotonic()
+        with patch("project_deploy_health.TIMEOUT", 1):
+            self.check(1)
+        self.assertLess(time.monotonic() - started, 4, "two tries of at most 1 s each")
+        self.assertIn("timeout /", self.output)
+
     def test_refusals_change_nothing(self):
         before = self.history.read_text()
         for options, message in (({"attempt": U(2)}, f"The last deploy of this environment is not attempt {U(2)}"),
@@ -579,6 +702,27 @@ class HealthCheckTest(unittest.TestCase):
         self.assertEqual((local.local, local.address, local.port), (True, "10.8.0.14", 18080))
         with self.assertRaisesRegex(Refusal, "needs LOCALHOST_PORT"):
             Endpoint({"DOMAIN": "shop.test"})
+
+
+class LockTest(unittest.TestCase):
+    def test_a_make_step_of_the_run_holding_the_lock_does_not_wait_however_it_names_the_directory(self):
+        import fcntl
+        from project_attempts import LOCK_VARIABLE, environment_lock
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="lock-", dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        app = Path(temporary.name) / "app"
+        app.mkdir()
+        (Path(temporary.name) / "link").symlink_to(app)
+        with environment_lock(app, "prod") as path:
+            entered = []
+            with environment_lock(Path(temporary.name) / "link/../app", "prod", {LOCK_VARIABLE: str(path)}):
+                entered.append(True)
+            self.assertEqual(entered, [True])
+            # Anyone else waits: the lock is held.
+            with open(path) as other, self.assertRaises(BlockingIOError):
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 class StatusDocumentTest(unittest.TestCase):

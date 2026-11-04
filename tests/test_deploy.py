@@ -594,6 +594,64 @@ class GenericDeployTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "attempt must be 8-64"):
             self.deploy(ref="g1", attempt="../x")
 
+    def test_the_code_on_the_target_is_recorded_right_after_the_copy(self):
+        """Review 2: a failure after the copy (migrations, cache, reload) or a killed deploy still records the release
+        the target holds, as failed, so the next deploy and the status know it."""
+        self.generic(SCHEMA_DIRECTORY="schema")
+        (self.root / "schema/migrations").mkdir(parents=True)
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        history = self.root / "app/.generated/release/stage/deployments.json"
+
+        def broken(project):
+            raise ValueError("migration 2 failed")
+
+        attempt = "6f1c2d3e-0000-4000-8000-000000000003"
+        with patch("database_migrations_guarded.migrations_directory", return_value=self.root / "schema/migrations"), \
+                patch("database_migrations_guarded.migrate", broken), self.assertRaisesRegex(ValueError, "migration 2"):
+            with patch("project_deploy.php_image", return_value="php:test"), \
+                    patch("project_deploy.in_release_image", lambda project, release, command, cache=None: None):
+                deploy_code(self.project, ref="g2", attempt=attempt)
+        last = json.loads(history.read_text())[-1]
+        self.assertEqual((last["ref"], last["failed"], last["attempt"]), ("g2", "migrations", attempt))
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
+        with patch("project_deploy.reload_php", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            self.deploy(ref="g3")
+        self.assertEqual((json.loads(history.read_text())[-1]["ref"], json.loads(history.read_text())[-1]["failed"]),
+                         ("g3", "incomplete"), "a deploy killed after the copy leaves its release marked")
+        self.deploy(ref="g3")
+        self.assertEqual([(e["ref"], e.get("failed")) for e in json.loads(history.read_text())],
+                         [("g1", None), ("g2", "migrations"), ("g3", "incomplete"), ("g3", None)])
+
+    def test_make_deploy_waits_for_the_environments_lock(self):
+        """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
+        import fcntl
+        import threading
+        self.generic()
+        release = self.root / "app/.generated/release/stage"
+        release.mkdir(parents=True, exist_ok=True)
+        lock = open(release / "deploy.lock", "a")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        errors = []
+
+        def deploy():
+            try:
+                self.deploy(ref="g1")
+            except BaseException as error:  # reported below
+                errors.append(error)
+
+        thread = threading.Thread(target=deploy)
+        thread.start()
+        thread.join(1.5)
+        try:
+            self.assertTrue(thread.is_alive(), "make deploy waits while another holds the lock")
+            self.assertFalse((release / "deployments.json").exists())
+        finally:
+            lock.close()
+        thread.join(30)
+        self.assertEqual(errors, [])
+        self.assertEqual(json.loads((release / "deployments.json").read_text())[-1]["ref"], "g1")
+
     def test_setup_migrations_run_when_the_project_has_them(self):
         self.generic(SCHEMA_DIRECTORY="schema")
         (self.root / "schema/migrations").mkdir(parents=True)

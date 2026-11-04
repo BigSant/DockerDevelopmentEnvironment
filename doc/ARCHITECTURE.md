@@ -511,14 +511,20 @@ The `auto` switches compare with every live base (`live_bases`): the checkout an
 environment's last completed history commit (one repository layout; a build root that deploys stage and prod, or one
 a killed run left), yes when any comparison needs it, so never fewer rebuilds than the checkout alone. A run keeps
 `.generated/release/<env>/pipeline-run.json` (the commit before it, the target, whether images restarted, the history
-length) while it works; a run that finds one does first what the killed run's end would have done (`Step.repair`).
+length) while it works, replaced atomically and removed only by the run that wrote it; a run that finds one does first
+what the killed run's end would have done (`Step.repair`), and refuses (leaving it) a marker it cannot read.
+Every writer of an environment's history holds its stable `flock` `.generated/release/<env>/deploy.lock`
+(`project_attempts.environment_lock`, never removed): every `make pipeline-deploy` run for its whole length (waiting
+for another), `make deploy` and `make deploy-health`; a pipeline's make children see `SETUP_DEPLOY_LOCK` and do not
+wait. `make deploy` records its entry right after the copy as `"failed": "incomplete"` and replaces it when it
+completes, or names the step that failed after the copy (`after-rsync`, `modules`, `migrations`, `translations`,
+`schema`, `cache`, `reload`): the history always names the code the target holds; every history write is atomic.
 A monorepo build root (`Step.monorepo`: `app/Makefile` under the build root, which is the git top level) keeps
 setup-server's `target.env`/`target.<env>.env` untracked beside `app/`; `Step.refuse_tracked_target` (before the first
 checkout, and in every `checkout`) refuses a commit whose tree has one at its root (64, `target_tracked`), because
 git overwrites an excluded file on checkout.
 Deploy attempts (`project_attempts`, opt-in; AI OS's development delivery contract): `DEPLOY_ATTEMPT` (8-64 of
-`[A-Za-z0-9-]`) is checked, accepted and run under the environment's `flock` (`attempts/.lock`, held by the step; its
-make children see `SETUP_DEPLOY_LOCK` and do not wait). A known id (an attempt file or a history entry) is refused (64,
+`[A-Za-z0-9-]`, read after GitHub's JSON variables are expanded) is checked, accepted and run under that lock. A known id (an attempt file or a history entry) is refused (64,
 `attempt_exists`) unless `ROLLBACK=yes` follows its own failed entry or the step restarted on a newer setup (its last
 event `setup`). `DEPLOY_EXPECTED_LIVE` (40 hex or `none`) must equal the history's live commit (`live_changed`). The
 attempt file `attempts/<id>.json` holds `outcome`/`reason` (updated) and `events` (appended only), each write a
@@ -526,14 +532,15 @@ temporary file renamed into place: the pipeline's `accepted`, `settings` (empty 
 `repair`; `make deploy attempt=` adds `attempt` to its history entries and, for a deploy, `backup` (file name, bytes),
 `code`, `hook` (seconds), `migrations`, `cache`, `reload`. A refused new attempt gets a file with outcome `refused`.
 `make deploy-health` (`project_deploy_health`, before `Project`: a workflow step without secrets runs it) asks
-`DEPLOY_HEALTH_PATHS` + the caller's `DEPLOY_HEALTH_EXTRA` (≤30, validated) with `http.client` (no redirects, 10 s,
-one retry after a timeout, connection error or 5xx; 200-399 pass): this host's `PUBLISH_ADDRESS:LOCALHOST_PORT` with
+`DEPLOY_HEALTH_PATHS` + the caller's `DEPLOY_HEALTH_EXTRA` (≤30, validated) with `http.client` (no redirects; 10 s
+for the whole request, a watchdog shuts the socket down at that deadline, or at the release wait's when earlier; one retry after a timeout, connection error or 5xx; 200-399 pass): this host's `PUBLISH_ADDRESS:LOCALHOST_PORT` with
 `Host` and `X-Forwarded-Proto: https`, another server's `https://DOMAIN` (pinned to `DEPLOY_HEALTH_ADDRESS` when set).
 `DEPLOY_HEALTH_RELEASE_PATH` must report the deployed commit as JSON `release` within 30 s. It marks the last history
 entry `health` and, failed, `failed: "health"` (so `rollback_entry` skips it), and the attempt's `health` /
 `health_after_rollback` event and outcome; it keeps status, time and tries, never a body. `HEALTH=auto` (the
 pipeline's default) runs it when the deployed commit configures a check; on prod a failed check or after-rsync hook
-then rolls back (`make deploy rollback=1`, `auto_rollback`) and checks again. `make deploy-status` prints
+or any step after the copy then rolls back (`make deploy rollback=1`, `auto_rollback`) and checks again: the attempt
+is `rolled_back` only when that check passes, else (a failed, refused or killed check) `rollback_failed`. `make deploy-status` prints
 `dde-deploy-status/v1` (`status_document`: attempt, live, the last 20 entries with backup file names, the Deployment
 variable names, the newest `worker-<env>-*Z.sql.gz`, the layout; at most 64 KiB) or one `field`; read only.
 setup-server's tool access (`project_tool_access`): `tool-access/<env>/{users.htpasswd,allowed-ips}` beside
