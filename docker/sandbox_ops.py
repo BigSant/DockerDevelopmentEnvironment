@@ -33,7 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-RELEASE, TARGET = '/release', '/target'
+RELEASE, TARGET, DEPLOY = '/release', '/target', '/deploy'
 STAGING_PREFIX = '.setup-staging-'
 MODULE_VERSION = re.compile(rb"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
 MODULE_READ_LIMIT = 1024 * 1024
@@ -42,7 +42,8 @@ MODULE_READ_LIMIT = 1024 * 1024
 def check_mounts():
     """The directories mounted are the ones setup checked (their inode, SETUP_EXPECT_*): a directory swapped for a
     link between that check and Docker's mount is refused here, before anything is read or written."""
-    for root, variable in ((RELEASE, 'SETUP_EXPECT_RELEASE'), (TARGET, 'SETUP_EXPECT_TARGET')):
+    for root, variable in ((RELEASE, 'SETUP_EXPECT_RELEASE'), (TARGET, 'SETUP_EXPECT_TARGET'),
+                           (DEPLOY, 'SETUP_EXPECT_DEPLOY')):
         expected = os.environ.get(variable)
         if expected:
             status = os.stat(root)
@@ -86,7 +87,7 @@ def manifest():
     files = []
     for directory, folders, names in os.walk(RELEASE):
         for name in names + [folder for folder in folders if os.path.islink(os.path.join(directory, folder))]:
-            if not name.startswith('.setup-') and not (directory == RELEASE and name.startswith(STAGING_PREFIX)):
+            if not name.startswith('.setup-'):
                 files.append(os.path.relpath(os.path.join(directory, name), RELEASE))
     files.sort()
     # Names may hold any byte but / and NUL: kept as the file system's bytes (surrogate escapes), checked by the host.
@@ -104,55 +105,131 @@ def directories(path):
 
 
 def push():
-    """rsync stages what differs from the target (--compare-dest: a file identical there, content and attributes, is
-    left alone) in a fresh directory of the target's file system; each staged entry is then renamed over its place.
-    A published file is always a new inode, so a hard link the target holds to another file never changes that file,
-    whatever the application does meanwhile; only directories (which have no hard links) get their mode and times."""
+    """Publishes the release (or one directory of it) into the code tree, which the application can change at any
+    time, without ever giving it setup's files in progress or a path to follow:
+      * /deploy is the code tree's parent (setup-server's, mounted into no container of the project); the code tree is
+        /deploy/SETUP_CODE_NAME, opened without following a link and checked against its inode;
+      * rsync stages what differs from the code tree (--compare-dest: identical files, content and attributes, are left
+        alone) in a fresh directory of /deploy, with the release's modes and times already on the staged files;
+      * each staged entry is renamed into the code tree from held directory descriptors, every directory there opened
+        without following a link (a link or file where the release has a directory is replaced, as rsync does);
+        --ignore-existing publishes by hard link, which never replaces what the code tree has. Only directories get
+        their mode and times, through their descriptors; no file there is written, chmod-ed or touched in place."""
     request = json.loads(sys.stdin.read())
-    source, dest = inside(request['source'], RELEASE), inside(request['dest'], TARGET).rstrip('/') or TARGET
-    for leftover in os.listdir(TARGET):
+    source = inside(request['source'], RELEASE)
+    deploy = os.open(DEPLOY, os.O_RDONLY | os.O_DIRECTORY)
+    code = os.open(os.environ['SETUP_CODE_NAME'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=deploy)
+    status = os.fstat(code)
+    if '%d:%d' % (status.st_dev, status.st_ino) != os.environ['SETUP_EXPECT_CODE']:
+        raise SystemExit('sandbox: the code tree is not the directory setup checked: refused')
+    dest = destination(code, request['dest'])
+    for leftover in os.listdir(deploy):
         if leftover.startswith(STAGING_PREFIX):
-            shutil.rmtree(os.path.join(TARGET, leftover))
-    staging = os.path.join(TARGET, STAGING_PREFIX + os.urandom(6).hex())
-    os.mkdir(staging, 0o700)
+            shutil.rmtree(leftover, dir_fd=deploy)
+    staging = STAGING_PREFIX + os.urandom(6).hex()
+    os.mkdir(staging, 0o700, dir_fd=deploy)
     try:
-        compare = ['--compare-dest=' + dest + '/'] if os.path.isdir(dest) else []
-        status = subprocess.call(['rsync'] + list(request['options']) + compare + [source, staging + '/'])
-        if status:
-            return status
-        publish(staging, dest, request.get('ignore_existing'))
+        # rsync reads the code tree for its comparison only, through the held descriptor (inherited).
+        result = subprocess.call(['rsync'] + list(request['options']) +
+                                 ['--compare-dest=/proc/self/fd/%d/' % dest, source, os.path.join(DEPLOY, staging) + '/'],
+                                 pass_fds=(dest,))
+        if result:
+            return result
+        staged = os.open(staging, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=deploy)
+        try:
+            publish(staged, dest, request.get('ignore_existing'))
+        finally:
+            os.close(staged)
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(staging, dir_fd=deploy, ignore_errors=True)
+        os.close(dest)
+        os.close(code)
+        os.close(deploy)
     return 0
 
 
-def publish(staging, dest, ignore_existing):
-    if not os.path.lexists(dest):
-        os.makedirs(dest)
-    directories = []
-    for directory, folders, names in os.walk(staging):
-        relative = os.path.relpath(directory, staging)
-        here = dest if relative == '.' else os.path.join(dest, relative)
-        for name in folders:
-            path, staged = os.path.join(here, name), os.path.join(directory, name)
-            if os.path.islink(staged):
-                names.append(name)  # a link to a directory is an entry like a file
+def open_directory(name, parent):
+    """name in parent as a directory descriptor, never through a link; O_PATH where it cannot be read (0300)."""
+    try:
+        return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    except PermissionError:
+        return os.open(name, getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+
+
+def destination(code, relative, hops=40):
+    """The descriptor of relative below the code tree (created when missing). A link on the way is followed only while
+    its relative target stays inside the code tree (cache -> var/cache), as rsync follows its destination path."""
+    stack = [os.dup(code)]
+    pending = [part for part in relative.split('/') if part]
+    try:
+        while pending:
+            part = pending.pop(0)
+            if part in ('', '.'):
                 continue
-            if os.path.lexists(path) and not (os.path.isdir(path) and not os.path.islink(path)):
-                os.unlink(path)  # a file or link where the release has a directory, as rsync replaces it
-            if not os.path.lexists(path):
-                os.mkdir(path, 0o700)
-            directories.append((staged, path))
-        folders[:] = [name for name in folders if not os.path.islink(os.path.join(directory, name))]
-        for name in names:
-            path = os.path.join(here, name)
-            if ignore_existing and os.path.lexists(path):
+            if part == '..':
+                if len(stack) == 1:
+                    raise SystemExit('sandbox: the destination leaves the code tree')
+                os.close(stack.pop())
                 continue
-            os.rename(os.path.join(directory, name), path)
-    for staged, path in reversed(directories + [(staging, dest)]):
-        status = os.stat(staged)
-        os.chmod(path, stat.S_IMODE(status.st_mode))
-        os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
+            try:
+                stack.append(open_directory(part, stack[-1]))
+                continue
+            except FileNotFoundError:
+                os.mkdir(part, 0o755, dir_fd=stack[-1])
+                stack.append(open_directory(part, stack[-1]))
+                continue
+            except OSError:
+                pass
+            if not stat.S_ISLNK(os.stat(part, dir_fd=stack[-1], follow_symlinks=False).st_mode):
+                raise SystemExit('sandbox: %s in the code tree is no directory' % part)
+            target = os.readlink(part, dir_fd=stack[-1])
+            hops -= 1
+            if hops < 0 or target.startswith('/'):
+                raise SystemExit('sandbox: %s leads out of the code tree' % part)
+            pending = target.split('/') + pending
+        return stack.pop()
+    finally:
+        for fd in stack:
+            os.close(fd)
+
+
+def publish(staged, dest, ignore_existing):
+    for entry in sorted(os.scandir(staged), key=lambda entry: entry.name):
+        name = entry.name
+        if entry.is_dir(follow_symlinks=False):
+            try:
+                child = open_directory(name, dest)
+            except FileNotFoundError:
+                os.mkdir(name, 0o700, dir_fd=dest)
+                child = open_directory(name, dest)
+            except OSError:
+                os.unlink(name, dir_fd=dest)  # a link or file where the release has a directory, as rsync replaces it
+                os.mkdir(name, 0o700, dir_fd=dest)
+                child = open_directory(name, dest)
+            source = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=staged)
+            try:
+                publish(source, child, ignore_existing)
+            finally:
+                os.close(source)
+                os.close(child)
+        elif ignore_existing:
+            try:
+                os.link(name, name, src_dir_fd=staged, dst_dir_fd=dest, follow_symlinks=False)
+            except FileExistsError:
+                pass  # the code tree has its own: it stays
+        else:
+            os.rename(name, name, src_dir_fd=staged, dst_dir_fd=dest)
+    attributes(staged, dest)
+
+
+def attributes(source, dest):
+    """A directory's mode and times, through its descriptor (a directory has no hard links)."""
+    status = os.fstat(source)
+    try:
+        os.chmod(dest, stat.S_IMODE(status.st_mode))
+        os.utime(dest, ns=(status.st_atime_ns, status.st_mtime_ns))
+    except OSError:
+        pass  # an O_PATH descriptor (no read permission): left as it is
 
 
 def modules():

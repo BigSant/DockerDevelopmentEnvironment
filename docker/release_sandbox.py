@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 
 DOCKER_DIRECTORY = Path(__file__).resolve().parent
@@ -100,6 +101,54 @@ def docker_available(run=subprocess.run):
         return False
 
 
+def ancestors(path):
+    """path and every directory above it, from / down, as far as they exist."""
+    parts = Path(os.path.abspath(path)).parts
+    chain = [os.path.join(*parts[:index]) for index in range(1, len(parts) + 1)]
+    return [directory for directory in chain if os.path.lexists(directory)]
+
+
+def check_trusted(paths, model):
+    """Release isolation's precondition (the threat model): the attacker controls only the contents of the release
+    copy (through its build container, which mounts only it) and of the target code tree (through the application,
+    whose containers mount only it and its protected directories), never a directory above them. So every directory
+    from / down to each of paths (the build root, the release copies' directory, the code tree's parent) must be a
+    real directory (lstat, never a link) of root or this (setup) account that neither group nor others can write, and
+    no container of the project (model: the release model) may mount one of them. Refuses (ValueError) otherwise."""
+    held = set()
+    for path in paths:
+        for directory in ancestors(path):
+            status = os.lstat(directory)
+            if stat.S_ISLNK(status.st_mode):
+                raise ValueError(f'{directory} is a link: release isolation needs real directories above the release '
+                                 'and the code tree')
+            if not stat.S_ISDIR(status.st_mode):
+                raise ValueError(f'{directory} is no directory')
+            if status.st_uid not in (0, os.getuid()):
+                raise ValueError(f'{directory} belongs neither to root nor to the setup account (uid {status.st_uid}): '
+                                 'release isolation needs the directories above the release and the code tree to be '
+                                 'setup\'s own')
+            if status.st_mode & 0o022:
+                raise ValueError(f'{directory} is group- or world-writable: release isolation needs the directories '
+                                 'above the release and the code tree writable only by their owner')
+            held.add(os.path.realpath(directory))
+    for name, service in (model or {}).get('services', {}).items():
+        for volume in service.get('volumes', []) or []:
+            if isinstance(volume, dict) and volume.get('type') == 'bind' and volume.get('source'):
+                source = os.path.realpath(volume['source'])
+                if source in held:
+                    raise ValueError(f'{name} mounts {source}, which holds the release or the code tree: a container '
+                                     'of the project must mount only the code tree, its own paths in it and other '
+                                     'directories beside it')
+
+
+def trusted_paths(project, deploy_path, code):
+    """What check_trusted checks for a deploy: the build root, the release copies' directory, the code tree's parent
+    (where setup stages the files it publishes)."""
+    from project_release import release_directory
+    return [Path(project.root), release_directory(project) / 'code', Path(code).parent]
+
+
 def pinned(root, relative, create=False):
     """(path, "dev:ino") of root/relative for a bind mount. root is setup's or setup-server's own (DEPLOY_PATH, the
     project directory) and is resolved; every part below it is opened from a held descriptor without following links
@@ -160,27 +209,36 @@ class Sandbox:
         release, self.release_inode = pinned(directory, Path(os.path.abspath(release)).relative_to(
             os.path.abspath(directory)))
         self.release = Path(release)
-        self.code = self.target_inode = None
+        self.code = self.target_inode = self.parent = self.parent_inode = None
         if target:
-            # The code tree below DEPLOY_PATH (setup-server's), created when missing, never through a link.
+            # The code tree below DEPLOY_PATH (setup-server's), created when missing, never through a link, and its
+            # parent, where setup stages what it publishes (check_trusted: mounted into no container of the project).
             self.code, self.target_inode = pinned(target[0], target[1], create=True)
+            self.parent, self.parent_inode = pinned(target[0], str(Path(target[1]).parent), create=True)
         settings = project.settings
         self.target_user = f"{settings.get('APP_UID') or os.getuid()}:{settings.get('APP_GID') or os.getgid()}"
         self.release_user = f'{os.getuid()}:{os.getgid()}'
 
-    def command(self, operation, *arguments, target=False, release_writable=False):
+    def command(self, operation, *arguments, target=False, release_writable=False, deploy=False):
         helpers = []
         for name in HELPERS:
             helpers += mount(DOCKER_DIRECTORY / name, f'/setup/{name}', True)
         mounts = mount(self.release, '/release', not release_writable)
+        expect = []
         if target:
             mounts += mount(self.code, '/target', False)
+            expect += ['-e', f'SETUP_EXPECT_TARGET={self.target_inode}']
+        if deploy:
+            # The code tree's parent: staging beside the code tree, out of the application's reach.
+            mounts += mount(self.parent, '/deploy', False)
+            expect += ['-e', f'SETUP_EXPECT_DEPLOY={self.parent_inode}', '-e', f'SETUP_EXPECT_CODE={self.target_inode}',
+                       '-e', f'SETUP_CODE_NAME={Path(self.code).name}']
         return ['docker', 'run', '--rm', '-i', '--network', 'none', '--read-only',
                 '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=64m', '--cap-drop', 'ALL',
                 '--security-opt', 'no-new-privileges', '--pids-limit', '256', '--memory', '1g',
-                '--user', self.target_user if target else self.release_user, '-e', 'HOME=/tmp',
+                '--user', self.target_user if target or deploy else self.release_user, '-e', 'HOME=/tmp',
                 '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', f'SETUP_EXPECT_RELEASE={self.release_inode}',
-                *(['-e', f'SETUP_EXPECT_TARGET={self.target_inode}'] if target else []), *helpers, *mounts, '--entrypoint', 'python3', self.image,
+                *expect, *helpers, *mounts, '--entrypoint', 'python3', self.image,
                 '/setup/sandbox_ops.py', operation, *arguments]
 
     def call(self, operation, *arguments, data=None, capture=False, **options):
@@ -223,14 +281,15 @@ class Sandbox:
         return root + path[len(host):]
 
     def push(self, source, dest, *options):
-        """rsync's selection (options, --checksum, the excludes) into a staging directory of the target, then each
-        file renamed into place: a published file is a new inode, and an existing file is never written, chmod-ed or
-        touched (sandbox_ops.push), so a hard link the target holds to any other file never changes that file."""
+        """rsync's selection (options, --checksum, the excludes) staged beside the code tree, in its parent (no container
+        of the project mounts it), then each entry renamed into the code tree from held descriptors, never through a
+        link (sandbox_ops.push): a published file is a new inode, an existing one is never written, chmod-ed or
+        touched, and the application never sees setup's files in progress."""
         request = {'source': self.inner(source, self.release, '/release') + ('/' if str(source).endswith('/') else ''),
-                   'dest': self.inner(dest, self.code, '/target') + ('/' if str(dest).endswith('/') else ''),
+                   'dest': self.inner(dest, self.code, ''),
                    'options': [option for option in options if option != '--ignore-existing'],
                    'ignore_existing': '--ignore-existing' in options}
-        self.call('push', data=json.dumps(request).encode(), target=True)
+        self.call('push', data=json.dumps(request).encode(), deploy=True)
 
     def module_versions(self):
         """{module: version} of the release's PrestaShop modules, read in the sandbox (no link followed, regular files

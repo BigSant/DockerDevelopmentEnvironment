@@ -444,7 +444,14 @@ stays pending in the history: a deploy is `"removals": "pending"` until its remo
 removes against every release still on the target, `removal_sources`), and `pending_removals` names the files it
 could not remove yet.
 **Release isolation** (`release_sandbox`, `RELEASE_ISOLATION=container`, the project's setting or the job's
-environment, which can only switch it on): every operation of `make deploy` on the release copy or on the target's
+environment, which can only switch it on). Threat model: the attacker controls the contents of the release copy
+(through its build container, which mounts only it) and of the target code tree (through the running application,
+whose containers mount only it and its protected directories), never a directory above them nor any other path of
+this machine: those are setup's and setup-server's and no container of the project mounts them. Setup enforces that
+before an isolated deploy, before anything is built or copied (`check_trusted`): every directory from `/` down to the
+build root, the release copies' directory and the code tree's parent is a real directory (`lstat`, never a link) of
+root or the setup account that neither group nor others can write, and no bind mount of the release model is one of
+them; it refuses otherwise. Every operation of `make deploy` on the release copy or on the target's
 code tree runs in a throwaway container of the `setup-release-sandbox:<Dockerfile hash>` image
 (`docker/docker/release-sandbox`: Alpine by digest with `python3`, `rsync`, GNU `tar`; built here on first use) that
 mounts only the release directory (read only unless setup writes into it), the target code directory and setup's
@@ -460,22 +467,28 @@ the sandbox: exporting the `git archive` into the release, writing `.setup-build
 500 000 and 64 MiB; others are left out, so never removed), the code and protected-directory copies, the release's and
 the target's module directories, PrestaShop's module versions (regular files only, never through a link, 1 MiB each,
 checked here) and the removals. Copies are published, never written in place: rsync stages what differs from the
-target (`--compare-dest`) in a fresh directory of the target, and each staged entry is renamed over its place, so a
-published file is a new inode and an existing one is never written, chmod-ed or touched; a hard link the target holds
-to another file never changes it (only directories get their mode and times). This machine's Python reads only
+target (`--compare-dest`, with the release's modes and times on the staged files) in a fresh directory beside the code
+tree, in its parent, which no container of the project mounts, so the application never sees setup's files in
+progress; each staged entry is then renamed into the code tree from held directory descriptors, every directory there
+opened without following a link (`--ignore-existing` publishes by hard link, which never replaces what is there), so a
+published file is a new inode and an existing one is never written, chmod-ed or touched; only directories get their
+mode and times, through their descriptors. This machine's Python reads only
 trusted things (history, attempt files, setup's own env repository) and that checked output. Isolation needs a target
 on this machine (no `DEPLOY_SSH`; untrusted deploys to another server stay refused), a release build off the host
 network (`RELEASE_BUILD_NETWORK` defaults to `bridge`, `host` is refused) and a link-safe `shutil.rmtree`; all are
 checked before anything changes. A job that asked for a hardened deploy passes `DEPLOY_REQUIRE_ISOLATION=1`: make
 deploy then isolates whatever the project's files say, or refuses. Without isolation every step works on this
-machine as before. Still on this machine, each safe without the sandbox: pruning old release copies
-(`shutil.rmtree`, which works by descriptors and never follows a link), `release_built` (`lstat` of `.setup-release`,
-never followed) and the `composer.json` presence check (it only decides whether Composer runs, in its own container).
+machine as before. Still on this machine, each safe without the sandbox: pruning old release copies and
+removing the build hook's temporary file (relative to a held descriptor of their trusted parent, `remove_tree`;
+`shutil.rmtree` never follows a link), `release_built` (`lstat` of `.setup-release`, never followed) and the
+`composer.json` presence check (it only decides whether Composer runs, in its own container).
 `make -f docker/project.mk setup-capabilities` lists abilities (`deploy-attempt-v1`, `deploy-health-v1`,
 `deploy-status-v1`, `release-build-network-v1`); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads the settings that
 environment's make deploy reads (`env/<env>.env` when present, else its example, and setup-server's target file) and
 adds `release-hardened-v1` when setup isolates that deploy on request: a target on this machine, no host network for
-the build and Docker here; the build hook gets
+the build and Docker here. The capability means: within the threat model above, which make deploy checks and refuses
+to leave, a deploy with `DEPLOY_REQUIRE_ISOLATION=1` changes no file of this machine outside the release copy and the
+code tree; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of

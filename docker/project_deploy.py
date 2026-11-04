@@ -29,6 +29,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import time
 
 from project_prestashop import is_prestashop
@@ -226,8 +227,8 @@ def build_code(project, ref):
     if release_built(release):
         print(f'Release {commit[:12]} already built: {release}')
         return release, commit
-    if release.exists():
-        shutil.rmtree(release)
+    if os.path.lexists(release):
+        remove_tree(release.parent, release.name)
     release.mkdir(parents=True)
     # With release isolation the export, setup's writes into the copy and its manifest happen in the sandbox.
     from release_sandbox import Sandbox, isolation
@@ -403,12 +404,38 @@ def _run_hook(project, release, hook, write=None):
     try:
         in_release_image(project, release, 'sh /var/www/html/.setup-build.sh', cache=build_cache(project))
     finally:
-        script.unlink(missing_ok=True)
+        # Relative to a held descriptor of the release copy (setup's own directory, never through a link).
+        directory = os.open(release, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            os.unlink(script.name, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+        finally:
+            os.close(directory)
+
+
+def remove_tree(parent, name):
+    """parent/name removed relative to a held descriptor of parent (setup's own directory, opened without following a
+    link): neither parent nor anything in name is followed elsewhere."""
+    directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        if shutil.rmtree.avoids_symlink_attacks and sys.version_info >= (3, 11):
+            shutil.rmtree(name, dir_fd=directory)
+        else:
+            shutil.rmtree(Path(parent) / name)
+    finally:
+        os.close(directory)
 
 
 def prune_releases(project, keep):
-    releases = sorted((path for path in (deploy_directory(project) / 'code').iterdir() if path.is_dir()),
-                      key=lambda path: path.stat().st_mtime, reverse=True)
+    code = deploy_directory(project) / 'code'
+    directory = os.open(code, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        names = [entry.name for entry in os.scandir(directory) if entry.is_dir(follow_symlinks=False)]
+        mtimes = {name: os.stat(name, dir_fd=directory, follow_symlinks=False).st_mtime for name in names}
+    finally:
+        os.close(directory)
+    releases = [code / name for name in sorted(names, key=mtimes.get, reverse=True)]
     # Failed deploys must not crowd out what a rollback needs: the newest completed releases (the rollback target among
     # them) and the code the target holds now stay, whatever failed since.
     entries = history(project)
@@ -424,7 +451,7 @@ def prune_releases(project, keep):
         used.add(entries[-1]['commit'][:12])
     for path in releases[KEEP_RELEASES:]:
         if path.name not in used:
-            shutil.rmtree(path)
+            remove_tree(code, path.name)
 
 
 def code_path(project, deploy_path):
@@ -651,7 +678,13 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
     if isolated:
         check_isolation(project)  # before anything changes: a target on this machine, no host network for the build
     # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
-    check_project_root(project, context, release_model(project, deploy_path), deploy_path)
+    model = release_model(project, deploy_path)
+    check_project_root(project, context, model, deploy_path)
+    if isolated:
+        # The threat model's precondition, before anything is built or copied: no directory above the release or the
+        # code tree that the application or another account could change, none mounted into a container.
+        from release_sandbox import check_trusted, trusted_paths
+        check_trusted(trusted_paths(project, deploy_path, code_path(project, deploy_path)), model)
     php_reload(project)  # a bad value stops the deploy before anything changes
     entries = history(project)
     if rollback:

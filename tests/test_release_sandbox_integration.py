@@ -316,6 +316,52 @@ class SandboxDeployTest(unittest.TestCase):
             self.assertEqual((secret.read_text(), secret.stat().st_mode & 0o777), (text, 0o600), name)
             self.assertNotEqual((public / name).stat().st_ino, secret.stat().st_ino, "the target got a file of its own")
 
+    def test_staging_is_out_of_the_applications_reach(self):
+        """Review 2 (re-check): the application races the deploy, looking for setup's staging directory in its code tree
+        to plant a hard link to a file of this machine there (which a rename would then publish) or to chmod what is
+        staged. Staging lives beside the code tree, in a directory no container of the project mounts: the
+        application never sees it, and the published files are the release's own."""
+        public = self.generic()
+        self.isolate()
+        secret = self.root / "secret.php"
+        secret.write_text("<?php // host secret\n")
+        secret.chmod(0o600)
+        many = {f"src/generated/file{n}.php": f"<?php // {n}\n" for n in range(3000)}
+        self.commit("big", {"src/Kernel.php": "<?php // big\n", **many})
+        seen_in_code, seen_beside, stop = [], [], threading.Event()
+
+        def application():
+            while not stop.is_set():
+                for name in os.listdir(public):
+                    if name.startswith(".setup-staging-"):
+                        seen_in_code.append(name)
+                        for staged in (public / name).rglob("Kernel.php"):
+                            try:
+                                staged.unlink()
+                                os.link(secret, staged)
+                            except OSError:
+                                pass
+                        for staged in (public / name).rglob("*.php"):
+                            try:
+                                staged.chmod(0o666)
+                            except OSError:
+                                pass
+                seen_beside.extend(name for name in os.listdir(public.parent) if name.startswith(".setup-staging-"))
+
+        racer = threading.Thread(target=application)
+        racer.start()
+        try:
+            self.deploy(ref="big")
+        finally:
+            stop.set()
+            racer.join()
+        self.assertEqual(seen_in_code, [], "the application never saw setup's staging")
+        self.assertTrue(seen_beside, "staging was beside the code tree")
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // big\n")
+        self.assertNotEqual((public / "src/Kernel.php").stat().st_ino, secret.stat().st_ino)
+        self.assertEqual((secret.read_text(), secret.stat().st_mode & 0o777), ("<?php // host secret\n", 0o600))
+        self.assertEqual((public / "src/generated/file7.php").stat().st_mode & 0o777, 0o644)
+
     def test_module_versions_are_read_in_the_sandbox_never_through_a_link_or_a_fifo(self):
         """Review 4: PrestaShop's module versions come from the sandbox; a module file linked to a host secret or a
         FIFO yields nothing (and does not hang)."""
