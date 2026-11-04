@@ -34,6 +34,8 @@ services:
       # Code tree paths the server writes and git ignores (e.g. modules/*/translations/): make files-backup.
       BACKUP_FILE_PATHS: ${BACKUP_FILE_PATHS-}
       DEPLOY_PHP_RELOAD: ${DEPLOY_PHP_RELOAD-}
+      # The release build's Docker network (make deploy): host (default), bridge or none.
+      RELEASE_BUILD_NETWORK: ${RELEASE_BUILD_NETWORK-}
       # make deploy-health (and pipeline-deploy's HEALTH=auto): the fixed smoke pages, the page reporting the release,
       # and the address another server's site is asked at (as METRICS_PROBE_ADDRESS).
       DEPLOY_HEALTH_PATHS: ${DEPLOY_HEALTH_PATHS-}

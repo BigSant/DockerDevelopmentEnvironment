@@ -417,7 +417,8 @@ active services (no `build`, e.g. `getmeili/meilisearch` from a project compose 
 missing and locked (`images` + `external` digests) so `docker save` ships them; a release with an image
 that is not on the build machine stops before writing the lock.
 `make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
-`config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp`; the build hook gets
+`config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp` and on the Docker network
+`RELEASE_BUILD_NETWORK` (`host` by default, `bridge` or `none` keep the project's build code off the host's network); the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of

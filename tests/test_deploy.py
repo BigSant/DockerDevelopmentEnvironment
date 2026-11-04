@@ -646,6 +646,28 @@ class GenericDeployTest(unittest.TestCase):
         self.deploy(rollback=True)
         self.assertEqual((self.target / "app/public/src/Kernel.php").read_text(), "<?php // g1\n")
 
+    def test_the_release_build_has_the_host_network_unless_the_project_chooses_another(self):
+        """RELEASE_BUILD_NETWORK: host by default (as before); bridge or none keep the build off the host's network."""
+        from project_deploy import in_release_image
+        commands = []
+        release = self.root / "release"
+
+        def build(network=None):
+            if network is not None:
+                self.project.settings["RELEASE_BUILD_NETWORK"] = network
+            with patch("project_deploy.php_image", return_value="php:test"), \
+                    patch("subprocess.run", lambda command, **options: commands.append(command)):
+                in_release_image(self.project, release, "composer install --no-dev")
+            return commands[-1][commands[-1].index("--network") + 1]
+
+        self.assertEqual(build(), "host", "a project that sets nothing builds as before")
+        self.assertEqual([build(network) for network in ("bridge", "none", "host", "")], ["bridge", "none", "host", "host"])
+        self.assertTrue(all(command[:3] == ["docker", "run", "--rm"] for command in commands))
+        count = len(commands)
+        with self.assertRaisesRegex(ValueError, "RELEASE_BUILD_NETWORK must be host, bridge or none"):
+            build("--privileged")
+        self.assertEqual(len(commands), count, "nothing runs with a refused value")
+
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
         import fcntl

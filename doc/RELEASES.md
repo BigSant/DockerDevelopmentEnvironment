@@ -31,6 +31,9 @@ change (say how). An empty section still releases a patch.
   longer leaves the history behind the target. History writes are atomic. A killed run's make step keeps the lock
   until it ends. Old releases are pruned so that the newest completed ones (the rollback target) stay, however many
   deploys failed since.
+- **The release build's network is a project setting.** `RELEASE_BUILD_NETWORK=host|bridge|none` (default `host`, as
+  before): `bridge` or `none` run Composer scripts and `config/deploy/build.sh` of `make deploy`'s release build
+  without the build machine's network, for code an agent branch may change.
 - **Monorepo build roots keep their deploy target.** When the build root is itself the clone (setup-server's
   `--monorepo`), `make pipeline-deploy` refuses a commit that tracks `target.env` or `target.<env>.env` at the
   repository root before checking it out, so git never overwrites the server's deploy target.

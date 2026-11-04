@@ -59,6 +59,10 @@ TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
 PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
 AFTER_RSYNC_HOOK = 'config/deploy/after-rsync.sh'
 KEEP_RELEASES = 3
+# RELEASE_BUILD_NETWORK: the release build's Docker network. host (the default, as before) gives the project's build
+# steps the build machine's network; bridge keeps them off it with outside access (Composer, npm), none with no network
+# at all (when vendor/ and the assets need no download).
+RELEASE_BUILD_NETWORKS = ('host', 'bridge', 'none')
 MODULE_VERSION = re.compile(r"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
 
 
@@ -133,10 +137,20 @@ def build_cache(project):
     return Path(project.directory) / '.generated/build-cache'
 
 
+def release_build_network(project):
+    """RELEASE_BUILD_NETWORK, checked: host unless the project chooses bridge or none."""
+    network = project.settings.get('RELEASE_BUILD_NETWORK') or 'host'
+    if network not in RELEASE_BUILD_NETWORKS:
+        raise ValueError(f"RELEASE_BUILD_NETWORK must be host, bridge or none, not {network!r}")
+    return network
+
+
 def in_release_image(project, release, command, cache=None):
     """Run a command in the release PHP image on the release copy, as this machine's user: the copy is this machine's
     (the target's files belong to the account the deploy writes them as). cache: a folder mounted as
-    /setup-build-cache (SETUP_BUILD_CACHE), npm's cache in it."""
+    /setup-build-cache (SETUP_BUILD_CACHE), npm's cache in it. The project's code runs here (Composer scripts,
+    config/deploy/build.sh): RELEASE_BUILD_NETWORK decides whether it has the build machine's network."""
+    network = release_build_network(project)
     image = php_image(project)
     mounts = ['-v', f'{release}:/var/www/html']
     # The user has no home directory in the image: npm/Composer caches go to /tmp, or to the kept cache folder.
@@ -145,7 +159,7 @@ def in_release_image(project, release, command, cache=None):
         Path(cache).mkdir(mode=0o700, parents=True, exist_ok=True)
         mounts += ['-v', f'{cache}:/setup-build-cache', '-e', 'SETUP_BUILD_CACHE=/setup-build-cache']
         npm = '/setup-build-cache/npm'
-    subprocess.run(['docker', 'run', '--rm', '--network', 'host', '--user', f'{os.getuid()}:{os.getgid()}',
+    subprocess.run(['docker', 'run', '--rm', '--network', network, '--user', f'{os.getuid()}:{os.getgid()}',
                     '-e', 'HOME=/tmp', '-e', f'NPM_CONFIG_CACHE={npm}', '-e', 'COMPOSER_HOME=/tmp/composer', *mounts,
                     '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
 
