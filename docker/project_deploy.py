@@ -254,7 +254,13 @@ def _run_hook(project, release, hook):
 def prune_releases(project, keep):
     releases = sorted((path for path in (deploy_directory(project) / 'code').iterdir() if path.is_dir()),
                       key=lambda path: path.stat().st_mtime, reverse=True)
-    used = {entry['commit'][:12] for entry in history(project)[-KEEP_RELEASES:]} | {keep.name}
+    # Failed deploys must not crowd out what a rollback needs: the newest completed releases (the rollback target among
+    # them) and the code the target holds now stay, whatever failed since.
+    entries = history(project)
+    completed = [entry for entry in entries if not entry.get('failed')]
+    used = {entry['commit'][:12] for entry in completed[-KEEP_RELEASES:]} | {keep.name}
+    if entries:
+        used.add(entries[-1]['commit'][:12])
     for path in releases[KEEP_RELEASES:]:
         if path.name not in used:
             shutil.rmtree(path)
@@ -514,30 +520,34 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         backup_file = backup_database(project, registry=True)
         size = Path(backup_file).stat().st_size if Path(backup_file).is_file() else None
         events.event('backup', 'ok', file=Path(backup_file).name, bytes=size)
-    print(f'==> rsync {release} -> {target.label}{path}', flush=True)
-    target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
-    push_protected_release_files(project, release, target, path)
-    if not manifest_path(project, commit).is_file():
-        write_manifest(project, release, commit)
-    removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
-    target.remove(path, removed)
-    if removed:
-        print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
-    elif not entries:
-        print('First deploy: nothing removed on the target (files it already had stay).')
-    for name in protected:
-        print(f'Warning: module {name} exists only on the target and was left as is; '
-              f'make module-pull ENV={project.environment} name={name} brings it into the code.')
     entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
              'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
     if attempt:
         entry['attempt'] = attempt
+    print(f'==> rsync {release} -> {target.label}{path}', flush=True)
+    target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
     # The target holds this code now: recorded at once, as failed until the deploy completes (a killed deploy stays
-    # "incomplete"), so the next deploy removes files against it and a rollback never returns to it.
+    # "incomplete", a failed step leaves its name), so the next deploy removes files against it, a rollback never
+    # returns to it, and the code counts as reached.
     record(project, {**entry, 'failed': 'incomplete'})
-    events.event('code', 'ok', removed_files=len(removed))
-    stage = ['environment']  # the step running now: a failure is recorded with its name
+    stage = ['protected-files']  # the step running now: a failure is recorded with its name
     try:
+        push_protected_release_files(project, release, target, path)
+        stage[0] = 'manifest'
+        if not manifest_path(project, commit).is_file():
+            write_manifest(project, release, commit)
+        stage[0] = 'removals'
+        removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
+        target.remove(path, removed)
+        if removed:
+            print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
+        elif not entries:
+            print('First deploy: nothing removed on the target (files it already had stay).')
+        for name in protected:
+            print(f'Warning: module {name} exists only on the target and was left as is; '
+                  f'make module-pull ENV={project.environment} name={name} brings it into the code.')
+        events.event('code', 'ok', removed_files=len(removed))
+        stage[0] = 'environment'
         return finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry,
                              events, stage)
     except Exception:

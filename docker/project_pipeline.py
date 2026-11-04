@@ -235,6 +235,7 @@ class Step:
         self.history = directory / '.generated/release' / environment / 'deployments.json'
         self.marker = release_root(directory, environment) / RUN_MARKER
         self.marker_data = None  # this run's marker, once it wrote one
+        self.lock_fd = None  # the environment lock's descriptor, which every make step inherits
 
     def say(self, message):
         print(message, file=self.err, flush=True)
@@ -312,7 +313,9 @@ class Step:
     def run_make(self, target, *arguments):
         command = ['make', target, f'ENV={self.environment}', *arguments]
         print(f'==> {" ".join(command)}', file=self.out, flush=True)
-        return subprocess.run(command, cwd=self.directory, env=self.child).returncode
+        # The step holds the environment's lock too (inherited descriptor): it outlasts this run if the run is killed.
+        inherited = (self.lock_fd,) if self.lock_fd is not None else ()
+        return subprocess.run(command, cwd=self.directory, env=self.child, pass_fds=inherited).returncode
 
     def make(self, target, *arguments):
         status = self.run_make(target, *arguments)
@@ -423,11 +426,11 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
         return USAGE
     # One run at a time per environment, with or without an attempt: its checks, its acceptance and its changes.
     with environment_lock(directory, environment, environ) as lock:
-        environ[LOCK_VARIABLE] = str(lock)
-        return checked_step(directory, root, environment, environ, provider, deployment, out, err)
+        environ[LOCK_VARIABLE] = str(lock.path)
+        return checked_step(directory, root, environment, environ, provider, deployment, out, err, lock.fd)
 
 
-def checked_step(directory, root, environment, environ, provider, deployment, out, err):
+def checked_step(directory, root, environment, environ, provider, deployment, out, err, lock_fd=None):
     record = Attempt(directory, environment, environ.get(ATTEMPT_VARIABLE))
     # new: an attempt not seen yet; follow: ROLLBACK=yes after its own failed deploy; resume: its run restarted on a
     # newer setup (SetupTooOld); known: any other repeat, refused.
@@ -468,6 +471,7 @@ def checked_step(directory, root, environment, environ, provider, deployment, ou
             raise Refusal(f"{', '.join(given)} name different refs: set only REF")
         ref = next(iter(given.values()), '')
         step = Step(directory, root, environment, environ, out, err)
+        step.lock_fd = lock_fd
         if step.separate and not rollback and not ref:
             raise Refusal('Name the code tag or commit to deploy with REF (SHOP_REF): app/public is its own '
                           'repository, and the pipeline commit belongs to this environment repository')
@@ -710,10 +714,11 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
                       *attempt)
         state['restore'], state['deployed'] = False, True
         if rollback:
-            record.event('rollback', 'ok', to=history_commit(step.history, 'last'))
-        if not checked:
-            # Nothing to check: the deploy (or the follow-up rollback) is its own result.
-            record.update(outcome='rolled_back' if follow else 'live')
+            record.event('rollback', 'ok', to=history_commit(step.history, 'last'), checked=health)
+        if not checked and not follow:
+            record.update(outcome='live')  # nothing to check: the deploy is its own result
+        # A follow-up rollback is rolled_back only once a check of it passes: this step's (HEALTH) or the workflow's
+        # make deploy-health rollback=1; until then the attempt keeps failed_after_code.
         if not step.separate:
             # Setup decides what it deployed; the checkout follows it if the two ever disagree.
             deployed = history_commit(step.history, 'last')

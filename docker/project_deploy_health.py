@@ -99,8 +99,9 @@ class Endpoint:
 
         class Pinned(HTTPSConnection):
             def connect(self):
-                sock = socket.create_connection((address, self.port), self.timeout)
-                self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+                # Assigned before the handshake, so the request's watchdog can cut a slow one too.
+                self.sock = socket.create_connection((address, self.port), self.timeout)
+                self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
         return Pinned(self.domain, self.port, timeout=timeout, context=ssl.create_default_context())
 
     def get(self, path, body=False, deadline=None):
@@ -115,22 +116,27 @@ class Endpoint:
         if self.local:
             headers['X-Forwarded-Proto'] = 'https'
         connection = self.connection(timeout=remaining)
-        expired = threading.Event()
+        expired, sockets = threading.Event(), []
 
         def expire():
+            # The connection drops its socket once an answer will close it (HTTP/1.0, Connection: close) while the
+            # response still reads the body from it: the socket seen at the request is shut down too.
             expired.set()
-            sock = connection.sock
-            if sock is not None:
-                try:
-                    sock.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
+            for sock in (connection.sock, *sockets):
+                if sock is not None:
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
 
         watchdog = threading.Timer(remaining, expire)
         watchdog.daemon = True
         watchdog.start()
         try:
             connection.request('GET', path, headers=headers)
+            sockets.append(connection.sock)
+            if expired.is_set():  # expired while connecting: the socket the watchdog could not see yet
+                return None, 'timeout', b''
             response = connection.getresponse()
             data = response.read(RELEASE_BODY_LIMIT) if body else b''
             if expired.is_set():
@@ -216,6 +222,7 @@ def deploy_health(directory, environment, attempt=None, rollback=False, environ=
     except (Refusal, ValueError) as error:
         print(error, file=err)
         print('Nothing was checked.', file=err)
+        refused_rollback_check(directory, environment, attempt, rollback, environ, str(error))
         return USAGE
     with environment_lock(directory, environment, environ):
         entries = read_history(directory, environment)
@@ -237,10 +244,27 @@ def deploy_health(directory, environment, attempt=None, rollback=False, environ=
         entries[-1]['health'] = 'ok' if ok else 'failed'
         if not ok:
             entries[-1]['failed'] = 'health'
+        elif entries[-1].get('failed') == 'health':
+            del entries[-1]['failed']  # a passing check again: the release serves, so it is live and a rollback target
         write_history(directory, environment, entries)
         record_attempt(directory, environment, attempt, rollback, ok, seen, results)
     print(f"Health check {'passed' if ok else 'FAILED'}: {expected[:12]} on ENV={environment}.", file=out if ok else err)
     return 0 if ok else FAILED
+
+
+def refused_rollback_check(directory, environment, attempt, rollback, environ, message):
+    """rollback=1 for an attempt whose rollback is the last deploy, but nothing could be checked: the rollback is
+    not confirmed, so the attempt is rollback_failed (rolled_back needs a check that passed)."""
+    from project_attempts import ATTEMPT, environment_lock
+    if not (rollback and attempt and ATTEMPT.fullmatch(attempt)):
+        return
+    with environment_lock(directory, environment, environ):
+        entries = read_history(directory, environment)
+        record = Attempt(directory, environment, attempt)
+        if not entries or entries[-1].get('attempt') != attempt or not entries[-1].get('rollback') or record.read() is None:
+            return
+        record.event('health_after_rollback', 'refused', message=message.splitlines()[0])
+        record.update(outcome='rollback_failed')
 
 
 def record_attempt(directory, environment, attempt, rollback, ok, seen, results):

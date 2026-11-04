@@ -98,24 +98,30 @@ def is_known(directory, environment, attempt):
         bool(attempt_entries(read_history(directory, environment), attempt))
 
 
+class Lock:
+    """A held environment lock: its file, and the descriptor a run passes to its make steps (None: a parent's)."""
+
+    def __init__(self, path, fd):
+        self.path, self.fd = path, fd
+
+
 @contextmanager
 def environment_lock(directory, environment, environ=None):
     """The environment's deploy lock, a stable file never removed: every writer of its history and attempt files waits
-    for it. A pipeline run holds it for the whole run; its make steps (LOCK_VARIABLE names the file) do not wait."""
+    for it. A pipeline run holds it for the whole run and passes its descriptor to its make steps (Step.run_make), so
+    the lock lasts until the last of them exits even if the run itself is killed; LOCK_VARIABLE tells them they hold
+    it already. The lock is released by closing, never by an unlock that would free it for the children too."""
     import fcntl
     path = release_root(directory, environment) / 'deploy.lock'
     held = (environ or os.environ).get(LOCK_VARIABLE)
     # Compared as real paths: the step's make children name the same directory in their own way (a link, ..).
     if held and os.path.realpath(held) == os.path.realpath(path):
-        yield path
+        yield Lock(path, None)
         return
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with open(path, 'a') as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield path
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+        yield Lock(path, handle.fileno())
 
 
 class Attempt:
@@ -269,9 +275,26 @@ def status_document(directory, environment, attempt=None, run=None, fetch=False)
     document['backups'] = {'latest_nightly': latest_nightly(directory, environment)}
     repaired = any(event.get('checkout_repaired') for event in (data or {}).get('events', []))
     document['build_root'] = {**build_root_state(directory, fetch), 'checkout_repaired': repaired}
-    # At most 64 KiB, which AI OS accepts: the oldest history entries go first.
-    while len(json.dumps(document)) > STATUS_LIMIT and document['history']:
+    return within_limit(document)
+
+
+def render(document):
+    """The bytes make deploy-status prints."""
+    return (json.dumps(document, indent=2) + '\n').encode()
+
+
+def within_limit(document):
+    """At most 64 KiB as printed, which AI OS accepts: the oldest history entries go first, then the attempt's
+    older events (its first, accepted, and the newest stay; events_omitted counts the rest, which its file keeps)."""
+    while len(render(document)) > STATUS_LIMIT and document['history']:
         document['history'] = document['history'][1:]
+    attempt = document.get('attempt')
+    while attempt and len(render(document)) > STATUS_LIMIT and len(attempt['events']) > 2:
+        excess = len(render(document)) - STATUS_LIMIT
+        average = max(1, len(json.dumps(attempt['events'], indent=2)) // len(attempt['events']))
+        drop = min(len(attempt['events']) - 2, max(1, excess // average + 1))
+        attempt['events'] = attempt['events'][:1] + attempt['events'][1 + drop:]
+        attempt['events_omitted'] = attempt.get('events_omitted', 0) + drop
     return document
 
 
@@ -302,5 +325,5 @@ def deploy_status(directory, environment, attempt=None, field=None, fetch=False,
     except ValueError as error:
         print(error, file=sys.stderr)
         return 64
-    print(json.dumps(status_document(directory, environment, attempt, run, fetch), indent=2), file=out)
+    out.write(render(status_document(directory, environment, attempt, run, fetch)).decode())
     return 0

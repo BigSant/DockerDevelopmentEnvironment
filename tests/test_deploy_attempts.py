@@ -49,6 +49,14 @@ if fail == target:
     sys.exit(2)
 if target != 'deploy':
     sys.exit(0)
+if os.environ.get('SLOW_DEPLOY'):
+    # Started: the test may kill the pipeline now; this step goes on until the test lets it.
+    import time
+    Path(os.environ['SLOW_DEPLOY']).write_text(str(os.getpid()))
+    for _ in range(300):
+        if Path(os.environ['SLOW_DEPLOY'] + '.go').exists():
+            break
+        time.sleep(0.1)
 history = Path(f'.generated/release/{environment}/deployments.json')
 entries = json.loads(history.read_text()) if history.is_file() else []
 if options.get('rollback') == '1':
@@ -301,6 +309,40 @@ class AttemptTest(AttemptFixture):
         self.assertNotIn("killed run", output)
         self.assert_root("C")
 
+    def test_the_lock_lives_while_a_make_step_of_a_killed_run_still_works(self):
+        """Re-review 1: the pipeline is killed while its make deploy runs; nobody may take the lock until that ends."""
+        import fcntl
+        import time
+        c = self.commits
+        started = self.work / "slow-deploy"
+        env = {"PATH": f"{self.work / 'bin'}:{os.environ['PATH']}", "HOME": os.environ.get("HOME", str(self.work)),
+               "MAKE_LOG": str(self.log), **self.ci_environment(), "REF": c["B"], "SLOW_DEPLOY": str(started)}
+        self.log.write_text("")
+        run = subprocess.Popen([sys.executable, str(ROOT / "docker/project.py"), "--docker-directory", str(self.app),
+                                "--project-directory", str(self.app.parent), "--env", "local", "pipeline-deploy"],
+                               env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(200):
+            if started.is_file() and started.read_text():
+                break
+            time.sleep(0.1)
+        child = int(started.read_text())
+        run.kill()
+        run.wait()
+        lock = open(self.app / ".generated/release/prod/deploy.lock")
+        self.addCleanup(lock.close)
+        try:
+            with self.assertRaises(BlockingIOError, msg="the make step of the killed run still holds the lock"):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            Path(f"{started}.go").write_text("")
+            for _ in range(200):
+                try:
+                    os.kill(child, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.1)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)  # free once that step ended
+
     def test_a_marker_the_run_cannot_read_is_kept_for_a_person(self):
         """Review 5: an unreadable marker refuses the run and stays; the run never removes what it does not own."""
         c = self.commits
@@ -500,7 +542,21 @@ class HealthIntroducedTest(AttemptFixture):
         self.assert_log(f"make deploy-health ENV=prod attempt={U(31)} rollback=1")
         record = self.attempt(U(31))
         self.assertEqual((record["outcome"], record["reason"]), ("rollback_failed", "health"))
-        self.assertEqual(self.stages(U(31))[-1], ("rollback", "ok"), "the code went back; its check did not pass")
+        self.assertEqual(self.stages(U(31))[-2:], [("rollback", "ok"), ("health_after_rollback", "refused")],
+                         "the code went back; its check could not pass")
+
+    def test_a_workflows_rollback_to_a_release_without_a_check_is_not_rolled_back(self):
+        """Re-review 4: B's hook fails (HEALTH=no), the workflow's Roll back step returns to A, which has no check."""
+        c = self.commits
+        self.run_step(0, REF=c["A"], DEPLOY_ATTEMPT=U(32))
+        self.run_step(3, REF=c["B"], DEPLOY_ATTEMPT=U(33), HEALTH="no", FAIL="after-rsync")
+        self.run_step(0, ROLLBACK="yes", DEPLOY_ATTEMPT=U(33))
+        self.assertEqual(self.stages(U(33))[-1], ("rollback", "ok"))
+        self.assertEqual((self.attempt(U(33))["outcome"], self.attempt(U(33))["reason"]), ("failed_after_code", "hook"),
+                         "rolled_back only once a check of the rollback passed")
+        # The workflow's Health check after rollback: A configures nothing to check, so it cannot pass.
+        self.project("--env", "prod", "deploy-health", "--attempt", U(33), "--rollback", expected=64)
+        self.assertEqual(self.attempt(U(33))["outcome"], "rollback_failed")
 
 
 class MonorepoTest(pipeline.Fixture):
@@ -672,6 +728,46 @@ class HealthCheckTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 4, "two tries of at most 1 s each")
         self.assertIn("timeout /", self.output)
 
+    def test_a_passing_check_clears_its_earlier_failure(self):
+        """Re-review B: 404, then 200 for the same attempt: history, outcome and live agree."""
+        self.answers["/old"] = [(404, b""), (200, b"")]
+        self.assertEqual(self.check(1, attempt=U(1))["failed"], "health")
+        entry = self.check(0, attempt=U(1))
+        self.assertEqual((entry["health"], entry.get("failed")), ("ok", None))
+        document = status_document(self.directory, "prod", U(1))
+        self.assertEqual((document["attempt"]["outcome"], document["live"]["commit"]), ("live", self.commit))
+
+    def test_a_slow_body_cannot_outlast_its_deadline(self):
+        """Re-review 6: an HTTP/1.0 answer whose body drips: the deadline cuts the body read too."""
+        import socket
+        import time
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(8)
+        self.addCleanup(listener.close)
+
+        def serve():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            with connection:
+                try:
+                    connection.recv(4096)
+                    connection.sendall(b"HTTP/1.0 200 OK\r\nContent-Length: 50\r\nConnection: close\r\n\r\n")
+                    for _ in range(50):  # 5 s of body
+                        connection.sendall(b"x")
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+
+        threading.Thread(target=serve, daemon=True).start()
+        endpoint = Endpoint({"DOMAIN": "shop.test", "LOCALHOST_PORT": str(listener.getsockname()[1])})
+        started = time.monotonic()
+        status, error, _ = endpoint.get("/_health", body=True, deadline=time.monotonic() + 0.3)
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual((status, error), (None, "timeout"))
+
     def test_refusals_change_nothing(self):
         before = self.history.read_text()
         for options, message in (({"attempt": U(2)}, f"The last deploy of this environment is not attempt {U(2)}"),
@@ -715,7 +811,8 @@ class LockTest(unittest.TestCase):
         app = Path(temporary.name) / "app"
         app.mkdir()
         (Path(temporary.name) / "link").symlink_to(app)
-        with environment_lock(app, "prod") as path:
+        with environment_lock(app, "prod") as lock:
+            path = lock.path
             entered = []
             with environment_lock(Path(temporary.name) / "link/../app", "prod", {LOCK_VARIABLE: str(path)}):
                 entered.append(True)
@@ -726,6 +823,35 @@ class LockTest(unittest.TestCase):
 
 
 class StatusDocumentTest(unittest.TestCase):
+    def test_the_printed_document_stays_within_64_kib_however_many_events(self):
+        """Re-review C: the bytes make deploy-status prints, not the compact form; events are cut in the document
+        only (the attempt file keeps them all)."""
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="status-", dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name)
+        (directory / "env").mkdir()
+        (directory / "env/common.env").write_text("PROJECT_NAME=shop\n")
+        (directory / "env/prod.env.example").write_text("DOMAIN=shop.test\n")
+        attempts = directory / ".generated/release/prod/attempts"
+        attempts.mkdir(parents=True)
+        events = [{"stage": "accepted", "state": "ok", "at": "2026-11-04T10:00:00+00:00"}] + \
+            [{"stage": "repeated", "state": "refused", "reason": "attempt_exists", "at": "2026-11-04T10:00:01+00:00"}] * 598 + \
+            [{"stage": "health", "state": "ok", "at": "2026-11-04T10:09:59+00:00"}]
+        record = {"id": U(1), "environment": "prod", "sha": "1" * 40, "expected_live": None, "outcome": "live",
+                  "reason": None, "events": events}
+        (attempts / f"{U(1)}.json").write_text(json.dumps(record))
+        result = subprocess.run([sys.executable, str(ROOT / "docker/project.py"), "--docker-directory", str(directory),
+                                 "--env", "prod", "deploy-status", "--attempt", U(1)], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLessEqual(len(result.stdout), 64 * 1024)
+        document = json.loads(result.stdout)
+        self.assertEqual(document["attempt"]["events"][0]["stage"], "accepted")
+        self.assertEqual(document["attempt"]["events"][-1]["stage"], "health", "the newest events are kept")
+        self.assertEqual(document["attempt"]["events_omitted"], 600 - len(document["attempt"]["events"]))
+        self.assertEqual(len(json.loads((attempts / f"{U(1)}.json").read_text())["events"]), 600)
+
     def test_the_document_stays_within_64_kib(self):
         scratch = ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)

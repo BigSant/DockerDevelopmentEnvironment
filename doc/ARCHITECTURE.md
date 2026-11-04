@@ -515,10 +515,14 @@ length) while it works, replaced atomically and removed only by the run that wro
 what the killed run's end would have done (`Step.repair`), and refuses (leaving it) a marker it cannot read.
 Every writer of an environment's history holds its stable `flock` `.generated/release/<env>/deploy.lock`
 (`project_attempts.environment_lock`, never removed): every `make pipeline-deploy` run for its whole length (waiting
-for another), `make deploy` and `make deploy-health`; a pipeline's make children see `SETUP_DEPLOY_LOCK` and do not
-wait. `make deploy` records its entry right after the copy as `"failed": "incomplete"` and replaces it when it
-completes, or names the step that failed after the copy (`after-rsync`, `modules`, `migrations`, `translations`,
-`schema`, `cache`, `reload`): the history always names the code the target holds; every history write is atomic.
+for another), `make deploy` and `make deploy-health`. A run passes the lock's descriptor to its make steps
+(`pass_fds`; GNU make hands it on to its recipes), so a killed run's step keeps the lock until it exits; the steps see
+`SETUP_DEPLOY_LOCK` and do not wait, and the lock is released by closing, never unlocked. `make deploy` records its
+entry right after the rsync as `"failed": "incomplete"` and replaces it when it completes, or names the step that
+failed after the copy (`protected-files`, `manifest`, `removals`, `after-rsync`, `modules`, `migrations`,
+`translations`, `schema`, `cache`, `reload`): the history always names the code the target holds; every history write
+is atomic. Release pruning keeps the newest `KEEP_RELEASES` completed releases (the rollback target among them) and the
+one the target holds, however many failed since.
 A monorepo build root (`Step.monorepo`: `app/Makefile` under the build root, which is the git top level) keeps
 setup-server's `target.env`/`target.<env>.env` untracked beside `app/`; `Step.refuse_tracked_target` (before the first
 checkout, and in every `checkout`) refuses a commit whose tree has one at its root (64, `target_tracked`), because
@@ -540,9 +544,13 @@ entry `health` and, failed, `failed: "health"` (so `rollback_entry` skips it), a
 `health_after_rollback` event and outcome; it keeps status, time and tries, never a body. `HEALTH=auto` (the
 pipeline's default) runs it when the deployed commit configures a check; on prod a failed check or after-rsync hook
 or any step after the copy then rolls back (`make deploy rollback=1`, `auto_rollback`) and checks again: the attempt
-is `rolled_back` only when that check passes, else (a failed, refused or killed check) `rollback_failed`. `make deploy-status` prints
+is `rolled_back` only when that check passes, else (a failed, refused or killed check) `rollback_failed`. A follow-up
+rollback (`ROLLBACK=yes` of the same attempt) keeps `failed_after_code` until a check of it passes, in the step
+(`HEALTH`) or in the workflow's `make deploy-health rollback=1`; that check refused (nothing to check) is
+`rollback_failed`. A passing check clears an earlier `failed: "health"` of the same release. `make deploy-status` prints
 `dde-deploy-status/v1` (`status_document`: attempt, live, the last 20 entries with backup file names, the Deployment
-variable names, the newest `worker-<env>-*Z.sql.gz`, the layout; at most 64 KiB) or one `field`; read only.
+variable names, the newest `worker-<env>-*Z.sql.gz`, the layout; at most 64 KiB as printed: the oldest history entries,
+then the attempt's older events go, `events_omitted` counting them, its file keeping all) or one `field`; read only.
 setup-server's tool access (`project_tool_access`): `tool-access/<env>/{users.htpasswd,allowed-ips}` beside
 `target.env` go to `data/<env>/tool-access/` on the target (rsync, renamed into place, 0644 for nginx's workers) in
 deploy-images before compose up and in `make tool-access`; nginx-proxy mounts it read-only and `access.sh` adds the

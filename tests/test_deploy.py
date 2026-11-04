@@ -623,6 +623,29 @@ class GenericDeployTest(unittest.TestCase):
         self.assertEqual([(e["ref"], e.get("failed")) for e in json.loads(history.read_text())],
                          [("g1", None), ("g2", "migrations"), ("g3", "incomplete"), ("g3", None)])
 
+    def test_a_failure_right_after_the_copy_is_recorded_too(self):
+        """Re-review 2: the removals (or the protected files, the manifest) fail after a successful rsync."""
+        self.generic()
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["config/local.php"])
+        with patch.object(LocalTarget, "remove", side_effect=OSError("disk full")), self.assertRaisesRegex(OSError, "disk full"):
+            self.deploy(ref="g2")
+        self.assertEqual((self.target / "app/public/src/Kernel.php").read_text(), "<?php // g2\n", "g2 is on the target")
+        last = json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())[-1]
+        self.assertEqual((last["ref"], last["failed"]), ("g2", "removals"))
+
+    def test_repeated_failures_keep_the_release_a_rollback_needs(self):
+        """Re-review A, without any new setting: a good g1, then four releases failing at the reload."""
+        self.generic()
+        self.deploy(ref="g1")
+        for name in ("g2", "g3", "g4", "g5"):
+            self.commit(name, {"src/Kernel.php": f"<?php // {name}\n"})
+            with patch("project_deploy.reload_php", side_effect=ValueError("reload failed")), \
+                    self.assertRaisesRegex(ValueError, "reload failed"):
+                self.deploy(ref=name)
+        self.deploy(rollback=True)
+        self.assertEqual((self.target / "app/public/src/Kernel.php").read_text(), "<?php // g1\n")
+
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
         import fcntl

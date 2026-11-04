@@ -28,7 +28,9 @@ change (say how). An empty section still releases a patch.
   `make pipeline-deploy` run, `make deploy` and `make deploy-health` holds `.generated/release/<env>/deploy.lock`; a
   second run waits. `make deploy` records its entry right after the copy (`"failed": "incomplete"` until it completes,
   else the step that failed after the copy), so a deploy that fails in migrations, the cache clear or the reload no
-  longer leaves the history behind the target. History writes are atomic.
+  longer leaves the history behind the target. History writes are atomic. A killed run's make step keeps the lock
+  until it ends. Old releases are pruned so that the newest completed ones (the rollback target) stay, however many
+  deploys failed since.
 - **Monorepo build roots keep their deploy target.** When the build root is itself the clone (setup-server's
   `--monorepo`), `make pipeline-deploy` refuses a commit that tracks `target.env` or `target.<env>.env` at the
   repository root before checking it out, so git never overwrites the server's deploy target.
