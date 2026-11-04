@@ -346,22 +346,19 @@ def protected_release_files(project, release):
 
 
 def release_directory_present(release, directory):
-    """Whether the release copy has this directory. It is resolved from a descriptor of the release, one part at a
-    time without following links (remove_inside.walk): a link inside the release (cache -> var/cache) is followed, one
-    that leads out (the build may make one point to a host directory, which rsync would follow) is refused."""
-    from remove_inside import LeavesRoot, open_root, walk
-    top = open_root(release)
-    try:
-        found, _ = walk(top, os.fsencode(directory.strip('/')).split(b'/'))
-        found.close()
-        return True
-    except FileNotFoundError:
+    """Whether the release copy has this directory, resolved (os.path.realpath): a link inside the release
+    (cache -> var/cache) is followed; one leading out of it is refused, because rsync (a source ending in /) would copy
+    that directory of this machine to the target. The release is setup's own copy and nothing changes it meanwhile."""
+    root = os.path.realpath(release)
+    path = os.path.realpath(os.path.join(release, directory.strip('/')))
+    if path != root and not path.startswith(root + os.sep):
+        raise ValueError(f'The release build left a link at {directory} leading out of the release in {release}; '
+                         'nothing is copied to the target')
+    if not os.path.lexists(path):
         return False
-    except LeavesRoot:
-        raise ValueError(f'The release build left a link at {directory} leading out of the release (or a file where a '
-                         f'directory belongs) in {release}; nothing is copied to the target') from None
-    finally:
-        top.close()
+    if not os.path.isdir(path):
+        raise ValueError(f'The release build left a file at {directory} in {release}, where a directory belongs')
+    return True
 
 
 def push_protected_release_files(project, release, target, path):
@@ -686,8 +683,8 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         if left:
             # Not removed is not done: kept in the history, the next deploy tries them again.
             entry['pending_removals'] = left
-            print(f'Warning: {len(left)} files were left on the target, their way leaves the code tree: '
-                  f'{" ".join(left[:5])}; the next deploy tries them again.')
+            print(f'Warning: {len(left)} files could not be removed from the target yet: {" ".join(left[:5])}; '
+                  'the next deploy tries them again.')
         pending.clear()
         replace_last(project, {**entry, 'failed': 'incomplete'})
         if removed:

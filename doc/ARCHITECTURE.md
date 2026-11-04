@@ -423,23 +423,27 @@ That code may plant links, special files or odd names in the release copy, so se
 (`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (a new file created
 `O_EXCL|O_NOFOLLOW` relative to the release opened `O_DIRECTORY|O_NOFOLLOW`, renamed over the entry: a planted link or
 hard link is replaced, never opened), a release counts as built only with a plain `.setup-release` (`release_built`),
-the protected directories copied from it are resolved from a descriptor of the release before the code is copied
-(`release_directory_present` with `remove_inside.walk`: a link inside the release, such as `cache -> var/cache`, is
-followed, one leading out is refused), the manifest is a JSON list (`manifests/<sha12>.json`, walked without following links;
-an older `.txt` newline list is never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps
-the newest `KEEP_RELEASES` distinct completed releases, removals take only `safe_names`, and the targets remove with
-`remove_inside.py` (from a descriptor of the code root, every directory opened `O_PATH|O_NOFOLLOW` relative to the one
-before (without `O_PATH`, a directory that cannot be opened is entered by path after `lstat` shows a real
-directory), a link followed only while its relative target stays inside the root, `unlink` relative to the last: no
-path is resolved twice and a 0300 directory works). A name is removed only if its resolved entry is neither what the
-new release ships (its manifest, every directory on the way, each resolved the same way) nor under a protected path:
-`legacy -> actual` never lets `legacy/old.php` remove the new `actual/old.php`. The helper is Python 3.5-compatible;
-`SshTarget` asks the server once for `python3` 3.3+ and sends it JSON with the names as hex bytes; the pending names
-come back on fd 3 (the server's own output goes to stderr) and only names sent are taken. Without it, a shell loop
-removes only where the way holds no link, and a directory it cannot enter or a failed `rm` stays pending with a
-non-zero exit. What the removal step could not do stays pending in the history:
-a deploy is `"removals": "pending"` until its removal step is done (the next deploy removes against every release
-still on the target, `removal_sources`), and `pending_removals` names files left because their way leaves the root. `make -f docker/project.mk setup-capabilities` lists abilities without a project
+the protected directories copied from it are resolved (`release_directory_present`, `os.path.realpath`) before the
+code is copied: a link inside the release, such as `cache -> var/cache`, is followed, one leading out is refused. The
+manifest is a JSON list (`manifests/<sha12>.json`, walked without following links; an older `.txt` newline list is
+never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps the newest `KEEP_RELEASES`
+distinct completed releases, and removals take only `safe_names`.
+**Removal threat model: trusted content.** Removals run only for trusted releases and targets: untrusted (agent)
+stage deploys are refused by their workflows while `release-hardened-v1` is not offered, and protection against a
+hostile tree (links planted or swapped during the removal) is future work: setup's copy, pruning and removal of a
+release and a target in an isolated container, which `release-hardened-v1` will announce. `remove_inside.py` (local,
+and on a server with `python3` 3.3+ via `-c`; Python 3.5 syntax) works on bytes only (names, the new release's files
+and the protected patterns travel as the hex of their bytes, so the server's locale never matters): each name's
+directory is resolved with `os.path.realpath` (its last part stays, so a stale link is removed itself), and the name
+is kept on purpose when that entry lies outside the resolved root, is a file the new release ships or a directory one
+lies in, or lies under a protected path (`legacy -> actual` never removes the new `actual/old.php`). Otherwise a file
+or link is unlinked, a missing one counts as done, and anything else (a directory there, any `OSError`) stays pending.
+Over ssh the server is asked once for `python3` 3.3+; without one nothing is removed and every name stays pending.
+The reply is one framed block (start line, JSON length, JSON, end line) on fd 3, with the server's own output on
+stderr; output around it is ignored and only names that were sent are taken. What the removal step could not do
+stays pending in the history: a deploy is `"removals": "pending"` until its removal step is done (the next deploy
+removes against every release still on the target, `removal_sources`), and `pending_removals` names the files it
+could not remove yet. `make -f docker/project.mk setup-capabilities` lists abilities without a project
 (`deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); `release-hardened-v1` is not
 offered until the release copy and the target are handled in an isolated container; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,

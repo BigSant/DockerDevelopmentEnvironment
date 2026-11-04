@@ -815,25 +815,20 @@ class GenericDeployTest(unittest.TestCase):
         self.assertIn("not removing", self.output.getvalue())
 
     def test_removals_never_leave_the_code_tree(self):
-        """A legacy newline manifest, an absolute or .. name, or a directory the target links elsewhere."""
+        """Absolute, .. or control-character names are refused; a name whose directory resolves out of the code root
+        (a link the target holds) is kept on purpose, here and with the server's python3."""
         from project_deploy import safe_names
         outside = self.root / "outside"
         outside.mkdir()
         (outside / "kept.php").write_text("x")
         code = self.target / "app/public"
         (code / "linked").symlink_to(outside)
-        (code / "gone.php").write_text("x")
         self.assertEqual(safe_names(["gone.php", "/etc/passwd", "../x", "a/../../b", "ok\x07.php", "", "a//b"]), ["gone.php"])
-        LocalTarget().remove(str(code), ["gone.php", "linked/kept.php"])
-        self.assertFalse((code / "gone.php").exists())
-        self.assertTrue((outside / "kept.php").exists(), "a directory the target links elsewhere is not followed")
-        # The same rule on a server: the removal script runs there (here: this machine's sh).
-        for env in (None, self.bare_path()):
+        for target in (LocalTarget(), SshTarget("shop@host.example", run=self.here())):
             (code / "gone.php").write_text("x")
-            left = SshTarget("shop@host.example", run=self.here(env)).remove(str(code), ["gone.php", "linked/kept.php"])
-            self.assertEqual(left, ["linked/kept.php"])
+            self.assertEqual(target.remove(str(code), ["gone.php", "linked/kept.php", "removed-dir/x.php"]), [])
             self.assertFalse((code / "gone.php").exists())
-            self.assertTrue((outside / "kept.php").exists())
+            self.assertTrue((outside / "kept.php").exists(), "a directory the target links elsewhere is not followed")
 
     def test_redeploys_of_one_release_do_not_crowd_out_older_rollback_targets(self):
         """Re-check A: g1 ok, g2 ok three times, g3-g5 fail; two rollbacks: to g2, then to g1."""
@@ -877,59 +872,18 @@ class GenericDeployTest(unittest.TestCase):
         self.assertTrue((public / "victim.php").exists())
         self.assertIn("removes nothing", self.output.getvalue())
 
-    def test_a_directory_swapped_for_a_link_during_the_removal_is_not_followed(self):
-        """Re-check H3: between setup's look at code/a and its unlink, the application swaps a for a link outside."""
-        outside = self.root / "outside"
-        outside.mkdir()
-        (outside / "file.php").write_text("outside\n")
-        code = self.target / "app/public"
-        (code / "a").mkdir()
-        (code / "a/file.php").write_text("inside\n")
-        swapped = []
-
-        def swap():
-            if not swapped:
-                swapped.append(True)
-                (code / "a").rename(code / "a-moved")
-                (code / "a").symlink_to(outside)
-
-        real_realpath, real_open = os.path.realpath, os.open
-
-        def racing_realpath(path, *args, **kwargs):
-            result = real_realpath(path, *args, **kwargs)
-            if str(path).rstrip("/").endswith("/a"):
-                swap()
-            return result
-
-        def racing_open(path, flags, *args, **kwargs):
-            result = real_open(path, flags, *args, **kwargs)
-            if path in ("a", b"a"):
-                swap()
-            return result
-
-        with patch("os.path.realpath", racing_realpath), patch("os.open", racing_open):
-            LocalTarget().remove(str(code), ["a/file.php"])
-        self.assertTrue(swapped)
-        self.assertEqual((outside / "file.php").read_text(), "outside\n")
-        self.assertFalse((code / "a-moved/file.php").exists(), "the directory setup opened, wherever it went")
-
-    def test_a_server_removal_reports_every_failure(self):
-        """Re-check M2: over ssh, an earlier failed removal is not hidden by a later one that worked."""
+    def test_a_removal_that_fails_stays_pending_and_the_others_go(self):
+        """A file that cannot be removed (its directory is read-only) is pending, here and over ssh; the rest go."""
         code = self.target / "app/public"
         (code / "locked").mkdir()
         (code / "locked/a.php").write_text("x")
-        (code / "b.php").write_text("x")
         (code / "locked").chmod(0o555)
         self.addCleanup((code / "locked").chmod, 0o755)
-        with self.assertRaises(subprocess.CalledProcessError):
-            SshTarget("shop@host.example", run=self.here()).remove(str(code), ["locked/a.php", "b.php"])
-        self.assertFalse((code / "b.php").exists(), "the others are still removed")
-        # A server without python3: the shell loop counts every failure too.
-        (code / "b.php").write_text("x")
-        with self.assertRaises(subprocess.CalledProcessError) as raised:
-            SshTarget("shop@host.example", run=self.here(self.bare_path())).remove(str(code), ["locked/a.php", "b.php"])
-        self.assertIn(b"no python3 3.3+ on the server", raised.exception.stderr)
-        self.assertFalse((code / "b.php").exists())
+        for target in (LocalTarget(), SshTarget("shop@host.example", run=self.here())):
+            (code / "b.php").write_text("x")
+            self.assertEqual(target.remove(str(code), ["locked/a.php", "b.php"]), ["locked/a.php"])
+            self.assertFalse((code / "b.php").exists())
+            self.assertTrue((code / "locked/a.php").exists())
 
     def test_as_before_a_failed_removal_is_retried_by_the_next_deploy(self):
         """Opt-in guarantee: g2 drops config/local.php; its removal step fails once; deploying g2 again removes it."""
@@ -948,7 +902,7 @@ class GenericDeployTest(unittest.TestCase):
 
     def test_as_before_an_intermediate_link_inside_the_code_tree_is_followed(self):
         """Opt-in guarantee: public -> actual inside the code tree; removed through it, here and with the server's
-        python3. Without python3 3.3+ the shell loop keeps such a name (it cannot check it against the new release)."""
+        python3 (actual/old.php is not the new release's)."""
         code = self.target / "app/public"
         (code / "actual").mkdir()
         (code / "actual/old.php").write_text("x")
@@ -958,35 +912,27 @@ class GenericDeployTest(unittest.TestCase):
         (code / "actual/old.php").write_text("x")
         self.assertEqual(SshTarget("shop@host.example", run=self.here()).remove(str(code), ["public/old.php"]), [])
         self.assertFalse((code / "actual/old.php").exists(), "the server's python3 helper follows it too")
-        (code / "actual/old.php").write_text("x")
-        self.assertEqual(SshTarget("shop@host.example", run=self.here(self.bare_path())).remove(
-            str(code), ["public/old.php"]), [], "kept on purpose, not pending")
-        self.assertTrue((code / "actual/old.php").exists())
-        # A link that leaves the code tree is not followed, and its removal is not counted as done.
+        # A link that leaves the code tree is not followed: that name is kept on purpose.
         outside = self.root / "outside"
         outside.mkdir()
         (outside / "old.php").write_text("outside\n")
         (code / "out").symlink_to(outside)
-        self.assertEqual(LocalTarget().remove(str(code), ["out/old.php"]), ["out/old.php"])
+        self.assertEqual(LocalTarget().remove(str(code), ["out/old.php"]), [])
         self.assertTrue((outside / "old.php").exists())
 
     def test_a_removal_left_undone_stays_pending_until_it_is_done(self):
-        """A skipped removal is no removal: the history keeps it and the next deploy tries again."""
+        """A removal that could not be done is no removal: the history keeps it and the next deploy tries again."""
         public = self.generic()
         self.commit("g1b", {"sub/old.php": "<?php\n"})
         self.deploy(ref="g1b")
-        outside = self.root / "outside"
-        outside.mkdir()
-        (outside / "old.php").write_text("outside\n")
-        (public / "sub").rename(public / "sub-real")
-        (public / "sub").symlink_to(outside)
+        (public / "sub").chmod(0o555)
+        self.addCleanup((public / "sub").chmod, 0o755)
         self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["sub/old.php"])
         self.deploy(ref="g2")
         history = self.root / "app/.generated/release/stage/deployments.json"
         self.assertEqual(json.loads(history.read_text())[-1]["pending_removals"], ["sub/old.php"])
-        self.assertTrue((outside / "old.php").exists())
-        (public / "sub").unlink()
-        (public / "sub-real").rename(public / "sub")
+        self.assertTrue((public / "sub/old.php").exists())
+        (public / "sub").chmod(0o755)
         self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
         self.deploy(ref="g3")
         self.assertFalse((public / "sub/old.php").exists())
@@ -1025,10 +971,12 @@ class GenericDeployTest(unittest.TestCase):
         self.assertIn("python3 -c", commands[1][0][-1])
 
     @staticmethod
-    def here(env=None):
-        """An SshTarget's run that executes the server's command on this machine (sh), as ssh would there."""
+    def here(env=None, banner=None):
+        """An SshTarget's run that executes the server's command on this machine (sh), as ssh would there; banner:
+        what a login prints on standard output first."""
         def run(command, **options):
-            return subprocess.run(["sh", "-c", command[-1]], input=options.get("input"), capture_output=True, env=env)
+            script = f"{banner}; {command[-1]}" if banner else command[-1]
+            return subprocess.run(["sh", "-c", script], input=options.get("input"), capture_output=True, env=env)
         return run
 
     def bare_path(self):
@@ -1079,50 +1027,54 @@ class GenericDeployTest(unittest.TestCase):
         self.assertIn("/var/data/", protected)
         self.assertTrue(public.is_dir())
 
-    def test_the_shell_fallback_counts_a_directory_it_cannot_enter(self):
-        """Re-check N1: no python3 3.3+ on the server; a file in a directory cd cannot enter is no removal done."""
+    def test_a_server_without_python3_removes_nothing_and_everything_stays_pending(self):
+        """No python3 3.3+ on the server: no shell fallback; every name stays pending, with a warning."""
         code = self.target / "app/public"
-        (code / "closed").mkdir()
-        (code / "closed/a.php").write_text("x")
-        (code / "closed").chmod(0o600)
-        self.addCleanup((code / "closed").chmod, 0o755)
-        target = SshTarget("shop@host.example", run=self.here(self.bare_path()))
-        with self.assertRaises(subprocess.CalledProcessError):
-            target.remove(str(code), ["closed/a.php", "gone/b.php"])
-        (code / "closed").chmod(0o755)
-        self.assertTrue((code / "closed/a.php").exists())
-        self.assertEqual(target.remove(str(code), ["gone/b.php"]), [], "a directory that is gone holds nothing")
+        (code / "a.php").write_text("x")
+        self.assertEqual(SshTarget("shop@host.example", run=self.here(self.bare_path())).remove(
+            str(code), ["a.php", "gone/b.php"]), ["a.php", "gone/b.php"])
+        self.assertTrue((code / "a.php").exists())
+        self.assertIn("has no python3 3.3+: nothing was removed", self.output.getvalue())
 
-    def test_without_o_path_a_directory_without_read_permission_is_still_walked(self):
-        """Re-check N5: where O_PATH is missing, a 0300 directory is entered by path after lstat checks."""
-        import remove_inside
-        code = self.target / "app/public"
-        (code / "wo/deeper").mkdir(parents=True)
-        (code / "wo/deeper/a.php").write_text("x")
-        (code / "wo").chmod(0o300)
-        self.addCleanup((code / "wo").chmod, 0o755)
-        with patch("remove_inside.PATH_FLAG", 0):
-            self.assertEqual(LocalTarget().remove(str(code), ["wo/deeper/a.php"]), [])
-        (code / "wo").chmod(0o755)
-        self.assertFalse((code / "wo/deeper/a.php").exists())
-        self.assertTrue(remove_inside.PATH_FLAG or True)
-
-    def test_a_server_banner_does_not_corrupt_the_pending_names(self):
-        """Re-check M: the server's python3 prints a banner on standard output; the pending names come back intact."""
+    def test_a_server_banner_does_not_corrupt_the_reply(self):
+        """The server prints a banner on standard output before the reply, and its python3 one of its own: only the
+        framed block counts, and only names that were sent."""
         import shutil
+        from remove_inside import frame, unframe
         wrapper = self.root / "wrapper-bin"
         wrapper.mkdir()
         (wrapper / "python3").write_text(f"#!/bin/sh\necho 'Welcome to the hosting python'\nexec {shutil.which('python3')} \"$@\"\n")
         (wrapper / "python3").chmod(0o755)
         code = self.target / "app/public"
-        outside = self.root / "outside"
-        outside.mkdir()
-        (outside / "keep.php").write_text("outside\n")
-        (code / "out").symlink_to(outside)
+        (code / "locked").mkdir()
+        (code / "locked/a.php").write_text("x")
+        (code / "locked").chmod(0o555)
+        self.addCleanup((code / "locked").chmod, 0o755)
         env = {"PATH": f"{wrapper}:{os.environ['PATH']}"}
+        target = SshTarget("shop@host.example", run=self.here(env, banner="echo 'Last login: today'"))
+        self.assertEqual(target.remove(str(code), ["locked/a.php"]), ["locked/a.php"])
+        # A reply naming what was not sent is not taken; output around the frame is not the reply.
+        noisy = b"banner\n" + frame([b"locked/a.php", b"/etc/passwd"], []) + b"trailing\n"
+        self.assertEqual(unframe(noisy), ([b"locked/a.php", b"/etc/passwd"], []))
+        reply = SshTarget("shop@host.example", run=lambda command, **options: subprocess.CompletedProcess(
+            command, 0, noisy, b""))
+        self.assertEqual(reply.remove(str(code), ["locked/a.php"]), ["locked/a.php"])
+        self.assertIsNone(unframe(b"no reply at all"))
+        self.assertIsNone(unframe(frame([b"x"], [])[:-5]), "a cut block is no reply")
+
+    def test_a_non_ascii_protected_path_is_kept_whatever_the_servers_locale(self):
+        """Names, the new release's files and the protected patterns are bytes end to end: LC_ALL=C on the server
+        (no UTF-8 mode, no locale coercion) changes nothing."""
+        code = self.target / "app/public"
+        (code / "vär").mkdir()
+        (code / "vär/x.php").write_text("protected\n")
+        (code / "gammal").symlink_to("vär")
+        (code / "ąčę.php").write_text("stale\n")
+        env = {"PATH": os.environ["PATH"], "LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"}
         target = SshTarget("shop@host.example", run=self.here(env))
-        self.assertEqual(target.remove(str(code), ["out/keep.php"]), ["out/keep.php"])
-        self.assertTrue((outside / "keep.php").exists())
+        self.assertEqual(target.remove(str(code), ["gammal/x.php", "ąčę.php"], keep=["index.php"], protected=["/vär/"]), [])
+        self.assertEqual((code / "vär/x.php").read_text(), "protected\n")
+        self.assertFalse((code / "ąčę.php").exists())
 
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
