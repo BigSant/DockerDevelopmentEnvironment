@@ -18,7 +18,11 @@ change (say how). An empty section still releases a patch.
   runs in a throwaway `setup-release-sandbox` container: only those two directories and setup's helpers mounted, no
   network, a read-only root, no capabilities, an unprivileged user. The release build's network defaults to `bridge`
   there (`host` refused), and it needs a target on this machine. `make -f docker/project.mk setup-capabilities
-  PROJECT_DOCKER_DIRECTORY=… ENV=…` adds `release-hardened-v1` only when all of that holds for the environment.
+  PROJECT_DOCKER_DIRECTORY=… ENV=…` adds `release-hardened-v1` when setup isolates that environment's deploy on request
+  (the settings make deploy reads: a target on this machine, no host network for the build, Docker here); the workflow
+  then passes `DEPLOY_REQUIRE_ISOLATION=1`, and make deploy isolates or refuses. Mount roots are checked without
+  links and their inode re-checked inside each container (the release build's too); copies are published as new
+  inodes renamed into place, never written in place; PrestaShop module versions are read in the sandbox.
   Projects that set nothing deploy as before. New B level `tests/run --sandbox` (CI runs it).
 
 ## 5.4.0

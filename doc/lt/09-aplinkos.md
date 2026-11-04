@@ -484,7 +484,7 @@ make -s -f "$SETUP_DIRECTORY/docker/project.mk" setup-capabilities PROJECT_DOCKE
 # deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 release-hardened-v1
 ```
 
-`release-hardened-v1` parodomas tik antru būdu ir tik tada, kai tos aplinkos deploy'ai izoliuoti: `RELEASE_ISOLATION=container`, taikinys šiame serveryje (be `DEPLOY_SSH`) ir Docker čia atsako. Kitaip stderr paaiškina kodėl, o workflow nepatikimo deploy'aus atsisako.
+`release-hardened-v1` parodomas tik antru būdu ir tik tada, kai setup gali izoliuoti tos aplinkos deploy'ų: pagal nustatymus, kuriuos skaitys `make deploy` (`env/<env>.env`, jei yra, kitaip pavyzdys, ir setup-server taikinio failas), taikinys šiame serveryje, build'o tinklas ne `host` ir Docker čia atsako. Kitaip stderr paaiškina kodėl, o workflow nepatikimo deploy'aus atsisako. Gavęs `release-hardened-v1`, workflow deploy'ui perduoda `DEPLOY_REQUIRE_ISOLATION=1`: tada `make deploy` izoliuoja nepriklausomai nuo projekto failų arba atsisako prieš bet kokį pakeitimą, todėl patikra ir deploy'us negali išsiskirti.
 
 ### Release'o izoliacija (`RELEASE_ISOLATION=container`)
 
@@ -492,7 +492,9 @@ Agento šakos stage deploy'us kuria release'ą iš nepatikimo kodo: jo Composer 
 
 - konteineris prijungia tik release'o katalogą, taikinio kodo katalogą ir setup'o pagalbinius scriptus (tik skaityti); be tinklo (`--network none`), šakninė failų sistema tik skaitymui, be teisių (`--cap-drop ALL`, `no-new-privileges`), neprivilegijuotas naudotojas (taikiniui – `APP_UID:APP_GID`);
 - jame: kodo išpakavimas į release'ą, setup'o failų (`.setup-build.sh`, `.setup-release`, `config/composer`) rašymas, failų sąrašas, kodo ir saugomų katalogų kopijavimas (`rsync`), modulių katalogų sąrašas ir trynimai;
-- nuoroda į serverio kelią konteineryje veda į paties konteinerio failų sistemą, todėl jokio serverio failo nepasiekia; šio serverio Python skaito tik patikimus dalykus ir patikrintą konteinerio išvestį (failų sąrašą);
+- nuoroda į serverio kelią konteineryje veda į paties konteinerio failų sistemą, todėl jokio serverio failo nepasiekia; šio serverio Python skaito tik patikimus dalykus ir patikrintą konteinerio išvestį (failų sąrašą, modulių versijas);
+- prijungiami katalogai patikrinami prieš paleidimą (be nuorodų nuo projekto katalogo ar `DEPLOY_PATH`), o konteineris prieš darbą palygina, ar gavo būtent tą katalogą (inode); jei katalogas tarp patikros ir prijungimo pakeistas nuoroda, darbas atmetamas. Tą patį tikrina ir release'o build'o konteineris;
+- failai į taikinį ne perrašomi vietoje, o paruošiami atskirame kataloge ir pervadinami į vietą: kiekvienas naujas failas – naujas inode, esamo failo turinys ir teisės niekada nekeičiami, todėl hard link'as iš taikinio į kitą failą to failo nepakeičia;
 - release'o build'as (Composer, `build.sh`) jau vyksta release PHP image'e; su izoliacija jo tinklas pagal nutylėjimą `bridge`, `RELEASE_BUILD_NETWORK=host` atmetamas;
 - tik taikiniui šiame serveryje: su `DEPLOY_SSH` izoliacija atmetama, todėl nepatikimi deploy'ai į kitą serverį lieka draudžiami.
 

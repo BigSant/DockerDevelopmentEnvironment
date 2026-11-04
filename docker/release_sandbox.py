@@ -18,10 +18,13 @@ network must not be the host's (RELEASE_BUILD_NETWORK: bridge by default, host r
 works on this machine as before.
 """
 
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 
 DOCKER_DIRECTORY = Path(__file__).resolve().parent
@@ -36,13 +39,19 @@ CAPABILITY = 'release-hardened-v1'
 BASE_CAPABILITIES = ('deploy-attempt-v1', 'deploy-health-v1', 'deploy-status-v1', 'release-build-network-v1')
 
 
+# The job's request for a hardened deploy: a workflow that probed release-hardened-v1 passes it, and make deploy then
+# isolates whatever the project's files say, or refuses (check) before anything changes.
+REQUIRE_VARIABLE = 'DEPLOY_REQUIRE_ISOLATION'
+
+
 def isolation(project):
     """Whether make deploy isolates its work on the release: RELEASE_ISOLATION=container in the project's settings or
-    in the job's environment (which can only switch it on)."""
+    in the job's environment, or DEPLOY_REQUIRE_ISOLATION=1 from the job (both can only switch it on)."""
     value = str(project.settings.get('RELEASE_ISOLATION') or 'none')
     if value not in ISOLATION_VALUES:
         raise ValueError(f'RELEASE_ISOLATION must be none or container, not {value!r}')
-    return value == 'container' or os.environ.get('RELEASE_ISOLATION') == 'container'
+    return value == 'container' or os.environ.get('RELEASE_ISOLATION') == 'container' or \
+        os.environ.get(REQUIRE_VARIABLE) == '1'
 
 
 def refusal(settings):
@@ -50,6 +59,9 @@ def refusal(settings):
     if settings.get('DEPLOY_SSH'):
         return ('RELEASE_ISOLATION=container needs a deploy target on this machine (no DEPLOY_SSH): the sandbox '
                 'container mounts the release and the target code here. Untrusted deploys to another server stay refused')
+    if not shutil.rmtree.avoids_symlink_attacks:
+        return ('RELEASE_ISOLATION=container needs a Python whose shutil.rmtree is safe from link attacks (it prunes '
+                'old release copies)')
     if str(settings.get('RELEASE_BUILD_NETWORK') or 'bridge') == 'host':
         return ('RELEASE_ISOLATION=container refuses RELEASE_BUILD_NETWORK=host: the untrusted release build would '
                 'have this machine\'s network')
@@ -88,6 +100,39 @@ def docker_available(run=subprocess.run):
         return False
 
 
+def pinned(root, relative, create=False):
+    """(path, "dev:ino") of root/relative for a bind mount. root is setup's or setup-server's own (DEPLOY_PATH, the
+    project directory) and is resolved; every part below it is opened from a held descriptor without following links
+    (created when missing, with create), so a link there is refused. The container compares the inode it got mounted
+    with this one (sandbox_ops: SETUP_EXPECT_*): a directory swapped for a link between this check and Docker's mount
+    is refused there."""
+    base = os.path.realpath(root)
+    parts = [part for part in str(relative).split('/') if part not in ('', '.')]
+    if '..' in parts:
+        raise ValueError(f'{relative} leaves {root}')
+    fd = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in parts:
+            try:
+                following = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, 0o755, dir_fd=fd)
+                following = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            except OSError as error:
+                if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise ValueError(f'{os.path.join(base, *parts)}: {part} is a link or no directory; the release '
+                                     'sandbox mounts only real directories') from None
+                raise
+            os.close(fd)
+            fd = following
+        status = os.fstat(fd)
+        return os.path.join(base, *parts), f'{status.st_dev}:{status.st_ino}'
+    finally:
+        os.close(fd)
+
+
 def mount(source, target, readonly):
     source = os.path.abspath(source)
     if ',' in source or '\n' in source:
@@ -107,12 +152,18 @@ class Sandbox:
     local = True
     label = ''
 
-    def __init__(self, project, release, code=None, run=subprocess.run):
-        self.project, self.release, self.code, self.run = project, Path(release), code, run
+    def __init__(self, project, release, target=None, run=subprocess.run):
+        """release: the release copy below the project directory; target: (DEPLOY_PATH, the code tree below it)."""
+        self.project, self.run = project, run
         self.image = ensure_image(run)
-        if code:
-            # The code tree's parents are setup-server's (DEPLOY_PATH); the application changes only inside it.
-            Path(code).mkdir(parents=True, exist_ok=True)
+        directory = Path(project.directory)
+        release, self.release_inode = pinned(directory, Path(os.path.abspath(release)).relative_to(
+            os.path.abspath(directory)))
+        self.release = Path(release)
+        self.code = self.target_inode = None
+        if target:
+            # The code tree below DEPLOY_PATH (setup-server's), created when missing, never through a link.
+            self.code, self.target_inode = pinned(target[0], target[1], create=True)
         settings = project.settings
         self.target_user = f"{settings.get('APP_UID') or os.getuid()}:{settings.get('APP_GID') or os.getgid()}"
         self.release_user = f'{os.getuid()}:{os.getgid()}'
@@ -128,7 +179,8 @@ class Sandbox:
                 '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=64m', '--cap-drop', 'ALL',
                 '--security-opt', 'no-new-privileges', '--pids-limit', '256', '--memory', '1g',
                 '--user', self.target_user if target else self.release_user, '-e', 'HOME=/tmp',
-                '-e', 'PYTHONDONTWRITEBYTECODE=1', *helpers, *mounts, '--entrypoint', 'python3', self.image,
+                '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', f'SETUP_EXPECT_RELEASE={self.release_inode}',
+                *(['-e', f'SETUP_EXPECT_TARGET={self.target_inode}'] if target else []), *helpers, *mounts, '--entrypoint', 'python3', self.image,
                 '/setup/sandbox_ops.py', operation, *arguments]
 
     def call(self, operation, *arguments, data=None, capture=False, **options):
@@ -171,10 +223,29 @@ class Sandbox:
         return root + path[len(host):]
 
     def push(self, source, dest, *options):
+        """rsync's selection (options, --checksum, the excludes) into a staging directory of the target, then each
+        file renamed into place: a published file is a new inode, and an existing file is never written, chmod-ed or
+        touched (sandbox_ops.push), so a hard link the target holds to any other file never changes that file."""
         request = {'source': self.inner(source, self.release, '/release') + ('/' if str(source).endswith('/') else ''),
                    'dest': self.inner(dest, self.code, '/target') + ('/' if str(dest).endswith('/') else ''),
-                   'options': list(options)}
+                   'options': [option for option in options if option != '--ignore-existing'],
+                   'ignore_existing': '--ignore-existing' in options}
         self.call('push', data=json.dumps(request).encode(), target=True)
+
+    def module_versions(self):
+        """{module: version} of the release's PrestaShop modules, read in the sandbox (no link followed, regular files
+        only, size-capped) and checked here."""
+        versions = json.loads(self.call('modules', capture=True) or b'{}')
+        if not isinstance(versions, dict):
+            raise ValueError('The release sandbox gave no module list: refused')
+        return {name: version for name, version in versions.items()
+                if isinstance(name, str) and isinstance(version, str) and re.fullmatch(r'[A-Za-z0-9_]{1,64}', name)
+                and re.fullmatch(r'[A-Za-z0-9._+-]{1,32}', version)}
+
+    def release_directories(self, path):
+        """The directory names in the release's path (not following links), checked."""
+        names = json.loads(self.call('release-directories', path, capture=True) or b'[]')
+        return {name for name in names if isinstance(name, str) and plain(name) and '/' not in name}
 
     def directories(self, path):
         return set(json.loads(self.call('directories', self.inner(path, self.code, '')[1:] or '.', capture=True,
@@ -198,16 +269,30 @@ class Sandbox:
         return [sent[name] for name in reply[0] if name in sent]
 
 
+def effective_settings(directory, environment):
+    """The settings make deploy of ENV reads: env/common.env, then env/<env>.env when it exists (what make deploy
+    loads; make pipeline-deploy writes it from the deployed commit's example), else the example, then setup-server's
+    target file (target.<env>.env or target.env)."""
+    from project_env_files import read_dotenv, target_settings
+    directory = Path(directory)
+    values = {}
+    for path in (directory / 'env/common.env', directory / f'env/{environment}.env'
+                 if (directory / f'env/{environment}.env').is_file() else directory / f'env/{environment}.env.example'):
+        if path.is_file():
+            values.update(read_dotenv(path))
+    values.update(target_settings(directory, environment))
+    return values
+
+
 def capabilities(directory, environment):
-    """setup-capabilities for one project environment: release-hardened-v1 only when isolation is active for it
-    (RELEASE_ISOLATION=container), its target is on this machine and Docker answers here."""
-    from project_env_files import file_settings
+    """setup-capabilities for one project environment: release-hardened-v1 when setup isolates this environment's
+    deploy on request: its target (in the settings make deploy reads) is on this machine and Docker answers here.
+    The workflow then asks with DEPLOY_REQUIRE_ISOLATION=1, and make deploy isolates or refuses: the probe and the
+    deploy cannot disagree."""
     from project_environments import is_server
     if not is_server(environment):
         return False, f'ENV={environment} is no server environment'
-    values, _ = file_settings(directory, environment)
-    if str(values.get('RELEASE_ISOLATION') or 'none') != 'container':
-        return False, f'RELEASE_ISOLATION=container is not set for ENV={environment}'
+    values = effective_settings(directory, environment)
     reason = refusal(values)
     if reason:
         return False, reason

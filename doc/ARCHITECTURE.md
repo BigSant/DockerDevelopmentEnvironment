@@ -450,20 +450,32 @@ code tree runs in a throwaway container of the `setup-release-sandbox:<Dockerfil
 mounts only the release directory (read only unless setup writes into it), the target code directory and setup's
 `sandbox_ops.py` and `remove_inside.py` (read only), with `--network none`, `--read-only` (a small `noexec` tmpfs at
 `/tmp`), `--cap-drop ALL`, `no-new-privileges`, pid and memory limits and an unprivileged user (this machine's account
-for the release, `APP_UID:APP_GID` for the target). In it: exporting the `git archive` into the release, writing
-`.setup-build.sh`, `.setup-release` and the `config/composer` files, the manifest (printed as JSON and checked here:
-a list of plain relative names, at most 500 000 and 64 MiB; others are left out, so never removed), the code rsync,
-the protected directories, the listing of the target's module directories and the removals. This machine's Python
-reads only trusted things (history, attempt files, setup's own env repository) and that checked output. Isolation
-needs a target on this machine (no `DEPLOY_SSH`; untrusted deploys to another server stay refused) and a release build
-off the host network (`RELEASE_BUILD_NETWORK` defaults to `bridge`, `host` is refused); both are checked before
-anything changes. Without it every step works on this machine as before. Not in the sandbox: pruning old release
-copies (`shutil.rmtree`, which never follows links), `release_built` (`lstat`), the PrestaShop module upgrade's reading
-of module versions from the release and the composer.json check (both reads that change nothing), and setup-server's
-own `sync_environment`. `make -f docker/project.mk setup-capabilities` lists abilities (`deploy-attempt-v1`,
-`deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads
-that environment's env files as data and adds `release-hardened-v1` only when isolation is set there, its target is on
-this machine and Docker answers; the build hook gets
+for the release, `APP_UID:APP_GID` for the target). Every mount root is pinned (`pinned`): the release below the
+project directory and the code tree below `DEPLOY_PATH` are opened part by part without following links (a link is
+refused; the code tree is created so when missing), and the container compares the inode it got mounted with the
+checked one before it reads or writes anything (`SETUP_EXPECT_RELEASE`/`_TARGET`; the release build's container does
+the same with `stat`, exit 70), so a directory swapped for a link between the check and Docker's mount is refused. In
+the sandbox: exporting the `git archive` into the release, writing `.setup-build.sh`, `.setup-release` and the
+`config/composer` files, the manifest (printed as JSON and checked here: a list of plain relative names, at most
+500 000 and 64 MiB; others are left out, so never removed), the code and protected-directory copies, the release's and
+the target's module directories, PrestaShop's module versions (regular files only, never through a link, 1 MiB each,
+checked here) and the removals. Copies are published, never written in place: rsync stages what differs from the
+target (`--compare-dest`) in a fresh directory of the target, and each staged entry is renamed over its place, so a
+published file is a new inode and an existing one is never written, chmod-ed or touched; a hard link the target holds
+to another file never changes it (only directories get their mode and times). This machine's Python reads only
+trusted things (history, attempt files, setup's own env repository) and that checked output. Isolation needs a target
+on this machine (no `DEPLOY_SSH`; untrusted deploys to another server stay refused), a release build off the host
+network (`RELEASE_BUILD_NETWORK` defaults to `bridge`, `host` is refused) and a link-safe `shutil.rmtree`; all are
+checked before anything changes. A job that asked for a hardened deploy passes `DEPLOY_REQUIRE_ISOLATION=1`: make
+deploy then isolates whatever the project's files say, or refuses. Without isolation every step works on this
+machine as before. Still on this machine, each safe without the sandbox: pruning old release copies
+(`shutil.rmtree`, which works by descriptors and never follows a link), `release_built` (`lstat` of `.setup-release`,
+never followed) and the `composer.json` presence check (it only decides whether Composer runs, in its own container).
+`make -f docker/project.mk setup-capabilities` lists abilities (`deploy-attempt-v1`, `deploy-health-v1`,
+`deploy-status-v1`, `release-build-network-v1`); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads the settings that
+environment's make deploy reads (`env/<env>.env` when present, else its example, and setup-server's target file) and
+adds `release-hardened-v1` when setup isolates that deploy on request: a target on this machine, no host network for
+the build and Docker here; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of

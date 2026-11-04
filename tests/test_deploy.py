@@ -1095,6 +1095,15 @@ class GenericDeployTest(unittest.TestCase):
         self.project.settings["RELEASE_ISOLATION"] = ""
         with patch.dict(os.environ, {"RELEASE_ISOLATION": "container"}):
             self.assertTrue(isolation(self.project), "the job's environment can switch it on")
+        # A workflow that asked for a hardened deploy (the capability probe said release-hardened-v1) gets one or
+        # none: DEPLOY_REQUIRE_ISOLATION=1 forces isolation whatever the files say, and its refusals apply.
+        self.project.settings["RELEASE_ISOLATION"] = "none"
+        with patch.dict(os.environ, {"DEPLOY_REQUIRE_ISOLATION": "1"}):
+            self.assertTrue(isolation(self.project))
+            self.project.settings["DEPLOY_SSH"] = "shop@host.example"
+            with self.assertRaisesRegex(ValueError, "needs a deploy target on this machine"):
+                deploy_code(self.project, ref="v1")
+        self.project.settings["DEPLOY_SSH"] = ""
 
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""

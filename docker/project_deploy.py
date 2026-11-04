@@ -153,15 +153,31 @@ def in_release_image(project, release, command, cache=None):
     (the target's files belong to the account the deploy writes them as). cache: a folder mounted as
     /setup-build-cache (SETUP_BUILD_CACHE), npm's cache in it. The project's code runs here (Composer scripts,
     config/deploy/build.sh): RELEASE_BUILD_NETWORK decides whether it has the build machine's network."""
+    from release_sandbox import isolation, pinned
     network = release_build_network(project)
     image = php_image(project)
+    isolated = isolation(project)
+    if isolated:
+        # The mounts are the directories setup checked (no link below the project directory), and the container
+        # refuses to run the build unless it got exactly those inodes mounted (swapped meanwhile: exit 70).
+        release, expect_release = pinned(project.directory, Path(os.path.abspath(release)).relative_to(
+            os.path.abspath(project.directory)))
+        checks = [('/var/www/html', expect_release)]
     mounts = ['-v', f'{release}:/var/www/html']
     # The user has no home directory in the image: npm/Composer caches go to /tmp, or to the kept cache folder.
     npm = '/tmp/setup-npm-cache'
     if cache:
         Path(cache).mkdir(mode=0o700, parents=True, exist_ok=True)
+        if isolated:
+            cache, expect_cache = pinned(project.directory, Path(os.path.abspath(cache)).relative_to(
+                os.path.abspath(project.directory)))
+            checks.append(('/setup-build-cache', expect_cache))
         mounts += ['-v', f'{cache}:/setup-build-cache', '-e', 'SETUP_BUILD_CACHE=/setup-build-cache']
         npm = '/setup-build-cache/npm'
+    if isolated:
+        guard = ''.join(f'[ "$(stat -c %d:%i {path})" = "{inode}" ] || {{ echo "setup: {path} is not the directory '
+                        f'setup checked" >&2; exit 70; }}; ' for path, inode in checks)
+        command = guard + command
     subprocess.run(['docker', 'run', '--rm', '--network', network, '--user', f'{os.getuid()}:{os.getgid()}',
                     '-e', 'HOME=/tmp', '-e', f'NPM_CONFIG_CACHE={npm}', '-e', 'COMPOSER_HOME=/tmp/composer', *mounts,
                     '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
@@ -578,17 +594,18 @@ def reload_cron(project):
                          f'Fix config/cron and run make cron-reload ENV={project.environment} again') from None
 
 
-def upgrade_modules(project, release):
+def upgrade_modules(project, release, versions=None):
     """Run the upgrade of every installed module whose code version is newer than the database's."""
     if str(project.settings.get('PS_VERSION', '')).startswith('1.6'):
         print('PrestaShop 1.6 has no module upgrade command; upgrade changed modules from the back office.')
         return []
     prefix = project.settings.get('PS_DATABASE_PREFIX') or 'ps_'
     installed = dict(row for row in project.database.query(f'SELECT name, version FROM `{prefix}module`;\n') if len(row) == 2)
-    changed = [name for name, version in module_versions(release).items()
-               if name in installed and newer(version, installed[name])]
+    # versions: the release's module versions as the release sandbox read them (isolation), else read here.
+    versions = versions if versions is not None else module_versions(release)
+    changed = [name for name, version in versions.items() if name in installed and newer(version, installed[name])]
     for name in changed:
-        print(f'==> upgrading module {name} {installed[name]} -> {module_versions(release)[name]}', flush=True)
+        print(f'==> upgrading module {name} {installed[name]} -> {versions[name]}', flush=True)
         project.run(['exec', '-T', 'php-fpm', 'php', 'bin/console', 'prestashop:module', 'upgrade', name])
     return changed
 
@@ -657,13 +674,18 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
             raise ValueError('Name the shop release to deploy: make deploy ENV=... ref=TAG')
         release, commit = build_code(project, ref)
     path = code_path(project, deploy_path)
+    relative_code = path[len(f'{deploy_path}/'):]
     # Release isolation: the copy, the protected directories, the module listing and the removals in the sandbox.
-    target = Sandbox(project, release, path) if isolated else deploy_target(project)
+    target = Sandbox(project, release, (deploy_path, relative_code)) if isolated else deploy_target(project)
+    # The release's modules: read in the sandbox with isolation (no link followed on this machine).
+    release_modules = target.release_directories('modules') if isolated else \
+        {child.name for child in (release / 'modules').iterdir() if child.is_dir()} if (release / 'modules').is_dir() else set()
+    versions = target.module_versions if isolated else None
     prestashop = is_prestashop(project)
     excludes = protected_paths(project)
     # PrestaShop modules installed only on the target stay; for other profiles modules/ is plain code.
-    protected = sorted(target.directories(path + '/modules') - {child.name for child in (release / 'modules').iterdir() if child.is_dir()}) \
-        if prestashop and (release / 'modules').is_dir() else []
+    protected = sorted(target.directories(path + '/modules') - release_modules) \
+        if prestashop and release_modules else []
     backup_file = None
     if backup:
         from database_backup import backup_database
@@ -713,14 +735,15 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         events.event('code', 'ok', removed_files=len(removed))
         stage[0] = 'environment'
         return finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry,
-                             events, stage)
+                             events, stage, versions)
     except Exception:
         if stage[0] != 'completed':
             replace_last(project, {**entry, 'failed': stage[0], **pending})
         raise
 
 
-def finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry, events, stage):
+def finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry, events, stage,
+                  versions=None):
     """After the copy: environment files, the hook, upgrades, migrations, cache, reload, then the completed entry.
     stage[0] names the step running, which a failure is recorded with."""
     # The environment files the containers mount follow the deployed commit too (DEPLOY_PATH elsewhere).
@@ -739,7 +762,10 @@ def finish_deploy(project, entries, release, commit, ref, rollback, cache, prest
         events.event('hook', 'ok', seconds=round(time.monotonic() - started, 1))
     if prestashop:
         stage[0] = 'modules'
-        upgrade_modules(project, release)
+        if versions:
+            upgrade_modules(project, release, versions())
+        else:
+            upgrade_modules(project, release)
     from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
     if migrations_enabled(project) and migrations_directory(project).is_dir():
         stage[0] = 'migrations'

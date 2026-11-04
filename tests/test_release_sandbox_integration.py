@@ -223,6 +223,117 @@ class SandboxDeployTest(unittest.TestCase):
             pass  # the copy into a link that leads nowhere may fail; nothing of this machine may change
         self.assertEqual(sorted(os.listdir(host)), [], "nothing reached the host directory")
 
+    def outside_with_secret(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("host secret\n")
+        return outside
+
+    def test_a_mount_root_that_is_a_link_is_refused(self):
+        """Review 1: the target code directory (or the release) is a link to a directory of this machine."""
+        from release_sandbox import Sandbox
+        outside = self.outside_with_secret()
+        self.generic()
+        self.isolate()
+        public = self.target / "app/public"
+        public.rename(self.target / "app/public-real")
+        public.symlink_to(outside)
+        release = self.root / "app/.generated/release/stage/code/manual"
+        release.mkdir(parents=True)
+        (release / "index.php").write_text("<?php\n")
+        with self.assertRaisesRegex(ValueError, "is a link or no directory"):
+            Sandbox(self.project, release, (str(self.target), "app/public")).push(f"{release}/", f"{public}/", "-a")
+        self.assertEqual(sorted(os.listdir(outside)), ["secret.txt"])
+        public.unlink()
+        (self.target / "app/public-real").rename(public)
+        stolen = self.root / "app/.generated/release/stage/code/stolen"
+        stolen.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "is a link or no directory"):
+            Sandbox(self.project, stolen, (str(self.target), "app/public")).push(f"{stolen}/", f"{public}/", "-a")
+        self.assertFalse((public / "secret.txt").exists(), "nothing of this machine was read into the target")
+
+    def test_a_mount_root_swapped_after_the_check_is_caught_inside_the_container(self):
+        """Review 1: between setup's check and Docker's mount, the target directory becomes a link to this machine's
+        directory; the container compares what it got mounted with the checked inode and refuses."""
+        from release_sandbox import Sandbox
+        outside = self.outside_with_secret()
+        self.generic()
+        self.isolate()
+        public = self.target / "app/public"
+        release = self.root / "app/.generated/release/stage/code/manual"
+        release.mkdir(parents=True)
+        (release / "index.php").write_text("<?php // release\n")
+        real_run = subprocess.run
+
+        def swapping(command, **options):
+            if command[:2] == ["docker", "run"] and not public.is_symlink():
+                public.rename(self.target / "app/public-real")
+                public.symlink_to(outside)
+            return real_run(command, **options)
+
+        sandbox = Sandbox(self.project, release, (str(self.target), "app/public"), run=swapping)
+        with self.assertRaisesRegex(ValueError, "release sandbox could not push"):
+            sandbox.push(f"{release}/", f"{public}/", "-a")
+        self.assertEqual(sorted(os.listdir(outside)), ["secret.txt"], "nothing was written to this machine's directory")
+
+    def test_the_release_build_container_checks_its_mounts_too(self):
+        """Review 1: the release build's container (release PHP image; here the sandbox image) refuses a release
+        directory swapped for a link between setup's check and the mount."""
+        from project_deploy import in_release_image
+        from release_sandbox import ensure_image
+        outside = self.outside_with_secret()
+        self.generic()
+        self.isolate()
+        release = self.root / "app/.generated/release/stage/code/manual"
+        release.mkdir(parents=True)
+        real_run = subprocess.run
+
+        def swapping(command, **options):
+            if command[:2] == ["docker", "run"] and not release.is_symlink():
+                release.rename(release.with_name("manual-real"))
+                release.symlink_to(outside)
+            return real_run(command, **options)
+
+        with patch("project_deploy.php_image", return_value=ensure_image()), patch("subprocess.run", swapping), \
+                self.assertRaises(subprocess.CalledProcessError):
+            in_release_image(self.project, release, "echo built > /var/www/html/built.txt")
+        self.assertEqual(sorted(os.listdir(outside)), ["secret.txt"])
+
+    def test_a_file_of_this_machine_hard_linked_into_the_target_keeps_its_content_and_mode(self):
+        """Review 2: the target holds a hard link to a file outside it (same account): the deploy publishes new
+        files and never changes an existing inode, so that file stays 0600 and unchanged."""
+        public = self.generic()
+        self.isolate()
+        self.deploy(ref="g1")
+        secret = self.root / "secret.php"
+        for name, text in (("src/Kernel.php", "<?php // g1\n"), ("index.php", "<?php // other\n")):
+            secret.unlink(missing_ok=True)
+            secret.write_text(text)
+            secret.chmod(0o600)
+            (public / name).unlink(missing_ok=True)
+            os.link(secret, public / name)
+            self.deploy(ref="g1")
+            self.assertEqual((secret.read_text(), secret.stat().st_mode & 0o777), (text, 0o600), name)
+            self.assertNotEqual((public / name).stat().st_ino, secret.stat().st_ino, "the target got a file of its own")
+
+    def test_module_versions_are_read_in_the_sandbox_never_through_a_link_or_a_fifo(self):
+        """Review 4: PrestaShop's module versions come from the sandbox; a module file linked to a host secret or a
+        FIFO yields nothing (and does not hang)."""
+        from release_sandbox import Sandbox
+        secret = self.root / "secret.php"
+        secret.write_text("<?php $this->version = 'SECRET-9.9.9';\n")
+        release = self.root / "app/.generated/release/stage/code/modules-test"
+        for name in ("good", "evil", "fifo"):
+            (release / "modules" / name).mkdir(parents=True)
+        (release / "modules/good/good.php").write_text("<?php class Good { function __construct() { $this->version = '1.2.3'; } }\n")
+        (release / "modules/evil/evil.php").symlink_to(secret)
+        os.mkfifo(release / "modules/fifo/fifo.php")
+        self.isolate()
+        started = time.monotonic()
+        self.assertEqual(Sandbox(self.project, release).module_versions(), {"good": "1.2.3"})
+        self.assertLess(time.monotonic() - started, 60)
+        self.assertEqual(Sandbox(self.project, release).release_directories("modules"), {"good", "evil", "fifo"})
+
     def test_isolation_refuses_what_it_cannot_cover_before_anything_changes(self):
         self.generic()
         for settings, message in (({"DEPLOY_SSH": "shop@host.example"}, "needs a deploy target on this machine"),
@@ -257,22 +368,24 @@ class CapabilityTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.split(), result.stderr
 
-    def test_release_hardened_is_offered_only_for_an_isolated_environment_on_this_machine(self):
+    def test_release_hardened_is_offered_only_for_a_target_on_this_machine(self):
+        """Review 3: the probe says whether setup isolates this environment's deploy when the workflow asks for it
+        (DEPLOY_REQUIRE_ISOLATION=1, which make deploy enforces or refuses); it reads the files the deploy reads:
+        env/<env>.env when present, and setup-server's target files."""
         self.assertNotIn("release-hardened-v1", self.probe()[0], "without a project nothing is known of its target")
         local = "DOMAIN=stage.shop.test\nDEPLOY_PATH=/srv/shop-stage\n"
-        isolated = self.project("RELEASE_ISOLATION=container\n", local)
-        offered, _ = self.probe(f"PROJECT_DOCKER_DIRECTORY={isolated}", "ENV=stage")
+        app = self.project("", local)
+        offered, _ = self.probe(f"PROJECT_DOCKER_DIRECTORY={app}", "ENV=stage")
         self.assertIn("release-hardened-v1", offered)
         self.assertIn("deploy-attempt-v1", offered)
-        plain = self.project("", local)
-        offered, reason = self.probe(f"PROJECT_DOCKER_DIRECTORY={plain}", "ENV=stage")
-        self.assertNotIn("release-hardened-v1", offered)
-        self.assertIn("RELEASE_ISOLATION=container is not set", reason)
-        remote = self.project("RELEASE_ISOLATION=container\n", local + "DEPLOY_SSH=shop@host.example\n")
-        offered, reason = self.probe(f"PROJECT_DOCKER_DIRECTORY={remote}", "ENV=stage")
-        self.assertNotIn("release-hardened-v1", offered)
+        (app / "env/stage.env").write_text(local + "DEPLOY_SSH=shop@host.example\n")
+        offered, reason = self.probe(f"PROJECT_DOCKER_DIRECTORY={app}", "ENV=stage")
+        self.assertNotIn("release-hardened-v1", offered, "the effective env file sends the deploy to another server")
         self.assertIn("needs a deploy target on this machine", reason)
-
+        (app / "env/stage.env").unlink()
+        (app.parent / "target.stage.env").write_text("DEPLOY_SSH=shop@host.example\nDEPLOY_PATH=/home/shop\n")
+        offered, reason = self.probe(f"PROJECT_DOCKER_DIRECTORY={app}", "ENV=stage")
+        self.assertNotIn("release-hardened-v1", offered, "setup-server's target for stage is another server")
 
 if __name__ == "__main__":
     unittest.main()
