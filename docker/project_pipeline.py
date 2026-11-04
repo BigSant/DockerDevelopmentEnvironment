@@ -43,6 +43,10 @@ a switch says yes when either comparison needs it. A run leaves .generated/relea
 works; finding one, the next run first does what the killed run's own end would have done (the checkout back at the
 commit before it, or at the code it already deployed).
 
+A monorepo build root (setup-server's --monorepo: the build root is the clone and holds app/Makefile) keeps the
+server's target.env / target.<env>.env beside app/, untracked (.git/info/exclude); a commit that tracks either is
+refused (64, target_tracked) before its checkout could overwrite them.
+
 Opt-in, for a caller that tracks its deploys (AI OS; project_attempts):
   DEPLOY_ATTEMPT=<id>: an attempt id. Under the environment's lock it is refused (64, attempt_exists) when the
       environment already knows it, unless ROLLBACK=yes follows that attempt's own failed deploy; it is recorded as
@@ -83,6 +87,8 @@ SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('CACHE', 'auto'), ('ROLLBACK', 
 AUTO_SWITCHES = ('IMAGES', 'CRON', 'CACHE', 'HEALTH')
 ATTEMPT_VARIABLE, EXPECTED_VARIABLE = 'DEPLOY_ATTEMPT', 'DEPLOY_EXPECTED_LIVE'
 RUN_MARKER = 'pipeline-run.json'
+# setup-server's deploy target files at a monorepo build root, which the repository must not track.
+TRACKED_TARGET = re.compile(r'target(\.[A-Za-z0-9_-]+)?\.env')
 # What the images and containers are made of, in the environment repository: IMAGES=auto rebuilds when the
 # deployed commits touch it (env/<env>.env.example is added per environment). config/ is mounted, but Apache,
 # nginx and the PHP startup read it at container start; config/cron/ is left to CRON (make cron-reload), and
@@ -216,6 +222,7 @@ class Step:
 
     def __init__(self, directory, root, environment, environ, out, err):
         self.directory, self.environment, self.out, self.err = directory, environment, out, err
+        self.root = root
         self.code = root / 'app/public'
         self.separate = (self.code / '.git').exists()
         self.child = {key: value for key, value in environ.items() if key not in DROPPED_VARIABLES}
@@ -273,7 +280,28 @@ class Step:
         temporary.chmod(0o600)
         os.replace(temporary, path)
 
+    def monorepo(self):
+        """Whether the build root is itself the clone (setup-server's --monorepo: the repository holds app/)."""
+        if not (self.root / 'app/Makefile').is_file():
+            return False
+        top = subprocess.run(['git', '-C', str(self.directory), 'rev-parse', '--show-toplevel'], env=self.child,
+                             capture_output=True, text=True)
+        return top.returncode == 0 and Path(top.stdout.strip()).resolve() == self.root.resolve()
+
+    def refuse_tracked_target(self, commit):
+        """A monorepo commit must not track the server's target.env / target.<env>.env at the build root: its checkout
+        would overwrite the deploy target setup-server keeps there (untracked, in .git/info/exclude)."""
+        if self.separate or not self.monorepo():
+            return
+        names = self.git('ls-tree', '--name-only', commit, directory=self.root).splitlines()
+        tracked = [name for name in names if TRACKED_TARGET.fullmatch(name)]
+        if tracked:
+            raise Refusal(f"Commit {commit[:12]} tracks {' '.join(tracked)} at the build root, where setup-server keeps "
+                          "this server's deploy target: checking it out would overwrite it. Remove the file from the "
+                          "repository (git rm --cached) and deploy a commit without it", reason='target_tracked')
+
     def checkout(self, commit):
+        self.refuse_tracked_target(commit)
         self.git('checkout', '--quiet', '--detach', commit)
         self.write_env()
 
@@ -660,6 +688,8 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
         images, why = decide(step, 'IMAGES', 'no' if rollback and switches['IMAGES'] == 'auto' else switches['IMAGES'],
                              lambda: needed_since(images_needed, step, bases, target))
         cron, _ = decide(step, 'CRON', switches['CRON'], lambda: needed_since(cron_needed, step, bases, target))
+        # Before the checkout changes anything: it would overwrite the server's target file.
+        step.refuse_tracked_target(target)
         state['restore'] = True
         step.mark(**{'from': live, 'target': target, 'attempt': record.id, 'images': False, 'entries': entries,
                      'at': now()})

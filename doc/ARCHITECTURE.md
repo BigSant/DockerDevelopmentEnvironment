@@ -512,6 +512,10 @@ environment's last completed history commit (one repository layout; a build root
 a killed run left), yes when any comparison needs it, so never fewer rebuilds than the checkout alone. A run keeps
 `.generated/release/<env>/pipeline-run.json` (the commit before it, the target, whether images restarted, the history
 length) while it works; a run that finds one does first what the killed run's end would have done (`Step.repair`).
+A monorepo build root (`Step.monorepo`: `app/Makefile` under the build root, which is the git top level) keeps
+setup-server's `target.env`/`target.<env>.env` untracked beside `app/`; `Step.refuse_tracked_target` (before the first
+checkout, and in every `checkout`) refuses a commit whose tree has one at its root (64, `target_tracked`), because
+git overwrites an excluded file on checkout.
 Deploy attempts (`project_attempts`, opt-in; AI OS's development delivery contract): `DEPLOY_ATTEMPT` (8-64 of
 `[A-Za-z0-9-]`) is checked, accepted and run under the environment's `flock` (`attempts/.lock`, held by the step; its
 make children see `SETUP_DEPLOY_LOCK` and do not wait). A known id (an attempt file or a history entry) is refused (64,

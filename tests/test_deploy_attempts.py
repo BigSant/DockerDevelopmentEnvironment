@@ -418,6 +418,54 @@ class HealthPipelineTest(AttemptFixture):
         self.assertFalse(list((self.app / ".generated/release/prod").glob("attempts/*.json")))
 
 
+class MonorepoTest(pipeline.Fixture):
+    """setup-server's --monorepo layout: the build root is the clone and holds app/; the server's target.env lies
+    beside app/ untracked (.git/info/exclude), so a commit that tracks it must never be checked out."""
+
+    target = "DEPLOY_CONTEXT=default\nDEPLOY_SSH=\nDEPLOY_PATH=/srv/mono\nAPP_UID=4242\nAPP_GID=4243\n"
+
+    def setUp(self):
+        super().setUp()
+        app = {"app/Makefile": "include $(SETUP_DIRECTORY)/docker/project.mk\n", "app/env/common.env": pipeline.COMMON}
+        commits = [(name, {**app, "app/env/prod.env.example": f"MARK={name}\n", "app/config/mark": f"{name}\n"})
+                   for name in "AB"]
+        # T starts tracking the server's files at the repository root.
+        commits.append(("T", {"app/config/mark": "T\n", "app/env/prod.env.example": "MARK=T\n",
+                              "target.env": "DEPLOY_PATH=/srv/elsewhere\n", "target.prod.env": "DEPLOY_PATH=/srv/x\n"}))
+        origin, self.commits = self.repository("monorepo", commits)
+        root = self.work / "root"
+        git(self.work, "clone", "-q", "--no-hardlinks", str(origin), str(root))
+        git(root, "checkout", "-q", "--detach", self.commits["A"])
+        (root / ".git/info/exclude").write_text("/target.env\n/target.*.env\n")
+        (root / "target.env").write_text(self.target)
+        self.app = root / "app"
+        (self.app / "env/prod.env").write_text("MARK=A\n")
+        self.pipeline_commit = self.commits["B"]
+        self.secrets = dict(pipeline.REQUIRED)
+
+    def test_a_commit_tracking_the_servers_target_file_is_refused_before_the_checkout(self):
+        c = self.commits
+        self.run_step(64, REF=c["T"], DEPLOY_ATTEMPT=U(40))
+        self.assert_out(f"Commit {c['T'][:12]} tracks target.env target.prod.env at the build root")
+        self.assert_out("Nothing was changed.")
+        self.assertEqual(self.make_log(), "")
+        self.assertEqual((self.work / "root/target.env").read_text(), self.target, "the server's target stays")
+        self.assertFalse((self.work / "root/target.prod.env").exists())
+        self.assert_root("A")
+        record = self.attempt(U(40))
+        self.assertEqual((record["outcome"], record["reason"]), ("refused", "target_tracked"))
+        self.run_step(64, REF=c["T"])  # without an attempt too: it applies to every monorepo deploy
+        self.assert_root("A")
+        self.run_step(0, REF=c["B"])
+        self.assert_log(f"make deploy ENV=prod ref={c['B']} backup=0 cache=auto | head=B")
+        self.assertEqual(pipeline.parse_dotenv((self.app / "env/prod.env").read_text())["DEPLOY_PATH"], "/srv/mono")
+        self.assert_root("B")
+
+    def attempt(self, attempt):
+        path = self.app / f".generated/release/prod/attempts/{attempt}.json"
+        return json.loads(path.read_text()) if path.is_file() else None
+
+
 class HealthCheckTest(unittest.TestCase):
     """make deploy-health itself against a local site: retries, redirects, the release and the refusals."""
 

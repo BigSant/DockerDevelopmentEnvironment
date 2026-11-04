@@ -24,6 +24,9 @@ change (say how). An empty section still releases a patch.
 - **Live commit per environment.** `IMAGES=auto` and `CRON=auto` also compare with the environment's last completed
   deploy when the build root's checkout differs (stage and prod from one build root), and a run killed midway is
   repaired by the next one before it starts.
+- **Monorepo build roots keep their deploy target.** When the build root is itself the clone (setup-server's
+  `--monorepo`), `make pipeline-deploy` refuses a commit that tracks `target.env` or `target.<env>.env` at the
+  repository root before checking it out, so git never overwrites the server's deploy target.
 
 ## 5.3.3
 
