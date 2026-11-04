@@ -27,6 +27,9 @@ class FakeDatabase:
         self.on_write = on_write or (lambda sql: None)
         self.queried, self.extracted, self.executed, self.loaded, self.dumps = [], [], [], [], []
 
+    def wait_ready(self, **options):
+        self.waited = getattr(self, "waited", 0) + 1
+
     def _check(self, operation, text):
         if self.fail_on(operation, text):
             raise DatabaseError(f"{operation} failed (fake)")

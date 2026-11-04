@@ -417,7 +417,10 @@ active services (no `build`, e.g. `getmeili/meilisearch` from a project compose 
 missing and locked (`images` + `external` digests) so `docker save` ships them; a release with an image
 that is not on the build machine stops before writing the lock.
 `make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
-`config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp` and on the Docker network
+`config/deploy/build.sh`, all run as this machine's user; before setup's first own use of the database in a deploy
+(the backup, module upgrades, migrations, translations) it waits up to 60 s for `SELECT 1` over TCP
+(`DatabaseClient.wait_ready`, `READY`), because a database deploy-images just restarted passes its socket healthcheck
+before it listens on TCP; with `HOME`/Composer caches in `/tmp` and on the Docker network
 `RELEASE_BUILD_NETWORK` (`host` by default, `bridge` or `none` keep the project's build code off the host's network).
 That code may plant links, special files or odd names in the release copy, so setup's own writes there
 (`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (a new file created
