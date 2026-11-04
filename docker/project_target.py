@@ -8,18 +8,22 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 
 HOST = re.compile(r'[A-Za-z0-9._-]+@[A-Za-z0-9.-]+')
 # A password prompt or an unreachable host fails at once instead of holding a pipeline. Host keys are checked
 # as ssh is configured (known_hosts), never accepted blindly: the target receives production code.
 SSH_OPTIONS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15']
 RSYNC_SSH = ['-e', shlex.join(['ssh', *SSH_OPTIONS])]
-# Run on the server by SshTarget.remove with the code root, then the names: each name's directory is resolved there
-# (cd -P follows the target's links) and a name is removed only when that directory is inside the root.
-REMOVE_INSIDE = ('root=$1; shift; for name do '
-                 'dir=$(cd -P -- "$(dirname -- "$name")" 2>/dev/null && pwd -P) || continue; '
-                 'case "$dir/" in "$root"/*) rm -f -- "$dir/${name##*/}";; '
-                 '*) echo "setup: not removing $name: outside the code tree" >&2;; esac; done')
+# The removal helper (remove_inside.py: descriptors, never a path resolved twice), run by SshTarget.remove on the
+# server with python3. A server without python3 gets REMOVE_INSIDE_SH: each name's directory resolved (cd -P) and
+# removed only inside the root, every failure counted; it checks paths, so it is not proof against a target that
+# changes its own tree meanwhile.
+REMOVE_HELPER = (Path(__file__).resolve().parent / 'remove_inside.py').read_text()
+REMOVE_INSIDE_SH = ('root=$1; shift; status=0; for name do '
+                    'dir=$(cd -P -- "$(dirname -- "$name")" 2>/dev/null && pwd -P) || continue; '
+                    'case "$dir/" in "$root"/*) rm -f -- "$dir/${name##*/}" || status=1;; '
+                    '*) echo "setup: not removing $name: outside the code tree" >&2;; esac; done; exit $status')
 
 
 def deploy_target(project, run=subprocess.run):
@@ -67,15 +71,12 @@ class LocalTarget:
         return {child.name for child in folder.iterdir() if child.is_dir()} if folder.is_dir() else set()
 
     def remove(self, path, names):
-        """Removes code tree files; a name whose directory resolves outside path (an absolute or .. name, or a
-        directory the target links elsewhere) is left and named, never followed."""
-        root = os.path.realpath(path)
-        for name in names:
-            directory = os.path.realpath(os.path.join(path, os.path.dirname(name)))
-            if directory != root and not directory.startswith(root + os.sep):
-                print(f'setup: not removing {name!r}: outside the code tree')
-                continue
-            (Path(directory) / os.path.basename(name)).unlink(missing_ok=True)
+        """Removes code tree files with the descriptor walk of remove_inside: a name never leaves path, through a
+        link or a directory the application swaps meanwhile. A name it leaves is named; a failed removal raises."""
+        from remove_inside import remove_inside
+        failed = remove_inside(path, [os.fsencode(name) for name in names], err=sys.stdout)
+        if failed:
+            raise OSError(f'{failed} files of the code tree could not be removed (above)')
 
     def listening(self):
         """The listening TCP addresses, or None when they cannot be read."""
@@ -117,8 +118,11 @@ class SshTarget:
         path, so neither a name nor a link the target holds leads a removal outside the code tree."""
         if names:
             listing = ''.join(f'{name}\0' for name in names).encode()
-            self.run(['ssh', *SSH_OPTIONS, self.host, f'cd {shlex.quote(path)} && root=$(pwd -P) && '
-                      f'xargs -0 sh -c {shlex.quote(REMOVE_INSIDE)} sh "$root"'], input=listing, check=True)
+            self.run(['ssh', *SSH_OPTIONS, self.host,
+                      f'cd {shlex.quote(path)} && if command -v python3 >/dev/null 2>&1; then '
+                      f'python3 -c {shlex.quote(REMOVE_HELPER)} .; else '
+                      f'echo "setup: no python3 on the server: removals checked by path" >&2; root=$(pwd -P) && '
+                      f'xargs -0 sh -c {shlex.quote(REMOVE_INSIDE_SH)} sh "$root"; fi'], input=listing, check=True)
 
     def listening(self):
         result = self.run(self.ssh('ss', '-Hltn'), capture_output=True, text=True)

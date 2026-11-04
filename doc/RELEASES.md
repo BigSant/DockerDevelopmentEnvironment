@@ -31,11 +31,14 @@ change (say how). An empty section still releases a patch.
   longer leaves the history behind the target. History writes are atomic. A killed run's make step keeps the lock
   until it ends. Old releases are pruned so that the newest completed ones (the rollback target) stay, however many
   deploys failed since.
-- **A release build cannot reach the build machine's files.** Setup writes `.setup-build.sh`, `.setup-release` and
-  the `config/composer` files into the release copy without following a link a build step planted (refused), counts
-  a release built only by a plain `.setup-release`, keeps release manifests as JSON (a newline in a file name injects
-  no path) and removes only names inside the code tree, resolved on the target (also over ssh). New
-  `make -f docker/project.mk setup-capabilities` lists `release-hardened-v1` and the other abilities for a workflow.
+- **Release builds and removals no longer follow what a build step plants.** Setup writes `.setup-build.sh`,
+  `.setup-release` and the `config/composer` files as new files renamed over the entry (a planted link or hard link is
+  replaced, never written through), counts a release built only by a plain `.setup-release`, refuses a protected
+  directory the build made a link, keeps release manifests as JSON (an older newline list is never trusted for
+  removals), keeps the newest distinct completed releases, and removes files through directory descriptors from the
+  code root (`remove_inside.py`, over ssh with the server's `python3`; without it a path-checked loop that reports
+  every failure). New `make -f docker/project.mk setup-capabilities` lists `deploy-attempt-v1`, `deploy-health-v1`,
+  `deploy-status-v1` and `release-build-network-v1`; `release-hardened-v1` is not offered yet.
 - **The release build's network is a project setting.** `RELEASE_BUILD_NETWORK=host|bridge|none` (default `host`, as
   before): `bridge` or `none` run Composer scripts and `config/deploy/build.sh` of `make deploy`'s release build
   without the build machine's network, for code an agent branch may change.

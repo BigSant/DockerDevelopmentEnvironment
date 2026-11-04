@@ -420,14 +420,18 @@ that is not on the build machine stops before writing the lock.
 `config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp` and on the Docker network
 `RELEASE_BUILD_NETWORK` (`host` by default, `bridge` or `none` keep the project's build code off the host's network).
 That code may plant links, special files or odd names in the release copy, so setup's own writes there
-(`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (the release opened
-`O_DIRECTORY|O_NOFOLLOW`, the file `O_NOFOLLOW|O_NONBLOCK` relative to it, a link, special file or second hard link
-refused), a release counts as built only with a plain `.setup-release` (`release_built`), the manifest is a JSON list
-(`manifests/<sha12>.json`, walked without following links; an older `.txt` newline list is still read), removals
-take only `safe_names` (relative, no `.`/`..`/empty part, no control character) and each target resolves a name's
-directory and removes only inside the code root (`LocalTarget.remove` with `realpath`, `SshTarget.remove` with
-`REMOVE_INSIDE` on the server). `make -f docker/project.mk setup-capabilities` lists these abilities without a project
-(`release-hardened-v1`, `release-build-network-v1`, `deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`); the build hook gets
+(`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (a new file created
+`O_EXCL|O_NOFOLLOW` relative to the release opened `O_DIRECTORY|O_NOFOLLOW`, renamed over the entry: a planted link or
+hard link is replaced, never opened), a release counts as built only with a plain `.setup-release` (`release_built`),
+the protected directories copied from it must be real directories (`release_directory_present`, each part opened
+`O_NOFOLLOW`; a link is refused), the manifest is a JSON list (`manifests/<sha12>.json`, walked without following links;
+an older `.txt` newline list is never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps
+the newest `KEEP_RELEASES` distinct completed releases, removals take only `safe_names`, and the targets remove with
+`remove_inside.py` (from a descriptor of the code root, every directory opened `O_NOFOLLOW` relative to the one before,
+`unlink` relative to the last: no path is resolved twice; on a server with `python3 -c`, else a path-checked shell loop
+that counts every failure). `make -f docker/project.mk setup-capabilities` lists abilities without a project
+(`deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); `release-hardened-v1` is not
+offered until the release copy and the target are handled in an isolated container; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of

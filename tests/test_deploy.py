@@ -694,14 +694,18 @@ class GenericDeployTest(unittest.TestCase):
                 if command.startswith("composer") or planted == ".setup-release":
                     (release / planted).unlink(missing_ok=True)
                     (release / planted).symlink_to(victim)
-            with self.subTest(planted=planted), patch("project_deploy.php_image", return_value="php:test"), \
-                    self.planting(plant), self.assertRaisesRegex(ValueError, f"left a link or special file at {planted}"):
-                build_code(self.project, "c1")
-            self.assertEqual(victim.read_text(), "host file\n", f"{planted} never writes through the link")
             release = self.root / "app/.generated/release/stage/code" / git_commit(self.shop, "c1")[:12]
+            with self.subTest(planted=planted), patch("project_deploy.php_image", return_value="php:test"), \
+                    self.planting(plant):
+                try:
+                    build_code(self.project, "c1")
+                except ValueError:
+                    pass  # .setup-release planted after setup wrote it is no built release: see below
+            self.assertEqual(victim.read_text(), "host file\n", f"{planted} never writes through the link")
+            if planted == ".setup-build.sh":
+                self.assertFalse((release / planted).exists(), "setup's own copy replaced the link, then went")
             with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None):
-                self.assertNotIn("already built", (build_code(self.project, "c1"), self.output.getvalue())[1][-200:],
-                                 "a planted .setup-release is no built release")
+                build_code(self.project, "c1")
             self.assertTrue((release / ".setup-release").is_file() and not (release / ".setup-release").is_symlink())
             import shutil
             shutil.rmtree(release)
@@ -712,10 +716,52 @@ class GenericDeployTest(unittest.TestCase):
         (self.shop / "composer.json").symlink_to(victim)
         git(self.shop, "add", "-A")
         git(self.shop, "commit", "-q", "-m", "c2")
-        with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None), \
-                self.assertRaisesRegex(ValueError, "left a link or special file at composer.json"):
-            build_code(self.project, "HEAD")
+        with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None):
+            release, _ = build_code(self.project, "HEAD")
         self.assertEqual(victim.read_text(), "host file\n")
+        self.assertEqual((release / "composer.json").read_text(), '{"name": "env"}\n', "a plain file replaced the link")
+        self.assertFalse((release / "composer.json").is_symlink())
+
+    def test_a_hard_link_swapped_in_while_setup_writes_is_never_truncated(self):
+        """Re-check H2: the entry turns into a hard link to a victim between setup's check and its write."""
+        from project_deploy import write_release_file
+        release = self.root / "release"
+        release.mkdir()
+        victim = release / "victim.txt"  # a hard link needs the same file system: a file the build can reach
+        victim.write_text("keep me\n")
+        (release / ".setup-release").write_text("old\n")
+        real_open, swapped = os.open, []
+
+        def racing_open(path, flags, *args, **kwargs):
+            if kwargs.get("dir_fd") is not None and not swapped:
+                swapped.append(True)
+                (release / ".setup-release").unlink()
+                os.link(victim, release / ".setup-release")
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("os.open", racing_open):
+            try:
+                write_release_file(release, ".setup-release", b"new\n")
+            except ValueError:
+                pass
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_text(), "keep me\n", "the victim is never opened for writing")
+        self.assertEqual((release / ".setup-release").read_text(), "new\n")
+
+    def test_a_protected_directory_the_build_links_elsewhere_is_never_copied(self):
+        """Re-check H1: PROFILE=prestashop, PS_RELEASE=on; the build makes release/cache a link to a host directory."""
+        secret = self.root / "host-secrets"
+        secret.mkdir()
+        (secret / "secret.txt").write_text("host secret\n")
+        release, target = self.root / "release", self.root / "server"
+        (release / "img").mkdir(parents=True)
+        (release / "img/index.php").write_text("release\n")
+        (release / "cache").symlink_to(secret)
+        target.mkdir()
+        self.project.settings.update({"PS_RELEASE": "on", "PS_RELEASE_PATHS": ""})
+        with self.assertRaisesRegex(ValueError, "release build left a link at cache"):
+            project_deploy.push_protected_release_files(self.project, release, LocalTarget(), str(target))
+        self.assertFalse((target / "cache/secret.txt").exists(), "nothing of the host directory reaches the target")
 
     def test_a_file_name_cannot_inject_a_path_into_the_removals(self):
         """Hostile build 2: a file named x<newline>/<host path> in the release; the next deploy drops it."""
@@ -762,6 +808,112 @@ class GenericDeployTest(unittest.TestCase):
         subprocess.run(["sh", "-c", command[-1]], input=options["input"], check=True, capture_output=True)
         self.assertFalse((code / "gone.php").exists())
         self.assertTrue((outside / "kept.php").exists())
+
+    def test_redeploys_of_one_release_do_not_crowd_out_older_rollback_targets(self):
+        """Re-check A: g1 ok, g2 ok three times, g3-g5 fail; two rollbacks: to g2, then to g1."""
+        self.generic()
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        for _ in range(3):
+            self.deploy(ref="g2")
+        for name in ("g3", "g4", "g5"):
+            self.commit(name, {"src/Kernel.php": f"<?php // {name}\n"})
+            with patch("project_deploy.reload_php", side_effect=ValueError("reload failed")), \
+                    self.assertRaisesRegex(ValueError, "reload failed"):
+                self.deploy(ref=name)
+        public = self.target / "app/public"
+        self.deploy(rollback=True)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g2\n")
+        self.deploy(rollback=True)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n")
+
+    def test_a_legacy_newline_manifest_never_decides_a_removal(self):
+        """Re-check M1: an older setup's g1 manifest says x<newline>victim.php; victim.php is the server's own file."""
+        public = self.generic()
+        self.deploy(ref="g1")
+        manifests = self.root / "app/.generated/release/stage/manifests"
+        g1 = git_commit(self.shop, "g1")[:12]
+        names = json.loads((manifests / f"{g1}.json").read_text())
+        (manifests / f"{g1}.json").unlink()
+        (manifests / f"{g1}.txt").write_text("".join(f"{name}\n" for name in names) + "x\nvictim.php\n")
+        (public / "victim.php").write_text("the server's own\n")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        self.deploy(ref="g2")
+        self.assertEqual((public / "victim.php").read_text(), "the server's own\n")
+        self.assertTrue((manifests / f"{g1}.json").is_file(), "rebuilt from the kept release tree")
+        # The kept release is gone too: no list to trust, so nothing is removed (stale files stay; safe).
+        g2 = git_commit(self.shop, "g2")[:12]
+        (manifests / f"{g2}.json").rename(manifests / f"{g2}.txt")
+        import shutil
+        shutil.rmtree(self.root / f"app/.generated/release/stage/code/{g2}")
+        (public / "victim.php").touch()
+        self.deploy(ref="g1")
+        self.assertTrue((public / "victim.php").exists())
+        self.assertIn("removes nothing", self.output.getvalue())
+
+    def test_a_directory_swapped_for_a_link_during_the_removal_is_not_followed(self):
+        """Re-check H3: between setup's look at code/a and its unlink, the application swaps a for a link outside."""
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "file.php").write_text("outside\n")
+        code = self.target / "app/public"
+        (code / "a").mkdir()
+        (code / "a/file.php").write_text("inside\n")
+        swapped = []
+
+        def swap():
+            if not swapped:
+                swapped.append(True)
+                (code / "a").rename(code / "a-moved")
+                (code / "a").symlink_to(outside)
+
+        real_realpath, real_open = os.path.realpath, os.open
+
+        def racing_realpath(path, *args, **kwargs):
+            result = real_realpath(path, *args, **kwargs)
+            if str(path).rstrip("/").endswith("/a"):
+                swap()
+            return result
+
+        def racing_open(path, flags, *args, **kwargs):
+            result = real_open(path, flags, *args, **kwargs)
+            if path in ("a", b"a"):
+                swap()
+            return result
+
+        with patch("os.path.realpath", racing_realpath), patch("os.open", racing_open):
+            LocalTarget().remove(str(code), ["a/file.php"])
+        self.assertTrue(swapped)
+        self.assertEqual((outside / "file.php").read_text(), "outside\n")
+        self.assertFalse((code / "a-moved/file.php").exists(), "the directory setup opened, wherever it went")
+
+    def test_a_server_removal_reports_every_failure(self):
+        """Re-check M2: over ssh, an earlier failed removal is not hidden by a later one that worked."""
+        code = self.target / "app/public"
+        (code / "locked").mkdir()
+        (code / "locked/a.php").write_text("x")
+        (code / "b.php").write_text("x")
+        commands = []
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options))).remove(
+            str(code), ["locked/a.php", "b.php"])
+        [(command, options)] = commands
+        (code / "locked").chmod(0o555)
+        self.addCleanup((code / "locked").chmod, 0o755)
+        result = subprocess.run(["sh", "-c", command[-1]], input=options["input"], capture_output=True)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((code / "b.php").exists(), "the others are still removed")
+        # A server without python3: the shell loop counts every failure too.
+        import shutil
+        bare = self.root / "bare-bin"
+        bare.mkdir()
+        for tool in ("sh", "dirname", "rm", "xargs"):
+            (bare / tool).symlink_to(shutil.which(tool))
+        (code / "b.php").write_text("x")
+        result = subprocess.run(["/bin/sh", "-c", command[-1]], input=options["input"], capture_output=True,
+                                env={"PATH": str(bare)})
+        self.assertIn(b"no python3 on the server", result.stderr)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((code / "b.php").exists())
 
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""

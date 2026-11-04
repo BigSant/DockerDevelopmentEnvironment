@@ -94,7 +94,7 @@ class SshTargetTest(unittest.TestCase):
         command, kwargs = self.calls[0]
         # The names only on stdin; the server resolves each one's directory and removes inside the root only
         # (test_deploy: test_removals_never_leave_the_code_tree runs this script).
-        self.assertTrue(command[-1].startswith("cd /srv/shop/public && root=$(pwd -P) && xargs -0 sh -c "), command[-1])
+        self.assertTrue(command[-1].startswith("cd /srv/shop/public && if command -v python3 "), command[-1])
         self.assertNotIn("a b.php", command[-1])
         self.assertNotIn("c.php", command[-1])
         self.assertEqual(kwargs["input"], b"a b.php\0c.php\0")

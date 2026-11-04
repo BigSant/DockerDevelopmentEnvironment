@@ -479,10 +479,10 @@ make -s deploy-status ENV=prod attempt=ID fetch=1       # pirma git fetch (ar de
 
 ```bash
 make -s -f "$SETUP_DIRECTORY/docker/project.mk" setup-capabilities
-# deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 release-hardened-v1
+# deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1
 ```
 
-`release-hardened-v1`: build'o žingsniai (Composer scriptai, `build.sh`) nebegali priversti setup'o rašyti per nuorodą į serverio failą (`.setup-build.sh`, `.setup-release`, `config/composer` failai), o failo vardai negali nukreipti trynimo už kodo medžio.
+`release-hardened-v1` (build'as ir trynimai izoliuotame konteineryje, kad release'o kodas negalėtų pasiekti serverio failų) kol kas **nesiūlomas**. Workflow, kuriam jo reikia (pvz. zarskis.lt prieš agento šakos stage deploy'ų), tokio deploy'aus atsisako. Jau dabar setup savo failus release'e rašo naujais failais per `rename`, nuorodų katalogų nekopijuoja, failų sąrašus laiko JSON ir trina tik kodo medžio viduje per atidarytus katalogus (`remove_inside.py`, serveryje – su `python3`).
 
 **Aplinkos užraktas.** Kiekvienas `make pipeline-deploy` paleidimas (su `DEPLOY_ATTEMPT` ar be jo), `make deploy` ir `make deploy-health` istoriją rašo tik turėdami aplinkos užraktą `.generated/release/<env>/deploy.lock` (tuščias, niekada netrinamas failas). Antras paleidimas į tą pačią aplinką laukia, kol pirmas baigs. Paleidimo `make` žingsniai užraktą paveldi: jei paleidimas nutraukiamas, užraktas lieka, kol baigiasi jo dar dirbantis žingsnis. Seni release'ai valomi taip, kad liktų paskutiniai sėkmingi (ir rollback'o tikslas), kad ir kiek nepavykusių deploy'ų buvo po jų. `make deploy` įrašą į istoriją įrašo iškart po kodo nukopijavimo kaip `"failed": "incomplete"` ir baigęs jį pakeičia. Jei nepavyksta vėlesnis žingsnis, įraše lieka to žingsnio vardas (`after-rsync`, `migrations`, `cache`, `reload`, …). Taip istorija visada rodo, koks kodas yra taikinyje, net jei deploy'us nutrūko.
 

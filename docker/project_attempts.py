@@ -284,17 +284,45 @@ def render(document):
 
 
 def within_limit(document):
-    """At most 64 KiB as printed, which AI OS accepts: the oldest history entries go first, then the attempt's
-    older events (its first, accepted, and the newest stay; events_omitted counts the rest, which its file keeps)."""
-    while len(render(document)) > STATUS_LIMIT and document['history']:
+    """At most 64 KiB as printed, which AI OS accepts, for the whole document, as valid JSON. In turn: the oldest
+    history entries, the attempt's older events (its first, accepted, and the newest stay; events_omitted counts the
+    rest, which its file keeps), the longest settings name lists (halved), the events' details; at last a document of
+    the outcome alone. `omitted` names what was cut and how much."""
+    omitted = {}
+    fits = lambda: len(render(document)) <= STATUS_LIMIT
+    if not fits():
+        document['omitted'] = omitted
+    while not fits() and document['history']:
         document['history'] = document['history'][1:]
+        omitted['history'] = omitted.get('history', 0) + 1
     attempt = document.get('attempt')
-    while attempt and len(render(document)) > STATUS_LIMIT and len(attempt['events']) > 2:
+    while attempt and not fits() and len(attempt['events']) > 2:
         excess = len(render(document)) - STATUS_LIMIT
         average = max(1, len(json.dumps(attempt['events'], indent=2)) // len(attempt['events']))
         drop = min(len(attempt['events']) - 2, max(1, excess // average + 1))
         attempt['events'] = attempt['events'][:1] + attempt['events'][1 + drop:]
         attempt['events_omitted'] = attempt.get('events_omitted', 0) + drop
+    settings = document.get('settings') or {}
+    while not fits():
+        lists = [(len(names), key) for key, names in settings.items() if isinstance(names, list) and names]
+        if not lists:
+            break
+        _, key = max(lists)
+        keep = len(settings[key]) // 2
+        omitted[f'settings.{key}'] = omitted.get(f'settings.{key}', 0) + len(settings[key]) - keep
+        settings[key] = settings[key][:keep]
+    if attempt and not fits():
+        attempt['events'] = [{key: event[key] for key in ('stage', 'state', 'reason', 'at') if key in event}
+                             for event in attempt['events']]
+        omitted['events.details'] = True
+    if not fits():
+        keys = ('format', 'project', 'environment', 'observed_at', 'setup')
+        small = {key: document.get(key) for key in keys}
+        if attempt:
+            small['attempt'] = {key: attempt.get(key) for key in ('id', 'known', 'sha', 'outcome', 'reason')}
+        small['live'] = document.get('live')
+        small['omitted'] = {'document': True}
+        document = small
     return document
 
 
@@ -322,6 +350,9 @@ def deploy_status(directory, environment, attempt=None, field=None, fetch=False,
         if field:
             print(status_field(directory, environment, attempt, field), file=out)
             return 0
+        if run:
+            # The caller's ids, kept short: the document stays within its limit whatever they are.
+            run = {key: value[:200] if isinstance(value, str) else value for key, value in run.items()}
     except ValueError as error:
         print(error, file=sys.stderr)
         return 64

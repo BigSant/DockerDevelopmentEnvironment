@@ -768,6 +768,38 @@ class HealthCheckTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertEqual((status, error), (None, "timeout"))
 
+    def test_a_slow_tls_handshake_cannot_outlast_its_deadline(self):
+        """Re-check 6: another server's HTTPS, pinned to an address, answering the handshake a byte at a time."""
+        import socket
+        import time
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(8)
+        self.addCleanup(listener.close)
+
+        def serve():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            with connection:
+                try:
+                    connection.recv(4096)  # the client hello
+                    connection.sendall(b"\x16\x03\x03\x40\x00")  # a handshake record of 16 KiB, then slowly
+                    for _ in range(50):
+                        connection.sendall(b"\x00")
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+
+        threading.Thread(target=serve, daemon=True).start()
+        endpoint = Endpoint({"DOMAIN": "shop.test", "DEPLOY_SSH": "user@host", "DEPLOY_HEALTH_ADDRESS": "127.0.0.1"})
+        endpoint.port = listener.getsockname()[1]
+        started = time.monotonic()
+        status, error, _ = endpoint.get("/_health", deadline=time.monotonic() + 0.3)
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertEqual((status, error), (None, "timeout"))
+
     def test_refusals_change_nothing(self):
         before = self.history.read_text()
         for options, message in (({"attempt": U(2)}, f"The last deploy of this environment is not attempt {U(2)}"),
@@ -806,8 +838,12 @@ class CapabilityTest(unittest.TestCase):
         result = subprocess.run(["make", "-s", "-f", str(ROOT / "docker/project.mk"), "setup-capabilities"],
                                 capture_output=True, text=True, cwd=tempfile.gettempdir(), env={"PATH": os.environ["PATH"]})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue({"release-hardened-v1", "deploy-attempt-v1", "deploy-health-v1", "deploy-status-v1",
-                         "release-build-network-v1"} <= set(result.stdout.split()), result.stdout)
+        offered = set(result.stdout.split())
+        self.assertTrue({"deploy-attempt-v1", "deploy-health-v1", "deploy-status-v1", "release-build-network-v1"} <= offered,
+                        result.stdout)
+        # Not advertised until the release copy and the target are handled in isolation (re-check H1-H3): a
+        # workflow that needs it refuses untrusted stage deploys meanwhile.
+        self.assertNotIn("release-hardened-v1", offered)
 
 
 class LockTest(unittest.TestCase):
@@ -861,6 +897,26 @@ class StatusDocumentTest(unittest.TestCase):
         self.assertEqual(document["attempt"]["events"][-1]["stage"], "health", "the newest events are kept")
         self.assertEqual(document["attempt"]["events_omitted"], 600 - len(document["attempt"]["events"]))
         self.assertEqual(len(json.loads((attempts / f"{U(1)}.json").read_text())["events"]), 600)
+
+    def test_the_whole_document_stays_within_64_kib(self):
+        """Re-check C: 2000 optional variable names and no attempt: still valid JSON within 64 KiB, with a marker."""
+        scratch = ROOT / ".test-work"
+        scratch.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix="status-", dir=scratch)
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name)
+        (directory / "env").mkdir()
+        names = " ".join(f"OPTIONAL_SETTING_NUMBER_{n:04d}" for n in range(2000))
+        (directory / "env/common.env").write_text(f'PROJECT_NAME=shop\nDEPLOY_OPTIONAL_VARIABLES="{names}"\n')
+        (directory / "env/prod.env.example").write_text("DOMAIN=shop.test\n")
+        result = subprocess.run([sys.executable, str(ROOT / "docker/project.py"), "--docker-directory", str(directory),
+                                 "--env", "prod", "deploy-status"], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLessEqual(len(result.stdout), 64 * 1024)
+        document = json.loads(result.stdout)
+        self.assertEqual(document["format"], "dde-deploy-status/v1")
+        self.assertGreater(document["omitted"]["settings.optional"], 0)
+        self.assertEqual(len(document["settings"]["optional"]) + document["omitted"]["settings.optional"], 2000)
 
     def test_the_document_stays_within_64_kib(self):
         scratch = ROOT / ".test-work"

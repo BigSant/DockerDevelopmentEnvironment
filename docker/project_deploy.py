@@ -167,30 +167,28 @@ def in_release_image(project, release, command, cache=None):
 
 def write_release_file(release, name, data):
     """Create or replace one file directly in the release copy. The project's build steps (Composer scripts and
-    plugins, config/deploy/build.sh) run in it and may leave a link or a special file of that name: nothing is ever
-    written through one. The release directory is opened without following links and the file relative to it."""
+    plugins, config/deploy/build.sh) run in it and may leave a link, a special file or a hard link of that name:
+    the data goes into a new file created exclusively (O_EXCL|O_NOFOLLOW) relative to the release, opened without
+    following links, and is renamed over the entry, which replaces whatever was there without ever opening it."""
+    import secrets
     if '/' in name or name in ('', '.', '..'):
         raise ValueError(f'Not a file name of the release copy: {name!r}')
-    refused = ValueError(f'The release build left a link or special file at {name} in {release}; setup writes nothing '
-                         'through it. Check what the build steps create there')
     directory = os.open(release, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    temporary = f'.setup-write-{secrets.token_hex(8)}'
     try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644,
+                     dir_fd=directory)
         try:
-            present = os.stat(name, dir_fd=directory, follow_symlinks=False)
-        except FileNotFoundError:
-            present = None
-        if present is not None and (not stat.S_ISREG(present.st_mode) or present.st_nlink != 1):
-            raise refused
-        try:
-            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
-                         0o644, dir_fd=directory)
+            with os.fdopen(fd, 'wb') as handle:
+                handle.write(data)
+            os.rename(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
         except OSError:
-            raise refused from None
-        with os.fdopen(fd, 'wb') as handle:
-            opened = os.fstat(handle.fileno())
-            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
-                raise refused
-            handle.write(data)
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+            raise ValueError(f'The release build left a directory or something setup cannot replace at {name} in '
+                             f'{release}; nothing was written there') from None
     finally:
         os.close(directory)
 
@@ -247,12 +245,16 @@ def manifest_path(project, commit):
 
 
 def read_manifest(project, commit):
-    """The release's file names; a release an older setup built has a newline list (manifests/<sha12>.txt)."""
+    """The release's file names (JSON), or None. A release an older setup built has only a newline list
+    (manifests/<sha12>.txt), in which a file name with a newline reads as other names: it is never trusted. The list is
+    made again from the release copy when it is still kept, else there is none (and nothing is removed against it)."""
     path = manifest_path(project, commit)
     if path.is_file():
         return json.loads(path.read_text())
-    legacy = path.with_suffix('.txt')
-    return legacy.read_text().split('\n') if legacy.is_file() else None
+    release = deploy_directory(project) / 'code' / commit[:12]
+    if path.with_suffix('.txt').is_file() and release_built(release):
+        return write_manifest(project, release, commit)
+    return None
 
 
 def write_manifest(project, release, commit):
@@ -290,6 +292,9 @@ def removed_files(project, previous, current):
     """Files of the previously deployed release that the new one no longer ships (never protected paths)."""
     before = read_manifest(project, previous) if previous else None
     if before is None:
+        if previous and manifest_path(project, previous).with_suffix('.txt').is_file():
+            print(f'Warning: the release {previous[:12]} has only an older newline file list and is no longer kept: '
+                  'this deploy removes nothing (files that release shipped may stay on the target).')
         return []
     after = set(read_manifest(project, current) or [])
     patterns = protected_paths(project)
@@ -311,10 +316,31 @@ def protected_release_files(project, release):
         return []
     from project_application import seeded_directories
     patterns = protected_paths(project)
-    seeded = [(directory, False) for directory in seeded_directories() if (release / directory).is_dir()]
+    seeded = [(directory, False) for directory in seeded_directories() if release_directory_present(release, directory)]
     paths = (project.settings.get('PS_RELEASE_PATHS') or '').split()
-    followed = [(path, True) for path in paths if path != 'admin' and is_protected(patterns, path) and (release / path).is_dir()]
+    followed = [(path, True) for path in paths
+                if path != 'admin' and is_protected(patterns, path) and release_directory_present(release, path)]
     return seeded + followed
+
+
+def release_directory_present(release, directory):
+    """Whether the release copy has this directory as a real one. Every part is opened without following links: the
+    build may have made one a link to a host directory, which rsync (a source ending in /) would follow."""
+    current = os.open(release, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        for part in directory.strip('/').split('/'):
+            try:
+                following = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+            except FileNotFoundError:
+                return False
+            except OSError:
+                raise ValueError(f'The release build left a link at {directory} (or a file where a directory belongs) in '
+                                 f'{release}; nothing of it is copied to the target') from None
+            os.close(current)
+            current = following
+        return True
+    finally:
+        os.close(current)
 
 
 def push_protected_release_files(project, release, target, path):
@@ -342,8 +368,14 @@ def prune_releases(project, keep):
     # Failed deploys must not crowd out what a rollback needs: the newest completed releases (the rollback target among
     # them) and the code the target holds now stay, whatever failed since.
     entries = history(project)
-    completed = [entry for entry in entries if not entry.get('failed')]
-    used = {entry['commit'][:12] for entry in completed[-KEEP_RELEASES:]} | {keep.name}
+    used = {keep.name}
+    distinct = []  # the newest completed releases, each once: redeploys of one release count once
+    for entry in reversed(entries):
+        if not entry.get('failed') and entry['commit'][:12] not in distinct:
+            distinct.append(entry['commit'][:12])
+        if len(distinct) == KEEP_RELEASES:
+            break
+    used.update(distinct)
     if entries:
         used.add(entries[-1]['commit'][:12])
     for path in releases[KEEP_RELEASES:]:

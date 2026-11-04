@@ -90,19 +90,24 @@ class Endpoint:
                 except ValueError:
                     raise Refusal('DEPLOY_HEALTH_ADDRESS must be an IPv4 or IPv6 address (where the site is served)') from None
 
-    def connection(self, timeout=TIMEOUT):
+    def connection(self, timeout=TIMEOUT, deadline=None):
         if self.local:
             return HTTPConnection(self.address, self.port, timeout=timeout)
-        if not self.address:
-            return HTTPSConnection(self.domain, self.port, timeout=timeout, context=ssl.create_default_context())
-        address = self.address
+        address = self.address or self.domain
+        deadline = deadline or time.monotonic() + timeout
 
-        class Pinned(HTTPSConnection):
+        class Bounded(HTTPSConnection):
+            """HTTPS to the domain, at DEPLOY_HEALTH_ADDRESS when set. The TLS socket is the connection's before its
+            handshake starts, so the request's watchdog can shut a slow handshake down, and the handshake gets only
+            the time left before the deadline."""
+
             def connect(self):
-                # Assigned before the handshake, so the request's watchdog can cut a slow one too.
-                self.sock = socket.create_connection((address, self.port), self.timeout)
-                self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
-        return Pinned(self.domain, self.port, timeout=timeout, context=ssl.create_default_context())
+                raw = socket.create_connection((address, self.port), self.timeout)
+                tls = self._context.wrap_socket(raw, server_hostname=self.host, do_handshake_on_connect=False)
+                self.sock = tls
+                tls.settimeout(max(0.001, deadline - time.monotonic()))
+                tls.do_handshake()
+        return Bounded(self.domain, self.port, timeout=timeout, context=ssl.create_default_context())
 
     def get(self, path, body=False, deadline=None):
         """(status or None, the error word, the body when asked): one GET, no redirect followed. One monotonic deadline
@@ -115,7 +120,7 @@ class Endpoint:
         headers = {'Host': self.domain, 'User-Agent': 'setup-deploy-health', 'Cache-Control': 'no-cache'}
         if self.local:
             headers['X-Forwarded-Proto'] = 'https'
-        connection = self.connection(timeout=remaining)
+        connection = self.connection(timeout=remaining, deadline=deadline)
         expired, sockets = threading.Event(), []
 
         def expire():
