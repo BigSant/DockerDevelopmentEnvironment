@@ -27,6 +27,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import time
 
@@ -164,11 +165,49 @@ def in_release_image(project, release, command, cache=None):
                     '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
 
 
+def write_release_file(release, name, data):
+    """Create or replace one file directly in the release copy. The project's build steps (Composer scripts and
+    plugins, config/deploy/build.sh) run in it and may leave a link or a special file of that name: nothing is ever
+    written through one. The release directory is opened without following links and the file relative to it."""
+    if '/' in name or name in ('', '.', '..'):
+        raise ValueError(f'Not a file name of the release copy: {name!r}')
+    refused = ValueError(f'The release build left a link or special file at {name} in {release}; setup writes nothing '
+                         'through it. Check what the build steps create there')
+    directory = os.open(release, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        try:
+            present = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        except FileNotFoundError:
+            present = None
+        if present is not None and (not stat.S_ISREG(present.st_mode) or present.st_nlink != 1):
+            raise refused
+        try:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                         0o644, dir_fd=directory)
+        except OSError:
+            raise refused from None
+        with os.fdopen(fd, 'wb') as handle:
+            opened = os.fstat(handle.fileno())
+            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+                raise refused
+            handle.write(data)
+    finally:
+        os.close(directory)
+
+
+def release_built(release):
+    """Whether the release copy is complete: its .setup-release is a plain file (a planted link is not)."""
+    try:
+        return stat.S_ISREG(os.stat(release / '.setup-release', follow_symlinks=False).st_mode)
+    except OSError:
+        return False
+
+
 def build_code(project, ref):
     """The release directory for one shop commit, built once and reused (rollback, redeploy)."""
     shop, commit = shop_commit(project, ref)
     release = deploy_directory(project) / 'code' / commit[:12]
-    if (release / '.setup-release').is_file():
+    if release_built(release):
         print(f'Release {commit[:12]} already built: {release}')
         return release, commit
     if release.exists():
@@ -184,7 +223,7 @@ def build_code(project, ref):
     if (composer / 'composer.json').is_file():
         for name in ('composer.json', 'composer.lock'):
             if (composer / name).is_file():
-                shutil.copy2(composer / name, release / name)
+                write_release_file(release, name, (composer / name).read_bytes())
     if (release / 'composer.json').is_file():
         print('==> composer install --no-dev', flush=True)
         in_release_image(project, release, 'composer install --no-dev --optimize-autoloader --no-interaction --no-progress')
@@ -197,23 +236,48 @@ def build_code(project, ref):
         print('==> config/deploy/build.sh', flush=True)
         _run_hook(project, release, hook)
     write_manifest(project, release, commit)
-    (release / '.setup-release').write_text(json.dumps({'ref': ref, 'commit': commit}) + '\n')
+    write_release_file(release, '.setup-release', (json.dumps({'ref': ref, 'commit': commit}) + '\n').encode())
     prune_releases(project, keep=release)
     return release, commit
 
 
 def manifest_path(project, commit):
-    return deploy_directory(project) / 'manifests' / f'{commit[:12]}.txt'
+    """A release's file list as JSON: a file name may hold any character but /, newlines included."""
+    return deploy_directory(project) / 'manifests' / f'{commit[:12]}.json'
+
+
+def read_manifest(project, commit):
+    """The release's file names; a release an older setup built has a newline list (manifests/<sha12>.txt)."""
+    path = manifest_path(project, commit)
+    if path.is_file():
+        return json.loads(path.read_text())
+    legacy = path.with_suffix('.txt')
+    return legacy.read_text().split('\n') if legacy.is_file() else None
 
 
 def write_manifest(project, release, commit):
-    """Every file the release ships; the next deploy removes what it drops from this list only."""
-    files = sorted(path.relative_to(release).as_posix() for path in release.rglob('*')
-                   if (path.is_file() or path.is_symlink()) and not path.name.startswith('.setup-'))
+    """Every file the release ships; the next deploy removes what it drops from this list only. Links (to files or
+    directories) are entries and never followed."""
+    files = []
+    for directory, folders, names in os.walk(release):
+        base = Path(directory)
+        for name in names + [folder for folder in folders if (base / folder).is_symlink()]:
+            if not name.startswith('.setup-'):
+                files.append((base / name).relative_to(release).as_posix())
+    files.sort()
     target = manifest_path(project, commit)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(''.join(f'{name}\n' for name in files))
+    target.write_text(json.dumps(files) + '\n')
     return files
+
+
+def safe_names(names):
+    """The code tree names a removal may touch: relative, no ., .. or empty part, no control character."""
+    def safe(name):
+        parts = name.split('/')
+        return bool(name) and not name.startswith('/') and not any(part in ('', '.', '..') for part in parts) and \
+            not any(ord(character) < 32 or ord(character) == 127 for character in name)
+    return [name for name in names if safe(name)]
 
 
 def is_protected(patterns, name):
@@ -224,12 +288,19 @@ def is_protected(patterns, name):
 
 def removed_files(project, previous, current):
     """Files of the previously deployed release that the new one no longer ships (never protected paths)."""
-    if not previous or not manifest_path(project, previous).is_file():
+    before = read_manifest(project, previous) if previous else None
+    if before is None:
         return []
-    before = set(manifest_path(project, previous).read_text().split('\n')) - {''}
-    after = set(manifest_path(project, current).read_text().split('\n')) - {''}
+    after = set(read_manifest(project, current) or [])
     patterns = protected_paths(project)
-    return sorted(name for name in before - after if not is_protected(patterns, name))
+    names = sorted(name for name in set(before) - after - {''} if not is_protected(patterns, name))
+    allowed = safe_names(names)
+    refused = [name for name in names if name not in allowed]
+    if refused:
+        shown = ', '.join(repr(name) for name in refused[:5]) + (f' (+{len(refused) - 5} more)' if len(refused) > 5 else '')
+        print(f'Warning: not removing {len(refused)} files whose names leave the code tree or hold control characters: '
+              f'{shown}')
+    return allowed
 
 
 def protected_release_files(project, release):
@@ -258,7 +329,7 @@ def push_protected_release_files(project, release, target, path):
 def _run_hook(project, release, hook):
     """Project build step (assets, translations) inside the release image, on the release copy."""
     script = release / '.setup-build.sh'
-    shutil.copy2(hook, script)
+    write_release_file(release, script.name, hook.read_bytes())
     try:
         in_release_image(project, release, 'sh /var/www/html/.setup-build.sh', cache=build_cache(project))
     finally:
@@ -508,7 +579,7 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         if not previous:
             raise ValueError('No previous deployment to roll back to')
         release = deploy_directory(project) / 'code' / previous['commit'][:12]
-        if not (release / '.setup-release').is_file():
+        if not release_built(release):
             raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')
         ref, commit = previous['ref'], previous['commit']
         print(f'==> rolling back to {ref} ({commit[:12]}); restore the database from the pre-deploy backup if needed')

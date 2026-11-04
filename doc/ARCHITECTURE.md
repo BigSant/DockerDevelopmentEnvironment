@@ -418,7 +418,16 @@ missing and locked (`images` + `external` digests) so `docker save` ships them; 
 that is not on the build machine stops before writing the lock.
 `make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
 `config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp` and on the Docker network
-`RELEASE_BUILD_NETWORK` (`host` by default, `bridge` or `none` keep the project's build code off the host's network); the build hook gets
+`RELEASE_BUILD_NETWORK` (`host` by default, `bridge` or `none` keep the project's build code off the host's network).
+That code may plant links, special files or odd names in the release copy, so setup's own writes there
+(`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (the release opened
+`O_DIRECTORY|O_NOFOLLOW`, the file `O_NOFOLLOW|O_NONBLOCK` relative to it, a link, special file or second hard link
+refused), a release counts as built only with a plain `.setup-release` (`release_built`), the manifest is a JSON list
+(`manifests/<sha12>.json`, walked without following links; an older `.txt` newline list is still read), removals
+take only `safe_names` (relative, no `.`/`..`/empty part, no control character) and each target resolves a name's
+directory and removes only inside the code root (`LocalTarget.remove` with `realpath`, `SshTarget.remove` with
+`REMOVE_INSIDE` on the server). `make -f docker/project.mk setup-capabilities` lists these abilities without a project
+(`release-hardened-v1`, `release-build-network-v1`, `deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`); the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of

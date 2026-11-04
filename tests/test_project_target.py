@@ -92,7 +92,11 @@ class SshTargetTest(unittest.TestCase):
         self.target.remove("/srv/shop/public", [])
         self.assertEqual(len(self.calls), 1, "nothing to remove: no connection")
         command, kwargs = self.calls[0]
-        self.assertEqual(command[-1], "cd /srv/shop/public && xargs -0 rm -f --")
+        # The names only on stdin; the server resolves each one's directory and removes inside the root only
+        # (test_deploy: test_removals_never_leave_the_code_tree runs this script).
+        self.assertTrue(command[-1].startswith("cd /srv/shop/public && root=$(pwd -P) && xargs -0 sh -c "), command[-1])
+        self.assertNotIn("a b.php", command[-1])
+        self.assertNotIn("c.php", command[-1])
         self.assertEqual(kwargs["input"], b"a b.php\0c.php\0")
 
     def test_listening_reads_ss_on_the_server(self):

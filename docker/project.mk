@@ -5,7 +5,13 @@ PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh db-backup files-backup db-pull files-pull translations-migration translations-migrate translations-base ssh db-prepare bootstrap test-init setup-info
-.PHONY: db-fixtures-plan db-fixtures-load
+.PHONY: db-fixtures-plan db-fixtures-load setup-capabilities
+# What this setup can do, for a project's workflow to probe before it trusts a deploy to it; needs no project:
+#   make -s -f <setup>/docker/project.mk setup-capabilities
+SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 release-hardened-v1
+setup-capabilities:
+	@echo '$(SETUP_CAPABILITIES)'
+
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
@@ -17,6 +23,7 @@ quote = '$(subst ','"'"',$(1))'
 RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(call quote,$(PROJECT_DOCKER_DIRECTORY)) --project-directory $(call quote,$(PROJECT_DIRECTORY)) --env $(call quote,$(ENV)) $(if $(filter undefined,$(origin PROFILES)),,--profiles $(call quote,$(PROFILES)))
 
 help:
+	@echo 'setup-capabilities: what this setup can do (release-hardened-v1, deploy-attempt-v1, ...), without a project'
 	@echo 'setup: prepare this project from a clean clone (init, bootstrap + schema hook, build, app-prepare, up); the DB is left alone'
 	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'

@@ -800,6 +800,16 @@ class HealthCheckTest(unittest.TestCase):
             Endpoint({"DOMAIN": "shop.test"})
 
 
+class CapabilityTest(unittest.TestCase):
+    def test_a_workflow_can_ask_what_this_setup_does_without_any_project(self):
+        """The probe zarskis.lt's workflow runs before an untrusted stage deploy: setup's own make file alone."""
+        result = subprocess.run(["make", "-s", "-f", str(ROOT / "docker/project.mk"), "setup-capabilities"],
+                                capture_output=True, text=True, cwd=tempfile.gettempdir(), env={"PATH": os.environ["PATH"]})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue({"release-hardened-v1", "deploy-attempt-v1", "deploy-health-v1", "deploy-status-v1",
+                         "release-build-network-v1"} <= set(result.stdout.split()), result.stdout)
+
+
 class LockTest(unittest.TestCase):
     def test_a_make_step_of_the_run_holding_the_lock_does_not_wait_however_it_names_the_directory(self):
         import fcntl

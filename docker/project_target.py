@@ -3,6 +3,7 @@
 The containers' Docker daemon is a separate setting (DEPLOY_CONTEXT) and not handled here. Both targets
 answer the same operations; paths are the target's own."""
 
+import os
 from pathlib import Path
 import re
 import shlex
@@ -13,6 +14,12 @@ HOST = re.compile(r'[A-Za-z0-9._-]+@[A-Za-z0-9.-]+')
 # as ssh is configured (known_hosts), never accepted blindly: the target receives production code.
 SSH_OPTIONS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15']
 RSYNC_SSH = ['-e', shlex.join(['ssh', *SSH_OPTIONS])]
+# Run on the server by SshTarget.remove with the code root, then the names: each name's directory is resolved there
+# (cd -P follows the target's links) and a name is removed only when that directory is inside the root.
+REMOVE_INSIDE = ('root=$1; shift; for name do '
+                 'dir=$(cd -P -- "$(dirname -- "$name")" 2>/dev/null && pwd -P) || continue; '
+                 'case "$dir/" in "$root"/*) rm -f -- "$dir/${name##*/}";; '
+                 '*) echo "setup: not removing $name: outside the code tree" >&2;; esac; done')
 
 
 def deploy_target(project, run=subprocess.run):
@@ -60,8 +67,15 @@ class LocalTarget:
         return {child.name for child in folder.iterdir() if child.is_dir()} if folder.is_dir() else set()
 
     def remove(self, path, names):
+        """Removes code tree files; a name whose directory resolves outside path (an absolute or .. name, or a
+        directory the target links elsewhere) is left and named, never followed."""
+        root = os.path.realpath(path)
         for name in names:
-            (Path(path) / name).unlink(missing_ok=True)
+            directory = os.path.realpath(os.path.join(path, os.path.dirname(name)))
+            if directory != root and not directory.startswith(root + os.sep):
+                print(f'setup: not removing {name!r}: outside the code tree')
+                continue
+            (Path(directory) / os.path.basename(name)).unlink(missing_ok=True)
 
     def listening(self):
         """The listening TCP addresses, or None when they cannot be read."""
@@ -99,10 +113,12 @@ class SshTarget:
         return set(result.stdout.split('\n')) - {''} if result.returncode == 0 else set()
 
     def remove(self, path, names):
+        """As LocalTarget.remove, on the server: each name's directory is resolved there (cd -P) and must lie inside
+        path, so neither a name nor a link the target holds leads a removal outside the code tree."""
         if names:
             listing = ''.join(f'{name}\0' for name in names).encode()
-            self.run(['ssh', *SSH_OPTIONS, self.host, f'cd {shlex.quote(path)} && xargs -0 rm -f --'], input=listing,
-                     check=True)
+            self.run(['ssh', *SSH_OPTIONS, self.host, f'cd {shlex.quote(path)} && root=$(pwd -P) && '
+                      f'xargs -0 sh -c {shlex.quote(REMOVE_INSIDE)} sh "$root"'], input=listing, check=True)
 
     def listening(self):
         result = self.run(self.ssh('ss', '-Hltn'), capture_output=True, text=True)

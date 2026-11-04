@@ -27,6 +27,11 @@ def git(directory, *args):
     subprocess.run(["git", "-C", str(directory), *args], check=True, capture_output=True)
 
 
+def git_commit(directory, ref):
+    return subprocess.run(["git", "-C", str(directory), "rev-parse", ref], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
 def compose_model(root):
     """The containers' bind mounts: code, data, the environment repository's config and its .generated."""
     bind = lambda source, target: {"type": "bind", "source": str(source), "target": target}
@@ -163,7 +168,7 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(pushes[0][-1], f"shop@host.example:{code}/")
         self.assertIn("--exclude=/modules/serveronly/", pushes[0], "a module only the server has is left alone")
         self.assertIn("module serveronly exists only on the target", self.output.getvalue())
-        removal = [(command, kwargs) for command, kwargs in calls if command[-1].endswith("xargs -0 rm -f --")]
+        removal = [(command, kwargs) for command, kwargs in calls if "xargs -0" in command[-1]]
         self.assertEqual([kwargs["input"] for _, kwargs in removal], [b"old.php\0"])
         self.assertFalse((self.target / "app/public/index.php").exists(), "nothing is written to this machine's DEPLOY_PATH")
 
@@ -667,6 +672,96 @@ class GenericDeployTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "RELEASE_BUILD_NETWORK must be host, bridge or none"):
             build("--privileged")
         self.assertEqual(len(commands), count, "nothing runs with a refused value")
+
+    def planting(self, plant):
+        """in_release_image as a hostile build: plant(release, command) runs where the build step would."""
+        def build(project, release, command, cache=None):
+            self.calls.append(["image", command])
+            plant(Path(release), command)
+        return patch("project_deploy.in_release_image", build)
+
+    def test_the_build_cannot_make_setup_write_through_a_planted_link(self):
+        """Hostile build 1: a Composer script links the files setup writes into the release to a host file."""
+        from project_deploy import write_manifest  # noqa: F401 (the module under test)
+        victim = self.root / "victim.txt"
+        victim.write_text("host file\n")
+        self.generic()
+        self.commit("c1", {"composer.json": "{}\n"})
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        (self.root / "app/config/deploy/build.sh").write_text("true\n")
+        for planted in (".setup-build.sh", ".setup-release"):
+            def plant(release, command, planted=planted):
+                if command.startswith("composer") or planted == ".setup-release":
+                    (release / planted).unlink(missing_ok=True)
+                    (release / planted).symlink_to(victim)
+            with self.subTest(planted=planted), patch("project_deploy.php_image", return_value="php:test"), \
+                    self.planting(plant), self.assertRaisesRegex(ValueError, f"left a link or special file at {planted}"):
+                build_code(self.project, "c1")
+            self.assertEqual(victim.read_text(), "host file\n", f"{planted} never writes through the link")
+            release = self.root / "app/.generated/release/stage/code" / git_commit(self.shop, "c1")[:12]
+            with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None):
+                self.assertNotIn("already built", (build_code(self.project, "c1"), self.output.getvalue())[1][-200:],
+                                 "a planted .setup-release is no built release")
+            self.assertTrue((release / ".setup-release").is_file() and not (release / ".setup-release").is_symlink())
+            import shutil
+            shutil.rmtree(release)
+        # The environment repository's composer files go into the export, which may hold a link of that name.
+        (self.root / "app/config/composer").mkdir(parents=True)
+        (self.root / "app/config/composer/composer.json").write_text('{"name": "env"}\n')
+        (self.shop / "composer.json").unlink()
+        (self.shop / "composer.json").symlink_to(victim)
+        git(self.shop, "add", "-A")
+        git(self.shop, "commit", "-q", "-m", "c2")
+        with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None), \
+                self.assertRaisesRegex(ValueError, "left a link or special file at composer.json"):
+            build_code(self.project, "HEAD")
+        self.assertEqual(victim.read_text(), "host file\n")
+
+    def test_a_file_name_cannot_inject_a_path_into_the_removals(self):
+        """Hostile build 2: a file named x<newline>/<host path> in the release; the next deploy drops it."""
+        victim = self.root / "victim.txt"
+        victim.write_text("host file\n")
+        self.generic()
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        (self.root / "app/config/deploy/build.sh").write_text("true\n")
+
+        def plant(release, command):
+            if "setup-build" in command and "g1" in (release / "src/Kernel.php").read_text():
+                injected = release / "x\n" / str(victim.parent).lstrip("/") / victim.name
+                injected.parent.mkdir(parents=True)
+                injected.write_text("built\n")
+
+        with patch("project_deploy.php_image", return_value="php:test"), self.planting(plant):
+            deploy_code(self.project, ref="g1")
+            self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+            deploy_code(self.project, ref="g2")
+        self.assertEqual(victim.read_text(), "host file\n", "no host file is removed")
+        manifest = self.root / f"app/.generated/release/stage/manifests/{git_commit(self.shop, 'g1')[:12]}.json"
+        self.assertIn("x\n" + str(victim), json.loads(manifest.read_text()))
+        self.assertIn("not removing", self.output.getvalue())
+
+    def test_removals_never_leave_the_code_tree(self):
+        """A legacy newline manifest, an absolute or .. name, or a directory the target links elsewhere."""
+        from project_deploy import safe_names
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "kept.php").write_text("x")
+        code = self.target / "app/public"
+        (code / "linked").symlink_to(outside)
+        (code / "gone.php").write_text("x")
+        self.assertEqual(safe_names(["gone.php", "/etc/passwd", "../x", "a/../../b", "ok\x07.php", "", "a//b"]), ["gone.php"])
+        LocalTarget().remove(str(code), ["gone.php", "linked/kept.php"])
+        self.assertFalse((code / "gone.php").exists())
+        self.assertTrue((outside / "kept.php").exists(), "a directory the target links elsewhere is not followed")
+        # The same rule on a server: the removal script runs there (here: this machine's sh).
+        (code / "gone.php").write_text("x")
+        commands = []
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options))).remove(
+            str(code), ["gone.php", "linked/kept.php"])
+        [(command, options)] = commands
+        subprocess.run(["sh", "-c", command[-1]], input=options["input"], check=True, capture_output=True)
+        self.assertFalse((code / "gone.php").exists())
+        self.assertTrue((outside / "kept.php").exists())
 
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
