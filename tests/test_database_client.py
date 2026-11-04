@@ -76,6 +76,37 @@ class DatabaseClientTest(unittest.TestCase):
         with self.assertRaisesRegex(DatabaseError, r"^Cannot read the database: no answer within 0.2 s$"):
             client.query("SELECT 1;\n", timeout=0.2)
 
+    def test_wait_ready_retries_until_the_database_answers_over_tcp(self):
+        """After a container (re)start MySQL may pass its healthcheck before TCP listens (the entrypoint's temporary
+        server has no network): wait_ready asks SELECT 1 over TCP until it answers."""
+        from database_client import READY
+        counter = self.log / "tries"
+        client = self.client(f'cat > /dev/null; echo x >> "{counter}"; [ "$(wc -l < "{counter}")" -ge 3 ] && exit 0; '
+                             "echo \"ERROR 2003 (HY000): Can't connect to MySQL server on '127.0.0.1:3306' (111)\" >&2; "
+                             "exit 1")
+        slept = []
+        client.wait_ready(timeout=10, interval=0.01, sleep=slept.append)
+        self.assertEqual(len(counter.read_text().split()), 3)
+        self.assertEqual(slept, [0.01, 0.01])
+        self.assertEqual(self.argv()[5:8], [READY, "database-ready", "shop"])
+        self.assertIn("--protocol=TCP --host=127.0.0.1", READY)
+        self.assertIn("SELECT 1", READY)
+
+    def test_wait_ready_answers_at_once_when_the_database_is_up(self):
+        client = self.client(f'cat > /dev/null; echo x >> "{self.log}/tries"')
+        slept = []
+        client.wait_ready(timeout=10, interval=0.01, sleep=slept.append)
+        self.assertEqual(((self.log / "tries").read_text(), slept), ("x\n", []), "one SELECT 1, no wait")
+
+    def test_wait_ready_gives_up_with_the_client_error(self):
+        client = self.client("cat > /dev/null; echo \"ERROR 2003 (HY000): Can't connect to MySQL server on "
+                             "'127.0.0.1:3306' (111)\" >&2; exit 1")
+        with self.assertRaisesRegex(DatabaseError, r"^The database did not answer over TCP within 0.2 s: ERROR 2003"):
+            client.wait_ready(timeout=0.2, interval=0.05)
+        other = self.client("cat > /dev/null; exit 64")
+        with self.assertRaisesRegex(DatabaseError, "belongs to another DATABASE_NAME"):
+            other.wait_ready(timeout=10, interval=0.01, sleep=lambda seconds: self.fail("no retry for another database"))
+
     def test_database_name_is_required(self):
         with self.assertRaisesRegex(DatabaseError, "DATABASE_NAME is required"):
             self.client("true", database="").query("SELECT 1;\n")
