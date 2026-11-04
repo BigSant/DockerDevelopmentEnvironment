@@ -645,6 +645,19 @@ def newer(candidate, current):
         return candidate != current
 
 
+def database_ready(project):
+    """Waits once per deploy until the target's database answers over TCP (DatabaseClient.wait_ready): make
+    deploy-images may have just restarted it, and its healthcheck can pass before it listens on TCP. Called right
+    before setup's first own use of the database; a deploy that uses none never asks."""
+    waited = []
+
+    def ready():
+        if not waited:
+            project.database.wait_ready()
+            waited.append(True)
+    return ready
+
+
 def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto', attempt=None):
     """make deploy, under the environment's lock: make deploy-health and pipeline runs write the same history."""
     from project_attempts import environment_lock
@@ -724,7 +737,9 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
     protected = sorted(target.directories(path + '/modules') - release_modules) \
         if prestashop and release_modules else []
     backup_file = None
+    ready = database_ready(project)
     if backup:
+        ready()
         from database_backup import backup_database
         print('==> backing up the target database (table registry)', flush=True)
         backup_file = backup_database(project, registry=True)
@@ -772,7 +787,7 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         events.event('code', 'ok', removed_files=len(removed))
         stage[0] = 'environment'
         return finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry,
-                             events, stage, versions)
+                             events, stage, versions, ready)
     except Exception:
         if stage[0] != 'completed':
             replace_last(project, {**entry, 'failed': stage[0], **pending})
@@ -780,7 +795,7 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
 
 
 def finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry, events, stage,
-                  versions=None):
+                  versions=None, ready=lambda: None):
     """After the copy: environment files, the hook, upgrades, migrations, cache, reload, then the completed entry.
     stage[0] names the step running, which a failure is recorded with."""
     # The environment files the containers mount follow the deployed commit too (DEPLOY_PATH elsewhere).
@@ -799,12 +814,14 @@ def finish_deploy(project, entries, release, commit, ref, rollback, cache, prest
         events.event('hook', 'ok', seconds=round(time.monotonic() - started, 1))
     if prestashop:
         stage[0] = 'modules'
+        ready()
         if versions:
             upgrade_modules(project, release, versions())
         else:
             upgrade_modules(project, release)
     from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
     if migrations_enabled(project) and migrations_directory(project).is_dir():
+        ready()
         stage[0] = 'migrations'
         # Recorded with the deploy: rollback=1 names them for make db-rollback.
         entry['migrations'] = migrate(project)
@@ -813,6 +830,7 @@ def finish_deploy(project, entries, release, commit, ref, rollback, cache, prest
         # The developers' translations: each translation migration once, recorded in setup_migrations.
         from project_translations import migrate_translations, migrations_directory as translation_migrations
         if translation_migrations(project).is_dir():
+            ready()
             stage[0] = 'translations'
             entry['translations'] = migrate_translations(project)
     if project.settings.get('SCHEMA_DIRECTORY'):

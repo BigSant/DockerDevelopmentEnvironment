@@ -31,6 +31,12 @@ change (say how). An empty section still releases a patch.
   relative to a held descriptor of their parent.
   Projects that set nothing deploy as before. New B level `tests/run --sandbox` (CI runs it).
 
+- **A deploy's backup waits for the restarted database.** Right after `make deploy-images` restarts it, MySQL's
+  healthcheck (its socket) can answer seconds before it listens on TCP, so `make deploy backup=1` failed with
+  `ERROR 2003 … '127.0.0.1:3306' (111)`. `make deploy` now waits, once and at most 60 s, until the database answers
+  `SELECT 1` over TCP before its first own use of it (the backup, PrestaShop's module upgrades, setup's migrations,
+  translations). A database already up answers at once; a deploy that uses none asks nothing.
+
 ## 5.4.0
 
 - **Deploy attempts, health check and status (opt-in).** `make pipeline-deploy` takes `DEPLOY_ATTEMPT` (refused

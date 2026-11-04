@@ -4,6 +4,7 @@ import contextlib
 import re
 import subprocess
 import tempfile
+import time
 
 # Schema names stay plain so they can appear in SQL, shell and grant patterns without quoting rules.
 SCHEMA_NAME = re.compile(r'[A-Za-z0-9_]{1,64}')
@@ -104,6 +105,14 @@ exec "$db_client" $key_option --connect-timeout=5 --protocol=TCP --host=127.0.0.
     --user="$MYSQL_USER" --database="$1"
 '''
 
+# Readiness over TCP, as every other operation connects: after a container (re)start the MySQL entrypoint's
+# temporary server answers the socket (and the healthcheck) before the real one listens on 127.0.0.1:3306.
+READY = CLIENT + '''
+exec "$db_client" $key_option --connect-timeout=2 --protocol=TCP --host=127.0.0.1 --batch --skip-column-names \\
+    --user="$MYSQL_USER" --database="$1" --execute='SELECT 1'
+'''
+READY_TIMEOUT = 60
+
 # Unescaped output for data-set extraction: values may contain tabs and newlines, so callers
 # delimit rows themselves.
 READ_RAW = READ.replace('--binary-mode', '--binary-mode --raw')
@@ -147,7 +156,7 @@ class DatabaseError(ValueError):
 # Docker lines never match. An error line names the statement or table that failed, not the rows.
 CLIENT_ERROR = re.compile(r'(ERROR \d+|(mysql|mariadb|mysqldump|mariadb-dump): )')
 FAILED = {'read': 'Cannot read the database', 'write': 'Database write failed', 'load': 'Database load failed',
-          'dump': 'Database dump failed'}
+          'dump': 'Database dump failed', 'ready': 'The database is not ready'}
 
 
 def unescape_batch(value):
@@ -183,6 +192,23 @@ class DatabaseClient:
 
     def execute(self, sql, timeout=None):
         self._run('write', READ, sql, timeout)
+
+    def wait_ready(self, timeout=READY_TIMEOUT, interval=1, sleep=time.sleep, clock=time.monotonic):
+        """Waits until the database answers SELECT 1 over TCP (127.0.0.1 in its container), at most timeout seconds:
+        right after a container (re)start it may not listen yet. Answering at once costs one query; a container of
+        another DATABASE_NAME stops at once."""
+        deadline = clock() + timeout
+        while True:
+            try:
+                self._run('ready', READY, '', max(1, min(10, timeout)))
+                return
+            except DatabaseError as error:
+                if 'another DATABASE_NAME' in str(error):
+                    raise
+                if clock() + interval > deadline:
+                    detail = str(error).split(': ', 1)[1] if ': ' in str(error) else str(error)
+                    raise DatabaseError(f'The database did not answer over TCP within {timeout} s: {detail}') from None
+            sleep(interval)
 
     @contextlib.contextmanager
     def load(self):

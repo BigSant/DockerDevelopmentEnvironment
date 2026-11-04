@@ -81,7 +81,8 @@ class DeployTest(unittest.TestCase):
             settings={"DEPLOY_PATH": str(self.target), "DEPLOY_CONTEXT": "shop-stage", "DEPLOY_SSH": "", "APP_UID": "1012",
                       "APP_GID": "1013", "PS_VERSION": "9.0.2", "PROFILE": "prestashop"},
             process_env={"HOST_UID": "1012", "HOST_GID": "1013"}, run=lambda args, profiles=None: self.calls.append(args),
-            data_directory=self.root / "data", active_model=lambda: compose_model(self.root), name="shop-stage")
+            data_directory=self.root / "data", active_model=lambda: compose_model(self.root), name="shop-stage",
+            database=FakeDatabase())
         # Where the containers run from is checked against the target's Docker (test_release); here it is recorded.
         self.root_checks = []
         checker = patch("project_release.check_project_root",
@@ -109,6 +110,35 @@ class DeployTest(unittest.TestCase):
                 patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
                 patch("project_deploy.upgrade_modules", lambda project, release: self.calls.append(["upgrade"])):
             return deploy_code(self.project, **options)
+
+    def test_the_backup_waits_until_the_restarted_database_answers_over_tcp(self):
+        """deploy-images has just restarted the database: the backup (the deploy's first database use) waits for TCP;
+        a deploy that touches no database asks nothing; a database that never answers stops the deploy before the
+        code is copied."""
+        from database_client import DatabaseError
+        database = FakeDatabase()
+        database.wait_ready = lambda **options: self.calls.append(["wait"])
+        self.project.database = database
+        self.deploy(ref="v1", backup=True)
+        self.assertLess(self.calls.index(["wait"]), self.calls.index(["backup", True]))
+        self.calls.clear()
+        self.deploy(ref="v1")
+        self.assertEqual(self.calls.count(["wait"]), 1, "once per deploy")
+        self.assertLess(self.calls.index(["wait"]), self.calls.index(["upgrade"]), "PrestaShop's module upgrade reads it")
+        self.calls.clear()
+        self.project.settings["PROFILE"] = ""
+        self.deploy(ref="v1")
+        self.assertNotIn(["wait"], self.calls, "a generic deploy without backup or migrations asks nothing")
+        self.project.settings["PROFILE"] = "prestashop"
+
+        def never(**options):
+            raise DatabaseError("The database did not answer over TCP within 60 s: ERROR 2003 (HY000)")
+
+        database.wait_ready = never
+        self.commit("v2", {"index.php": "<?php // v2\n"})
+        with self.assertRaisesRegex(DatabaseError, "did not answer over TCP"):
+            self.deploy(ref="v2", backup=True)
+        self.assertEqual((self.target / "app/public/index.php").read_text(), "<?php // v1\n", "nothing was copied")
 
     def test_release_files_reach_the_protected_paths_the_code_rsync_leaves_out(self):
         release, target = self.root / "release", self.root / "server"
