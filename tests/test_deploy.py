@@ -748,6 +748,33 @@ class GenericDeployTest(unittest.TestCase):
         self.assertEqual(victim.read_text(), "keep me\n", "the victim is never opened for writing")
         self.assertEqual((release / ".setup-release").read_text(), "new\n")
 
+    def test_as_before_a_protected_directory_may_be_a_link_inside_the_release(self):
+        """Opt-in guarantee (make deploy, nothing new set): PS_RELEASE=on with cache -> var/cache in the release and on
+        the target, which the main rsync and the protected copy always handled."""
+        release, target = self.root / "release", self.root / "server"
+        (release / "var/cache").mkdir(parents=True)
+        (release / "var/cache/index.php").write_text("release\n")
+        (release / "cache").symlink_to("var/cache")
+        (target / "var/cache").mkdir(parents=True)
+        (target / "cache").symlink_to("var/cache")
+        self.project.settings.update({"PS_RELEASE": "on", "PS_RELEASE_PATHS": ""})
+        self.assertIn(("cache", False), project_deploy.protected_release_files(self.project, release))
+        project_deploy.push_protected_release_files(self.project, release, LocalTarget(), str(target))
+        self.assertEqual((target / "var/cache/index.php").read_text(), "release\n")
+        # A link that leaves the release is refused before the main code is copied.
+        secret = self.root / "host-secrets"
+        secret.mkdir()
+
+        def plant(project, built, command, cache=None):
+            (Path(built) / "img").symlink_to(secret)
+
+        with patch("project_deploy.php_image", return_value="php:test"), patch("project_deploy.in_release_image", plant), \
+                patch("project_application.plan_application", return_value=(["true"], False)), \
+                patch("project_deploy.upgrade_modules", lambda project, release: []), \
+                self.assertRaisesRegex(ValueError, "release build left a link at img"):
+            deploy_code(self.project, ref="v1")
+        self.assertFalse((self.target / "app/public/index.php").exists(), "refused before the code was copied")
+
     def test_a_protected_directory_the_build_links_elsewhere_is_never_copied(self):
         """Re-check H1: PROFILE=prestashop, PS_RELEASE=on; the build makes release/cache a link to a host directory."""
         secret = self.root / "host-secrets"
@@ -802,7 +829,8 @@ class GenericDeployTest(unittest.TestCase):
         # The same rule on a server: the removal script runs there (here: this machine's sh).
         (code / "gone.php").write_text("x")
         commands = []
-        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options))).remove(
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options)) or
+                  subprocess.CompletedProcess(command, 0, b"", b"")).remove(
             str(code), ["gone.php", "linked/kept.php"])
         [(command, options)] = commands
         subprocess.run(["sh", "-c", command[-1]], input=options["input"], check=True, capture_output=True)
@@ -894,7 +922,8 @@ class GenericDeployTest(unittest.TestCase):
         (code / "locked/a.php").write_text("x")
         (code / "b.php").write_text("x")
         commands = []
-        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options))).remove(
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options)) or
+                  subprocess.CompletedProcess(command, 0, b"", b"")).remove(
             str(code), ["locked/a.php", "b.php"])
         [(command, options)] = commands
         (code / "locked").chmod(0o555)
@@ -911,9 +940,105 @@ class GenericDeployTest(unittest.TestCase):
         (code / "b.php").write_text("x")
         result = subprocess.run(["/bin/sh", "-c", command[-1]], input=options["input"], capture_output=True,
                                 env={"PATH": str(bare)})
-        self.assertIn(b"no python3 on the server", result.stderr)
+        self.assertIn(b"no python3 3.3+ on the server", result.stderr)
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertFalse((code / "b.php").exists())
+
+    def test_as_before_a_failed_removal_is_retried_by_the_next_deploy(self):
+        """Opt-in guarantee: g2 drops config/local.php; its removal step fails once; deploying g2 again removes it."""
+        public = self.generic()
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["config/local.php"])
+        with patch.object(LocalTarget, "remove", side_effect=OSError("target busy")), self.assertRaisesRegex(OSError, "busy"):
+            self.deploy(ref="g2")
+        self.assertTrue((public / "config/local.php").exists())
+        self.deploy(ref="g2")
+        self.assertFalse((public / "config/local.php").exists(), "the pending removal is retried")
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
+        self.deploy(ref="g3")
+        self.assertEqual(json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())[-1].get(
+            "pending_removals"), None, "done once removed")
+
+    def test_as_before_an_intermediate_link_inside_the_code_tree_is_followed(self):
+        """Opt-in guarantee: public -> actual inside the code tree; the old code and the shell loop removed through it."""
+        code = self.target / "app/public"
+        (code / "actual").mkdir()
+        (code / "actual/old.php").write_text("x")
+        (code / "public").symlink_to("actual")
+        self.assertEqual(LocalTarget().remove(str(code), ["public/old.php"]), [])
+        self.assertFalse((code / "actual/old.php").exists())
+        (code / "actual/old.php").write_text("x")
+        commands = []
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options)) or
+                  subprocess.CompletedProcess(command, 0, b"", b"")).remove(str(code), ["public/old.php"])
+        [(command, options)] = commands
+        subprocess.run(["sh", "-c", command[-1]], input=options["input"], check=True, capture_output=True)
+        self.assertFalse((code / "actual/old.php").exists(), "the server's python3 helper follows it too")
+        # A link that leaves the code tree is not followed, and its removal is not counted as done.
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "old.php").write_text("outside\n")
+        (code / "out").symlink_to(outside)
+        self.assertEqual(LocalTarget().remove(str(code), ["out/old.php"]), ["out/old.php"])
+        self.assertTrue((outside / "old.php").exists())
+
+    def test_a_removal_left_undone_stays_pending_until_it_is_done(self):
+        """A skipped removal is no removal: the history keeps it and the next deploy tries again."""
+        public = self.generic()
+        self.commit("g1b", {"sub/old.php": "<?php\n"})
+        self.deploy(ref="g1b")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "old.php").write_text("outside\n")
+        (public / "sub").rename(public / "sub-real")
+        (public / "sub").symlink_to(outside)
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["sub/old.php"])
+        self.deploy(ref="g2")
+        history = self.root / "app/.generated/release/stage/deployments.json"
+        self.assertEqual(json.loads(history.read_text())[-1]["pending_removals"], ["sub/old.php"])
+        self.assertTrue((outside / "old.php").exists())
+        (public / "sub").unlink()
+        (public / "sub-real").rename(public / "sub")
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
+        self.deploy(ref="g3")
+        self.assertFalse((public / "sub/old.php").exists())
+        self.assertNotIn("pending_removals", json.loads(history.read_text())[-1])
+
+    def test_as_before_a_directory_without_read_permission_still_has_its_files_removed(self):
+        """Opt-in guarantee: a 0300 directory (write and search, no read): a plain unlink always worked there."""
+        code = self.target / "app/public"
+        (code / "wo").mkdir()
+        (code / "wo/a.php").write_text("x")
+        (code / "wo").chmod(0o300)
+        self.addCleanup((code / "wo").chmod, 0o755)
+        self.assertEqual(LocalTarget().remove(str(code), ["wo/a.php"]), [])
+        (code / "wo").chmod(0o755)
+        self.assertFalse((code / "wo/a.php").exists())
+        (code / "wo/a.php").write_text("x")
+        (code / "wo").chmod(0o300)
+        commands = []
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options)) or
+                  subprocess.CompletedProcess(command, 0, b"", b"")).remove(str(code), ["wo/a.php"])
+        [(command, options)] = commands
+        result = subprocess.run(["sh", "-c", command[-1]], input=options["input"], capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (code / "wo").chmod(0o755)
+        self.assertFalse((code / "wo/a.php").exists())
+
+    def test_the_removal_helper_runs_on_python_3_5_servers(self):
+        """Item 4: the helper's source uses nothing newer than Python 3.5, and the server's version is checked."""
+        import io
+        import tokenize
+        from project_target import REMOVE_HELPER
+        tokens = list(tokenize.generate_tokens(io.StringIO(REMOVE_HELPER).readline))
+        fstrings = [token for token in tokens if token.type == getattr(tokenize, "FSTRING_START", -1)
+                    or (token.type == tokenize.STRING and token.string[:2].lower().lstrip("rb").startswith("f"))]
+        self.assertEqual(fstrings, [], "no f-strings (3.6)")
+        self.assertNotIn(":=", REMOVE_HELPER)
+        commands = []
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options)) or
+                  subprocess.CompletedProcess(command, 0, b"", b"")).remove("/srv/shop/public", ["a.php"])
+        self.assertIn("sys.version_info", commands[0][0][-1], "the interpreter's version is checked first")
 
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""

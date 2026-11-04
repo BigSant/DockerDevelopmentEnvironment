@@ -423,13 +423,17 @@ That code may plant links, special files or odd names in the release copy, so se
 (`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (a new file created
 `O_EXCL|O_NOFOLLOW` relative to the release opened `O_DIRECTORY|O_NOFOLLOW`, renamed over the entry: a planted link or
 hard link is replaced, never opened), a release counts as built only with a plain `.setup-release` (`release_built`),
-the protected directories copied from it must be real directories (`release_directory_present`, each part opened
-`O_NOFOLLOW`; a link is refused), the manifest is a JSON list (`manifests/<sha12>.json`, walked without following links;
+the protected directories copied from it are resolved from a descriptor of the release before the code is copied
+(`release_directory_present` with `remove_inside.walk`: a link inside the release, such as `cache -> var/cache`, is
+followed, one leading out is refused), the manifest is a JSON list (`manifests/<sha12>.json`, walked without following links;
 an older `.txt` newline list is never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps
 the newest `KEEP_RELEASES` distinct completed releases, removals take only `safe_names`, and the targets remove with
-`remove_inside.py` (from a descriptor of the code root, every directory opened `O_NOFOLLOW` relative to the one before,
-`unlink` relative to the last: no path is resolved twice; on a server with `python3 -c`, else a path-checked shell loop
-that counts every failure). `make -f docker/project.mk setup-capabilities` lists abilities without a project
+`remove_inside.py` (from a descriptor of the code root, every directory opened `O_PATH|O_NOFOLLOW` relative to the one
+before, a link followed only while its relative target stays inside the root, `unlink` relative to the last: no path
+is resolved twice and a 0300 directory works; Python 3.5-compatible, on a server with `python3` 3.3+ via `-c`, else a
+path-checked shell loop that counts every failure). What the removal step could not do stays pending in the history:
+a deploy is `"removals": "pending"` until its removal step is done (the next deploy removes against every release
+still on the target, `removal_sources`), and `pending_removals` names files left because their way leaves the root. `make -f docker/project.mk setup-capabilities` lists abilities without a project
 (`deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); `release-hardened-v1` is not
 offered until the release copy and the target are handled in an isolated container; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,

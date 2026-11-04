@@ -37,7 +37,10 @@ change (say how). An empty section still releases a patch.
   directory the build made a link, keeps release manifests as JSON (an older newline list is never trusted for
   removals), keeps the newest distinct completed releases, and removes files through directory descriptors from the
   code root (`remove_inside.py`, over ssh with the server's `python3`; without it a path-checked loop that reports
-  every failure). New `make -f docker/project.mk setup-capabilities` lists `deploy-attempt-v1`, `deploy-health-v1`,
+  every failure). Links inside the code tree (`public -> actual`) and protected directories linking inside the release
+  (`cache -> var/cache`) keep working, a directory without read permission (0300) too, the helper runs on the server's
+  Python 3.3+, and a removal that failed or had to be left stays pending in the history until a later deploy does it.
+  New `make -f docker/project.mk setup-capabilities` lists `deploy-attempt-v1`, `deploy-health-v1`,
   `deploy-status-v1` and `release-build-network-v1`; `release-hardened-v1` is not offered yet.
 - **The release build's network is a project setting.** `RELEASE_BUILD_NETWORK=host|bridge|none` (default `host`, as
   before): `bridge` or `none` run Composer scripts and `config/deploy/build.sh` of `make deploy`'s release build

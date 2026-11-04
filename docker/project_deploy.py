@@ -288,13 +288,35 @@ def is_protected(patterns, name):
     return any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*') for pattern in patterns)
 
 
-def removed_files(project, previous, current):
-    """Files of the previously deployed release that the new one no longer ships (never protected paths)."""
-    before = read_manifest(project, previous) if previous else None
-    if before is None:
-        if previous and manifest_path(project, previous).with_suffix('.txt').is_file():
-            print(f'Warning: the release {previous[:12]} has only an older newline file list and is no longer kept: '
-                  'this deploy removes nothing (files that release shipped may stay on the target).')
+def removal_sources(entries):
+    """(the commits whose files the target may still hold, the names left pending): the newest deploys back to the
+    first whose removals were done. A deploy whose removals failed or were cut short is `"removals": "pending"`, and
+    `pending_removals` names what a done removal step had to leave, so the next deploy tries them again."""
+    commits, pending = [], []
+    for entry in reversed(entries):
+        commits.append(entry['commit'])
+        pending += entry.get('pending_removals') or []
+        if entry.get('removals') != 'pending':
+            break
+    return commits, pending
+
+
+def removed_files(project, entries, current):
+    """Files the deploys still on the target shipped (removal_sources) that the new release does not, and the names
+    left pending; never protected paths."""
+    commits, pending = removal_sources(entries)
+    before = set(pending)
+    known = False
+    for commit in commits:
+        names = read_manifest(project, commit)
+        if names is None:
+            if manifest_path(project, commit).with_suffix('.txt').is_file():
+                print(f'Warning: the release {commit[:12]} has only an older newline file list and is no longer kept: '
+                      'this deploy removes nothing it shipped (those files may stay on the target).')
+            continue
+        known = True
+        before.update(names)
+    if not known and not pending:
         return []
     after = set(read_manifest(project, current) or [])
     patterns = protected_paths(project)
@@ -324,23 +346,21 @@ def protected_release_files(project, release):
 
 
 def release_directory_present(release, directory):
-    """Whether the release copy has this directory as a real one. Every part is opened without following links: the
-    build may have made one a link to a host directory, which rsync (a source ending in /) would follow."""
-    current = os.open(release, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    """Whether the release copy has this directory. It is resolved from a descriptor of the release, one part at a
+    time without following links (remove_inside.walk): a link inside the release (cache -> var/cache) is followed, one
+    that leads out (the build may make one point to a host directory, which rsync would follow) is refused."""
+    from remove_inside import LeavesRoot, open_root, walk
+    top = open_root(release)
     try:
-        for part in directory.strip('/').split('/'):
-            try:
-                following = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
-            except FileNotFoundError:
-                return False
-            except OSError:
-                raise ValueError(f'The release build left a link at {directory} (or a file where a directory belongs) in '
-                                 f'{release}; nothing of it is copied to the target') from None
-            os.close(current)
-            current = following
+        os.close(walk(top, os.fsencode(directory.strip('/')).split(b'/')))
         return True
+    except FileNotFoundError:
+        return False
+    except LeavesRoot:
+        raise ValueError(f'The release build left a link at {directory} leading out of the release (or a file where a '
+                         f'directory belongs) in {release}; nothing is copied to the target') from None
     finally:
-        os.close(current)
+        os.close(top)
 
 
 def push_protected_release_files(project, release, target, path):
@@ -641,12 +661,16 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
              'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
     if attempt:
         entry['attempt'] = attempt
+    # The protected directories the release sends after its code: a link leading out of the release is refused now,
+    # before anything is copied.
+    protected_release_files(project, release)
     print(f'==> rsync {release} -> {target.label}{path}', flush=True)
     target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
     # The target holds this code now: recorded at once, as failed until the deploy completes (a killed deploy stays
     # "incomplete", a failed step leaves its name), so the next deploy removes files against it, a rollback never
     # returns to it, and the code counts as reached.
-    record(project, {**entry, 'failed': 'incomplete'})
+    pending = {'removals': 'pending'}  # until the removal step is done: the next deploy then retries it
+    record(project, {**entry, 'failed': 'incomplete', **pending})
     stage = ['protected-files']  # the step running now: a failure is recorded with its name
     try:
         push_protected_release_files(project, release, target, path)
@@ -654,8 +678,15 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
         if not manifest_path(project, commit).is_file():
             write_manifest(project, release, commit)
         stage[0] = 'removals'
-        removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
-        target.remove(path, removed)
+        removed = removed_files(project, entries, commit)
+        left = target.remove(path, removed) or []
+        if left:
+            # Not removed is not done: kept in the history, the next deploy tries them again.
+            entry['pending_removals'] = left
+            print(f'Warning: {len(left)} files were left on the target, their way leaves the code tree: '
+                  f'{" ".join(left[:5])}; the next deploy tries them again.')
+        pending.clear()
+        replace_last(project, {**entry, 'failed': 'incomplete'})
         if removed:
             print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
         elif not entries:
@@ -669,7 +700,7 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
                              events, stage)
     except Exception:
         if stage[0] != 'completed':
-            replace_last(project, {**entry, 'failed': stage[0]})
+            replace_last(project, {**entry, 'failed': stage[0], **pending})
         raise
 
 
