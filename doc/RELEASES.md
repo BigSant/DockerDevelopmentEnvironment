@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.4.0
 
 - **Deploy attempts, health check and status (opt-in).** `make pipeline-deploy` takes `DEPLOY_ATTEMPT` (refused
   before any change when the environment knows it), `DEPLOY_EXPECTED_LIVE` (refused when the live commit differs) and
