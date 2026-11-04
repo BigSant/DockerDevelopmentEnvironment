@@ -548,6 +548,52 @@ class GenericDeployTest(unittest.TestCase):
         self.deploy(rollback=True, backup=False)
         self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "a redeploy of the same commit is not a rollback target")
 
+    def test_an_attempt_gets_an_event_per_stage_and_its_history_entries(self):
+        self.generic(CACHE_CLEAR_COMMAND="php bin/console cache:clear")
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        hook = self.root / "app/config/deploy/after-rsync.sh"
+        hook.write_text("true\n")
+        backup = self.root / "app/.generated/backups/shop-stage-1.sql.gz"
+        backup.write_text("dump")
+        attempt = "6f1c2d3e-0000-4000-8000-000000000001"
+        with patch("database_backup.backup_database", lambda project, registry=False: backup):
+            with patch("project_deploy.php_image", return_value="php:test"), \
+                    patch("project_deploy.in_release_image", lambda project, release, command, cache=None: None):
+                deploy_code(self.project, ref="g1", backup=True, attempt=attempt)
+        events = json.loads((self.root / f"app/.generated/release/stage/attempts/{attempt}.json").read_text())["events"]
+        self.assertEqual([(event["stage"], event["state"]) for event in events],
+                         [("backup", "ok"), ("code", "ok"), ("hook", "ok"), ("cache", "ok"), ("reload", "ok")])
+        self.assertEqual((events[0]["file"], events[0]["bytes"]), ("shop-stage-1.sql.gz", 4), "a file name, not a path")
+        self.assertEqual((events[3]["cleared"], events[3]["reason"]), (True, "the first deploy"))
+        self.assertTrue(all(event["at"] for event in events))
+        hook.write_text("exit 3\n")
+
+        def run(args, profiles=None):
+            if args[-1] == "exit 3\n":
+                raise subprocess.CalledProcessError(3, args)
+
+        self.project.run = run
+        second = "6f1c2d3e-0000-4000-8000-000000000002"
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        with self.assertRaisesRegex(ValueError, "after-rsync.sh failed"):
+            self.deploy(ref="g2", attempt=second)
+        events = json.loads((self.root / f"app/.generated/release/stage/attempts/{second}.json").read_text())["events"]
+        self.assertEqual([(event["stage"], event["state"]) for event in events], [("code", "ok"), ("hook", "failed")])
+        # A rollback's stages are one event, which make pipeline-deploy writes; its entry carries the attempt.
+        hook.write_text("true\n")
+        self.deploy(rollback=True, attempt=second)
+        events = json.loads((self.root / f"app/.generated/release/stage/attempts/{second}.json").read_text())["events"]
+        self.assertEqual(len(events), 2)
+        entries = json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())
+        self.assertEqual([(e["ref"], e.get("attempt"), e.get("failed")) for e in entries],
+                         [("g1", attempt, None), ("g2", second, "after-rsync"), ("g1", second, None)])
+        # Without an attempt nothing new is written: no attempt field, no file.
+        self.deploy(ref="g1")
+        self.assertNotIn("attempt", json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())[-1])
+        self.assertEqual(len(list((self.root / "app/.generated/release/stage/attempts").glob("*.json"))), 2)
+        with self.assertRaisesRegex(ValueError, "attempt must be 8-64"):
+            self.deploy(ref="g1", attempt="../x")
+
     def test_setup_migrations_run_when_the_project_has_them(self):
         self.generic(SCHEMA_DIRECTORY="schema")
         (self.root / "schema/migrations").mkdir(parents=True)

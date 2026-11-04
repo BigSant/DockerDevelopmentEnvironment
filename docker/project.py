@@ -373,7 +373,7 @@ def main():
                                            "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
-                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "cron-reload", "tool-access", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
+                                           "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "deploy-health", "deploy-status", "cron-reload", "tool-access", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
     parser.add_argument("--docker-server", help="Existing PhpStorm Docker connection name for ide-init")
     parser.add_argument("--ide-config-directory", type=Path, help="PhpStorm configuration directory for Docker connection discovery")
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
@@ -413,7 +413,15 @@ def main():
     parser.add_argument('--allow-dirty', action='store_true', help='release: allow uncommitted setup changes (not for real releases)')
     parser.add_argument('--no-transfer', action='store_true', help='deploy-images: images are already on the target')
     parser.add_argument('--release-ref', help='deploy: shop tag or commit to deploy')
-    parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again')
+    parser.add_argument('--rollback', action='store_true', help='deploy: deploy the previous release again; '
+                        'deploy-health: check the rollback of the attempt')
+    parser.add_argument('--attempt', help='deploy, deploy-health, deploy-status: the deploy attempt id (DEPLOY_ATTEMPT)')
+    parser.add_argument('--field', help='deploy-status: print one value only (live, code_reached, outcome)')
+    parser.add_argument('--fetch', action='store_true', help='deploy-status: fetch the build root first (proves its deploy key)')
+    parser.add_argument('--run-id', help='deploy-status: the CI run id for the document\'s run')
+    parser.add_argument('--run-attempt', help='deploy-status: the CI run attempt for the document\'s run')
+    parser.add_argument('--request-id', help='deploy-status: the caller\'s request id for the document\'s run')
+    parser.add_argument('--operation', help='deploy-status: the caller\'s operation (deploy, status) for the document\'s run')
     parser.add_argument('--deploy-cache', default='auto', choices=('auto', 'yes', 'no'),
                         help='deploy: clear the application cache (auto = when the deploy changes what it holds)')
     parser.add_argument('--name', help='module-pull: module directory name; migration-draft, translations-migration: file name after the time '
@@ -442,6 +450,17 @@ def main():
             # Before Project: the step writes env/<env>.env itself and runs each make step afresh.
             from project_pipeline import pipeline_deploy
             return pipeline_deploy(args.docker_directory, args.env, args.project_directory)
+        if args.action == 'deploy-health':
+            # Before Project, as pipeline-deploy: a workflow step without the environment's secrets runs it.
+            from project_deploy_health import deploy_health
+            return deploy_health(args.docker_directory, args.env, attempt=args.attempt, rollback=args.rollback)
+        if args.action == 'deploy-status':
+            from project_attempts import deploy_status
+            run = {'operation': args.operation, 'request_id': args.request_id,
+                   'run_id': int(args.run_id) if (args.run_id or '').isdigit() else args.run_id,
+                   'run_attempt': int(args.run_attempt) if (args.run_attempt or '').isdigit() else args.run_attempt}
+            return deploy_status(args.docker_directory, args.env, attempt=args.attempt, field=args.field, fetch=args.fetch,
+                                 run=run if any(run.values()) else None)
         if args.action == 'deploy-variables':
             from project_ci import deploy_variables
             return deploy_variables(args.docker_directory, args.env, source=args.source, replace=args.replace,
@@ -557,7 +576,8 @@ def main():
             deploy_images(project, transfer=not args.no_transfer)
         elif args.action == "deploy":
             from project_deploy import deploy_code
-            deploy_code(project, args.release_ref, backup=args.backup, rollback=args.rollback, cache=args.deploy_cache)
+            deploy_code(project, args.release_ref, backup=args.backup, rollback=args.rollback, cache=args.deploy_cache,
+                        attempt=args.attempt)
         elif args.action == "cron-reload":
             from project_deploy import reload_cron
             reload_cron(project)

@@ -9,7 +9,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy cron-reload tool-access pipeline-deploy deploy-variables module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy deploy-health deploy-status cron-reload tool-access pipeline-deploy deploy-variables module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -65,10 +65,12 @@ help:
 	@echo 'release ENV=stage|prod|<extra>: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod|<extra> [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
 	@echo 'deploy ENV=stage|prod|<extra> ref=TAG [backup=1] | rollback=1 [cache=auto|yes|no]: release the code, (back up), rsync, hook, upgrade, migrate, clear the cache when needed'
+	@echo 'deploy-health ENV=stage|prod|<extra> [attempt=ID] [rollback=1]: HTTP check of the deployed release (DEPLOY_HEALTH_*); a failure marks it failed'
+	@echo 'deploy-status ENV=stage|prod|<extra> [attempt=ID] [field=live|code_reached|outcome] [fetch=1]: the deploy status JSON (read only)'
 	@echo 'cron-reload [ENV=stage|prod|<extra>]: the running cron container takes config/cron/ now (checked, no restart)'
 	@echo 'tool-access ENV=stage|prod|<extra>: the tool users and addresses setup-server keeps (tool-access/<env>/) to the server now'
 	@echo 'module-pull ENV=stage|prod|<extra> name=MODULE: copy a module that exists only on the target into the shop checkout'
-	@echo 'pipeline-deploy [ENV=stage|prod|<extra>]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, CRON, ROLLBACK, BACKUP)'
+	@echo 'pipeline-deploy [ENV=stage|prod|<extra>]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, CRON, ROLLBACK, BACKUP, HEALTH, DEPLOY_ATTEMPT, DEPLOY_EXPECTED_LIVE)'
 	@echo 'deploy-variables [ENV=stage|prod|<extra>] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
 
 setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install git-hooks schema-resolve test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
@@ -115,7 +117,13 @@ release:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(allow_dirty)),--allow-dirty,)
 
 deploy:
-	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,) $(if $(cache),--deploy-cache $(call quote,$(cache)),)
+	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,) $(if $(cache),--deploy-cache $(call quote,$(cache)),) $(if $(attempt),--attempt $(call quote,$(attempt)),)
+
+deploy-health:
+	@$(RUN_PROJECT) $@ $(if $(attempt),--attempt $(call quote,$(attempt)),) $(if $(filter 1,$(rollback)),--rollback,)
+
+deploy-status:
+	@$(RUN_PROJECT) $@ $(if $(attempt),--attempt $(call quote,$(attempt)),) $(if $(field),--field $(call quote,$(field)),) $(if $(filter 1,$(fetch)),--fetch,) $(if $(run_id),--run-id $(call quote,$(run_id)),) $(if $(run_attempt),--run-attempt $(call quote,$(run_attempt)),) $(if $(request_id),--request-id $(call quote,$(request_id)),) $(if $(operation),--operation $(call quote,$(operation)),)
 
 pipeline-deploy:
 	@$(RUN_PROJECT) $@

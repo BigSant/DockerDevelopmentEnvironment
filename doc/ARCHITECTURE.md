@@ -507,6 +507,31 @@ checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH`
 whenever `DEPLOY_PATH` is not the project root. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
+The `auto` switches compare with every live base (`live_bases`): the checkout and, when it differs, the
+environment's last completed history commit (one repository layout; a build root that deploys stage and prod, or one
+a killed run left), yes when any comparison needs it, so never fewer rebuilds than the checkout alone. A run keeps
+`.generated/release/<env>/pipeline-run.json` (the commit before it, the target, whether images restarted, the history
+length) while it works; a run that finds one does first what the killed run's end would have done (`Step.repair`).
+Deploy attempts (`project_attempts`, opt-in; AI OS's development delivery contract): `DEPLOY_ATTEMPT` (8-64 of
+`[A-Za-z0-9-]`) is checked, accepted and run under the environment's `flock` (`attempts/.lock`, held by the step; its
+make children see `SETUP_DEPLOY_LOCK` and do not wait). A known id (an attempt file or a history entry) is refused (64,
+`attempt_exists`) unless `ROLLBACK=yes` follows its own failed entry or the step restarted on a newer setup (its last
+event `setup`). `DEPLOY_EXPECTED_LIVE` (40 hex or `none`) must equal the history's live commit (`live_changed`). The
+attempt file `attempts/<id>.json` holds `outcome`/`reason` (updated) and `events` (appended only), each write a
+temporary file renamed into place: the pipeline's `accepted`, `settings` (empty optional names), `images`, `rollback`,
+`repair`; `make deploy attempt=` adds `attempt` to its history entries and, for a deploy, `backup` (file name, bytes),
+`code`, `hook` (seconds), `migrations`, `cache`, `reload`. A refused new attempt gets a file with outcome `refused`.
+`make deploy-health` (`project_deploy_health`, before `Project`: a workflow step without secrets runs it) asks
+`DEPLOY_HEALTH_PATHS` + the caller's `DEPLOY_HEALTH_EXTRA` (≤30, validated) with `http.client` (no redirects, 10 s,
+one retry after a timeout, connection error or 5xx; 200-399 pass): this host's `PUBLISH_ADDRESS:LOCALHOST_PORT` with
+`Host` and `X-Forwarded-Proto: https`, another server's `https://DOMAIN` (pinned to `DEPLOY_HEALTH_ADDRESS` when set).
+`DEPLOY_HEALTH_RELEASE_PATH` must report the deployed commit as JSON `release` within 30 s. It marks the last history
+entry `health` and, failed, `failed: "health"` (so `rollback_entry` skips it), and the attempt's `health` /
+`health_after_rollback` event and outcome; it keeps status, time and tries, never a body. `HEALTH=auto` (the
+pipeline's default) runs it when the deployed commit configures a check; on prod a failed check or after-rsync hook
+then rolls back (`make deploy rollback=1`, `auto_rollback`) and checks again. `make deploy-status` prints
+`dde-deploy-status/v1` (`status_document`: attempt, live, the last 20 entries with backup file names, the Deployment
+variable names, the newest `worker-<env>-*Z.sql.gz`, the layout; at most 64 KiB) or one `field`; read only.
 setup-server's tool access (`project_tool_access`): `tool-access/<env>/{users.htpasswd,allowed-ips}` beside
 `target.env` go to `data/<env>/tool-access/` on the target (rsync, renamed into place, 0644 for nginx's workers) in
 deploy-images before compose up and in `make tool-access`; nginx-proxy mounts it read-only and `access.sh` adds the

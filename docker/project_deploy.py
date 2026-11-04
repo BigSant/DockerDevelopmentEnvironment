@@ -13,6 +13,8 @@ make deploy ENV=stage|prod|<extra> [ref=TAG] [backup=1] [rollback=1]
 Every step that knows an application follows PROFILE: an empty (generic) profile reads and protects
 nothing of PrestaShop, so .htaccess, robots.txt and modules/ are code like any other tracked file.
 rollback=1 deploys the previous release again; the database comes back from the backup by hand.
+attempt=ID (make pipeline-deploy's DEPLOY_ATTEMPT) records the attempt in the history entry and, for a deploy (not a
+rollback), each stage as an event of its attempt file (project_attempts): backup, code, hook, migrations, cache, reload.
 """
 
 from datetime import datetime, timezone
@@ -23,6 +25,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 
 from project_prestashop import is_prestashop
 from project_target import deploy_target
@@ -447,10 +450,15 @@ def newer(candidate, current):
         return candidate != current
 
 
-def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
+def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto', attempt=None):
+    from project_attempts import Attempt, check_attempt
     from project_release import check_project_root, release_model, release_settings
     if cache not in CACHE_VALUES:
         raise ValueError(f'cache must be auto, yes or no, not {cache!r}')
+    if attempt:
+        check_attempt(attempt, 'attempt')
+    # A rollback's stages are one event, rollback, which make pipeline-deploy writes.
+    events = Attempt(project.directory, project.environment, None if rollback else attempt)
     context, deploy_path = release_settings(project)
     # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
     check_project_root(project, context, release_model(project, deploy_path), deploy_path)
@@ -486,6 +494,8 @@ def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
         from database_backup import backup_database
         print('==> backing up the target database (table registry)', flush=True)
         backup_file = backup_database(project, registry=True)
+        size = Path(backup_file).stat().st_size if Path(backup_file).is_file() else None
+        events.event('backup', 'ok', file=Path(backup_file).name, bytes=size)
     print(f'==> rsync {release} -> {target.label}{path}', flush=True)
     target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
     push_protected_release_files(project, release, target, path)
@@ -500,24 +510,32 @@ def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
     for name in protected:
         print(f'Warning: module {name} exists only on the target and was left as is; '
               f'make module-pull ENV={project.environment} name={name} brings it into the code.')
+    events.event('code', 'ok', removed_files=len(removed))
     # The environment files the containers mount follow the deployed commit too (DEPLOY_PATH elsewhere).
     from project_release import sync_environment
     sync_environment(project, deploy_path)
     entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
              'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
+    if attempt:
+        entry['attempt'] = attempt
+    started = time.monotonic()
     try:
-        after_rsync(project)
+        hooked = after_rsync(project)
     except ValueError:
+        events.event('hook', 'failed', seconds=round(time.monotonic() - started, 1))
         # The history tells which code the target holds: the next deploy removes files against it,
         # and rollback=1 returns to the release before it.
         record(project, {**entry, 'failed': 'after-rsync'})
         raise
+    if hooked:
+        events.event('hook', 'ok', seconds=round(time.monotonic() - started, 1))
     if prestashop:
         upgrade_modules(project, release)
     from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
     if migrations_enabled(project) and migrations_directory(project).is_dir():
         # Recorded with the deploy: rollback=1 names them for make db-rollback.
         entry['migrations'] = migrate(project)
+        events.event('migrations', 'ok', applied=entry['migrations'])
     if prestashop:
         # The developers' translations: each translation migration once, recorded in setup_migrations.
         from project_translations import migrate_translations, migrations_directory as translation_migrations
@@ -530,15 +548,17 @@ def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
         clear, reason = cache_needed(project, entries, commit, rollback, entry.get('translations') or [])
         print(f"==> CACHE=auto: {'yes' if clear else 'no'} ({reason})", flush=True)
     else:
-        clear = cache == 'yes'
+        clear, reason = cache == 'yes', f'cache={cache}'
         if not clear:
             print('==> CACHE=no: the application cache is left as it is', flush=True)
     if clear:
         clear_cache(project)
+    events.event('cache', 'ok', cleared=clear, reason=reason)
     entry['cache'] = clear
     if prestashop:
         entry['ps_version'] = project.settings.get('PS_VERSION')
     reload_php(project)
+    events.event('reload', 'ok' if php_reload(project) else 'skipped')
     record(project, entry)
     from project_release import publish_release_info
     publish_release_info(project, deploy_path)

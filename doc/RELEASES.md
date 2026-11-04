@@ -11,7 +11,19 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Deploy attempts, health check and status (opt-in).** `make pipeline-deploy` takes `DEPLOY_ATTEMPT` (refused
+  before any change when the environment knows it), `DEPLOY_EXPECTED_LIVE` (refused when the live commit differs) and
+  `HEALTH=auto|yes|no`. With an attempt it keeps `.generated/release/<env>/attempts/<id>.json`: the outcome and an
+  event per stage, `make deploy` included. New `make deploy-health` checks the deployed release over HTTP
+  (`DEPLOY_HEALTH_PATHS`, `DEPLOY_HEALTH_RELEASE_PATH`, `DEPLOY_HEALTH_ADDRESS`, the caller's `DEPLOY_HEALTH_EXTRA`) and
+  marks a failed one `failed: "health"`; the pipeline runs it when the project configures it, and on prod rolls back
+  and checks again. New `make deploy-status` prints the `dde-deploy-status/v1` JSON document. A project that sets
+  none of this deploys as before.
+- **Live commit per environment.** `IMAGES=auto` and `CRON=auto` also compare with the environment's last completed
+  deploy when the build root's checkout differs (stage and prod from one build root), and a run killed midway is
+  repaired by the next one before it starts.
 
 ## 5.3.3
 

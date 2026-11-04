@@ -287,6 +287,28 @@ make translations-migrate ENV=prod dry=1             # ką deploy'us įrašytų 
   prod dar neturi.
 - PS 1.6 neturi `ps_translation`: tik `legacy`. Generic profilis vertimų migracijų neturi.
 
+### Patikra po deploy'aus (`make deploy-health`)
+
+```bash
+make deploy-health ENV=prod                      # ar ką tik deploy'intas release'as veikia
+make deploy-health ENV=prod attempt=ID rollback=1  # bandymo ID rollback'o patikra
+```
+
+Neprivaloma: projektas ją įjungia `env/common.env` faile (aplinkos pavyzdys gali perrašyti):
+
+```dotenv
+DEPLOY_HEALTH_PATHS="/ /admin/login /_health"
+DEPLOY_HEALTH_RELEASE_PATH=/_health
+```
+
+- **Puslapiai:** `DEPLOY_HEALTH_PATHS` ir `DEPLOY_HEALTH_EXTRA` (proceso kintamasis, kurį perduoda kviečiantysis, pvz. AI OS – pakeisti puslapiai), daugiausia 30, be pasikartojimų. Kelias – tik `/` ir raidės, skaitmenys, `. _ ~ / % -`.
+- **Užklausa:** po vieną `GET`, peradresavimų neseka, 10 s riba. Šio serverio taikinys (`DEPLOY_SSH` tuščias) – `http://<PUBLISH_ADDRESS arba 127.0.0.1>:<LOCALHOST_PORT><kelias>` su `Host: <pirmas DOMAIN>` ir `X-Forwarded-Proto: https`. Kitas serveris – `https://<pirmas DOMAIN><kelias>`, su `DEPLOY_HEALTH_ADDRESS` – jungiamasi tuo IP (vardas lieka SNI, `Host` ir sertifikato tikrinime).
+- **Release'as:** `DEPLOY_HEALTH_RELEASE_PATH` turi grąžinti JSON su `release` = deploy'intas commit'as. Jo klausiama iki 30 s prieš kitus puslapius.
+- **Rezultatas:** 200–399 – gerai. Laiko riba, ryšio klaida ar 5xx kartojama vieną kartą po 5 s. Įrašomi tik būsenos kodas, laikas ir bandymų skaičius, atsakymo turinys – niekada. Istorijos paskutinis įrašas gauna `"health": "ok"` arba `"failed"`, nepavykus ir `"failed": "health"`: toks release'as nebebus rollback'o tikslas, o setup-server metrikos jį rodo kaip nepavykusį deploy'ų.
+- Išėjimo kodas: 0 – veikia, 1 – nepavyko, 64 – nėra ką tikrinti arba `attempt` ne paskutinio deploy'aus (nieko nepakeista).
+
+Su `HEALTH=auto` (numatyta) `make pipeline-deploy` patikrą paleidžia pats, kai deploy'intas commit'as ją nustato. Prod patikrai ar `after-rsync.sh` hook'ui nepavykus jis pats grąžina ankstesnį sėkmingą release'ą (`make deploy rollback=1`) ir patikrina dar kartą; stage – ne (kodas lieka, žingsnis baigiasi klaida). `HEALTH=no` palieka patikrą ir rollback'ą workflow žingsniams, `HEALTH=yes` – reikalauja patikros. Projektas be šių nustatymų deploy'inamas kaip anksčiau.
+
 ### Rollback
 
 ```bash
@@ -430,6 +452,32 @@ Vardų sąrašas tas pats kaip [Deployment variables](#deployment-variables). Gi
 - Runner'is log'e slepia secret reikšmes, taip pat jų JSON pavidalą (`\"`, `\n`). Variables neslepiami, todėl slaptų reikšmių į juos nedėk.
 
 Jei projektui reikia griežčiau, JSON eilutes iš workflow išimk ir kiekvieną vardą perduok `env:` atskirai. Trūkstamą privalomą vardą `make pipeline-deploy` vis tiek praneš prieš bet kokį pakeitimą.
+
+### Deploy bandymai (`DEPLOY_ATTEMPT`) ir būsena (`make deploy-status`)
+
+Kviečiantysis, kuris seka savo deploy'us (AI OS, jo „development delivery contract“: `docs/development-delivery-contract.md`), kiekvienam deploy'ui duoda ID. Viskas neprivaloma: be šių kintamųjų `make pipeline-deploy` veikia kaip anksčiau – be bandymo failų, užrakto ir `attempt` lauko istorijoje.
+
+| Kintamasis | Reikšmė | Ką daro |
+| --- | --- | --- |
+| `DEPLOY_ATTEMPT` | 8–64 raidės, skaitmenys, `-` (UUID arba `manual-<vardas>`) | Bandymo ID. Jei aplinka jį jau žino (istorijoje ar bandymo faile), deploy'us atmetamas (64, `attempt_exists`) prieš bet kokį pakeitimą. Išimtis – `ROLLBACK=yes` po to paties bandymo nepavykusio deploy'aus. ID įrašomas kaip `attempt` į kiekvieną jo istorijos įrašą. |
+| `DEPLOY_EXPECTED_LIVE` | 40 hex commit'as arba `none` | Atmeta (64, `live_changed`), jei paskutinis sėkmingas aplinkos deploy'us (istorija) – ne šis commit'as (`none` – dar nieko). Taip prod deploy'us sustoja, jei produkcija pasikeitė be kviečiančiojo žinios. |
+| `HEALTH` | `auto`, `yes`, `no` | Žr. [patikra po deploy'aus](#patikra-po-deployaus-make-deploy-health). |
+
+Su `DEPLOY_ATTEMPT` bandymas turi failą `.generated/release/<env>/attempts/<id>.json`: būsena (`outcome`, `reason`) ir kiekvieno etapo įvykiai, įrašyti prieš kitą etapą (laikinas failas ir `rename`). Įvykiai tik papildomi, niekada neperrašomi: `accepted`, `settings`, `images`, `backup` (failo vardas ir dydis), `code`, `hook` (trukmė), `migrations`, `cache`, `reload`, `health`, `rollback`, `health_after_rollback`, taip pat `refused`, `repeated`, `repair`, `interrupted`. Bandymą priima ir paleidžia aplinkos užraktas (`attempts/.lock`). Atmestas naujas bandymas irgi gauna failą (`refused` ir priežastis: `bad_input`, `missing_settings`, `live_changed`, `setup_too_old`).
+
+```bash
+make -s deploy-status ENV=prod attempt=ID              # JSON dokumentas dde-deploy-status/v1
+make -s deploy-status ENV=prod                          # tik veikiantis release'as ir istorija
+make -s deploy-status ENV=prod field=live               # veikiantis commit'as arba none
+make -s deploy-status ENV=prod attempt=ID field=code_reached   # true, jei bandymo kodas pasiekė taikinį
+make -s deploy-status ENV=prod attempt=ID fetch=1       # pirma git fetch (ar deploy raktas veikia)
+```
+
+`make deploy-status` nieko nekeičia ir gali būti kartojamas. Dokumente: bandymo `outcome` (`in_progress`, `live`, `refused`, `not_deployed`, `failed_after_code`, `rolled_back`, `rollback_failed`, `unknown_attempt`) ir įvykiai, veikiantis release'as, paskutiniai 20 istorijos įrašų (kopijų tik failų vardai), Deployment variables **vardai** (ir kurie neprivalomi buvo tušti), naujausia setup-server naktinė kopija ir build root išdėstymas. Jokių reikšmių, env failų turinio ar atsakymų turinio; dokumentas ne didesnis nei 64 KiB. `run_id=`, `run_attempt=`, `request_id=`, `operation=` įrašomi į jo `run` dalį.
+
+Jei paleidimas buvo nutrauktas (runner'is ar serveris perkrautas), jo žymė `.generated/release/<env>/pipeline-run.json` lieka. Kitas `make pipeline-deploy` pirma padaro, ką nutrauktas paleidimas būtų padaręs pabaigoje: build root grąžina į commit'ą prieš jį arba palieka jau deploy'intą kodą, o nutraukto bandymo būsena tampa `not_deployed` ar `failed_after_code` su priežastimi `interrupted`.
+
+Paleidimo `IMAGES=auto` ir `CRON=auto` lygina su build root commit'u ir, jei jis kitas, su paskutiniu sėkmingu aplinkos deploy'umi iš istorijos (pvz. kai stage ir prod deploy'inami iš vieno build root): taip prod nepraleidžia image'ų perkūrimo, kurio reikia nuo jo paties paskutinio deploy'aus.
 
 ### make deploy-variables GitHub'e
 

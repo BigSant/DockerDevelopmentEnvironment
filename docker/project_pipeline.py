@@ -36,6 +36,24 @@ CACHE (default auto) goes to make deploy, which clears the application cache whe
 holds (cache_needed); yes always, no never.
 A failure returns the checkout and env file to the previously live commit, unless this run already
 restarted the containers on the new images: then nothing is undone and the step prints the way back.
+
+The live commit the auto switches compare with is the build root's checkout and, when it differs (a build root that
+deploys stage and prod, or one a killed run left behind), also the environment's last completed deploy in its history:
+a switch says yes when either comparison needs it. A run leaves .generated/release/<env>/pipeline-run.json while it
+works; finding one, the next run first does what the killed run's own end would have done (the checkout back at the
+commit before it, or at the code it already deployed).
+
+Opt-in, for a caller that tracks its deploys (AI OS; project_attempts):
+  DEPLOY_ATTEMPT=<id>: an attempt id. Under the environment's lock it is refused (64, attempt_exists) when the
+      environment already knows it, unless ROLLBACK=yes follows that attempt's own failed deploy; it is recorded as
+      `attempt` in the history entries it causes, and .generated/release/<env>/attempts/<id>.json gets the outcome and
+      an event per stage. A refusal of a new attempt writes that file too (outcome refused and the reason).
+  DEPLOY_EXPECTED_LIVE=<commit>|none: refused (64, live_changed) unless the environment's last completed deploy is
+      that commit (none: no deploy yet).
+  HEALTH=auto|yes|no (auto): after the deploy, make deploy-health when the deployed commit configures it
+      (DEPLOY_HEALTH_PATHS or DEPLOY_HEALTH_RELEASE_PATH) or the caller passes DEPLOY_HEALTH_EXTRA; no leaves it to the
+      caller's own step. On prod, a failed check (or a failed after-rsync hook) rolls back automatically
+      (make deploy rollback=1) and checks again. A project that configures none of it deploys as before.
 """
 
 import json
@@ -45,6 +63,8 @@ import re
 import subprocess
 import sys
 
+from project_attempts import (LOCK_VARIABLE, Attempt, COMMIT, check_attempt, environment_lock, is_known, live_commit,
+                              now, read_history, release_root)
 from project_env_files import (TARGET_KEYS, deployment_variables, file_settings,
                                needed_setup_version, project_root, read_dotenv, target_file, target_settings)
 from project_environments import DEPLOYMENT_ENVIRONMENTS, NAME, RESERVED, is_server, server_environments
@@ -57,9 +77,12 @@ RESERVED_PREFIXES = ('GITHUB_', 'RUNNER_', 'ACTIONS_')
 ENVIRONMENT_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 # One ref variable; the per-layout names of the former project scripts keep working.
 REF_VARIABLES = ('REF', 'APP_REF', 'SHOP_REF')
-SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('CACHE', 'auto'), ('ROLLBACK', 'no'), ('BACKUP', 'no'))
-# Switches that take auto: the step decides IMAGES and CRON from the commits it deploys, make deploy decides CACHE.
-AUTO_SWITCHES = ('IMAGES', 'CRON', 'CACHE')
+SWITCHES = (('IMAGES', 'no'), ('CRON', 'auto'), ('CACHE', 'auto'), ('ROLLBACK', 'no'), ('BACKUP', 'no'), ('HEALTH', 'auto'))
+# Switches that take auto: the step decides IMAGES and CRON from the commits it deploys, make deploy decides CACHE,
+# and HEALTH runs make deploy-health when the deployed commit configures a check.
+AUTO_SWITCHES = ('IMAGES', 'CRON', 'CACHE', 'HEALTH')
+ATTEMPT_VARIABLE, EXPECTED_VARIABLE = 'DEPLOY_ATTEMPT', 'DEPLOY_EXPECTED_LIVE'
+RUN_MARKER = 'pipeline-run.json'
 # What the images and containers are made of, in the environment repository: IMAGES=auto rebuilds when the
 # deployed commits touch it (env/<env>.env.example is added per environment). config/ is mounted, but Apache,
 # nginx and the PHP startup read it at container start; config/cron/ is left to CRON (make cron-reload), and
@@ -75,15 +98,18 @@ DROPPED_VARIABLES = ('MAKEFLAGS', 'MFLAGS', 'MAKELEVEL', 'MAKEOVERRIDES', 'DOCKE
 
 
 class Refusal(Exception):
-    """A check failed; status 64 (usage) unless a step's own status is passed on."""
+    """A check failed; status 64 (usage) unless a step's own status is passed on. reason: the attempt's code."""
+    reason = 'bad_input'
 
-    def __init__(self, message, status=USAGE):
+    def __init__(self, message, status=USAGE, reason=None):
         super().__init__(message)
         self.status = status
+        self.reason = reason or self.reason
 
 
 class SetupTooOld(Refusal):
     """The deployed commit needs a newer setup (SETUP_MIN_VERSION)."""
+    reason = 'setup_too_old'
 
     def __init__(self, wanted, current):
         super().__init__(f'This project needs setup {wanted} or newer (SETUP_MIN_VERSION in env/common.env); '
@@ -93,10 +119,19 @@ class SetupTooOld(Refusal):
 
 class MissingVariables(Refusal):
     """Required Deployment variables are empty."""
+    reason = 'missing_settings'
+
+
+class AttemptExists(Refusal):
+    """DEPLOY_ATTEMPT names an attempt the environment already knows."""
+    reason = 'attempt_exists'
 
 
 class StepFailed(Refusal):
     """A make step failed; it has printed its own error."""
+
+    def __init__(self, message, status, target):
+        super().__init__(message, status, {'release': 'images', 'deploy-images': 'images'}.get(target, target))
 
 
 class Provider:
@@ -187,6 +222,8 @@ class Step:
         # The steps run with this setup, whichever the build root's Makefile would find.
         self.child['SETUP_DIRECTORY'] = str(SETUP_ROOT)
         self.history = directory / '.generated/release' / environment / 'deployments.json'
+        self.marker = release_root(directory, environment) / RUN_MARKER
+        self.marker_handle, self.marker_data = None, {}
 
     def say(self, message):
         print(message, file=self.err, flush=True)
@@ -240,12 +277,88 @@ class Step:
         self.git('checkout', '--quiet', '--detach', commit)
         self.write_env()
 
-    def make(self, target, *arguments):
+    def run_make(self, target, *arguments):
         command = ['make', target, f'ENV={self.environment}', *arguments]
         print(f'==> {" ".join(command)}', file=self.out, flush=True)
-        status = subprocess.run(command, cwd=self.directory, env=self.child).returncode
+        return subprocess.run(command, cwd=self.directory, env=self.child).returncode
+
+    def make(self, target, *arguments):
+        status = self.run_make(target, *arguments)
         if status:
-            raise StepFailed(f'make {target} failed (exit {status})', status)
+            raise StepFailed(f'make {target} failed (exit {status})', status, target)
+
+    def mark(self, **fields):
+        """The run's marker, locked while the run works: a run that finds one unlocked knows the last one was killed."""
+        import fcntl
+        if self.marker_handle is None:
+            self.marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            handle = open(self.marker, 'a+')
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.close()
+                raise self.running() from None
+            self.marker_handle = handle
+        self.marker_data.update(fields)
+        self.marker_handle.seek(0)
+        self.marker_handle.truncate()
+        self.marker_handle.write(json.dumps(self.marker_data) + '\n')
+        self.marker_handle.flush()
+        os.fsync(self.marker_handle.fileno())
+
+    def unmark(self):
+        self.marker.unlink(missing_ok=True)
+        if self.marker_handle is not None:
+            self.marker_handle.close()
+            self.marker_handle = None
+
+    def running(self):
+        return Refusal(f'Another make pipeline-deploy of ENV={self.environment} is running in this build root '
+                       f'({self.marker} is locked); wait for it to finish')
+
+    def repair(self, head, record):
+        """A killed run's leftovers: what its own end would have done. Returns the build root's commit afterwards."""
+        import fcntl
+        if not self.marker.is_file():
+            return head
+        with open(self.marker) as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise self.running() from None
+            try:
+                left = json.loads(handle.read())
+                entries = read_history(self.directory, self.environment)
+                grown = len(entries) > left['entries']
+            except (ValueError, KeyError, TypeError):
+                raise Refusal(f'{self.marker} is not a pipeline run marker: check the build root and remove it') from None
+            return self.repaired(head, record, left, entries, grown)
+
+    def repaired(self, head, record, left, entries, grown):
+        """The killed run's end: its code deployed (follow it), its images restarted (stay), else back to its start."""
+        deployed = grown and not entries[-1].get('failed')
+        if deployed and not self.separate:
+            commit = entries[-1]['commit']
+            self.say(f'==> A killed run deployed {commit[:12]} to ENV={self.environment} but did not finish; '
+                     'the build root follows it.')
+        elif deployed or left.get('images'):
+            commit = head
+            self.say(f'==> A killed run left the build root at {head[:12]} after it ' +
+                     ('deployed the code' if deployed else 'restarted the containers on its images') + '; it stays there.')
+        else:
+            commit = left['from']
+            self.say(f'==> A killed run left the build root at {head[:12]}; it is back at {commit[:12]}, '
+                     f'the commit before that run.')
+        if commit != head:
+            self.checkout(commit)
+        self.unmark()
+        interrupted = Attempt(self.directory, self.environment, left.get('attempt'))
+        if interrupted and interrupted.outcome() == 'in_progress':
+            interrupted.event('interrupted', 'failed', code_reached=grown)
+            interrupted.update(outcome='failed_after_code' if grown else 'not_deployed', reason='interrupted')
+        record.event('repair', 'ok', checkout_repaired=commit != head, interrupted_attempt=left.get('attempt'),
+                     commit=commit)
+        return commit
 
     def require(self, variables, environ, provider, name):
         missing = [key for key, variable in variables.items() if variable['required'] and not environ.get(key)]
@@ -283,16 +396,50 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
     out, err = out or sys.stdout, err or sys.stderr
     directory = Path(directory).resolve()
     root = Path(root).resolve() if root else project_root(directory)
-
-    def refuse(message):
-        print(message, file=err)
-        print('Nothing was changed.', file=err)
-        return USAGE
-
     provider = provider_of(environ)
     deployment = environ.get(provider.environment, '') if provider.environment else ''
     try:
         environment = environment_of(environment, deployment, provider)
+        attempt = environ.get(ATTEMPT_VARIABLE, '')
+        if attempt:
+            check_attempt(attempt)
+    except (Refusal, ValueError) as refusal:
+        print(refusal, file=err)
+        print('Nothing was changed.', file=err)
+        return USAGE
+    if not attempt and not environ.get(EXPECTED_VARIABLE):
+        return checked_step(directory, root, environment, environ, provider, deployment, out, err)
+    # One attempt at a time per environment: its check, its acceptance and its run.
+    with environment_lock(directory, environment, environ) as lock:
+        environ[LOCK_VARIABLE] = str(lock)
+        return checked_step(directory, root, environment, environ, provider, deployment, out, err)
+
+
+def checked_step(directory, root, environment, environ, provider, deployment, out, err):
+    record = Attempt(directory, environment, environ.get(ATTEMPT_VARIABLE))
+    # new: an attempt not seen yet; follow: ROLLBACK=yes after its own failed deploy; resume: its run restarted on a
+    # newer setup (SetupTooOld); known: any other repeat, refused.
+    mode = attempt_mode(directory, environment, record, environ)
+
+    def refuse(refusal):
+        print(refusal, file=err)
+        if isinstance(refusal, MissingVariables):
+            print(f'Nothing was changed. make deploy-variables ENV={environment} lists every name and checks '
+                  f'{provider.label}.', file=err)
+        else:
+            print('Nothing was changed.', file=err)
+        message = str(refusal).splitlines()[0]
+        if mode == 'new':
+            record.create(outcome='refused', reason=refusal.reason, expected_live=environ.get(EXPECTED_VARIABLE) or None)
+            record.event('refused', 'refused', reason=refusal.reason, message=message)
+        elif mode == 'follow':
+            record.event('rollback', 'refused', reason=refusal.reason, message=message)
+        elif mode == 'resume':
+            record.event('refused', 'refused', reason=refusal.reason, message=message)
+            record.update(outcome='refused', reason=refusal.reason)
+        return USAGE
+
+    try:
         for duplicate in expand_json(environ):
             print(f'Warning: {duplicate} is both a secret and a configuration variable; the secret is used.',
                   file=err)
@@ -302,12 +449,16 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
             allowed = ('yes', 'no', 'auto') if name in AUTO_SWITCHES else ('yes', 'no')
             if switches[name] not in allowed:
                 raise Refusal(f"{name} must be {', '.join(allowed[:-1])} or {allowed[-1]}, not {switches[name]!r}")
+        rollback = switches['ROLLBACK'] == 'yes'
+        if mode == 'follow' and not rollback:
+            mode = 'known'
+        if mode == 'known':
+            return refuse_known(record, environment, err)
         given = {name: environ[name] for name in REF_VARIABLES if environ.get(name)}
         if len(set(given.values())) > 1:
             raise Refusal(f"{', '.join(given)} name different refs: set only REF")
         ref = next(iter(given.values()), '')
         step = Step(directory, root, environment, environ, out, err)
-        rollback = switches['ROLLBACK'] == 'yes'
         if step.separate and not rollback and not ref:
             raise Refusal('Name the code tag or commit to deploy with REF (SHOP_REF): app/public is its own '
                           'repository, and the pipeline commit belongs to this environment repository')
@@ -315,19 +466,57 @@ def pipeline_deploy(directory, environment='local', root=None, environ=None, out
             raise Refusal(f'Neither REF nor {provider.commit} names the commit to deploy')
         if step.separate and not environ.get(provider.commit):
             raise Refusal(f'{provider.commit} is not set: the environment checkout follows the pipeline commit')
+        check_expected_live(directory, environment, environ.get(EXPECTED_VARIABLE, ''))
         try:
             variables = deployment_variables(directory, environment)
         except ValueError as error:
             raise Refusal(str(error)) from None
         step.require(variables, environ, provider, deployment)
-    except MissingVariables as refusal:
-        print(refusal, file=err)
-        print(f'Nothing was changed. make deploy-variables ENV={environment} lists every name and checks '
-              f'{provider.label}.', file=err)
-        return USAGE
     except Refusal as refusal:
-        return refuse(str(refusal))
-    return run_step(step, environ, provider, deployment, ref, switches)
+        return refuse(refusal)
+    if mode == 'new':
+        record.create(expected_live=environ.get(EXPECTED_VARIABLE) or None, ref=ref or None, rollback=rollback)
+        record.event('accepted', 'ok', rollback=rollback, run_id=environ.get('GITHUB_RUN_ID') or None)
+    return run_step(step, environ, provider, deployment, ref, switches, record, mode == 'follow')
+
+
+def attempt_mode(directory, environment, record, environ):
+    if not record:
+        return None
+    if not is_known(directory, environment, record.id):
+        return 'new'
+    data = record.read()
+    # The lock is free while the step restarts, so a repeat refused meanwhile may follow the setup event.
+    own = [event['stage'] for event in (data or {}).get('events', []) if event['stage'] != 'repeated']
+    if environ.get('SETUP_SELF_UPDATED') and data and data['outcome'] == 'in_progress' and own and own[-1] == 'setup':
+        return 'resume'
+    entries = read_history(directory, environment)
+    if entries and entries[-1].get('attempt') == record.id and entries[-1].get('failed'):
+        return 'follow'  # only with ROLLBACK=yes, which checked_step decides once the switches are read
+    return 'known'
+
+
+def refuse_known(record, environment, err):
+    data = record.read()
+    print(f'Attempt {record.id} is known in ENV={environment} already' +
+          (f" (outcome: {data['outcome']})" if data else ' (its deploy is in the history)') +
+          '; a repeated attempt changes nothing. Deploy again with a new attempt id.', file=err)
+    print('Nothing was changed.', file=err)
+    if data:
+        record.event('repeated', 'refused', reason='attempt_exists')
+    return USAGE
+
+
+def check_expected_live(directory, environment, expected):
+    """DEPLOY_EXPECTED_LIVE: the commit the caller believes is live (none: nothing yet); anything else is refused."""
+    if not expected:
+        return
+    if expected != 'none' and not COMMIT.fullmatch(expected):
+        raise Refusal(f'{EXPECTED_VARIABLE} must be a full lower-case commit or none, not {expected!r}')
+    live = live_commit(directory, environment) or 'none'
+    if live != expected:
+        raise Refusal(f'ENV={environment} changed outside this deploy: its live commit is {live}, not {expected} '
+                      f'({EXPECTED_VARIABLE})', reason='live_changed')
 
 
 def images_needed(step, live, target):
@@ -360,26 +549,97 @@ def cron_needed(step, live, target):
     return False, f'the crontab did not change since {live[:12]}'
 
 
+def live_bases(step, head):
+    """The commits the auto switches compare with: the build root's checkout and, when it differs, the environment's
+    last completed deploy (one repository: the history records environment commits)."""
+    if step.separate:
+        return [head]
+    recorded = live_commit(step.directory, step.environment)
+    known = recorded and subprocess.run(['git', '-C', str(step.directory), 'cat-file', '-e', recorded + '^{commit}'],
+                                        env=step.child, capture_output=True).returncode == 0
+    return [head, recorded] if known and recorded != head else [head]
+
+
+def needed_since(needed, step, bases, target):
+    """needed() against every base: yes when any comparison says yes (never fewer than the checkout alone)."""
+    answers = [needed(step, base, target) for base in bases]
+    return next((answer for answer in answers if answer[0]), answers[0])
+
+
 def decide(step, name, value, needed):
-    """A switch's yes/no; auto asks needed() and prints the answer with its reason in the step log."""
+    """A switch's (yes/no, the reason); auto asks needed() and prints the answer with its reason in the step log."""
     if value != 'auto':
-        return value == 'yes'
+        return value == 'yes', f'{name}={value}'
     answer, reason = needed()
     print(f"==> {name}=auto: {'yes' if answer else 'no'} ({reason})", file=step.out, flush=True)
-    return answer
+    return answer, reason
 
 
-def run_step(step, environ, provider, deployment, ref, switches):
+def health_wanted(step, value, environ):
+    """(run make deploy-health in this step, the deployed commit configures a check)."""
+    from project_deploy_health import configured
+    values, _ = file_settings(step.directory, step.environment)
+    wanted = configured(values, environ)
+    if value == 'yes' and not wanted:
+        raise Refusal('HEALTH=yes, but the deployed commit configures no health check: set DEPLOY_HEALTH_PATHS or '
+                      'DEPLOY_HEALTH_RELEASE_PATH in env/common.env, or pass DEPLOY_HEALTH_EXTRA')
+    return (wanted if value == 'auto' else value == 'yes'), wanted
+
+
+def settle(record, follow, outcome, reason):
+    """The attempt's outcome after a failure; a follow-up rollback that fails leaves production in doubt."""
+    if follow:
+        record.event('rollback', 'failed', reason=reason)
+        record.update(outcome='rollback_failed')
+    else:
+        record.update(outcome=outcome, reason=reason)
+
+
+def auto_rollback(step, record, switches):
+    """prod, after a failed health check or hook: the previous completed release again, then its health check.
+    Returns the commit rolled back to, or '' when there was none or the rollback failed."""
+    attempt = [f'attempt={record.id}'] if record else []
+    to = history_commit(step.history, 'rollback')
+    if not to:
+        step.say(f'No earlier completed deploy of ENV={step.environment} to roll back to: the failed release stays.')
+        record.event('rollback', 'failed', reason='no earlier completed deploy')
+        record.update(outcome='rollback_failed')
+        return ''
+    step.say(f'==> The deploy failed on ENV={step.environment}: rolling back to {to[:12]} (HEALTH)')
+    try:
+        if not step.separate:
+            step.checkout(to)
+        step.make('deploy', 'rollback=1', f'cache={switches["CACHE"]}', *attempt)
+    except (Refusal, subprocess.CalledProcessError, OSError, ValueError) as error:
+        step.say(f'The rollback failed ({error}); ENV={step.environment} may not be serving. Check it and run '
+                 f'make deploy ENV={step.environment} rollback=1 or deploy a known release.')
+        record.event('rollback', 'failed', reason=str(error).splitlines()[0] if str(error) else 'error')
+        record.update(outcome='rollback_failed')
+        return ''
+    record.event('rollback', 'ok', to=to)
+    record.update(outcome='rolled_back')
+    # The check marks the attempt rolled_back or rollback_failed itself.
+    if step.run_make('deploy-health', *attempt, 'rollback=1'):
+        step.say(f'The rollback to {to[:12]} did not pass its health check: ENV={step.environment} may not be serving.')
+    return to
+
+
+def run_step(step, environ, provider, deployment, ref, switches, record=None, follow=False):
+    record = record if record is not None else Attempt(step.directory, step.environment, None)
+    attempt = [f'attempt={record.id}'] if record else []
     rollback = switches['ROLLBACK'] == 'yes'
     try:
         live = step.git('rev-parse', '--verify', 'HEAD')
     except subprocess.CalledProcessError:
         print(f'{step.directory} is not a git checkout with a commit; clone the environment repository there first',
               file=step.err)
+        settle(record, follow, 'refused', 'bad_input')
         return USAGE
-    state = {'restore': False, 'images': False, 'deploy': False}
-    target = ''
+    state = {'restore': False, 'images': False, 'deploy': False, 'deployed': False}
+    target, health, entries = '', False, None
     try:
+        live = step.repair(live, record)
+        entries = len(read_history(step.directory, step.environment))
         step.git('fetch', '--quiet', '--tags', 'origin')
         if step.separate:
             step.git('fetch', '--quiet', '--tags', 'origin', directory=step.code)
@@ -387,18 +647,22 @@ def run_step(step, environ, provider, deployment, ref, switches):
             raise Refusal(f'No earlier completed deploy in {step.history.relative_to(step.directory)} to roll back to')
         if step.separate:
             target = step.resolve(environ[provider.commit])
-            if not rollback:
-                step.resolve(ref, directory=step.code)
+            code = history_commit(step.history, 'rollback') if rollback else step.resolve(ref, directory=step.code)
         elif rollback:
-            target = history_commit(step.history, 'rollback')
+            target = code = history_commit(step.history, 'rollback')
         else:
             ref = ref or environ[provider.commit]
-            target = step.resolve(ref)
+            target = code = step.resolve(ref)
+        if not follow:
+            record.update(sha=code)
         # Decided before the checkout: the build root still holds the live commit.
-        images = decide(step, 'IMAGES', 'no' if rollback and switches['IMAGES'] == 'auto' else switches['IMAGES'],
-                        lambda: images_needed(step, live, target))
-        cron = decide(step, 'CRON', switches['CRON'], lambda: cron_needed(step, live, target))
+        bases = live_bases(step, live)
+        images, why = decide(step, 'IMAGES', 'no' if rollback and switches['IMAGES'] == 'auto' else switches['IMAGES'],
+                             lambda: needed_since(images_needed, step, bases, target))
+        cron, _ = decide(step, 'CRON', switches['CRON'], lambda: needed_since(cron_needed, step, bases, target))
         state['restore'] = True
+        step.mark(**{'from': live, 'target': target, 'attempt': record.id, 'images': False, 'entries': entries,
+                     'at': now()})
         step.checkout(target)
         print(f'==> {step.directory} at {target[:12]}, env/{step.environment}.env written from its example',
               file=step.out, flush=True)
@@ -414,48 +678,93 @@ def run_step(step, environ, provider, deployment, ref, switches):
         empty = [name for name, variable in variables.items() if not variable['required'] and not environ.get(name)]
         if empty:
             step.say(f"Warning: empty Deployment variables, their integrations stay off: {' '.join(empty)}")
+        health, checked = health_wanted(step, switches['HEALTH'], environ)
+        record.event('settings', 'ok', empty_settings=empty)
         if images:
             step.make('release')
             state['images'] = True
+            step.mark(images=True)
             # On this same host the images are built in the target's Docker already: no save | load copy.
             step.make('deploy-images', *(['transfer=0'] if step.same_host else []))
+            record.event('images', 'ok')
+        else:
+            record.event('images', 'skipped', reason=why)
         state['deploy'] = True
         if rollback:
-            step.make('deploy', 'rollback=1', f'cache={switches["CACHE"]}')
+            step.make('deploy', 'rollback=1', f'cache={switches["CACHE"]}', *attempt)
         else:
-            step.make('deploy', f'ref={ref}', f'backup={1 if switches["BACKUP"] == "yes" else 0}', f'cache={switches["CACHE"]}')
-        state['restore'] = False
+            step.make('deploy', f'ref={ref}', f'backup={1 if switches["BACKUP"] == "yes" else 0}', f'cache={switches["CACHE"]}',
+                      *attempt)
+        state['restore'], state['deployed'] = False, True
+        if rollback:
+            record.event('rollback', 'ok', to=history_commit(step.history, 'last'))
+        if follow:
+            record.update(outcome='rolled_back')
+        elif not checked:
+            record.update(outcome='live')
         if not step.separate:
             # Setup decides what it deployed; the checkout follows it if the two ever disagree.
             deployed = history_commit(step.history, 'last')
             if deployed and deployed != target:
                 step.say(f'Warning: setup deployed {deployed}, not {target}; the build root follows it.')
                 step.checkout(deployed)
+        status = 0
+        if health:
+            # make deploy-health records the attempt's outcome (live, or the failure the rollback below moves on).
+            status = step.run_make('deploy-health', *attempt, *(['rollback=1'] if follow else []))
+            if status:
+                step.say(f'The health check of ENV={step.environment} failed.')
+            if status and step.environment == 'prod' and not rollback:
+                to = auto_rollback(step, record, switches)
+                if to:
+                    cron, _ = decide(step, 'CRON', switches['CRON'], lambda: cron_needed(step, live, to))
         if cron:
             # The code is live: a crontab cron refuses fails the step but undoes nothing.
             step.make('cron-reload')
-        return 0
+        step.unmark()
+        return status
     except (Refusal, subprocess.CalledProcessError, OSError, ValueError) as error:
         if isinstance(error, subprocess.CalledProcessError):
             step.say(f'git {" ".join(error.cmd[3:])} failed: {(error.stderr or "").strip()}')
-            status = error.returncode or 1
+            status, reason = error.returncode or 1, 'error'
         elif not isinstance(error, Refusal):  # OSError, or a ValueError of an env or history file
             step.say(f'Error: {error}')
-            status = 1
+            status, reason = 1, 'error'
         else:
             if not isinstance(error, StepFailed):
                 step.say(str(error))
-            status = error.status
+            status, reason = error.status, error.reason
+        history = read_history(step.directory, step.environment) if entries is not None else []
+        reached = entries is not None and len(history) > entries
+        if state['deployed']:
+            # After the deploy (cron-reload): the code is live and stays; the attempt keeps its outcome.
+            record.event(reason, 'failed')
+            step.unmark()
+            return status
+        if reached and history[-1].get('failed') == 'after-rsync':
+            reason = 'hook'
+        if reached and health and step.environment == 'prod' and not rollback:
+            record.update(outcome='failed_after_code', reason=reason)
+            auto_rollback(step, record, switches)
+            step.unmark()
+            return status
         if state['restore']:
             restore(step, live, target, state, provider)
         elif status == USAGE:
             step.say('Nothing was changed.')
+        step.unmark()
         if isinstance(error, SetupTooOld):
-            return update_setup_and_restart(step, error.wanted, environ, status)
+            status = update_setup_and_restart(step, error.wanted, environ, status, record)
+        if reached:
+            settle(record, follow, 'failed_after_code', reason)
+        elif isinstance(error, Refusal) and not isinstance(error, StepFailed):
+            settle(record, follow, 'refused', reason)
+        else:
+            settle(record, follow, 'not_deployed', reason)
         return status
 
 
-def update_setup_and_restart(step, wanted, environ, status):
+def update_setup_and_restart(step, wanted, environ, status, record=None):
     """On a setup-server worker (SETUP_SERVER_ROOT, the runner's own checkout): the newer setup, then the step again."""
     if not environ.get('SETUP_SERVER_ROOT'):
         step.say(f'Update setup to v{wanted} or newer first (git -C {SETUP_ROOT} pull or check out a release tag).')
@@ -471,8 +780,13 @@ def update_setup_and_restart(step, wanted, environ, status):
         step.say(f'setup could not be updated to v{wanted} or newer: {detail}')
         return status
     step.say(f'==> setup {previous} -> {tag} ({SETUP_ROOT}): the project needs {wanted}; the step starts again on it.')
+    if record:
+        # The restarted step goes on with this attempt (checked_step: resume) instead of refusing it as known.
+        record.event('setup', 'updated', to=tag)
     sys.stdout.flush(), sys.stderr.flush()
-    os.execve(sys.executable, [sys.executable, *sys.argv], {**os.environ, 'SETUP_SELF_UPDATED': tag})
+    environment = {**os.environ, 'SETUP_SELF_UPDATED': tag}
+    environment.pop(LOCK_VARIABLE, None)
+    os.execve(sys.executable, [sys.executable, *sys.argv], environment)
 
 
 def restore(step, live, target, state, provider=BITBUCKET):

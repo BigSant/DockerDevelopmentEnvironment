@@ -34,6 +34,11 @@ services:
       # Code tree paths the server writes and git ignores (e.g. modules/*/translations/): make files-backup.
       BACKUP_FILE_PATHS: ${BACKUP_FILE_PATHS-}
       DEPLOY_PHP_RELOAD: ${DEPLOY_PHP_RELOAD-}
+      # make deploy-health (and pipeline-deploy's HEALTH=auto): the fixed smoke pages, the page reporting the release,
+      # and the address another server's site is asked at (as METRICS_PROBE_ADDRESS).
+      DEPLOY_HEALTH_PATHS: ${DEPLOY_HEALTH_PATHS-}
+      DEPLOY_HEALTH_RELEASE_PATH: ${DEPLOY_HEALTH_RELEASE_PATH-}
+      DEPLOY_HEALTH_ADDRESS: ${DEPLOY_HEALTH_ADDRESS-}
       # Deployment variables (Bitbucket) / environment secrets (GitHub) beyond setup's own
       # (make pipeline-deploy, make deploy-variables): names only.
       DEPLOY_REQUIRED_VARIABLES: ${DEPLOY_REQUIRED_VARIABLES-}
