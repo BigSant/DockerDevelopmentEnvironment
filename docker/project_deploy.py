@@ -13,6 +13,11 @@ make deploy ENV=stage|prod|<extra> [ref=TAG] [backup=1] [rollback=1]
 Every step that knows an application follows PROFILE: an empty (generic) profile reads and protects
 nothing of PrestaShop, so .htaccess, robots.txt and modules/ are code like any other tracked file.
 rollback=1 deploys the previous release again; the database comes back from the backup by hand.
+attempt=ID (make pipeline-deploy's DEPLOY_ATTEMPT) records the attempt in the history entry and, for a deploy (not a
+rollback), each stage as an event of its attempt file (project_attempts): backup, code, hook, migrations, cache, reload.
+The history is written under the environment's lock (project_attempts.environment_lock), and right after the copy:
+until the deploy completes, its entry says `"failed": "incomplete"`, then the stage that failed (`after-rsync`,
+`migrations`, `cache`, `reload`, ...), so the history always names the code the target holds.
 """
 
 from datetime import datetime, timezone
@@ -22,7 +27,9 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import stat
 import subprocess
+import time
 
 from project_prestashop import is_prestashop
 from project_target import deploy_target
@@ -53,6 +60,10 @@ TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
 PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
 AFTER_RSYNC_HOOK = 'config/deploy/after-rsync.sh'
 KEEP_RELEASES = 3
+# RELEASE_BUILD_NETWORK: the release build's Docker network. host (the default, as before) gives the project's build
+# steps the build machine's network; bridge keeps them off it with outside access (Composer, npm), none with no network
+# at all (when vendor/ and the assets need no download).
+RELEASE_BUILD_NETWORKS = ('host', 'bridge', 'none')
 MODULE_VERSION = re.compile(r"\$this->version\s*=\s*['\"]([^'\"]+)['\"]")
 
 
@@ -98,10 +109,7 @@ def rollback_entry(entries):
 
 
 def record(project, entry):
-    entries = history(project) + [entry]
-    path = deploy_directory(project) / 'deployments.json'
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.write_text(json.dumps(entries, indent=2) + '\n')
+    write_history(project, history(project) + [entry])
 
 
 def shop_checkout(project):
@@ -130,10 +138,20 @@ def build_cache(project):
     return Path(project.directory) / '.generated/build-cache'
 
 
+def release_build_network(project):
+    """RELEASE_BUILD_NETWORK, checked: host unless the project chooses bridge or none."""
+    network = project.settings.get('RELEASE_BUILD_NETWORK') or 'host'
+    if network not in RELEASE_BUILD_NETWORKS:
+        raise ValueError(f"RELEASE_BUILD_NETWORK must be host, bridge or none, not {network!r}")
+    return network
+
+
 def in_release_image(project, release, command, cache=None):
     """Run a command in the release PHP image on the release copy, as this machine's user: the copy is this machine's
     (the target's files belong to the account the deploy writes them as). cache: a folder mounted as
-    /setup-build-cache (SETUP_BUILD_CACHE), npm's cache in it."""
+    /setup-build-cache (SETUP_BUILD_CACHE), npm's cache in it. The project's code runs here (Composer scripts,
+    config/deploy/build.sh): RELEASE_BUILD_NETWORK decides whether it has the build machine's network."""
+    network = release_build_network(project)
     image = php_image(project)
     mounts = ['-v', f'{release}:/var/www/html']
     # The user has no home directory in the image: npm/Composer caches go to /tmp, or to the kept cache folder.
@@ -142,16 +160,52 @@ def in_release_image(project, release, command, cache=None):
         Path(cache).mkdir(mode=0o700, parents=True, exist_ok=True)
         mounts += ['-v', f'{cache}:/setup-build-cache', '-e', 'SETUP_BUILD_CACHE=/setup-build-cache']
         npm = '/setup-build-cache/npm'
-    subprocess.run(['docker', 'run', '--rm', '--network', 'host', '--user', f'{os.getuid()}:{os.getgid()}',
+    subprocess.run(['docker', 'run', '--rm', '--network', network, '--user', f'{os.getuid()}:{os.getgid()}',
                     '-e', 'HOME=/tmp', '-e', f'NPM_CONFIG_CACHE={npm}', '-e', 'COMPOSER_HOME=/tmp/composer', *mounts,
                     '-w', '/var/www/html', '--entrypoint', 'sh', image, '-c', command], check=True)
+
+
+def write_release_file(release, name, data):
+    """Create or replace one file directly in the release copy. The project's build steps (Composer scripts and
+    plugins, config/deploy/build.sh) run in it and may leave a link, a special file or a hard link of that name:
+    the data goes into a new file created exclusively (O_EXCL|O_NOFOLLOW) relative to the release, opened without
+    following links, and is renamed over the entry, which replaces whatever was there without ever opening it."""
+    import secrets
+    if '/' in name or name in ('', '.', '..'):
+        raise ValueError(f'Not a file name of the release copy: {name!r}')
+    directory = os.open(release, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    temporary = f'.setup-write-{secrets.token_hex(8)}'
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644,
+                     dir_fd=directory)
+        try:
+            with os.fdopen(fd, 'wb') as handle:
+                handle.write(data)
+            os.rename(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        except OSError:
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+            raise ValueError(f'The release build left a directory or something setup cannot replace at {name} in '
+                             f'{release}; nothing was written there') from None
+    finally:
+        os.close(directory)
+
+
+def release_built(release):
+    """Whether the release copy is complete: its .setup-release is a plain file (a planted link is not)."""
+    try:
+        return stat.S_ISREG(os.stat(release / '.setup-release', follow_symlinks=False).st_mode)
+    except OSError:
+        return False
 
 
 def build_code(project, ref):
     """The release directory for one shop commit, built once and reused (rollback, redeploy)."""
     shop, commit = shop_commit(project, ref)
     release = deploy_directory(project) / 'code' / commit[:12]
-    if (release / '.setup-release').is_file():
+    if release_built(release):
         print(f'Release {commit[:12]} already built: {release}')
         return release, commit
     if release.exists():
@@ -167,7 +221,7 @@ def build_code(project, ref):
     if (composer / 'composer.json').is_file():
         for name in ('composer.json', 'composer.lock'):
             if (composer / name).is_file():
-                shutil.copy2(composer / name, release / name)
+                write_release_file(release, name, (composer / name).read_bytes())
     if (release / 'composer.json').is_file():
         print('==> composer install --no-dev', flush=True)
         in_release_image(project, release, 'composer install --no-dev --optimize-autoloader --no-interaction --no-progress')
@@ -180,23 +234,52 @@ def build_code(project, ref):
         print('==> config/deploy/build.sh', flush=True)
         _run_hook(project, release, hook)
     write_manifest(project, release, commit)
-    (release / '.setup-release').write_text(json.dumps({'ref': ref, 'commit': commit}) + '\n')
+    write_release_file(release, '.setup-release', (json.dumps({'ref': ref, 'commit': commit}) + '\n').encode())
     prune_releases(project, keep=release)
     return release, commit
 
 
 def manifest_path(project, commit):
-    return deploy_directory(project) / 'manifests' / f'{commit[:12]}.txt'
+    """A release's file list as JSON: a file name may hold any character but /, newlines included."""
+    return deploy_directory(project) / 'manifests' / f'{commit[:12]}.json'
+
+
+def read_manifest(project, commit):
+    """The release's file names (JSON), or None. A release an older setup built has only a newline list
+    (manifests/<sha12>.txt), in which a file name with a newline reads as other names: it is never trusted. The list is
+    made again from the release copy when it is still kept, else there is none (and nothing is removed against it)."""
+    path = manifest_path(project, commit)
+    if path.is_file():
+        return json.loads(path.read_text())
+    release = deploy_directory(project) / 'code' / commit[:12]
+    if path.with_suffix('.txt').is_file() and release_built(release):
+        return write_manifest(project, release, commit)
+    return None
 
 
 def write_manifest(project, release, commit):
-    """Every file the release ships; the next deploy removes what it drops from this list only."""
-    files = sorted(path.relative_to(release).as_posix() for path in release.rglob('*')
-                   if (path.is_file() or path.is_symlink()) and not path.name.startswith('.setup-'))
+    """Every file the release ships; the next deploy removes what it drops from this list only. Links (to files or
+    directories) are entries and never followed."""
+    files = []
+    for directory, folders, names in os.walk(release):
+        base = Path(directory)
+        for name in names + [folder for folder in folders if (base / folder).is_symlink()]:
+            if not name.startswith('.setup-'):
+                files.append((base / name).relative_to(release).as_posix())
+    files.sort()
     target = manifest_path(project, commit)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(''.join(f'{name}\n' for name in files))
+    target.write_text(json.dumps(files) + '\n')
     return files
+
+
+def safe_names(names):
+    """The code tree names a removal may touch: relative, no ., .. or empty part, no control character."""
+    def safe(name):
+        parts = name.split('/')
+        return bool(name) and not name.startswith('/') and not any(part in ('', '.', '..') for part in parts) and \
+            not any(ord(character) < 32 or ord(character) == 127 for character in name)
+    return [name for name in names if safe(name)]
 
 
 def is_protected(patterns, name):
@@ -205,14 +288,46 @@ def is_protected(patterns, name):
     return any(fnmatch('/' + name, pattern.rstrip('/')) or fnmatch('/' + name, pattern + '*') for pattern in patterns)
 
 
-def removed_files(project, previous, current):
-    """Files of the previously deployed release that the new one no longer ships (never protected paths)."""
-    if not previous or not manifest_path(project, previous).is_file():
+def removal_sources(entries):
+    """(the commits whose files the target may still hold, the names left pending): the newest deploys back to the
+    first whose removals were done. A deploy whose removals failed or were cut short is `"removals": "pending"`, and
+    `pending_removals` names what a done removal step had to leave, so the next deploy tries them again."""
+    commits, pending = [], []
+    for entry in reversed(entries):
+        commits.append(entry['commit'])
+        pending += entry.get('pending_removals') or []
+        if entry.get('removals') != 'pending':
+            break
+    return commits, pending
+
+
+def removed_files(project, entries, current):
+    """Files the deploys still on the target shipped (removal_sources) that the new release does not, and the names
+    left pending; never protected paths."""
+    commits, pending = removal_sources(entries)
+    before = set(pending)
+    known = False
+    for commit in commits:
+        names = read_manifest(project, commit)
+        if names is None:
+            if manifest_path(project, commit).with_suffix('.txt').is_file():
+                print(f'Warning: the release {commit[:12]} has only an older newline file list and is no longer kept: '
+                      'this deploy removes nothing it shipped (those files may stay on the target).')
+            continue
+        known = True
+        before.update(names)
+    if not known and not pending:
         return []
-    before = set(manifest_path(project, previous).read_text().split('\n')) - {''}
-    after = set(manifest_path(project, current).read_text().split('\n')) - {''}
+    after = set(read_manifest(project, current) or [])
     patterns = protected_paths(project)
-    return sorted(name for name in before - after if not is_protected(patterns, name))
+    names = sorted(name for name in set(before) - after - {''} if not is_protected(patterns, name))
+    allowed = safe_names(names)
+    refused = [name for name in names if name not in allowed]
+    if refused:
+        shown = ', '.join(repr(name) for name in refused[:5]) + (f' (+{len(refused) - 5} more)' if len(refused) > 5 else '')
+        print(f'Warning: not removing {len(refused)} files whose names leave the code tree or hold control characters: '
+              f'{shown}')
+    return allowed
 
 
 def protected_release_files(project, release):
@@ -223,10 +338,27 @@ def protected_release_files(project, release):
         return []
     from project_application import seeded_directories
     patterns = protected_paths(project)
-    seeded = [(directory, False) for directory in seeded_directories() if (release / directory).is_dir()]
+    seeded = [(directory, False) for directory in seeded_directories() if release_directory_present(release, directory)]
     paths = (project.settings.get('PS_RELEASE_PATHS') or '').split()
-    followed = [(path, True) for path in paths if path != 'admin' and is_protected(patterns, path) and (release / path).is_dir()]
+    followed = [(path, True) for path in paths
+                if path != 'admin' and is_protected(patterns, path) and release_directory_present(release, path)]
     return seeded + followed
+
+
+def release_directory_present(release, directory):
+    """Whether the release copy has this directory, resolved (os.path.realpath): a link inside the release
+    (cache -> var/cache) is followed; one leading out of it is refused, because rsync (a source ending in /) would copy
+    that directory of this machine to the target. The release is setup's own copy and nothing changes it meanwhile."""
+    root = os.path.realpath(release)
+    path = os.path.realpath(os.path.join(release, directory.strip('/')))
+    if path != root and not path.startswith(root + os.sep):
+        raise ValueError(f'The release build left a link at {directory} leading out of the release in {release}; '
+                         'nothing is copied to the target')
+    if not os.path.lexists(path):
+        return False
+    if not os.path.isdir(path):
+        raise ValueError(f'The release build left a file at {directory} in {release}, where a directory belongs')
+    return True
 
 
 def push_protected_release_files(project, release, target, path):
@@ -241,7 +373,7 @@ def push_protected_release_files(project, release, target, path):
 def _run_hook(project, release, hook):
     """Project build step (assets, translations) inside the release image, on the release copy."""
     script = release / '.setup-build.sh'
-    shutil.copy2(hook, script)
+    write_release_file(release, script.name, hook.read_bytes())
     try:
         in_release_image(project, release, 'sh /var/www/html/.setup-build.sh', cache=build_cache(project))
     finally:
@@ -251,7 +383,19 @@ def _run_hook(project, release, hook):
 def prune_releases(project, keep):
     releases = sorted((path for path in (deploy_directory(project) / 'code').iterdir() if path.is_dir()),
                       key=lambda path: path.stat().st_mtime, reverse=True)
-    used = {entry['commit'][:12] for entry in history(project)[-KEEP_RELEASES:]} | {keep.name}
+    # Failed deploys must not crowd out what a rollback needs: the newest completed releases (the rollback target among
+    # them) and the code the target holds now stay, whatever failed since.
+    entries = history(project)
+    used = {keep.name}
+    distinct = []  # the newest completed releases, each once: redeploys of one release count once
+    for entry in reversed(entries):
+        if not entry.get('failed') and entry['commit'][:12] not in distinct:
+            distinct.append(entry['commit'][:12])
+        if len(distinct) == KEEP_RELEASES:
+            break
+    used.update(distinct)
+    if entries:
+        used.add(entries[-1]['commit'][:12])
     for path in releases[KEEP_RELEASES:]:
         if path.name not in used:
             shutil.rmtree(path)
@@ -447,10 +591,33 @@ def newer(candidate, current):
         return candidate != current
 
 
-def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
+def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto', attempt=None):
+    """make deploy, under the environment's lock: make deploy-health and pipeline runs write the same history."""
+    from project_attempts import environment_lock
+    with environment_lock(project.directory, project.environment):
+        return locked_deploy(project, ref, backup, rollback, cache, attempt)
+
+
+def replace_last(project, entry):
+    """The history's last entry (this deploy's provisional one) becomes entry."""
+    entries = history(project)
+    write_history(project, entries[:-1] + [entry])
+
+
+def write_history(project, entries):
+    from project_attempts import write_json
+    write_json(deploy_directory(project) / 'deployments.json', entries)
+
+
+def locked_deploy(project, ref, backup, rollback, cache, attempt):
+    from project_attempts import Attempt, check_attempt
     from project_release import check_project_root, release_model, release_settings
     if cache not in CACHE_VALUES:
         raise ValueError(f'cache must be auto, yes or no, not {cache!r}')
+    if attempt:
+        check_attempt(attempt, 'attempt')
+    # A rollback's stages are one event, rollback, which make pipeline-deploy writes.
+    events = Attempt(project.directory, project.environment, None if rollback else attempt)
     context, deploy_path = release_settings(project)
     # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
     check_project_root(project, context, release_model(project, deploy_path), deploy_path)
@@ -462,7 +629,7 @@ def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
         if not previous:
             raise ValueError('No previous deployment to roll back to')
         release = deploy_directory(project) / 'code' / previous['commit'][:12]
-        if not (release / '.setup-release').is_file():
+        if not release_built(release):
             raise ValueError(f'The previous release {previous["commit"][:12]} is no longer on this machine; deploy ref={previous["ref"]}')
         ref, commit = previous['ref'], previous['commit']
         print(f'==> rolling back to {ref} ({commit[:12]}); restore the database from the pre-deploy backup if needed')
@@ -486,60 +653,112 @@ def deploy_code(project, ref=None, backup=False, rollback=False, cache='auto'):
         from database_backup import backup_database
         print('==> backing up the target database (table registry)', flush=True)
         backup_file = backup_database(project, registry=True)
+        size = Path(backup_file).stat().st_size if Path(backup_file).is_file() else None
+        events.event('backup', 'ok', file=Path(backup_file).name, bytes=size)
+    entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+             'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
+    if attempt:
+        entry['attempt'] = attempt
+    # The protected directories the release sends after its code: a link leading out of the release is refused now,
+    # before anything is copied.
+    protected_release_files(project, release)
     print(f'==> rsync {release} -> {target.label}{path}', flush=True)
     target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
-    push_protected_release_files(project, release, target, path)
-    if not manifest_path(project, commit).is_file():
-        write_manifest(project, release, commit)
-    removed = removed_files(project, entries[-1]['commit'] if entries else None, commit)
-    target.remove(path, removed)
-    if removed:
-        print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
-    elif not entries:
-        print('First deploy: nothing removed on the target (files it already had stay).')
-    for name in protected:
-        print(f'Warning: module {name} exists only on the target and was left as is; '
-              f'make module-pull ENV={project.environment} name={name} brings it into the code.')
+    # The target holds this code now: recorded at once, as failed until the deploy completes (a killed deploy stays
+    # "incomplete", a failed step leaves its name), so the next deploy removes files against it, a rollback never
+    # returns to it, and the code counts as reached.
+    pending = {'removals': 'pending'}  # until the removal step is done: the next deploy then retries it
+    record(project, {**entry, 'failed': 'incomplete', **pending})
+    stage = ['protected-files']  # the step running now: a failure is recorded with its name
+    try:
+        push_protected_release_files(project, release, target, path)
+        stage[0] = 'manifest'
+        if not manifest_path(project, commit).is_file():
+            write_manifest(project, release, commit)
+        stage[0] = 'removals'
+        removed = removed_files(project, entries, commit)
+        # The target resolves each name and keeps what the new release ships or protects there (a link may lead a
+        # stale name onto one of its files).
+        left = target.remove(path, removed, keep=read_manifest(project, commit) or [], protected=excludes) or []
+        if left:
+            # Not removed is not done: kept in the history, the next deploy tries them again.
+            entry['pending_removals'] = left
+            print(f'Warning: {len(left)} files could not be removed from the target yet: {" ".join(left[:5])}; '
+                  'the next deploy tries them again.')
+        pending.clear()
+        replace_last(project, {**entry, 'failed': 'incomplete'})
+        if removed:
+            print(f'Removed {len(removed)} files that the previous release shipped and this one does not.')
+        elif not entries:
+            print('First deploy: nothing removed on the target (files it already had stay).')
+        for name in protected:
+            print(f'Warning: module {name} exists only on the target and was left as is; '
+                  f'make module-pull ENV={project.environment} name={name} brings it into the code.')
+        events.event('code', 'ok', removed_files=len(removed))
+        stage[0] = 'environment'
+        return finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry,
+                             events, stage)
+    except Exception:
+        if stage[0] != 'completed':
+            replace_last(project, {**entry, 'failed': stage[0], **pending})
+        raise
+
+
+def finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry, events, stage):
+    """After the copy: environment files, the hook, upgrades, migrations, cache, reload, then the completed entry.
+    stage[0] names the step running, which a failure is recorded with."""
     # The environment files the containers mount follow the deployed commit too (DEPLOY_PATH elsewhere).
     from project_release import sync_environment
     sync_environment(project, deploy_path)
-    entry = {'ref': ref, 'commit': commit, 'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-             'rollback': rollback, 'backup': str(backup_file) if backup_file else None}
+    stage[0] = 'after-rsync'
+    started = time.monotonic()
     try:
-        after_rsync(project)
+        hooked = after_rsync(project)
     except ValueError:
         # The history tells which code the target holds: the next deploy removes files against it,
         # and rollback=1 returns to the release before it.
-        record(project, {**entry, 'failed': 'after-rsync'})
+        events.event('hook', 'failed', seconds=round(time.monotonic() - started, 1))
         raise
+    if hooked:
+        events.event('hook', 'ok', seconds=round(time.monotonic() - started, 1))
     if prestashop:
+        stage[0] = 'modules'
         upgrade_modules(project, release)
     from database_migrations_guarded import migrate, migrations_directory, migrations_enabled
     if migrations_enabled(project) and migrations_directory(project).is_dir():
+        stage[0] = 'migrations'
         # Recorded with the deploy: rollback=1 names them for make db-rollback.
         entry['migrations'] = migrate(project)
+        events.event('migrations', 'ok', applied=entry['migrations'])
     if prestashop:
         # The developers' translations: each translation migration once, recorded in setup_migrations.
         from project_translations import migrate_translations, migrations_directory as translation_migrations
         if translation_migrations(project).is_dir():
+            stage[0] = 'translations'
             entry['translations'] = migrate_translations(project)
     if project.settings.get('SCHEMA_DIRECTORY'):
+        stage[0] = 'schema'
         from database_schema import schema_report
         schema_report(project)
+    stage[0] = 'cache'
     if cache == 'auto':
         clear, reason = cache_needed(project, entries, commit, rollback, entry.get('translations') or [])
         print(f"==> CACHE=auto: {'yes' if clear else 'no'} ({reason})", flush=True)
     else:
-        clear = cache == 'yes'
+        clear, reason = cache == 'yes', f'cache={cache}'
         if not clear:
             print('==> CACHE=no: the application cache is left as it is', flush=True)
     if clear:
         clear_cache(project)
+    events.event('cache', 'ok', cleared=clear, reason=reason)
     entry['cache'] = clear
     if prestashop:
         entry['ps_version'] = project.settings.get('PS_VERSION')
+    stage[0] = 'reload'
     reload_php(project)
-    record(project, entry)
+    events.event('reload', 'ok' if php_reload(project) else 'skipped')
+    replace_last(project, entry)
+    stage[0] = 'completed'  # recorded: what follows only reports
     from project_release import publish_release_info
     publish_release_info(project, deploy_path)
     from project_policy import report_traffic_classes

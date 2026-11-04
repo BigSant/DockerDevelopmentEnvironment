@@ -27,6 +27,11 @@ def git(directory, *args):
     subprocess.run(["git", "-C", str(directory), *args], check=True, capture_output=True)
 
 
+def git_commit(directory, ref):
+    return subprocess.run(["git", "-C", str(directory), "rev-parse", ref], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
 def compose_model(root):
     """The containers' bind mounts: code, data, the environment repository's config and its .generated."""
     bind = lambda source, target: {"type": "bind", "source": str(source), "target": target}
@@ -163,8 +168,9 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(pushes[0][-1], f"shop@host.example:{code}/")
         self.assertIn("--exclude=/modules/serveronly/", pushes[0], "a module only the server has is left alone")
         self.assertIn("module serveronly exists only on the target", self.output.getvalue())
-        removal = [(command, kwargs) for command, kwargs in calls if command[-1].endswith("xargs -0 rm -f --")]
-        self.assertEqual([kwargs["input"] for _, kwargs in removal], [b"old.php\0"])
+        removal = [kwargs["input"] for _, kwargs in calls if kwargs.get("input")]
+        self.assertEqual([json.loads(listing)["remove"] for listing in removal], [[b"old.php".hex()]],
+                         "the names on standard input, as the hex of their bytes")
         self.assertFalse((self.target / "app/public/index.php").exists(), "nothing is written to this machine's DEPLOY_PATH")
 
     def test_module_versions_and_comparison(self):
@@ -547,6 +553,557 @@ class GenericDeployTest(unittest.TestCase):
         self.deploy(ref="g3")
         self.deploy(rollback=True, backup=False)
         self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n", "a redeploy of the same commit is not a rollback target")
+
+    def test_an_attempt_gets_an_event_per_stage_and_its_history_entries(self):
+        self.generic(CACHE_CLEAR_COMMAND="php bin/console cache:clear")
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        hook = self.root / "app/config/deploy/after-rsync.sh"
+        hook.write_text("true\n")
+        backup = self.root / "app/.generated/backups/shop-stage-1.sql.gz"
+        backup.write_text("dump")
+        attempt = "6f1c2d3e-0000-4000-8000-000000000001"
+        with patch("database_backup.backup_database", lambda project, registry=False: backup):
+            with patch("project_deploy.php_image", return_value="php:test"), \
+                    patch("project_deploy.in_release_image", lambda project, release, command, cache=None: None):
+                deploy_code(self.project, ref="g1", backup=True, attempt=attempt)
+        events = json.loads((self.root / f"app/.generated/release/stage/attempts/{attempt}.json").read_text())["events"]
+        self.assertEqual([(event["stage"], event["state"]) for event in events],
+                         [("backup", "ok"), ("code", "ok"), ("hook", "ok"), ("cache", "ok"), ("reload", "ok")])
+        self.assertEqual((events[0]["file"], events[0]["bytes"]), ("shop-stage-1.sql.gz", 4), "a file name, not a path")
+        self.assertEqual((events[3]["cleared"], events[3]["reason"]), (True, "the first deploy"))
+        self.assertTrue(all(event["at"] for event in events))
+        hook.write_text("exit 3\n")
+
+        def run(args, profiles=None):
+            if args[-1] == "exit 3\n":
+                raise subprocess.CalledProcessError(3, args)
+
+        self.project.run = run
+        second = "6f1c2d3e-0000-4000-8000-000000000002"
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        with self.assertRaisesRegex(ValueError, "after-rsync.sh failed"):
+            self.deploy(ref="g2", attempt=second)
+        events = json.loads((self.root / f"app/.generated/release/stage/attempts/{second}.json").read_text())["events"]
+        self.assertEqual([(event["stage"], event["state"]) for event in events], [("code", "ok"), ("hook", "failed")])
+        # A rollback's stages are one event, which make pipeline-deploy writes; its entry carries the attempt.
+        hook.write_text("true\n")
+        self.deploy(rollback=True, attempt=second)
+        events = json.loads((self.root / f"app/.generated/release/stage/attempts/{second}.json").read_text())["events"]
+        self.assertEqual(len(events), 2)
+        entries = json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())
+        self.assertEqual([(e["ref"], e.get("attempt"), e.get("failed")) for e in entries],
+                         [("g1", attempt, None), ("g2", second, "after-rsync"), ("g1", second, None)])
+        # Without an attempt nothing new is written: no attempt field, no file.
+        self.deploy(ref="g1")
+        self.assertNotIn("attempt", json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())[-1])
+        self.assertEqual(len(list((self.root / "app/.generated/release/stage/attempts").glob("*.json"))), 2)
+        with self.assertRaisesRegex(ValueError, "attempt must be 8-64"):
+            self.deploy(ref="g1", attempt="../x")
+
+    def test_the_code_on_the_target_is_recorded_right_after_the_copy(self):
+        """Review 2: a failure after the copy (migrations, cache, reload) or a killed deploy still records the release
+        the target holds, as failed, so the next deploy and the status know it."""
+        self.generic(SCHEMA_DIRECTORY="schema")
+        (self.root / "schema/migrations").mkdir(parents=True)
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        history = self.root / "app/.generated/release/stage/deployments.json"
+
+        def broken(project):
+            raise ValueError("migration 2 failed")
+
+        attempt = "6f1c2d3e-0000-4000-8000-000000000003"
+        with patch("database_migrations_guarded.migrations_directory", return_value=self.root / "schema/migrations"), \
+                patch("database_migrations_guarded.migrate", broken), self.assertRaisesRegex(ValueError, "migration 2"):
+            with patch("project_deploy.php_image", return_value="php:test"), \
+                    patch("project_deploy.in_release_image", lambda project, release, command, cache=None: None):
+                deploy_code(self.project, ref="g2", attempt=attempt)
+        last = json.loads(history.read_text())[-1]
+        self.assertEqual((last["ref"], last["failed"], last["attempt"]), ("g2", "migrations", attempt))
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
+        with patch("project_deploy.reload_php", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            self.deploy(ref="g3")
+        self.assertEqual((json.loads(history.read_text())[-1]["ref"], json.loads(history.read_text())[-1]["failed"]),
+                         ("g3", "incomplete"), "a deploy killed after the copy leaves its release marked")
+        self.deploy(ref="g3")
+        self.assertEqual([(e["ref"], e.get("failed")) for e in json.loads(history.read_text())],
+                         [("g1", None), ("g2", "migrations"), ("g3", "incomplete"), ("g3", None)])
+
+    def test_a_failure_right_after_the_copy_is_recorded_too(self):
+        """Re-review 2: the removals (or the protected files, the manifest) fail after a successful rsync."""
+        self.generic()
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["config/local.php"])
+        with patch.object(LocalTarget, "remove", side_effect=OSError("disk full")), self.assertRaisesRegex(OSError, "disk full"):
+            self.deploy(ref="g2")
+        self.assertEqual((self.target / "app/public/src/Kernel.php").read_text(), "<?php // g2\n", "g2 is on the target")
+        last = json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())[-1]
+        self.assertEqual((last["ref"], last["failed"]), ("g2", "removals"))
+
+    def test_repeated_failures_keep_the_release_a_rollback_needs(self):
+        """Re-review A, without any new setting: a good g1, then four releases failing at the reload."""
+        self.generic()
+        self.deploy(ref="g1")
+        for name in ("g2", "g3", "g4", "g5"):
+            self.commit(name, {"src/Kernel.php": f"<?php // {name}\n"})
+            with patch("project_deploy.reload_php", side_effect=ValueError("reload failed")), \
+                    self.assertRaisesRegex(ValueError, "reload failed"):
+                self.deploy(ref=name)
+        self.deploy(rollback=True)
+        self.assertEqual((self.target / "app/public/src/Kernel.php").read_text(), "<?php // g1\n")
+
+    def test_the_release_build_has_the_host_network_unless_the_project_chooses_another(self):
+        """RELEASE_BUILD_NETWORK: host by default (as before); bridge or none keep the build off the host's network."""
+        from project_deploy import in_release_image
+        commands = []
+        release = self.root / "release"
+
+        def build(network=None):
+            if network is not None:
+                self.project.settings["RELEASE_BUILD_NETWORK"] = network
+            with patch("project_deploy.php_image", return_value="php:test"), \
+                    patch("subprocess.run", lambda command, **options: commands.append(command)):
+                in_release_image(self.project, release, "composer install --no-dev")
+            return commands[-1][commands[-1].index("--network") + 1]
+
+        self.assertEqual(build(), "host", "a project that sets nothing builds as before")
+        self.assertEqual([build(network) for network in ("bridge", "none", "host", "")], ["bridge", "none", "host", "host"])
+        self.assertTrue(all(command[:3] == ["docker", "run", "--rm"] for command in commands))
+        count = len(commands)
+        with self.assertRaisesRegex(ValueError, "RELEASE_BUILD_NETWORK must be host, bridge or none"):
+            build("--privileged")
+        self.assertEqual(len(commands), count, "nothing runs with a refused value")
+
+    def planting(self, plant):
+        """in_release_image as a hostile build: plant(release, command) runs where the build step would."""
+        def build(project, release, command, cache=None):
+            self.calls.append(["image", command])
+            plant(Path(release), command)
+        return patch("project_deploy.in_release_image", build)
+
+    def test_the_build_cannot_make_setup_write_through_a_planted_link(self):
+        """Hostile build 1: a Composer script links the files setup writes into the release to a host file."""
+        from project_deploy import write_manifest  # noqa: F401 (the module under test)
+        victim = self.root / "victim.txt"
+        victim.write_text("host file\n")
+        self.generic()
+        self.commit("c1", {"composer.json": "{}\n"})
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        (self.root / "app/config/deploy/build.sh").write_text("true\n")
+        for planted in (".setup-build.sh", ".setup-release"):
+            def plant(release, command, planted=planted):
+                if command.startswith("composer") or planted == ".setup-release":
+                    (release / planted).unlink(missing_ok=True)
+                    (release / planted).symlink_to(victim)
+            release = self.root / "app/.generated/release/stage/code" / git_commit(self.shop, "c1")[:12]
+            with self.subTest(planted=planted), patch("project_deploy.php_image", return_value="php:test"), \
+                    self.planting(plant):
+                try:
+                    build_code(self.project, "c1")
+                except ValueError:
+                    pass  # .setup-release planted after setup wrote it is no built release: see below
+            self.assertEqual(victim.read_text(), "host file\n", f"{planted} never writes through the link")
+            if planted == ".setup-build.sh":
+                self.assertFalse((release / planted).exists(), "setup's own copy replaced the link, then went")
+            with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None):
+                build_code(self.project, "c1")
+            self.assertTrue((release / ".setup-release").is_file() and not (release / ".setup-release").is_symlink())
+            import shutil
+            shutil.rmtree(release)
+        # The environment repository's composer files go into the export, which may hold a link of that name.
+        (self.root / "app/config/composer").mkdir(parents=True)
+        (self.root / "app/config/composer/composer.json").write_text('{"name": "env"}\n')
+        (self.shop / "composer.json").unlink()
+        (self.shop / "composer.json").symlink_to(victim)
+        git(self.shop, "add", "-A")
+        git(self.shop, "commit", "-q", "-m", "c2")
+        with patch("project_deploy.php_image", return_value="php:test"), self.planting(lambda release, command: None):
+            release, _ = build_code(self.project, "HEAD")
+        self.assertEqual(victim.read_text(), "host file\n")
+        self.assertEqual((release / "composer.json").read_text(), '{"name": "env"}\n', "a plain file replaced the link")
+        self.assertFalse((release / "composer.json").is_symlink())
+
+    def test_a_hard_link_swapped_in_while_setup_writes_is_never_truncated(self):
+        """Re-check H2: the entry turns into a hard link to a victim between setup's check and its write."""
+        from project_deploy import write_release_file
+        release = self.root / "release"
+        release.mkdir()
+        victim = release / "victim.txt"  # a hard link needs the same file system: a file the build can reach
+        victim.write_text("keep me\n")
+        (release / ".setup-release").write_text("old\n")
+        real_open, swapped = os.open, []
+
+        def racing_open(path, flags, *args, **kwargs):
+            if kwargs.get("dir_fd") is not None and not swapped:
+                swapped.append(True)
+                (release / ".setup-release").unlink()
+                os.link(victim, release / ".setup-release")
+            return real_open(path, flags, *args, **kwargs)
+
+        with patch("os.open", racing_open):
+            try:
+                write_release_file(release, ".setup-release", b"new\n")
+            except ValueError:
+                pass
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_text(), "keep me\n", "the victim is never opened for writing")
+        self.assertEqual((release / ".setup-release").read_text(), "new\n")
+
+    def test_as_before_a_protected_directory_may_be_a_link_inside_the_release(self):
+        """Opt-in guarantee (make deploy, nothing new set): PS_RELEASE=on with cache -> var/cache in the release and on
+        the target, which the main rsync and the protected copy always handled."""
+        release, target = self.root / "release", self.root / "server"
+        (release / "var/cache").mkdir(parents=True)
+        (release / "var/cache/index.php").write_text("release\n")
+        (release / "cache").symlink_to("var/cache")
+        (target / "var/cache").mkdir(parents=True)
+        (target / "cache").symlink_to("var/cache")
+        self.project.settings.update({"PS_RELEASE": "on", "PS_RELEASE_PATHS": ""})
+        self.assertIn(("cache", False), project_deploy.protected_release_files(self.project, release))
+        project_deploy.push_protected_release_files(self.project, release, LocalTarget(), str(target))
+        self.assertEqual((target / "var/cache/index.php").read_text(), "release\n")
+        # A link that leaves the release is refused before the main code is copied.
+        secret = self.root / "host-secrets"
+        secret.mkdir()
+
+        def plant(project, built, command, cache=None):
+            (Path(built) / "img").symlink_to(secret)
+
+        with patch("project_deploy.php_image", return_value="php:test"), patch("project_deploy.in_release_image", plant), \
+                patch("project_application.plan_application", return_value=(["true"], False)), \
+                patch("project_deploy.upgrade_modules", lambda project, release: []), \
+                self.assertRaisesRegex(ValueError, "release build left a link at img"):
+            deploy_code(self.project, ref="v1")
+        self.assertFalse((self.target / "app/public/index.php").exists(), "refused before the code was copied")
+
+    def test_a_protected_directory_the_build_links_elsewhere_is_never_copied(self):
+        """Re-check H1: PROFILE=prestashop, PS_RELEASE=on; the build makes release/cache a link to a host directory."""
+        secret = self.root / "host-secrets"
+        secret.mkdir()
+        (secret / "secret.txt").write_text("host secret\n")
+        release, target = self.root / "release", self.root / "server"
+        (release / "img").mkdir(parents=True)
+        (release / "img/index.php").write_text("release\n")
+        (release / "cache").symlink_to(secret)
+        target.mkdir()
+        self.project.settings.update({"PS_RELEASE": "on", "PS_RELEASE_PATHS": ""})
+        with self.assertRaisesRegex(ValueError, "release build left a link at cache"):
+            project_deploy.push_protected_release_files(self.project, release, LocalTarget(), str(target))
+        self.assertFalse((target / "cache/secret.txt").exists(), "nothing of the host directory reaches the target")
+
+    def test_a_file_name_cannot_inject_a_path_into_the_removals(self):
+        """Hostile build 2: a file named x<newline>/<host path> in the release; the next deploy drops it."""
+        victim = self.root / "victim.txt"
+        victim.write_text("host file\n")
+        self.generic()
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        (self.root / "app/config/deploy/build.sh").write_text("true\n")
+
+        def plant(release, command):
+            if "setup-build" in command and "g1" in (release / "src/Kernel.php").read_text():
+                injected = release / "x\n" / str(victim.parent).lstrip("/") / victim.name
+                injected.parent.mkdir(parents=True)
+                injected.write_text("built\n")
+
+        with patch("project_deploy.php_image", return_value="php:test"), self.planting(plant):
+            deploy_code(self.project, ref="g1")
+            self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+            deploy_code(self.project, ref="g2")
+        self.assertEqual(victim.read_text(), "host file\n", "no host file is removed")
+        manifest = self.root / f"app/.generated/release/stage/manifests/{git_commit(self.shop, 'g1')[:12]}.json"
+        self.assertIn("x\n" + str(victim), json.loads(manifest.read_text()))
+        self.assertIn("not removing", self.output.getvalue())
+
+    def test_removals_never_leave_the_code_tree(self):
+        """Absolute, .. or control-character names are refused; a name whose directory resolves out of the code root
+        (a link the target holds) is kept on purpose, here and with the server's python3."""
+        from project_deploy import safe_names
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "kept.php").write_text("x")
+        code = self.target / "app/public"
+        (code / "linked").symlink_to(outside)
+        self.assertEqual(safe_names(["gone.php", "/etc/passwd", "../x", "a/../../b", "ok\x07.php", "", "a//b"]), ["gone.php"])
+        for target in (LocalTarget(), SshTarget("shop@host.example", run=self.here())):
+            (code / "gone.php").write_text("x")
+            self.assertEqual(target.remove(str(code), ["gone.php", "linked/kept.php", "removed-dir/x.php"]), [])
+            self.assertFalse((code / "gone.php").exists())
+            self.assertTrue((outside / "kept.php").exists(), "a directory the target links elsewhere is not followed")
+
+    def test_redeploys_of_one_release_do_not_crowd_out_older_rollback_targets(self):
+        """Re-check A: g1 ok, g2 ok three times, g3-g5 fail; two rollbacks: to g2, then to g1."""
+        self.generic()
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        for _ in range(3):
+            self.deploy(ref="g2")
+        for name in ("g3", "g4", "g5"):
+            self.commit(name, {"src/Kernel.php": f"<?php // {name}\n"})
+            with patch("project_deploy.reload_php", side_effect=ValueError("reload failed")), \
+                    self.assertRaisesRegex(ValueError, "reload failed"):
+                self.deploy(ref=name)
+        public = self.target / "app/public"
+        self.deploy(rollback=True)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g2\n")
+        self.deploy(rollback=True)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n")
+
+    def test_a_legacy_newline_manifest_never_decides_a_removal(self):
+        """Re-check M1: an older setup's g1 manifest says x<newline>victim.php; victim.php is the server's own file."""
+        public = self.generic()
+        self.deploy(ref="g1")
+        manifests = self.root / "app/.generated/release/stage/manifests"
+        g1 = git_commit(self.shop, "g1")[:12]
+        names = json.loads((manifests / f"{g1}.json").read_text())
+        (manifests / f"{g1}.json").unlink()
+        (manifests / f"{g1}.txt").write_text("".join(f"{name}\n" for name in names) + "x\nvictim.php\n")
+        (public / "victim.php").write_text("the server's own\n")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        self.deploy(ref="g2")
+        self.assertEqual((public / "victim.php").read_text(), "the server's own\n")
+        self.assertTrue((manifests / f"{g1}.json").is_file(), "rebuilt from the kept release tree")
+        # The kept release is gone too: no list to trust, so nothing is removed (stale files stay; safe).
+        g2 = git_commit(self.shop, "g2")[:12]
+        (manifests / f"{g2}.json").rename(manifests / f"{g2}.txt")
+        import shutil
+        shutil.rmtree(self.root / f"app/.generated/release/stage/code/{g2}")
+        (public / "victim.php").touch()
+        self.deploy(ref="g1")
+        self.assertTrue((public / "victim.php").exists())
+        self.assertIn("removes nothing", self.output.getvalue())
+
+    def test_a_removal_that_fails_stays_pending_and_the_others_go(self):
+        """A file that cannot be removed (its directory is read-only) is pending, here and over ssh; the rest go."""
+        code = self.target / "app/public"
+        (code / "locked").mkdir()
+        (code / "locked/a.php").write_text("x")
+        (code / "locked").chmod(0o555)
+        self.addCleanup((code / "locked").chmod, 0o755)
+        for target in (LocalTarget(), SshTarget("shop@host.example", run=self.here())):
+            (code / "b.php").write_text("x")
+            self.assertEqual(target.remove(str(code), ["locked/a.php", "b.php"]), ["locked/a.php"])
+            self.assertFalse((code / "b.php").exists())
+            self.assertTrue((code / "locked/a.php").exists())
+
+    def test_as_before_a_failed_removal_is_retried_by_the_next_deploy(self):
+        """Opt-in guarantee: g2 drops config/local.php; its removal step fails once; deploying g2 again removes it."""
+        public = self.generic()
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["config/local.php"])
+        with patch.object(LocalTarget, "remove", side_effect=OSError("target busy")), self.assertRaisesRegex(OSError, "busy"):
+            self.deploy(ref="g2")
+        self.assertTrue((public / "config/local.php").exists())
+        self.deploy(ref="g2")
+        self.assertFalse((public / "config/local.php").exists(), "the pending removal is retried")
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
+        self.deploy(ref="g3")
+        self.assertEqual(json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())[-1].get(
+            "pending_removals"), None, "done once removed")
+
+    def test_as_before_an_intermediate_link_inside_the_code_tree_is_followed(self):
+        """Opt-in guarantee: public -> actual inside the code tree; removed through it, here and with the server's
+        python3 (actual/old.php is not the new release's)."""
+        code = self.target / "app/public"
+        (code / "actual").mkdir()
+        (code / "actual/old.php").write_text("x")
+        (code / "public").symlink_to("actual")
+        self.assertEqual(LocalTarget().remove(str(code), ["public/old.php"]), [])
+        self.assertFalse((code / "actual/old.php").exists())
+        (code / "actual/old.php").write_text("x")
+        self.assertEqual(SshTarget("shop@host.example", run=self.here()).remove(str(code), ["public/old.php"]), [])
+        self.assertFalse((code / "actual/old.php").exists(), "the server's python3 helper follows it too")
+        # A link that leaves the code tree is not followed: that name is kept on purpose.
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "old.php").write_text("outside\n")
+        (code / "out").symlink_to(outside)
+        self.assertEqual(LocalTarget().remove(str(code), ["out/old.php"]), [])
+        self.assertTrue((outside / "old.php").exists())
+
+    def test_a_removal_left_undone_stays_pending_until_it_is_done(self):
+        """A removal that could not be done is no removal: the history keeps it and the next deploy tries again."""
+        public = self.generic()
+        self.commit("g1b", {"sub/old.php": "<?php\n"})
+        self.deploy(ref="g1b")
+        (public / "sub").chmod(0o555)
+        self.addCleanup((public / "sub").chmod, 0o755)
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["sub/old.php"])
+        self.deploy(ref="g2")
+        history = self.root / "app/.generated/release/stage/deployments.json"
+        self.assertEqual(json.loads(history.read_text())[-1]["pending_removals"], ["sub/old.php"])
+        self.assertTrue((public / "sub/old.php").exists())
+        (public / "sub").chmod(0o755)
+        self.commit("g3", {"src/Kernel.php": "<?php // g3\n"})
+        self.deploy(ref="g3")
+        self.assertFalse((public / "sub/old.php").exists())
+        self.assertNotIn("pending_removals", json.loads(history.read_text())[-1])
+
+    def test_as_before_a_directory_without_read_permission_still_has_its_files_removed(self):
+        """Opt-in guarantee: a 0300 directory (write and search, no read): a plain unlink always worked there."""
+        code = self.target / "app/public"
+        (code / "wo").mkdir()
+        (code / "wo/a.php").write_text("x")
+        (code / "wo").chmod(0o300)
+        self.addCleanup((code / "wo").chmod, 0o755)
+        self.assertEqual(LocalTarget().remove(str(code), ["wo/a.php"]), [])
+        (code / "wo").chmod(0o755)
+        self.assertFalse((code / "wo/a.php").exists())
+        (code / "wo/a.php").write_text("x")
+        (code / "wo").chmod(0o300)
+        self.assertEqual(SshTarget("shop@host.example", run=self.here()).remove(str(code), ["wo/a.php"]), [])
+        (code / "wo").chmod(0o755)
+        self.assertFalse((code / "wo/a.php").exists())
+
+    def test_the_removal_helper_runs_on_python_3_5_servers(self):
+        """Item 4: the helper's source uses nothing newer than Python 3.5, and the server's version is checked."""
+        import io
+        import tokenize
+        from project_target import REMOVE_HELPER
+        tokens = list(tokenize.generate_tokens(io.StringIO(REMOVE_HELPER).readline))
+        fstrings = [token for token in tokens if token.type == getattr(tokenize, "FSTRING_START", -1)
+                    or (token.type == tokenize.STRING and token.string[:2].lower().lstrip("rb").startswith("f"))]
+        self.assertEqual(fstrings, [], "no f-strings (3.6)")
+        self.assertNotIn(":=", REMOVE_HELPER)
+        commands = []
+        SshTarget("shop@host.example", run=lambda command, **options: commands.append((command, options)) or
+                  subprocess.CompletedProcess(command, 0, b"", b"")).remove("/srv/shop/public", ["a.php"])
+        self.assertIn("sys.version_info", commands[0][0][-1], "the interpreter's version is checked first")
+        self.assertIn("python3 -c", commands[1][0][-1])
+
+    @staticmethod
+    def here(env=None, banner=None):
+        """An SshTarget's run that executes the server's command on this machine (sh), as ssh would there; banner:
+        what a login prints on standard output first."""
+        def run(command, **options):
+            script = f"{banner}; {command[-1]}" if banner else command[-1]
+            return subprocess.run(["sh", "-c", script], input=options.get("input"), capture_output=True, env=env)
+        return run
+
+    def bare_path(self):
+        """A PATH without python3: the server of the shell fallback."""
+        import shutil
+        bare = self.root / "bare-bin"
+        if not bare.exists():
+            bare.mkdir()
+            for tool in ("sh", "dirname", "rm", "xargs", "printf"):
+                if shutil.which(tool):
+                    (bare / tool).symlink_to(shutil.which(tool))
+        return {"PATH": str(bare)}
+
+    def test_a_link_never_lets_a_stale_name_remove_what_the_new_release_ships_or_protects(self):
+        """Re-check H: legacy -> actual, and the new release ships actual/old.php; old -> var, and var/ is protected;
+        public -> actual2, whose old.php the new release does not ship, is still removed."""
+        code = self.target / "app/public"
+        for directory in ("actual", "var", "actual2"):
+            (code / directory).mkdir(exist_ok=True)
+        (code / "actual/old.php").write_text("new release\n")
+        (code / "var/x.php").write_text("protected\n")
+        (code / "actual2/old.php").write_text("stale\n")
+        (code / "legacy").symlink_to("actual")
+        (code / "old").symlink_to("var")
+        (code / "public").symlink_to("actual2")
+        names = ["legacy/old.php", "old/x.php", "public/old.php"]
+        shipped, protected = ["actual/old.php", "index.php"], ["/var/"]
+        for target in (LocalTarget(), SshTarget("shop@host.example", run=self.here())):
+            with self.subTest(target=type(target).__name__):
+                self.assertEqual(target.remove(str(code), names, keep=shipped, protected=protected), [],
+                                 "kept on purpose: nothing is pending")
+                self.assertEqual((code / "actual/old.php").read_text(), "new release\n")
+                self.assertEqual((code / "var/x.php").read_text(), "protected\n")
+                self.assertFalse((code / "actual2/old.php").exists())
+                (code / "actual2/old.php").write_text("stale\n")
+
+    def test_make_deploy_tells_the_target_what_the_new_release_ships_and_protects(self):
+        public = self.generic(DEPLOY_PROTECTED_PATHS="var/data/")
+        self.deploy(ref="g1")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["config/local.php"])
+        calls = []
+        with patch.object(LocalTarget, "remove", lambda target, path, names, keep=(), protected=(): calls.append(
+                (names, sorted(keep), protected)) or []):
+            self.deploy(ref="g2")
+        [(names, keep, protected)] = calls
+        self.assertEqual(names, ["config/local.php"])
+        self.assertIn("src/Kernel.php", keep)
+        self.assertIn("/var/data/", protected)
+        self.assertTrue(public.is_dir())
+
+    def test_a_server_without_python3_removes_nothing_and_everything_stays_pending(self):
+        """No python3 3.3+ on the server: no shell fallback; every name stays pending, with a warning."""
+        code = self.target / "app/public"
+        (code / "a.php").write_text("x")
+        self.assertEqual(SshTarget("shop@host.example", run=self.here(self.bare_path())).remove(
+            str(code), ["a.php", "gone/b.php"]), ["a.php", "gone/b.php"])
+        self.assertTrue((code / "a.php").exists())
+        self.assertIn("has no python3 3.3+: nothing was removed", self.output.getvalue())
+
+    def test_a_server_banner_does_not_corrupt_the_reply(self):
+        """The server prints a banner on standard output before the reply, and its python3 one of its own: only the
+        framed block counts, and only names that were sent."""
+        import shutil
+        from remove_inside import frame, unframe
+        wrapper = self.root / "wrapper-bin"
+        wrapper.mkdir()
+        (wrapper / "python3").write_text(f"#!/bin/sh\necho 'Welcome to the hosting python'\nexec {shutil.which('python3')} \"$@\"\n")
+        (wrapper / "python3").chmod(0o755)
+        code = self.target / "app/public"
+        (code / "locked").mkdir()
+        (code / "locked/a.php").write_text("x")
+        (code / "locked").chmod(0o555)
+        self.addCleanup((code / "locked").chmod, 0o755)
+        env = {"PATH": f"{wrapper}:{os.environ['PATH']}"}
+        target = SshTarget("shop@host.example", run=self.here(env, banner="echo 'Last login: today'"))
+        self.assertEqual(target.remove(str(code), ["locked/a.php"]), ["locked/a.php"])
+        # A reply naming what was not sent is not taken; output around the frame is not the reply.
+        noisy = b"banner\n" + frame([b"locked/a.php", b"/etc/passwd"], []) + b"trailing\n"
+        self.assertEqual(unframe(noisy), ([b"locked/a.php", b"/etc/passwd"], []))
+        reply = SshTarget("shop@host.example", run=lambda command, **options: subprocess.CompletedProcess(
+            command, 0, noisy, b""))
+        self.assertEqual(reply.remove(str(code), ["locked/a.php"]), ["locked/a.php"])
+        self.assertIsNone(unframe(b"no reply at all"))
+        self.assertIsNone(unframe(frame([b"x"], [])[:-5]), "a cut block is no reply")
+
+    def test_a_non_ascii_protected_path_is_kept_whatever_the_servers_locale(self):
+        """Names, the new release's files and the protected patterns are bytes end to end: LC_ALL=C on the server
+        (no UTF-8 mode, no locale coercion) changes nothing."""
+        code = self.target / "app/public"
+        (code / "vär").mkdir()
+        (code / "vär/x.php").write_text("protected\n")
+        (code / "gammal").symlink_to("vär")
+        (code / "ąčę.php").write_text("stale\n")
+        env = {"PATH": os.environ["PATH"], "LC_ALL": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"}
+        target = SshTarget("shop@host.example", run=self.here(env))
+        self.assertEqual(target.remove(str(code), ["gammal/x.php", "ąčę.php"], keep=["index.php"], protected=["/vär/"]), [])
+        self.assertEqual((code / "vär/x.php").read_text(), "protected\n")
+        self.assertFalse((code / "ąčę.php").exists())
+
+    def test_make_deploy_waits_for_the_environments_lock(self):
+        """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""
+        import fcntl
+        import threading
+        self.generic()
+        release = self.root / "app/.generated/release/stage"
+        release.mkdir(parents=True, exist_ok=True)
+        lock = open(release / "deploy.lock", "a")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        errors = []
+
+        def deploy():
+            try:
+                self.deploy(ref="g1")
+            except BaseException as error:  # reported below
+                errors.append(error)
+
+        thread = threading.Thread(target=deploy)
+        thread.start()
+        thread.join(1.5)
+        try:
+            self.assertTrue(thread.is_alive(), "make deploy waits while another holds the lock")
+            self.assertFalse((release / "deployments.json").exists())
+        finally:
+            lock.close()
+        thread.join(30)
+        self.assertEqual(errors, [])
+        self.assertEqual(json.loads((release / "deployments.json").read_text())[-1]["ref"], "g1")
 
     def test_setup_migrations_run_when_the_project_has_them(self):
         self.generic(SCHEMA_DIRECTORY="schema")

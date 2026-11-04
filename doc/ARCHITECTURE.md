@@ -417,7 +417,35 @@ active services (no `build`, e.g. `getmeili/meilisearch` from a project compose 
 missing and locked (`images` + `external` digests) so `docker save` ships them; a release with an image
 that is not on the build machine stops before writing the lock.
 `make deploy ref=TAG` builds the code release (git archive, composer `--no-dev`, `PS_RELEASE_PATHS`,
-`config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp`; the build hook gets
+`config/deploy/build.sh`, all run as this machine's user with `HOME`/Composer caches in `/tmp` and on the Docker network
+`RELEASE_BUILD_NETWORK` (`host` by default, `bridge` or `none` keep the project's build code off the host's network).
+That code may plant links, special files or odd names in the release copy, so setup's own writes there
+(`config/composer` files, `.setup-build.sh`, `.setup-release`) go through `write_release_file` (a new file created
+`O_EXCL|O_NOFOLLOW` relative to the release opened `O_DIRECTORY|O_NOFOLLOW`, renamed over the entry: a planted link or
+hard link is replaced, never opened), a release counts as built only with a plain `.setup-release` (`release_built`),
+the protected directories copied from it are resolved (`release_directory_present`, `os.path.realpath`) before the
+code is copied: a link inside the release, such as `cache -> var/cache`, is followed, one leading out is refused. The
+manifest is a JSON list (`manifests/<sha12>.json`, walked without following links; an older `.txt` newline list is
+never trusted: rebuilt from the kept release, else nothing is removed), pruning keeps the newest `KEEP_RELEASES`
+distinct completed releases, and removals take only `safe_names`.
+**Removal threat model: trusted content.** Removals run only for trusted releases and targets: untrusted (agent)
+stage deploys are refused by their workflows while `release-hardened-v1` is not offered, and protection against a
+hostile tree (links planted or swapped during the removal) is future work: setup's copy, pruning and removal of a
+release and a target in an isolated container, which `release-hardened-v1` will announce. `remove_inside.py` (local,
+and on a server with `python3` 3.3+ via `-c`; Python 3.5 syntax) works on bytes only (names, the new release's files
+and the protected patterns travel as the hex of their bytes, so the server's locale never matters): each name's
+directory is resolved with `os.path.realpath` (its last part stays, so a stale link is removed itself), and the name
+is kept on purpose when that entry lies outside the resolved root, is a file the new release ships or a directory one
+lies in, or lies under a protected path (`legacy -> actual` never removes the new `actual/old.php`). Otherwise a file
+or link is unlinked, a missing one counts as done, and anything else (a directory there, any `OSError`) stays pending.
+Over ssh the server is asked once for `python3` 3.3+; without one nothing is removed and every name stays pending.
+The reply is one framed block (start line, JSON length, JSON, end line) on fd 3, with the server's own output on
+stderr; output around it is ignored and only names that were sent are taken. What the removal step could not do
+stays pending in the history: a deploy is `"removals": "pending"` until its removal step is done (the next deploy
+removes against every release still on the target, `removal_sources`), and `pending_removals` names the files it
+could not remove yet. `make -f docker/project.mk setup-capabilities` lists abilities without a project
+(`deploy-attempt-v1`, `deploy-health-v1`, `deploy-status-v1`, `release-build-network-v1`); `release-hardened-v1` is not
+offered until the release copy and the target are handled in an isolated container; the build hook gets
 `SETUP_BUILD_CACHE`, `.generated/build-cache/` kept between releases, with npm's cache in it), backs up the target DB by registry,
 rsyncs without `--delete`, then sends the release's own files the protected paths leave out (a protected
 directory gets only those the target lacks, a `PS_RELEASE_PATHS` entry inside one, e.g. `img/admin`, all of
@@ -507,6 +535,50 @@ checkout's bind-mount sources (not code, data or `.generated/`) to `DEPLOY_PATH`
 whenever `DEPLOY_PATH` is not the project root. A failure restores
 the previous checkout and env file unless the containers already restarted on new images. Child steps
 get `SETUP_DIRECTORY` of this setup and no `MAKEFLAGS`/`DOCKER_HOST`.
+The `auto` switches compare with every live base (`live_bases`): the checkout and, when it differs, the
+environment's last completed history commit (one repository layout; a build root that deploys stage and prod, or one
+a killed run left), yes when any comparison needs it, so never fewer rebuilds than the checkout alone. A run keeps
+`.generated/release/<env>/pipeline-run.json` (the commit before it, the target, whether images restarted, the history
+length) while it works, replaced atomically and removed only by the run that wrote it; a run that finds one does first
+what the killed run's end would have done (`Step.repair`), and refuses (leaving it) a marker it cannot read.
+Every writer of an environment's history holds its stable `flock` `.generated/release/<env>/deploy.lock`
+(`project_attempts.environment_lock`, never removed): every `make pipeline-deploy` run for its whole length (waiting
+for another), `make deploy` and `make deploy-health`. A run passes the lock's descriptor to its make steps
+(`pass_fds`; GNU make hands it on to its recipes), so a killed run's step keeps the lock until it exits; the steps see
+`SETUP_DEPLOY_LOCK` and do not wait, and the lock is released by closing, never unlocked. `make deploy` records its
+entry right after the rsync as `"failed": "incomplete"` and replaces it when it completes, or names the step that
+failed after the copy (`protected-files`, `manifest`, `removals`, `after-rsync`, `modules`, `migrations`,
+`translations`, `schema`, `cache`, `reload`): the history always names the code the target holds; every history write
+is atomic. Release pruning keeps the newest `KEEP_RELEASES` completed releases (the rollback target among them) and the
+one the target holds, however many failed since.
+A monorepo build root (`Step.monorepo`: `app/Makefile` under the build root, which is the git top level) keeps
+setup-server's `target.env`/`target.<env>.env` untracked beside `app/`; `Step.refuse_tracked_target` (before the first
+checkout, and in every `checkout`) refuses a commit whose tree has one at its root (64, `target_tracked`), because
+git overwrites an excluded file on checkout.
+Deploy attempts (`project_attempts`, opt-in; AI OS's development delivery contract): `DEPLOY_ATTEMPT` (8-64 of
+`[A-Za-z0-9-]`, read after GitHub's JSON variables are expanded) is checked, accepted and run under that lock. A known id (an attempt file or a history entry) is refused (64,
+`attempt_exists`) unless `ROLLBACK=yes` follows its own failed entry or the step restarted on a newer setup (its last
+event `setup`). `DEPLOY_EXPECTED_LIVE` (40 hex or `none`) must equal the history's live commit (`live_changed`). The
+attempt file `attempts/<id>.json` holds `outcome`/`reason` (updated) and `events` (appended only), each write a
+temporary file renamed into place: the pipeline's `accepted`, `settings` (empty optional names), `images`, `rollback`,
+`repair`; `make deploy attempt=` adds `attempt` to its history entries and, for a deploy, `backup` (file name, bytes),
+`code`, `hook` (seconds), `migrations`, `cache`, `reload`. A refused new attempt gets a file with outcome `refused`.
+`make deploy-health` (`project_deploy_health`, before `Project`: a workflow step without secrets runs it) asks
+`DEPLOY_HEALTH_PATHS` + the caller's `DEPLOY_HEALTH_EXTRA` (≤30, validated) with `http.client` (no redirects; 10 s
+for the whole request, a watchdog shuts the socket down at that deadline, or at the release wait's when earlier; one retry after a timeout, connection error or 5xx; 200-399 pass): this host's `PUBLISH_ADDRESS:LOCALHOST_PORT` with
+`Host` and `X-Forwarded-Proto: https`, another server's `https://DOMAIN` (pinned to `DEPLOY_HEALTH_ADDRESS` when set).
+`DEPLOY_HEALTH_RELEASE_PATH` must report the deployed commit as JSON `release` within 30 s. It marks the last history
+entry `health` and, failed, `failed: "health"` (so `rollback_entry` skips it), and the attempt's `health` /
+`health_after_rollback` event and outcome; it keeps status, time and tries, never a body. `HEALTH=auto` (the
+pipeline's default) runs it when the deployed commit configures a check; on prod a failed check or after-rsync hook
+or any step after the copy then rolls back (`make deploy rollback=1`, `auto_rollback`) and checks again: the attempt
+is `rolled_back` only when that check passes, else (a failed, refused or killed check) `rollback_failed`. A follow-up
+rollback (`ROLLBACK=yes` of the same attempt) keeps `failed_after_code` until a check of it passes, in the step
+(`HEALTH`) or in the workflow's `make deploy-health rollback=1`; that check refused (nothing to check) is
+`rollback_failed`. A passing check clears an earlier `failed: "health"` of the same release. `make deploy-status` prints
+`dde-deploy-status/v1` (`status_document`: attempt, live, the last 20 entries with backup file names, the Deployment
+variable names, the newest `worker-<env>-*Z.sql.gz`, the layout; at most 64 KiB as printed: the oldest history entries,
+then the attempt's older events go, `events_omitted` counting them, its file keeping all) or one `field`; read only.
 setup-server's tool access (`project_tool_access`): `tool-access/<env>/{users.htpasswd,allowed-ips}` beside
 `target.env` go to `data/<env>/tool-access/` on the target (rsync, renamed into place, 0644 for nginx's workers) in
 deploy-images before compose up and in `make tool-access`; nginx-proxy mounts it read-only and `access.sh` adds the

@@ -154,12 +154,12 @@ make deploy ENV=prod ref=v1.4.0
 
 `ref` – kodo (parduotuvės ar kitos aplikacijos) repozitorijos tag'as arba commit'as. Žingsniai, kurie skaito ar keičia aplikacijos specifinius dalykus, priklauso nuo `PROFILE`: PrestaShop dalykai vykdomi tik su `PROFILE=prestashop`, tuščias (generic) profilis jų neliečia. Eiga:
 
-1. **Release'as:** `git archive` iš kodo repozitorijos, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS` (PrestaShop), projekto `config/deploy/build.sh` (pvz. frontend'o `npm ci && npm run build`), jei jis yra.
+1. **Release'as:** `git archive` iš kodo repozitorijos, `composer install --no-dev` release PHP image'e, `PS_RELEASE_PATHS` (PrestaShop), projekto `config/deploy/build.sh` (pvz. frontend'o `npm ci && npm run build`), jei jis yra. Build'o konteineris pagal nutylėjimą naudoja build serverio tinklą (`--network host`). Projekto kodas (Composer scriptai, `build.sh`) ten vykdomas, todėl, jei jį gali keisti agento šaka, nustatyk `RELEASE_BUILD_NETWORK=bridge` (internetas be serverio tinklo) arba `none` (be tinklo, kai nieko nereikia siųstis).
 2. **DB kopija (tik su `backup=1`):** taikinio DB kopija į šį kompiuterį pagal registrą (`.generated/backups/`). Pagal nutylėjimą nedaroma; rinkis `backup=1`, kai deploy'us keičia duomenis (migracijos, modulių upgrade'ai).
 3. **rsync** į `DEPLOY_SSH:DEPLOY_PATH/app/prod/public`:
    - saugomi keliai niekada neperrašomi ir netrinami. PrestaShop profilio: `var/`, `img/`, `upload/`, `download/`, `cache/`, `config/themes/`, konfigūracijos failas, `.htaccess`, `robots.txt`, `sitemap*.xml`, modulių ir temos modulių vertimai (`modules/*/translations/`, `themes/*/modules/*/translations/`), laiškų temos (`mails/<iso>/lang.php`, `themes/*/mails/<iso>/lang.php`), kalbų paketai (`translations/<locale>/`, pvz. `translations/lt-LT/`) ir vertimų eksportai (`translations/export/`) ir kt. Vertimus redaguoja BO serveryje, o kalbų paketus serveryje rašo paketų diegimas ar atnaujinimas BO ir vertimo moduliai (pvz. `ets_translate` papildo `*.xlf`), todėl jie yra turinys: parduotuvės repo jų nelaiko (ignoruoja), o rsync jų neliečia; programuotojo vertimus atveža 7 žingsnis ([Vertimai](#vertimai-translations)). Laiškų šablonai `mails/` (`*.html`, `*.txt`) yra kodas. Generic profilis jų nesaugo: `.htaccess` (maršrutai, Basic auth), `robots.txt` ir kiti sekami failai keliauja kaip kodas. Visiems profiliams papildomai – `DEPLOY_PROTECTED_PATHS` (pvz. duomenų ir log'ų katalogai kodo medyje) ir įrankių katalogai (`.git/`, `.idea/`, …);
    - release'o failai saugomuose keliuose atvežami atskirai: saugomi katalogai gauna tik tuos release failus, kurių taikinys neturi (`cache/.htaccess`, apsauginiai `index.php`), o `PS_RELEASE_PATHS` keliai saugomų katalogų viduje (pvz. `img/admin`) – visus release failus, be `--delete`;
-   - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina;
+   - failas taikinyje pašalinamas tik tada, kai jį atvežė ankstesnis release'as, o naujasis nebe. Pirmas deploy'us nieko netrina. Release'o failų sąrašas saugomas JSON (`manifests/<sha12>.json`), todėl failo vardas su eilutės lūžiu neįterpia kito kelio. Vardas, kuris išeina iš kodo medžio (absoliutus, su `..`) ar turi valdymo simbolių, nešalinamas. Nuoroda kodo medžio viduje (pvz. `public -> actual`) sekama, bet failas paliekamas, jei per ją pasiekiamas failas ar katalogas, kurį atveža naujas release'as, saugomas kelias arba vieta už kodo medžio (pvz. `legacy -> actual`, o naujas release'as atveža `actual/old.php`). Visi vardai ir keliai lyginami kaip baitai, todėl serverio locale (pvz. `LC_ALL=C`) nieko nekeičia. Serveryje šalinama tik su `python3` 3.3+; be jo nešalinama nieko, o visi failai lieka laukti. Failas, kurio pašalinti nepavyko, istorijoje pažymimas `pending_removals`, ir kitas deploy'us bando dar kartą. Jei šalinimo žingsnis nepavyko visas, kitas deploy'us (net to paties release'o) šalina pagal visus taikinyje likusius release'us. **Grėsmių modelis:** šalinama tik patikimas turinys. Apsauga nuo priešiško medžio (nuorodų, sukeistų šalinimo metu) – būsimas darbas izoliuotame konteineryje, kurį paskelbs `release-hardened-v1`;
    - PrestaShop moduliai, kurie yra tik serveryje (pvz. įdiegti kliento), paliekami ir parodomi įspėjime.
    - **Aplinkos failai.** Konteineriai iš `DEPLOY_PATH` prijungia ir aplinkos repo dalis (`config/`, schemos katalogą ir pan.). Kai `DEPLOY_PATH` nėra pats šio checkout'o projekto šaknis (kitas katalogas ar serveris), jos kopijuojamos ten pagal deploy'inamą commit'ą (`rsync --delete`: iš repo pašalintas failas dingsta ir taikinyje). `.generated/` (kopijos, build būsena) niekada nekopijuojamas. Tą patį daro `make deploy-images` prieš paleisdamas konteinerius.
 4. **Projekto hook'as** `config/deploy/after-rsync.sh`, jei jis yra: vykdomas taikinio `php-fpm` konteineryje (`sh -e`, kodo šaknyje), kai naujas kodas jau ten, pvz. `php bin/console doctrine:migrations:migrate --no-interaction`. Jam nepavykus deploy'us sustoja: migracijos ir cache valymas nevykdomi, o deploy'us įrašomas į istoriją kaip nepavykęs (`"failed": "after-rsync"`), nes naujas kodas jau taikinyje. Pataisęs deploy'ink iš naujo arba grįžk `rollback=1` į ankstesnį release'ą; kitas deploy'us failus šalina lyginant su tuo, kas iš tikrųjų taikinyje.
@@ -286,6 +286,28 @@ make translations-migrate ENV=prod dry=1             # ką deploy'us įrašytų 
   kitas juodraštis jų nebeneš). Su `db-pull import=1` atkeliauja ir prod `setup_migrations`: pritaikomos tik tos, kurių
   prod dar neturi.
 - PS 1.6 neturi `ps_translation`: tik `legacy`. Generic profilis vertimų migracijų neturi.
+
+### Patikra po deploy'aus (`make deploy-health`)
+
+```bash
+make deploy-health ENV=prod                      # ar ką tik deploy'intas release'as veikia
+make deploy-health ENV=prod attempt=ID rollback=1  # bandymo ID rollback'o patikra
+```
+
+Neprivaloma: projektas ją įjungia `env/common.env` faile (aplinkos pavyzdys gali perrašyti):
+
+```dotenv
+DEPLOY_HEALTH_PATHS="/ /admin/login /_health"
+DEPLOY_HEALTH_RELEASE_PATH=/_health
+```
+
+- **Puslapiai:** `DEPLOY_HEALTH_PATHS` ir `DEPLOY_HEALTH_EXTRA` (proceso kintamasis, kurį perduoda kviečiantysis, pvz. AI OS – pakeisti puslapiai), daugiausia 30, be pasikartojimų. Kelias – tik `/` ir raidės, skaitmenys, `. _ ~ / % -`.
+- **Užklausa:** po vieną `GET`, peradresavimų neseka, visai užklausai (prisijungimas, antraštės, turinys) – bendra 10 s riba, kurios pabaigoje ryšys nutraukiamas, net jei serveris vis dar lėtai siunčia. Šio serverio taikinys (`DEPLOY_SSH` tuščias) – `http://<PUBLISH_ADDRESS arba 127.0.0.1>:<LOCALHOST_PORT><kelias>` su `Host: <pirmas DOMAIN>` ir `X-Forwarded-Proto: https`. Kitas serveris – `https://<pirmas DOMAIN><kelias>`, su `DEPLOY_HEALTH_ADDRESS` – jungiamasi tuo IP (vardas lieka SNI, `Host` ir sertifikato tikrinime).
+- **Release'as:** `DEPLOY_HEALTH_RELEASE_PATH` turi grąžinti JSON su `release` = deploy'intas commit'as. Jo klausiama iki 30 s prieš kitus puslapius.
+- **Rezultatas:** 200–399 – gerai. Laiko riba, ryšio klaida ar 5xx kartojama vieną kartą po 5 s. Įrašomi tik būsenos kodas, laikas ir bandymų skaičius, atsakymo turinys – niekada. Istorijos paskutinis įrašas gauna `"health": "ok"` arba `"failed"`, nepavykus ir `"failed": "health"`: toks release'as nebebus rollback'o tikslas, o setup-server metrikos jį rodo kaip nepavykusį deploy'ų.
+- Išėjimo kodas: 0 – veikia, 1 – nepavyko, 64 – nėra ką tikrinti arba `attempt` ne paskutinio deploy'aus (nieko nepakeista).
+
+Su `HEALTH=auto` (numatyta) `make pipeline-deploy` patikrą paleidžia pats, kai deploy'intas commit'as ją nustato. Prod patikrai, `after-rsync.sh` hook'ui ar kitam žingsniui po kodo nukopijavimo nepavykus jis pats grąžina ankstesnį sėkmingą release'ą (`make deploy rollback=1`) ir patikrina dar kartą: bandymas yra `rolled_back` tik tada, kai ši patikra praeina, kitaip (nepavyko, atmesta ar nutraukta) – `rollback_failed`. Atskiras workflow žingsnis `ROLLBACK=yes` su tuo pačiu `DEPLOY_ATTEMPT` palieka `failed_after_code`, kol jo patikra (`make deploy-health rollback=1`) nepraeina; jei grąžintas release'as neturi ką tikrinti, bandymas tampa `rollback_failed`; stage – ne (kodas lieka, žingsnis baigiasi klaida). `HEALTH=no` palieka patikrą ir rollback'ą workflow žingsniams, `HEALTH=yes` – reikalauja patikros. Projektas be šių nustatymų deploy'inamas kaip anksčiau.
 
 ### Rollback
 
@@ -430,6 +452,45 @@ Vardų sąrašas tas pats kaip [Deployment variables](#deployment-variables). Gi
 - Runner'is log'e slepia secret reikšmes, taip pat jų JSON pavidalą (`\"`, `\n`). Variables neslepiami, todėl slaptų reikšmių į juos nedėk.
 
 Jei projektui reikia griežčiau, JSON eilutes iš workflow išimk ir kiekvieną vardą perduok `env:` atskirai. Trūkstamą privalomą vardą `make pipeline-deploy` vis tiek praneš prieš bet kokį pakeitimą.
+
+### Deploy bandymai (`DEPLOY_ATTEMPT`) ir būsena (`make deploy-status`)
+
+Kviečiantysis, kuris seka savo deploy'us (AI OS, jo „development delivery contract“: `docs/development-delivery-contract.md`), kiekvienam deploy'ui duoda ID. Viskas neprivaloma: be šių kintamųjų `make pipeline-deploy` veikia kaip anksčiau – be bandymo failų, užrakto ir `attempt` lauko istorijoje.
+
+| Kintamasis | Reikšmė | Ką daro |
+| --- | --- | --- |
+| `DEPLOY_ATTEMPT` | 8–64 raidės, skaitmenys, `-` (UUID arba `manual-<vardas>`) | Bandymo ID. Jei aplinka jį jau žino (istorijoje ar bandymo faile), deploy'us atmetamas (64, `attempt_exists`) prieš bet kokį pakeitimą. Išimtis – `ROLLBACK=yes` po to paties bandymo nepavykusio deploy'aus. ID įrašomas kaip `attempt` į kiekvieną jo istorijos įrašą. |
+| `DEPLOY_EXPECTED_LIVE` | 40 hex commit'as arba `none` | Atmeta (64, `live_changed`), jei paskutinis sėkmingas aplinkos deploy'us (istorija) – ne šis commit'as (`none` – dar nieko). Taip prod deploy'us sustoja, jei produkcija pasikeitė be kviečiančiojo žinios. |
+| `HEALTH` | `auto`, `yes`, `no` | Žr. [patikra po deploy'aus](#patikra-po-deployaus-make-deploy-health). |
+
+Su `DEPLOY_ATTEMPT` bandymas turi failą `.generated/release/<env>/attempts/<id>.json`: būsena (`outcome`, `reason`) ir kiekvieno etapo įvykiai, įrašyti prieš kitą etapą (laikinas failas ir `rename`). Įvykiai tik papildomi, niekada neperrašomi: `accepted`, `settings`, `images`, `backup` (failo vardas ir dydis), `code`, `hook` (trukmė), `migrations`, `cache`, `reload`, `health`, `rollback`, `health_after_rollback`, taip pat `refused`, `repeated`, `repair`, `interrupted`. `DEPLOY_ATTEMPT` gali ateiti ir iš GitHub variables ar secrets (`DEPLOY_VARIABLES_JSON`). Atmestas naujas bandymas irgi gauna failą (`refused` ir priežastis: `bad_input`, `missing_settings`, `live_changed`, `setup_too_old`, `target_tracked`).
+
+```bash
+make -s deploy-status ENV=prod attempt=ID              # JSON dokumentas dde-deploy-status/v1
+make -s deploy-status ENV=prod                          # tik veikiantis release'as ir istorija
+make -s deploy-status ENV=prod field=live               # veikiantis commit'as arba none
+make -s deploy-status ENV=prod attempt=ID field=code_reached   # true, jei bandymo kodas pasiekė taikinį
+make -s deploy-status ENV=prod attempt=ID fetch=1       # pirma git fetch (ar deploy raktas veikia)
+```
+
+`make deploy-status` nieko nekeičia ir gali būti kartojamas. Ilgo bandymo senesni įvykiai dokumente praleidžiami (`events_omitted`), kad jis būtų ne didesnis nei 64 KiB; bandymo faile lieka visi. Dokumente: bandymo `outcome` (`in_progress`, `live`, `refused`, `not_deployed`, `failed_after_code`, `rolled_back`, `rollback_failed`, `unknown_attempt`) ir įvykiai, veikiantis release'as, paskutiniai 20 istorijos įrašų (kopijų tik failų vardai), Deployment variables **vardai** (ir kurie neprivalomi buvo tušti), naujausia setup-server naktinė kopija ir build root išdėstymas. Jokių reikšmių, env failų turinio ar atsakymų turinio; dokumentas ne didesnis nei 64 KiB. `run_id=`, `run_attempt=`, `request_id=`, `operation=` įrašomi į jo `run` dalį.
+
+**Setup galimybės.** Workflow, prieš patikėdamas setup'ui nepatikimą (agento šakos) stage deploy'ų, gali paklausti, ką šis setup moka, nevykdydamas jokio projekto kodo:
+
+```bash
+make -s -f "$SETUP_DIRECTORY/docker/project.mk" setup-capabilities
+# deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1
+```
+
+`release-hardened-v1` (build'as ir trynimai izoliuotame konteineryje, kad release'o kodas negalėtų pasiekti serverio failų) kol kas **nesiūlomas**. Workflow, kuriam jo reikia (pvz. zarskis.lt prieš agento šakos stage deploy'ų), tokio deploy'aus atsisako. Jau dabar setup savo failus release'e rašo naujais failais per `rename`, iš release'o nekopijuoja katalogų, kurių nuoroda veda už jo, ir failų sąrašus laiko JSON. Trynimai skirti tik patikimam turiniui; izoliuotas kopijavimas ir trynimas konteineryje yra būsimas darbas, kurį paskelbs `release-hardened-v1`.
+
+**Aplinkos užraktas.** Kiekvienas `make pipeline-deploy` paleidimas (su `DEPLOY_ATTEMPT` ar be jo), `make deploy` ir `make deploy-health` istoriją rašo tik turėdami aplinkos užraktą `.generated/release/<env>/deploy.lock` (tuščias, niekada netrinamas failas). Antras paleidimas į tą pačią aplinką laukia, kol pirmas baigs. Paleidimo `make` žingsniai užraktą paveldi: jei paleidimas nutraukiamas, užraktas lieka, kol baigiasi jo dar dirbantis žingsnis. Seni release'ai valomi taip, kad liktų paskutiniai sėkmingi (ir rollback'o tikslas), kad ir kiek nepavykusių deploy'ų buvo po jų. `make deploy` įrašą į istoriją įrašo iškart po kodo nukopijavimo kaip `"failed": "incomplete"` ir baigęs jį pakeičia. Jei nepavyksta vėlesnis žingsnis, įraše lieka to žingsnio vardas (`after-rsync`, `migrations`, `cache`, `reload`, …). Taip istorija visada rodo, koks kodas yra taikinyje, net jei deploy'us nutrūko.
+
+Jei paleidimas buvo nutrauktas (runner'is ar serveris perkrautas), jo žymė `.generated/release/<env>/pipeline-run.json` lieka. Kitas `make pipeline-deploy` pirma padaro, ką nutrauktas paleidimas būtų padaręs pabaigoje: build root grąžina į commit'ą prieš jį arba palieka jau deploy'intą kodą, o nutraukto bandymo būsena tampa `not_deployed` ar `failed_after_code` su priežastimi `interrupted`.
+
+**Monorepo build root** (setup-server `add-project --monorepo`: build root pats yra repozitorijos klonas su `app/Makefile`): serverio `target.env` ir `target.<env>.env` guli šalia `app/`, nesekami (`.git/info/exclude`). Commit'ą, kuris pradeda juos sekti, `make pipeline-deploy` atmeta (64, `target_tracked`) dar prieš checkout'ą – kitaip git perrašytų serverio deploy taikinį. Pašalink failą iš repozitorijos (`git rm --cached target.env`) ir deploy'ink commit'ą be jo. Tai galioja kiekvienam monorepo deploy'ui, ir be `DEPLOY_ATTEMPT`.
+
+Paleidimo `IMAGES=auto` ir `CRON=auto` lygina su build root commit'u ir, jei jis kitas, su paskutiniu sėkmingu aplinkos deploy'umi iš istorijos (pvz. kai stage ir prod deploy'inami iš vieno build root): taip prod nepraleidžia image'ų perkūrimo, kurio reikia nuo jo paties paskutinio deploy'aus.
 
 ### make deploy-variables GitHub'e
 

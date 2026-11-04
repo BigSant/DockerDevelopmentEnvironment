@@ -11,7 +11,44 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Deploy attempts, health check and status (opt-in).** `make pipeline-deploy` takes `DEPLOY_ATTEMPT` (refused
+  before any change when the environment knows it), `DEPLOY_EXPECTED_LIVE` (refused when the live commit differs) and
+  `HEALTH=auto|yes|no`. With an attempt it keeps `.generated/release/<env>/attempts/<id>.json`: the outcome and an
+  event per stage, `make deploy` included. New `make deploy-health` checks the deployed release over HTTP
+  (`DEPLOY_HEALTH_PATHS`, `DEPLOY_HEALTH_RELEASE_PATH`, `DEPLOY_HEALTH_ADDRESS`, the caller's `DEPLOY_HEALTH_EXTRA`) and
+  marks a failed one `failed: "health"`; the pipeline runs it when the project configures it, and on prod rolls back
+  and checks again. New `make deploy-status` prints the `dde-deploy-status/v1` JSON document. A project that sets
+  none of this deploys as before.
+- **Live commit per environment.** `IMAGES=auto` and `CRON=auto` also compare with the environment's last completed
+  deploy when the build root's checkout differs (stage and prod from one build root), and a run killed midway is
+  repaired by the next one before it starts.
+- **One deploy at a time per environment, and a history that names the code on the target.** Every
+  `make pipeline-deploy` run, `make deploy` and `make deploy-health` holds `.generated/release/<env>/deploy.lock`; a
+  second run waits. `make deploy` records its entry right after the copy (`"failed": "incomplete"` until it completes,
+  else the step that failed after the copy), so a deploy that fails in migrations, the cache clear or the reload no
+  longer leaves the history behind the target. History writes are atomic. A killed run's make step keeps the lock
+  until it ends. Old releases are pruned so that the newest completed ones (the rollback target) stay, however many
+  deploys failed since.
+- **Release builds and removals no longer follow what a build step plants.** Setup writes `.setup-build.sh`,
+  `.setup-release` and the `config/composer` files as new files renamed over the entry (a planted link or hard link is
+  replaced, never written through), counts a release built only by a plain `.setup-release`, refuses a protected
+  directory the build made a link, keeps release manifests as JSON (an older newline list is never trusted for
+  removals) and keeps the newest distinct completed releases. Removals (`remove_inside.py`, for trusted content;
+  isolation from a hostile tree is future work behind `release-hardened-v1`) compare bytes only, so the server's
+  locale never matters; a stale name is kept when, resolved, it lies outside the code root, is the new release's or
+  protected (`legacy -> actual`), while `public -> actual` and 0300 directories keep working. Over ssh they need the
+  server's `python3` 3.3+ (else nothing is removed and all stays pending) and its reply comes as a framed block; a
+  removal that failed stays pending in the history until a later deploy does it.
+  New `make -f docker/project.mk setup-capabilities` lists `deploy-attempt-v1`, `deploy-health-v1`,
+  `deploy-status-v1` and `release-build-network-v1`; `release-hardened-v1` is not offered yet.
+- **The release build's network is a project setting.** `RELEASE_BUILD_NETWORK=host|bridge|none` (default `host`, as
+  before): `bridge` or `none` run Composer scripts and `config/deploy/build.sh` of `make deploy`'s release build
+  without the build machine's network, for code an agent branch may change.
+- **Monorepo build roots keep their deploy target.** When the build root is itself the clone (setup-server's
+  `--monorepo`), `make pipeline-deploy` refuses a commit that tracks `target.env` or `target.<env>.env` at the
+  repository root before checking it out, so git never overwrites the server's deploy target.
 
 ## 5.3.3
 

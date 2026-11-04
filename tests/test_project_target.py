@@ -1,6 +1,7 @@
 """The Deploy target: real file operations on this machine, and the command lines an ssh target runs."""
 
 from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
@@ -90,10 +91,17 @@ class SshTargetTest(unittest.TestCase):
     def test_removed_names_travel_on_stdin_never_on_the_command_line(self):
         self.target.remove("/srv/shop/public", ["a b.php", "c.php"])
         self.target.remove("/srv/shop/public", [])
-        self.assertEqual(len(self.calls), 1, "nothing to remove: no connection")
-        command, kwargs = self.calls[0]
-        self.assertEqual(command[-1], "cd /srv/shop/public && xargs -0 rm -f --")
-        self.assertEqual(kwargs["input"], b"a b.php\0c.php\0")
+        self.assertEqual(len(self.calls), 2, "the server's python3 asked once, then one removal; nothing to remove: "
+                                             "no connection")
+        probe, removal = self.calls
+        self.assertIn("sys.version_info", probe[0][-1])
+        command, kwargs = removal
+        # The names only on stdin (as the hex of their bytes); the pending ones come back on fd 3.
+        self.assertTrue(command[-1].startswith("cd /srv/shop/public && python3 -c "), command[-1][:80])
+        self.assertTrue(command[-1].endswith(" . 3 3>&1 1>&2"))
+        self.assertNotIn("a b.php", command[-1])
+        self.assertNotIn("c.php", command[-1])
+        self.assertEqual(json.loads(kwargs["input"])["remove"], [b"a b.php".hex(), b"c.php".hex()])
 
     def test_listening_reads_ss_on_the_server(self):
         self.output = LISTENING

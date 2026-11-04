@@ -5,11 +5,19 @@ PYTHON ?= python3
 PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 .DEFAULT_GOAL := help
 .PHONY: init doctor pull shell ide-init ide-refresh db-backup files-backup db-pull files-pull translations-migration translations-migrate translations-base ssh db-prepare bootstrap test-init setup-info
-.PHONY: db-fixtures-plan db-fixtures-load
+.PHONY: db-fixtures-plan db-fixtures-load setup-capabilities
+# What this setup can do, for a project's workflow to probe before it trusts a deploy to it; needs no project:
+#   make -s -f <setup>/docker/project.mk setup-capabilities
+# release-hardened-v1 (a release build that cannot reach the build machine's files, in isolation) is not offered yet:
+# a workflow that needs it before an untrusted deploy refuses that deploy.
+SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1
+setup-capabilities:
+	@echo '$(SETUP_CAPABILITIES)'
+
 image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
-.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy cron-reload tool-access pipeline-deploy deploy-variables module-pull
+.PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy deploy-health deploy-status cron-reload tool-access pipeline-deploy deploy-variables module-pull
 .PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
@@ -17,6 +25,7 @@ quote = '$(subst ','"'"',$(1))'
 RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(call quote,$(PROJECT_DOCKER_DIRECTORY)) --project-directory $(call quote,$(PROJECT_DIRECTORY)) --env $(call quote,$(ENV)) $(if $(filter undefined,$(origin PROFILES)),,--profiles $(call quote,$(PROFILES)))
 
 help:
+	@echo 'setup-capabilities: what this setup can do (deploy-attempt-v1, deploy-health-v1, ...), without a project'
 	@echo 'setup: prepare this project from a clean clone (init, bootstrap + schema hook, build, app-prepare, up); the DB is left alone'
 	@echo 'app-prepare: only the application step (profile files such as PS_RELEASE_PATHS into the code); runs after build'
 	@echo 'bootstrap: prepare/check host, TLS and IDE; test-init: isolated test checkout and env'
@@ -65,10 +74,12 @@ help:
 	@echo 'release ENV=stage|prod|<extra>: build images here from committed setup, write the image lock and release compose'
 	@echo 'deploy-images ENV=stage|prod|<extra> [transfer=0]: load the release images into DEPLOY_CONTEXT and start them there'
 	@echo 'deploy ENV=stage|prod|<extra> ref=TAG [backup=1] | rollback=1 [cache=auto|yes|no]: release the code, (back up), rsync, hook, upgrade, migrate, clear the cache when needed'
+	@echo 'deploy-health ENV=stage|prod|<extra> [attempt=ID] [rollback=1]: HTTP check of the deployed release (DEPLOY_HEALTH_*); a failure marks it failed'
+	@echo 'deploy-status ENV=stage|prod|<extra> [attempt=ID] [field=live|code_reached|outcome] [fetch=1]: the deploy status JSON (read only)'
 	@echo 'cron-reload [ENV=stage|prod|<extra>]: the running cron container takes config/cron/ now (checked, no restart)'
 	@echo 'tool-access ENV=stage|prod|<extra>: the tool users and addresses setup-server keeps (tool-access/<env>/) to the server now'
 	@echo 'module-pull ENV=stage|prod|<extra> name=MODULE: copy a module that exists only on the target into the shop checkout'
-	@echo 'pipeline-deploy [ENV=stage|prod|<extra>]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, CRON, ROLLBACK, BACKUP)'
+	@echo 'pipeline-deploy [ENV=stage|prod|<extra>]: the Bitbucket / GitHub Actions deploy step in the build root (REF, IMAGES, CRON, ROLLBACK, BACKUP, HEALTH, DEPLOY_ATTEMPT, DEPLOY_EXPECTED_LIVE)'
 	@echo 'deploy-variables [ENV=stage|prod|<extra>] [from=FILE [replace=1]] [token=PATH] [names=1]: check / fill Bitbucket Deployment variables or GitHub environment secrets'
 
 setup app-prepare init doctor pull shell ide-refresh check config up build down ps phpstan-baseline schema-export schema-check schema-hook-install git-hooks schema-resolve test-sync db-monitor-user bootstrap setup-info db-prepare db-restrict-grants cache-clear runtime-info doctrine-build:
@@ -115,7 +126,13 @@ release:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(allow_dirty)),--allow-dirty,)
 
 deploy:
-	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,) $(if $(cache),--deploy-cache $(call quote,$(cache)),)
+	@$(RUN_PROJECT) $@ $(if $(ref),--release-ref $(call quote,$(ref)),) $(if $(filter 1,$(backup)),--backup,) $(if $(filter 1,$(rollback)),--rollback,) $(if $(cache),--deploy-cache $(call quote,$(cache)),) $(if $(attempt),--attempt $(call quote,$(attempt)),)
+
+deploy-health:
+	@$(RUN_PROJECT) $@ $(if $(attempt),--attempt $(call quote,$(attempt)),) $(if $(filter 1,$(rollback)),--rollback,)
+
+deploy-status:
+	@$(RUN_PROJECT) $@ $(if $(attempt),--attempt $(call quote,$(attempt)),) $(if $(field),--field $(call quote,$(field)),) $(if $(filter 1,$(fetch)),--fetch,) $(if $(run_id),--run-id $(call quote,$(run_id)),) $(if $(run_attempt),--run-attempt $(call quote,$(run_attempt)),) $(if $(request_id),--request-id $(call quote,$(request_id)),) $(if $(operation),--operation $(call quote,$(operation)),)
 
 pipeline-deploy:
 	@$(RUN_PROJECT) $@
