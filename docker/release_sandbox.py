@@ -103,21 +103,34 @@ def docker_available(run=subprocess.run):
 
 def ancestors(path):
     """path and every directory above it, from / down, as far as they exist."""
+    return [directory for directory in chain(path) if os.path.lexists(directory)]
+
+
+def chain(path):
+    """path and every directory above it, from / down, whether they exist or not (setup may create them)."""
     parts = Path(os.path.abspath(path)).parts
-    chain = [os.path.join(*parts[:index]) for index in range(1, len(parts) + 1)]
-    return [directory for directory in chain if os.path.lexists(directory)]
+    return [os.path.join(*parts[:index]) for index in range(1, len(parts) + 1)]
 
 
-def check_trusted(paths, model):
+def check_trusted(paths, model, run=subprocess.run):
     """Release isolation's precondition (the threat model): the attacker controls only the contents of the release
     copy (through its build container, which mounts only it) and of the target code tree (through the application,
-    whose containers mount only it and its protected directories), never a directory above them. So every directory
-    from / down to each of paths (the build root, the release copies' directory, the code tree's parent) must be a
-    real directory (lstat, never a link) of root or this (setup) account that neither group nor others can write, and
-    no container of the project (model: the release model) may mount one of them. Refuses (ValueError) otherwise."""
-    held = set()
+    whose containers mount only it and its protected directories), never a directory above them. Refuses
+    (ValueError) unless:
+      * every existing directory from / down to each of paths (the build root, the release copies' directory, the
+        code tree's parent) is a real directory (lstat, never a link) of root or this (setup) account that neither
+        group nor others can write;
+      * no container mounts one of those directories, existing or not yet (setup creates some): neither as the
+        project's model (model: the release model) declares it, nor as any container of this machine's Docker
+        actually has it, whatever its state (an exited container of a removed service included); a named volume
+        counts by where it is bound (the local driver's device), and a volume driver setup cannot see into is
+        refused."""
+    forbidden = set()
     for path in paths:
-        for directory in ancestors(path):
+        for directory in chain(path):
+            forbidden.add(os.path.normpath(directory))
+            if not os.path.lexists(directory):
+                continue
             status = os.lstat(directory)
             if stat.S_ISLNK(status.st_mode):
                 raise ValueError(f'{directory} is a link: release isolation needs real directories above the release '
@@ -131,15 +144,67 @@ def check_trusted(paths, model):
             if status.st_mode & 0o022:
                 raise ValueError(f'{directory} is group- or world-writable: release isolation needs the directories '
                                  'above the release and the code tree writable only by their owner')
-            held.add(os.path.realpath(directory))
+            forbidden.add(os.path.realpath(directory))
+
+    def held(source):
+        return os.path.normpath(source) in forbidden or os.path.realpath(source) in forbidden
+
+    def volume_source(name, driver, options):
+        """Where a named volume lives on this machine, or None (Docker's own storage); refuses what cannot be told."""
+        if driver not in (None, '', 'local'):
+            raise ValueError(f'volume {name} uses the driver {driver}, which setup cannot see into: release isolation '
+                             'refuses it')
+        options = options or {}
+        if 'bind' in str(options.get('o') or '').split(',') and options.get('device'):
+            return options['device']
+        return None
+
+    def check_volume(name, driver, options, holder):
+        source = volume_source(name, driver, options)
+        if source and held(source):
+            raise ValueError(f'{holder}: volume {name} is bound to {source}, which holds the release or the code tree')
+
+    def inspected_volume(name):
+        result = run(['docker', 'volume', 'inspect', name], capture_output=True, text=True)
+        if result.returncode:
+            return None
+        found = json.loads(result.stdout or '[]')
+        return found[0] if found else None
+
+    declared = (model or {}).get('volumes') or {}
     for name, service in (model or {}).get('services', {}).items():
         for volume in service.get('volumes', []) or []:
-            if isinstance(volume, dict) and volume.get('type') == 'bind' and volume.get('source'):
-                source = os.path.realpath(volume['source'])
-                if source in held:
-                    raise ValueError(f'{name} mounts {source}, which holds the release or the code tree: a container '
-                                     'of the project must mount only the code tree, its own paths in it and other '
-                                     'directories beside it')
+            if not isinstance(volume, dict):
+                continue
+            if volume.get('type') == 'bind' and volume.get('source') and held(volume['source']):
+                raise ValueError(f'{name} mounts {os.path.realpath(volume["source"])}, which holds the release or the '
+                                 'code tree: a container of the project must mount only the code tree, its own paths '
+                                 'in it and other directories beside it')
+            if volume.get('type') == 'volume' and volume.get('source'):
+                spec = declared.get(volume['source']) or {}
+                full = spec.get('name') or volume['source']
+                if spec.get('external') or not (spec.get('driver') or spec.get('driver_opts')):
+                    existing = inspected_volume(full)
+                    if existing:
+                        check_volume(full, existing.get('Driver'), existing.get('Options'), name)
+                        continue
+                check_volume(full, spec.get('driver'), spec.get('driver_opts'), name)
+    result = run(['docker', 'ps', '-aq', '--no-trunc'], capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError('Docker does not list its containers here: release isolation cannot check their mounts')
+    identifiers = result.stdout.split()
+    containers = json.loads(run(['docker', 'inspect', *identifiers], capture_output=True, text=True).stdout or '[]') \
+        if identifiers else []
+    for container in containers:
+        label = f'container {container.get("Name", "").lstrip("/")} ({(container.get("State") or {}).get("Status")})'
+        for mount in container.get('Mounts') or []:
+            if mount.get('Type') == 'bind' and mount.get('Source') and held(mount['Source']):
+                raise ValueError(f'{label} mounts {mount["Source"]}, which holds the release or the code tree: remove '
+                                 'that container before an isolated deploy')
+            if mount.get('Type') == 'volume' and mount.get('Name'):
+                existing = inspected_volume(mount['Name'])
+                if existing:
+                    check_volume(mount['Name'], existing.get('Driver'), existing.get('Options'), label)
 
 
 def trusted_paths(project, deploy_path, code):

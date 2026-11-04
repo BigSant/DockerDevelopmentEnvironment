@@ -25,8 +25,9 @@ change (say how). An empty section still releases a patch.
   code tree (out of the application's reach) and published as new inodes renamed into place from held descriptors,
   never written in place; PrestaShop module versions are read in the sandbox. Threat model, enforced before an
   isolated deploy: the attacker controls only the contents of the release and of the code tree; every directory above
-  them is a real directory of root or the setup account, not group- or world-writable, and mounted into no container
-  of the project, else the deploy is refused. Old release copies and the build hook's temporary file are removed
+  them (also those setup creates, checked again once created) is a real directory of root or the setup account, not
+  group- or world-writable, and mounted into no container, neither as the model declares it nor as any existing
+  container (any state) or named volume (local bind device) has it; other volume drivers are refused. Old release copies and the build hook's temporary file are removed
   relative to a held descriptor of their parent.
   Projects that set nothing deploy as before. New B level `tests/run --sandbox` (CI runs it).
 

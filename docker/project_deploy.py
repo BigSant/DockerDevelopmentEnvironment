@@ -710,6 +710,10 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
     relative_code = path[len(f'{deploy_path}/'):]
     # Release isolation: the copy, the protected directories, the module listing and the removals in the sandbox.
     target = Sandbox(project, release, (deploy_path, relative_code)) if isolated else deploy_target(project)
+    if isolated:
+        # Again, now that the release copy, the code tree and its parent exist: what setup created is checked too.
+        from release_sandbox import check_trusted, trusted_paths
+        check_trusted(trusted_paths(project, deploy_path, path), model)
     # The release's modules: read in the sandbox with isolation (no link followed on this machine).
     release_modules = target.release_directories('modules') if isolated else \
         {child.name for child in (release / 'modules').iterdir() if child.is_dir()} if (release / 'modules').is_dir() else set()

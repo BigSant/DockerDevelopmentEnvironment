@@ -380,6 +380,20 @@ class SandboxDeployTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 60)
         self.assertEqual(Sandbox(self.project, release).release_directories("modules"), {"good", "evil", "fifo"})
 
+    def test_a_leftover_container_mounting_the_code_trees_parent_refuses_the_deploy(self):
+        """Re-check 1, against this machine's Docker: a container that is not running (created, never started; as one
+        of a removed service) still holds a mount of the code tree's parent: the isolated deploy is refused."""
+        self.generic()
+        self.isolate()
+        parent = self.target / "app"
+        name = f"setup-trust-test-{os.getpid()}"
+        subprocess.run(["docker", "create", "--name", name, "--network", "none", "-v", f"{parent}:/x", "alpine:3.20",
+                        "true"], check=True, capture_output=True)
+        self.addCleanup(subprocess.run, ["docker", "rm", "-f", name], capture_output=True)
+        with self.assertRaisesRegex(ValueError, f"container {name} .created. mounts {parent}"):
+            self.deploy(ref="g1")
+        self.assertFalse((self.target / "app/public/src").exists(), "nothing was copied")
+
     def test_isolation_refuses_what_it_cannot_cover_before_anything_changes(self):
         self.generic()
         for settings, message in (({"DEPLOY_SSH": "shop@host.example"}, "needs a deploy target on this machine"),

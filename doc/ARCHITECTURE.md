@@ -450,8 +450,11 @@ whose containers mount only it and its protected directories), never a directory
 this machine: those are setup's and setup-server's and no container of the project mounts them. Setup enforces that
 before an isolated deploy, before anything is built or copied (`check_trusted`): every directory from `/` down to the
 build root, the release copies' directory and the code tree's parent is a real directory (`lstat`, never a link) of
-root or the setup account that neither group nor others can write, and no bind mount of the release model is one of
-them; it refuses otherwise. Every operation of `make deploy` on the release copy or on the target's
+root or the setup account that neither group nor others can write, and no container mounts one of them, existing or
+not yet (setup creates some): neither as the release model declares it nor as any container of this machine's Docker
+actually has it, in whatever state (`docker ps -a`, `docker inspect`); a named volume counts by its local driver's bind
+device, and a volume driver setup cannot see into is refused. It refuses otherwise, and checks again once the sandbox
+has created the code tree and its parent, before anything is copied. Every operation of `make deploy` on the release copy or on the target's
 code tree runs in a throwaway container of the `setup-release-sandbox:<Dockerfile hash>` image
 (`docker/docker/release-sandbox`: Alpine by digest with `python3`, `rsync`, GNU `tar`; built here on first use) that
 mounts only the release directory (read only unless setup writes into it), the target code directory and setup's
