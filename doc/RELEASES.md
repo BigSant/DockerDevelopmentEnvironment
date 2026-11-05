@@ -11,7 +11,25 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Release isolation for untrusted code (`release-hardened-v1`).** With `RELEASE_ISOLATION=container` (a project
+  setting, or the job's environment) everything `make deploy` does with the release copy or the target's code tree
+  runs in a throwaway `setup-release-sandbox` container: only those two directories and setup's helpers mounted, no
+  network, a read-only root, no capabilities, an unprivileged user. The release build's network defaults to `bridge`
+  there (`host` refused), and it needs a target on this machine. `make -f docker/project.mk setup-capabilities
+  PROJECT_DOCKER_DIRECTORY=… ENV=…` adds `release-hardened-v1` when setup isolates that environment's deploy on request
+  (the settings make deploy reads: a target on this machine, no host network for the build, Docker here); the workflow
+  then passes `DEPLOY_REQUIRE_ISOLATION=1`, and make deploy isolates or refuses. Mount roots are checked without
+  links and their inode re-checked inside each container (the release build's too); copies are staged beside the
+  code tree (out of the application's reach) and published as new inodes renamed into place from held descriptors,
+  never written in place; PrestaShop module versions are read in the sandbox. Threat model, enforced before an
+  isolated deploy: the attacker controls only the contents of the release and of the code tree; every directory above
+  them (also those setup creates, checked again once created) is a real directory of root or the setup account, not
+  group- or world-writable, and mounted into no container, neither as the model declares it nor as any existing
+  container (any state) or named volume (local bind device) has it; other volume drivers are refused. Old release copies and the build hook's temporary file are removed
+  relative to a held descriptor of their parent.
+  Projects that set nothing deploy as before. New B level `tests/run --sandbox` (CI runs it).
 
 ## 5.4.2
 

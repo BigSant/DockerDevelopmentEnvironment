@@ -42,8 +42,11 @@ def compose_model(root):
 
 
 class DeployTest(unittest.TestCase):
+    # Where the fixtures live; test_release_sandbox_integration puts them out of any tree a container mounts.
+    scratch_directory = None
+
     def setUp(self):
-        scratch = ROOT / ".test-work"
+        scratch = getattr(self, "scratch_directory", None) or ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
         temporary = tempfile.TemporaryDirectory(prefix="deploy-", dir=scratch)
         self.addCleanup(temporary.cleanup)
@@ -1105,6 +1108,35 @@ class GenericDeployTest(unittest.TestCase):
         self.assertEqual(target.remove(str(code), ["gammal/x.php", "ąčę.php"], keep=["index.php"], protected=["/vär/"]), [])
         self.assertEqual((code / "vär/x.php").read_text(), "protected\n")
         self.assertFalse((code / "ąčę.php").exists())
+
+    def test_release_isolation_is_off_unless_chosen_and_then_keeps_the_build_off_the_host_network(self):
+        """RELEASE_ISOLATION (none by default): with container the build network defaults to bridge (host is refused
+        before anything changes: test_release_sandbox_integration); any other value is refused."""
+        from project_deploy import release_build_network
+        from release_sandbox import isolation, refusal
+        self.assertFalse(isolation(self.project))
+        self.assertEqual(release_build_network(self.project), "host", "a project that sets nothing builds as before")
+        self.project.settings["RELEASE_ISOLATION"] = "container"
+        self.assertTrue(isolation(self.project))
+        self.assertEqual(release_build_network(self.project), "bridge")
+        self.assertIn("refuses RELEASE_BUILD_NETWORK=host", refusal({"RELEASE_BUILD_NETWORK": "host"}))
+        self.assertIn("needs a deploy target on this machine", refusal({"DEPLOY_SSH": "shop@host.example"}))
+        self.assertIsNone(refusal({"RELEASE_BUILD_NETWORK": "none"}))
+        self.project.settings["RELEASE_ISOLATION"] = "maybe"
+        with self.assertRaisesRegex(ValueError, "RELEASE_ISOLATION must be none or container"):
+            isolation(self.project)
+        self.project.settings["RELEASE_ISOLATION"] = ""
+        with patch.dict(os.environ, {"RELEASE_ISOLATION": "container"}):
+            self.assertTrue(isolation(self.project), "the job's environment can switch it on")
+        # A workflow that asked for a hardened deploy (the capability probe said release-hardened-v1) gets one or
+        # none: DEPLOY_REQUIRE_ISOLATION=1 forces isolation whatever the files say, and its refusals apply.
+        self.project.settings["RELEASE_ISOLATION"] = "none"
+        with patch.dict(os.environ, {"DEPLOY_REQUIRE_ISOLATION": "1"}):
+            self.assertTrue(isolation(self.project))
+            self.project.settings["DEPLOY_SSH"] = "shop@host.example"
+            with self.assertRaisesRegex(ValueError, "needs a deploy target on this machine"):
+                deploy_code(self.project, ref="v1")
+        self.project.settings["DEPLOY_SSH"] = ""
 
     def test_make_deploy_waits_for_the_environments_lock(self):
         """Review 3: make deploy writes the history only under the lock make deploy-health and pipeline runs hold."""

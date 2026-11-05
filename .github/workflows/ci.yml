@@ -85,3 +85,6 @@ jobs:
           persist-credentials: false
       # make deploy-images into a throwaway Docker daemon (docker:27-dind) standing in for the server.
       - run: tests/run --verbose --release
+      # make deploy with RELEASE_ISOLATION=container against this runner's Docker: a hostile release build (links to
+      # host files, hard links, newline names, a rename race) must leave the runner's files untouched.
+      - run: tests/run --verbose --sandbox

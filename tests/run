@@ -5,6 +5,8 @@
   tests/run test_deploy test_cron    only these test modules
   tests/run --database mysql:8.4     the database B level against that server (CI: mysql:5.7, mysql:8.4, mariadb:11.4)
   tests/run --release                the release B level: deploy-images into a throwaway Docker daemon
+  tests/run --sandbox                the release isolation B level: make deploy with RELEASE_ISOLATION=container
+                                     against this machine's Docker (builds the release sandbox image)
   tests/run --verbose …              stream the whole unittest output (CI uses it)
 
 Prints the summary and the names of failing tests; the whole log is in .test-work/last-run.log. Images a B level
@@ -65,6 +67,7 @@ def main():
     level = parser.add_mutually_exclusive_group()
     level.add_argument('--database', metavar='SERVER', help='database B level against SERVER (mysql:8.4, mariadb:11.4)')
     level.add_argument('--release', action='store_true', help='release B level against a throwaway Docker daemon')
+    level.add_argument('--sandbox', action='store_true', help='release isolation B level against this machine\'s Docker')
     parser.add_argument('--verbose', action='store_true', help='stream the whole output')
     args = parser.parse_args()
     environment = dict(os.environ)
@@ -76,6 +79,9 @@ def main():
         ensure(DIND)
         environment['SETUP_DIND_IMAGE'] = DIND
         pattern = 'test_release_integration.py'
+    elif args.sandbox:
+        environment['SETUP_SANDBOX_TEST'] = '1'
+        pattern = 'test_release_sandbox_integration.py'
     names = ['tests.' + Path(module).stem for module in args.modules]
     command = [sys.executable, '-m', 'unittest', '-v', *names] if names else \
         [sys.executable, '-m', 'unittest', 'discover', '-v', '-s', 'tests', '-p', pattern]
