@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 5.4.1
+
 - **A deploy's backup waits for the restarted database.** Right after `make deploy-images` restarts it, MySQL's
   healthcheck (its socket) can answer seconds before it listens on TCP, so `make deploy backup=1` failed with
   `ERROR 2003 … '127.0.0.1:3306' (111)`. `make deploy` now waits, once and at most 60 s, until the database answers
