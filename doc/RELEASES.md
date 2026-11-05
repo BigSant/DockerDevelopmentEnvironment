@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.5.0
 
 - **Release isolation for untrusted code (`release-hardened-v1`).** With `RELEASE_ISOLATION=container` (a project
   setting, or the job's environment) everything `make deploy` does with the release copy or the target's code tree
