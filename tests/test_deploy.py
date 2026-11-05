@@ -42,8 +42,11 @@ def compose_model(root):
 
 
 class DeployTest(unittest.TestCase):
+    # Where the fixtures live; test_release_sandbox_integration puts them out of any tree a container mounts.
+    scratch_directory = None
+
     def setUp(self):
-        scratch = ROOT / ".test-work"
+        scratch = getattr(self, "scratch_directory", None) or ROOT / ".test-work"
         scratch.mkdir(exist_ok=True)
         temporary = tempfile.TemporaryDirectory(prefix="deploy-", dir=scratch)
         self.addCleanup(temporary.cleanup)

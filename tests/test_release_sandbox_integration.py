@@ -27,9 +27,25 @@ from project_deploy import deploy_code
 ENABLED = os.environ.get("SETUP_SANDBOX_TEST") == "1"
 
 
+def sandbox_scratch():
+    """The fixtures' base: an isolated deploy refuses when any container mounts a directory above the release or the
+    code tree (release_sandbox.check_trusted), and CI's other containers mount the checkout, so the fixtures live
+    outside it, in a directory of this account only: $HOME/.cache/setup-sandbox-tests (0700), or
+    SETUP_SANDBOX_TEST_DIR. Its ancestors must pass the same precondition (checked here, Docker aside)."""
+    from release_sandbox import check_trusted
+    base = Path(os.environ.get("SETUP_SANDBOX_TEST_DIR") or Path.home() / ".cache/setup-sandbox-tests")
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    base.chmod(0o700)
+    check_trusted([base], None, run=lambda command, **options: subprocess.CompletedProcess(command, 0, "", ""))
+    return base
+
+
 @unittest.skipUnless(ENABLED, "release sandbox B test: SETUP_SANDBOX_TEST=1 (needs Docker)")
 class SandboxDeployTest(unittest.TestCase):
-    setUp = base.DeployTest.setUp
+    def setUp(self):
+        self.scratch_directory = sandbox_scratch()
+        base.DeployTest.setUp(self)
+
     commit = base.DeployTest.commit
     generic = base.GenericDeployTest.generic
 

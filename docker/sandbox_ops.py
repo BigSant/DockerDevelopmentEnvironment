@@ -118,7 +118,10 @@ def push():
     request = json.loads(sys.stdin.read())
     source = inside(request['source'], RELEASE)
     deploy = os.open(DEPLOY, os.O_RDONLY | os.O_DIRECTORY)
-    code = os.open(os.environ['SETUP_CODE_NAME'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=deploy)
+    try:
+        code = os.open(os.environ['SETUP_CODE_NAME'], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=deploy)
+    except OSError:
+        raise SystemExit('sandbox: the code tree is a link or no directory: refused') from None
     status = os.fstat(code)
     if '%d:%d' % (status.st_dev, status.st_ino) != os.environ['SETUP_EXPECT_CODE']:
         raise SystemExit('sandbox: the code tree is not the directory setup checked: refused')
