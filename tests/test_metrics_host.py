@@ -1,6 +1,7 @@
 """Target /metrics: host (processes, I/O wait, server versions), containers (Docker collector) and cron groups;
 B: real containers seen through the collector and a failed cron job recorded by cron-run.sh."""
 
+import datetime
 import hashlib
 import http.server
 import json
@@ -299,6 +300,33 @@ def job_id(command, occurrence=1):
 FAILING = 'echo "https://shop.example/cron?token=cron-secret-value" > /dev/null; exit 3'
 
 
+def next_run(minute, hour, after, zone):
+    """The first time after `after` (a timestamp) at which `minute hour * * *` fires in zone (hour None: every
+    hour), stepping through timestamps a minute at a time in local time, as cron/compose.php cronNextRun does."""
+    from zoneinfo import ZoneInfo
+    local = ZoneInfo(zone)
+    moment = int(after // 60) * 60 + 60
+    for _ in range(3 * 24 * 60):
+        when = datetime.datetime.fromtimestamp(moment, local)
+        if when.minute == minute and (hour is None or when.hour == hour):
+            return moment
+        moment += 60
+    return None
+
+
+def zone_where_it_is_now(start, end):
+    """An IANA zone whose local time now lies between the minutes of the day start and end (exclusive)."""
+    from zoneinfo import ZoneInfo, available_timezones
+    now = time.time()
+    for zone in sorted(available_timezones()):
+        if zone.startswith(("Etc/", "posix/", "right/")) or "/" not in zone:
+            continue
+        local = datetime.datetime.fromtimestamp(now, ZoneInfo(zone))
+        if start < local.hour * 60 + local.minute < end:
+            return zone
+    return None
+
+
 @unittest.skipUnless(shutil.which("php") and shutil.which("sh"), "PHP CLI and sh are required")
 class CronGroupTest(base.EndpointMixin, unittest.TestCase):
     """Each crontab job's last run, exit code and duration from the history cron-run.sh writes."""
@@ -378,13 +406,30 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
         self.assertNotIn("token=", body)
         self.assertEqual(group_up(metrics, "cron"), 1)
 
-        # The nightly id's earliest schedule (15 * * * * of crontab.stage) gives its expected time.
-        self.assertEqual(time.gmtime(expected[nightly]).tm_min, 15)
+        # The nightly id's earliest schedule gives its expected time: 15 * * * * of crontab.stage, except between 02:15
+        # and 03:00 local time, when 0 3 * * * of crontab comes first (the endpoint's TZ is Europe/Vilnius).
+        self.assertEqual(expected[nightly], min(next_run(15, None, last[nightly], "Europe/Vilnius"),
+                                                next_run(0, 3, last[nightly], "Europe/Vilnius")))
         # A later successful manual run replaces the failure; the last success follows it.
         self.assertEqual(self.run_job("true", "manual", job=failing), 0)
         _, metrics = self.scrape()
         self.assertEqual(labelled(metrics, "setup_cron_job_last_exit_code", "job")[failing], 0)
         self.assertIn(failing, labelled(metrics, "setup_cron_job_last_success_timestamp_seconds", "job"))
+
+    def test_the_expected_time_is_the_earliest_schedule_whatever_the_time_of_day(self):
+        """Both orders, whenever the test runs: in a zone where it is now about 02:35, 0 3 * * * comes before
+        15 * * * *; in one where it is about noon, 15 * * * * does."""
+        from zoneinfo import ZoneInfo
+        nightly = job_id("true")
+        self.assertEqual(self.run_job("true"), 0)
+        for (start, end), local_time in (((2 * 60 + 16, 2 * 60 + 56), (3, 0)), ((10 * 60, 14 * 60), (None, 15))):
+            zone = zone_where_it_is_now(start, end)
+            self.assertIsNotNone(zone)
+            with self.subTest(zone=zone):
+                _, metrics = self.scrape(TZ=zone)
+                expected = labelled(metrics, "setup_cron_job_expected_run_timestamp_seconds", "job")[nightly]
+                when = datetime.datetime.fromtimestamp(expected, ZoneInfo(zone))
+                self.assertEqual((when.hour if local_time[0] is not None else None, when.minute), local_time)
 
     def test_with_the_schedule_off_no_run_is_expected(self):
         self.assertEqual(self.run_job(FAILING, "manual"), 3)
