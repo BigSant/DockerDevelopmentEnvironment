@@ -13,6 +13,10 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 5.4.2
+
+Internal changes only (tests, tooling, documentation); nothing to change in projects.
+
 ## 5.4.1
 
 - **A deploy's backup waits for the restarted database.** Right after `make deploy-images` restarts it, MySQL's
