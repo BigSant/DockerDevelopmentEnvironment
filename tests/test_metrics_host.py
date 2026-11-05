@@ -300,31 +300,30 @@ def job_id(command, occurrence=1):
 FAILING = 'echo "https://shop.example/cron?token=cron-secret-value" > /dev/null; exit 3'
 
 
-def next_run(minute, hour, after, zone):
-    """The first time after `after` (a timestamp) at which `minute hour * * *` fires in zone (hour None: every
-    hour), stepping through timestamps a minute at a time in local time, as cron/compose.php cronNextRun does."""
+# Zones the metrics endpoint accepts (metrics_timezone: PHP's timezone_identifiers_list, so no alias such as
+# America/Ensenada and no Etc/ zone): one with daylight saving time and one with a fixed half-hour offset.
+CLOCK_ZONES = ("Europe/Vilnius", "Asia/Kolkata")
+COMPOSE = ROOT / "docker/runtime/cron/compose.php"
+
+
+def instant(zone, *wall):
+    """The timestamp of a local wall-clock time (year, month, day, hour, minute) in zone."""
     from zoneinfo import ZoneInfo
-    local = ZoneInfo(zone)
-    moment = int(after // 60) * 60 + 60
-    for _ in range(3 * 24 * 60):
-        when = datetime.datetime.fromtimestamp(moment, local)
-        if when.minute == minute and (hour is None or when.hour == hour):
-            return moment
-        moment += 60
-    return None
+    return int(datetime.datetime(*wall, tzinfo=ZoneInfo(zone)).timestamp())
 
 
-def zone_where_it_is_now(start, end):
-    """An IANA zone whose local time now lies between the minutes of the day start and end (exclusive)."""
-    from zoneinfo import ZoneInfo, available_timezones
-    now = time.time()
-    for zone in sorted(available_timezones()):
-        if zone.startswith(("Etc/", "posix/", "right/")) or "/" not in zone:
-            continue
-        local = datetime.datetime.fromtimestamp(now, ZoneInfo(zone))
-        if start < local.hour * 60 + local.minute < end:
-            return zone
-    return None
+def earliest(after, zone):
+    """The nightly job's expected time after a run at `after`: the earliest of its schedules by cronNextRun itself."""
+    return min(php_next_runs([(zone, "15 * * * *", int(after)), (zone, "0 3 * * *", int(after))]))
+
+
+def php_next_runs(cases):
+    """cronNextRun of docker/runtime/cron/compose.php for (zone, schedule, from) cases, in one PHP process."""
+    script = ('require getenv("COMPOSE"); $out = array(); foreach (json_decode(stream_get_contents(STDIN), true) as $c) '
+              '{ date_default_timezone_set($c[0]); $out[] = cronNextRun($c[1], $c[2]); } echo json_encode($out);')
+    result = subprocess.run(["php", "-r", script], input=json.dumps(cases), capture_output=True, text=True, check=True,
+                            env={**os.environ, "COMPOSE": str(COMPOSE)})
+    return json.loads(result.stdout)
 
 
 @unittest.skipUnless(shutil.which("php") and shutil.which("sh"), "PHP CLI and sh are required")
@@ -408,28 +407,39 @@ class CronGroupTest(base.EndpointMixin, unittest.TestCase):
 
         # The nightly id's earliest schedule gives its expected time: 15 * * * * of crontab.stage, except between 02:15
         # and 03:00 local time, when 0 3 * * * of crontab comes first (the endpoint's TZ is Europe/Vilnius).
-        self.assertEqual(expected[nightly], min(next_run(15, None, last[nightly], "Europe/Vilnius"),
-                                                next_run(0, 3, last[nightly], "Europe/Vilnius")))
+        self.assertEqual(expected[nightly], earliest(last[nightly], "Europe/Vilnius"))
         # A later successful manual run replaces the failure; the last success follows it.
         self.assertEqual(self.run_job("true", "manual", job=failing), 0)
         _, metrics = self.scrape()
         self.assertEqual(labelled(metrics, "setup_cron_job_last_exit_code", "job")[failing], 0)
         self.assertIn(failing, labelled(metrics, "setup_cron_job_last_success_timestamp_seconds", "job"))
 
-    def test_the_expected_time_is_the_earliest_schedule_whatever_the_time_of_day(self):
-        """Both orders, whenever the test runs: in a zone where it is now about 02:35, 0 3 * * * comes before
-        15 * * * *; in one where it is about noon, 15 * * * * does."""
-        from zoneinfo import ZoneInfo
+    def test_the_expected_time_is_the_earliest_schedule_at_fixed_instants(self):
+        """The nightly job (0 3 * * * and 15 * * * *) last ran at fixed instants, in zones the endpoint accepts: its
+        expected time is the earliest schedule after that run (cronNextRun of each), whatever the real clock says.
+        Before 03:00 local the nightly 03:00 comes first, otherwise :15; on Vilnius's spring-forward day 03:00 does not
+        exist."""
+        import subprocess as process
+        listed = process.run(["php", "-r", 'echo json_encode(timezone_identifiers_list());'], capture_output=True,
+                             text=True, check=True).stdout
+        self.assertTrue(set(CLOCK_ZONES) <= set(json.loads(listed)), "the endpoint would ignore the zone")
         nightly = job_id("true")
-        self.assertEqual(self.run_job("true"), 0)
-        for (start, end), local_time in (((2 * 60 + 16, 2 * 60 + 56), (3, 0)), ((10 * 60, 14 * 60), (None, 15))):
-            zone = zone_where_it_is_now(start, end)
-            self.assertIsNotNone(zone)
-            with self.subTest(zone=zone):
+        cases = [("Europe/Vilnius", (2026, 1, 15, 2, 35), (3, 0)), ("Europe/Vilnius", (2026, 1, 15, 12, 0), (12, 15)),
+                 ("Europe/Vilnius", (2026, 7, 15, 2, 35), (3, 0)), ("Europe/Vilnius", (2026, 7, 15, 2, 14), (2, 15)),
+                 ("Europe/Vilnius", (2026, 3, 29, 2, 20), (4, 15)),  # 03:00-03:59 does not exist that day
+                 ("Asia/Kolkata", (2026, 1, 15, 2, 35), (3, 0)), ("Asia/Kolkata", (2026, 1, 15, 23, 59), (0, 15))]
+        from zoneinfo import ZoneInfo
+        for zone, wall, local in cases:
+            with self.subTest(zone=zone, last_run=wall):
+                started = instant(zone, *wall)
+                (self.history / "history.jsonl").write_text(json.dumps(
+                    {"job": nightly, "trigger": "scheduled", "started": started * 1000, "duration_ms": 10, "exit": 0,
+                     "log": "fixed.log"}) + "\n")
                 _, metrics = self.scrape(TZ=zone)
                 expected = labelled(metrics, "setup_cron_job_expected_run_timestamp_seconds", "job")[nightly]
                 when = datetime.datetime.fromtimestamp(expected, ZoneInfo(zone))
-                self.assertEqual((when.hour if local_time[0] is not None else None, when.minute), local_time)
+                self.assertEqual((when.hour, when.minute), local)
+                self.assertEqual(expected, earliest(started, zone))
 
     def test_with_the_schedule_off_no_run_is_expected(self):
         self.assertEqual(self.run_job(FAILING, "manual"), 3)
