@@ -9,6 +9,12 @@ FROM php:${PHP_VERSION}-fpm AS base
 ARG PHP_VERSION=""
 ENV ACCEPT_EULA=Y
 
+# php:7.4-fpm is Debian bullseye, which reached EOL: deb.debian.org still serves the bullseye indexes but 404s
+# on packages the indexes list (e.g. bullseye-security's wget), so apt-get install fails. archive.debian.org
+# holds all three suites (bullseye, bullseye-updates, bullseye-security); the one expression rewrites both
+# deb.debian.org/debian and deb.debian.org/debian-security.
+RUN sed -i -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libmcrypt-dev \
