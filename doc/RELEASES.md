@@ -13,6 +13,10 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 5.5.1
+
+Internal changes only (tests, tooling, documentation); nothing to change in projects.
+
 ## 5.5.0
 
 - **Release isolation for untrusted code (`release-hardened-v1`).** With `RELEASE_ISOLATION=container` (a project
