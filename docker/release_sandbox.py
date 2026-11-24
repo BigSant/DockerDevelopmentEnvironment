@@ -57,6 +57,10 @@ def isolation(project):
 
 def refusal(settings):
     """Why isolation cannot apply to these settings (None: it can)."""
+    from project_target import files_only
+    if files_only(settings):
+        return ('RELEASE_ISOLATION=container needs a Docker deploy target: with DEPLOY_MODE=files the after-rsync-files '
+                'hook and the cache clear run on the target itself, outside any sandbox')
     if settings.get('DEPLOY_SSH'):
         return ('RELEASE_ISOLATION=container needs a deploy target on this machine (no DEPLOY_SSH): the sandbox '
                 'container mounts the release and the target code here. Untrusted deploys to another server stay refused')

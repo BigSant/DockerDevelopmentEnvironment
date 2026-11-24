@@ -17,5 +17,5 @@ One deploy as its caller (AI OS) names it with `DEPLOY_ATTEMPT`: refused when th
 _Avoid_: deploy run (the CI job), request (the caller's dispatch)
 
 **Deploy target**:
-Where a release's files go: this machine, or a server reached over ssh (`DEPLOY_SSH`); the containers' Docker daemon is a separate setting (`DEPLOY_CONTEXT`).
+Where a release's files go: this machine, or a server reached over ssh (`DEPLOY_SSH`); the containers' Docker daemon is a separate setting (`DEPLOY_CONTEXT`). A files target (`DEPLOY_MODE=files`) takes the code files only: no container runs there and setup manages no database there.
 _Avoid_: remote (the git origin), server (when this machine is meant), Docker context

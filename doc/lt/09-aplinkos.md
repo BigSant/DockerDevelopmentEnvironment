@@ -68,6 +68,7 @@ LIVE serveris: tik Docker, kodas, duomenys ir DirectAdmin web serveris
 ```
 
 - Image'ai kuriami build serveryje ir perduodami per SSH. LIVE neturi kūrimo įrankių ir setup kopijos: setup runtime scriptai ir CORE konfigūracija įkepti į image'us.
+- Serveris be Docker'io gauna tik kodą: žr. [taikinys tik failams](#taikinys-tik-failams-deploy_modefiles).
 - Serveris valdomas per Docker context (`DEPLOY_CONTEXT`). Kai jis nurodytas, `make ps`, `make logs`, `make shell`, `make db-backup` ENV=stage/prod vykdomi serveryje, o `make up` / `make down` atmetami: konteinerius paleidžia `make deploy-images`.
 - Serveriuose naudojamas fiksuotas setup tag'as: `make release ENV=prod` veikia tik kai setup yra tiksliai ant release tag'o (`vX.Y.Z`), stage tinka bet kuris commit'as. Release iš necommit'into setup atmetamas.
 - **TLS baigiasi DirectAdmin'e** (jo Let's Encrypt). Konteinerio portas rišamas tik prie `127.0.0.1`, DirectAdmin web serveris perduoda užklausas į `http://127.0.0.1:<LOCALHOST_PORT>`. nginx-proxy priima tikrą kliento IP iš `X-Forwarded-For`, o `X-Forwarded-Proto: https` PHP pusėje tampa HTTPS žyma. Konkreti DirectAdmin proxy konfigūracija šiame vadove neaprašyta. Kai `DOMAIN` išvardija kelis hostname'us ([keli domenai](03-nustatymai.md#keli-domenai)), DirectAdmin'e kiekvienas jų turi savo sertifikatą ir tą patį proxy į projekto portą; nginx-proxy juos visus jau priima.
@@ -106,7 +107,7 @@ PROXY_CPUS=0.5
 PMA_ALLOWED_IPS="203.0.113.10"
 ```
 
-   **Kur deploy'inama, nusprendžia serveris, ne projektas.** Su setup-server taikinį (`DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`) užregistruoja `bin/add-project` build kataloge (`target.env`; `target.<env>.env` – kai stage ir prod skirtinguose serveriuose), o `make pipeline-deploy` jį prideda prie `env/<env>.env`. Pavyzdys tų vardų rašyti negali: jei `target.env` yra, deploy'us tokį pavyzdį atmeta. Be setup-server (bandant iš savo kompiuterio) taikinį rašyk privačiame `env/prod.env`:
+   **Kur deploy'inama, nusprendžia serveris, ne projektas.** Su setup-server taikinį (`DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`, serveriui be Docker'io – `DEPLOY_MODE=files`) užregistruoja `bin/add-project` build kataloge (`target.env`; `target.<env>.env` – kai stage ir prod skirtinguose serveriuose), o `make pipeline-deploy` jį prideda prie `env/<env>.env`. Pavyzdys tų vardų rašyti negali: jei `target.env` yra, deploy'us tokį pavyzdį atmeta. Be setup-server (bandant iš savo kompiuterio) taikinį rašyk privačiame `env/prod.env`:
 
 ```dotenv
 APP_UID=1001
@@ -317,6 +318,65 @@ make deploy ENV=prod rollback=1
 
 Iš naujo išsiunčia ankstesnį sėkmingai įdiegtą release'ą (build kompiuteris jų laiko kelis); release'ai, kurių hook'as nepavyko, ir dabartinio commit'o pakartotiniai deploy'ai praleidžiami. DB automatiškai negrąžinama. Jei atšauktas release'as pritaikė migracijas, deploy'us jas išvardija ir parašo komandą `make db-rollback ENV=prod steps=N` (pirma `dry=1`): ji paleidžia jų rollback dalis ([migracijos](07-duomenu-baze.md#rollback)). Duomenis grąžina tik kopija: `make db-import` iš prieš-deploy kopijos `.generated/backups/` (jei deploy'us buvo su `backup=1`) arba iš naujausios naktinės kopijos (setup-server).
 
+### Taikinys tik failams (`DEPLOY_MODE=files`)
+
+Kai kliento serveris (stage ar LIVE) Docker'io neturi, į jį keliauja tik kodas. Build serveris release'ą kuria kaip
+visada (savo Docker'yje, release PHP image'e) ir gali ten pat paleisti testus, o taikinyje niekas nevyksta
+konteineriuose ir setup ten nevaldo jokios DB.
+
+**Registracija** – setup-server'yje (`files:local` – katalogas pačiame build serveryje, bandymams):
+
+```bash
+sudo bin/add-project … --target files:ssh://VARTOTOJAS@SERVERIS/var/www/shop
+sudo bin/add-project … --target prod=files:ssh://VARTOTOJAS@SERVERIS/var/www/shop
+sudo bin/add-project … --target stage=files:local:/srv/bandymas
+```
+
+Build katalogo `target.env` (ar `target.<env>.env`) tada:
+
+```dotenv
+DEPLOY_MODE=files
+DEPLOY_SSH=VARTOTOJAS@SERVERIS
+DEPLOY_PATH=/var/www/shop
+```
+
+`DEPLOY_CONTEXT`, `APP_UID` ir `APP_GID` nerašomi (`DEPLOY_CONTEXT` kartu su `files` atmetamas): failai priklauso SSH
+vartotojui. `files:local` neturi `DEPLOY_SSH`. Kodas atsiduria ten pat, kur Docker taikinyje – `DEPLOY_PATH/app/<env>/public`
+(pirmas deploy'us katalogą sukuria), todėl serverio web serveris turi rodyti į jį.
+
+**Kas lieka kaip visada:** release'o kūrimas (`git archive`, Composer, `build.sh`), rsync su saugomais keliais ir
+`DEPLOY_PROTECTED_PATHS`, failų šalinimas pagal manifestus, deploy istorija, `rollback=1`, `make deploy-health` (visada
+`https://<DOMAIN>`, su `DEPLOY_HEALTH_ADDRESS` – tuo adresu), `make files-backup` ir `make module-pull`.
+
+**Kas praleidžiama**, nes taikinyje nėra nei konteinerių, nei setup valdomos DB: aplinkos failų kopijavimas,
+`after-rsync.sh` php-fpm konteineryje (log'e parašoma, kad praleistas), modulių upgrade'ai, setup SQL ir vertimų
+migracijos, schemos ataskaita, php-fpm perkrovimas, secret store. `make deploy-images` atsisako, `make cron-reload` ir
+`make tool-access` parašo, kad nėra ką daryti. DB komandos (`make db-backup`, `make deploy backup=1`,
+`make db-import ENV=prod`, …) atsisako su `files deploy target: no database managed here`. Pipeline'e `BACKUP=yes` ir
+`CRON` praleidžiami su pastaba (žingsnis nesugriūva), o `IMAGES` tik sukuria image'us build serveryje (`make release`:
+juose vyksta release'o build'as), be `make deploy-images`.
+
+**Hook'as taikinyje.** Jei aplinkos repo turi `config/deploy/after-rsync-files.sh`, jis vykdomas pačiame taikinyje per
+SSH (`sh -e`, kodo šaknyje, scriptas perduodamas standartiniu įvedimu), kai naujas kodas jau ten:
+
+```bash
+# config/deploy/after-rsync-files.sh
+php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration
+```
+
+Nepavykus – kaip `after-rsync.sh`: deploy'us sustoja, cache nevalomas, istorijoje `"failed": "after-rsync"`. Be šio
+failo nieko nevykdoma. php-fpm setup neperkrauna: jei serverio OPcache netikrina failų laiko, perkrovimą įrašyk į hook'ą.
+
+**Cache.** Kada valyti, sprendžia tas pats `cache=auto` (8 žingsnis), bet valoma taikinyje per SSH, kodo šaknyje:
+PrestaShop – `var/cache/prod` ir `var/cache/dev` (PS 1.6 – `cache/smarty/cache`, `cache/smarty/compile`, `cache/cachefs`
+turinys, išskyrus `index.php` ir `.htaccess`, ir `cache/class_index.php`; nuoroda (symlink) šiuose keliuose atmetama), kiti
+profiliai – `CACHE_CLEAR_COMMAND` (tik žodžiai, shell operatoriai nevykdomi).
+
+**Nustatymai.** Tokiai aplinkai nereikia konteinerių limitų, įrankių IP sąrašų, `DATABASE_PASSWORD`,
+`DATABASE_ROOT_PASSWORD` ir PS raktų; jos [Deployment variables](#deployment-variables) – tik projekto
+`DEPLOY_REQUIRED_VARIABLES` ir `DEPLOY_OPTIONAL_VARIABLES`. `RELEASE_ISOLATION=container` atmetamas (hook'as ir cache
+valymas vyksta ne sandbox'e). Be `DEPLOY_MODE` (arba su `docker`) viskas kaip anksčiau.
+
 ## Bitbucket Pipelines
 
 Deploy'ų iš Bitbucket'o atlieka setup'o komanda `make pipeline-deploy`. Projektas laiko tik `bitbucket-pipelines.yml` ir vardų sąrašus `env/common.env` faile. Savo `deploy/pipeline.sh` ar kintamųjų scripto nebereikia. Pavyzdys: [templates/pipelines/bitbucket-pipelines.yml](../../templates/pipelines/bitbucket-pipelines.yml) (nukopijuok į aplinkos repozitorijos šaknį; `./create-project` jį įrašo pats). GitHub projektas deploy'inamas ta pačia komanda iš GitHub Actions, žr. [GitHub Actions](#github-actions).
@@ -347,11 +407,11 @@ Eiga:
 
 1. **Patikros prieš bet kokį pakeitimą:** Deployment aplinka, `REF`, `IMAGES`/`CRON`/`ROLLBACK`/`BACKUP` reikšmės, privalomi [Deployment variables](#deployment-variables). Jei kas nors negerai, komanda baigiasi kodu 64 ir pranešimu `Nothing was changed`.
 2. `git fetch --tags` (abiem repozitorijoms) ir commit'o checkout'as build root'e.
-3. `env/<env>.env` perrašomas iš to commit'o `env/<env>.env.example` ir build katalogo `target.env` (setup-server užregistruotas taikinys: `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`). Pavyzdys, kuris pats mini kurį nors iš jų, atmetamas; be `target.env` ir be `DEPLOY_PATH` pavyzdyje deploy'us nepradedamas (`No deploy target`). Be `target.env` lieka ankstesnė taisyklė: taikinys pavyzdyje, o kai `DEPLOY_CONTEXT=default` ir `DEPLOY_SSH` tuščias, pridedami runner'io vartotojo `APP_UID`/`APP_GID`.
+3. `env/<env>.env` perrašomas iš to commit'o `env/<env>.env.example` ir build katalogo `target.env` (setup-server užregistruotas taikinys: `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH`, `APP_UID`, `APP_GID`, `DEPLOY_MODE`). Pavyzdys, kuris pats mini kurį nors iš jų, atmetamas; be `target.env` ir be `DEPLOY_PATH` pavyzdyje deploy'us nepradedamas (`No deploy target`). Be `target.env` lieka ankstesnė taisyklė: taikinys pavyzdyje, o kai `DEPLOY_CONTEXT=default` ir `DEPLOY_SSH` tuščias, pridedami runner'io vartotojo `APP_UID`/`APP_GID`.
 4. Patikros dar kartą su deploy'inamo commit'o sąrašais ir `SETUP_MIN_VERSION`, kad naujas privalomas vardas būtų patikrintas jau pirmame deploy'uje. Tušti neprivalomi vardai išvardijami įspėjime (`Warning: empty Deployment variables`).
    **Per sena setup versija.** Jei deploy'inamas commit'as reikalauja naujesnio setup (`SETUP_MIN_VERSION`), o žingsnis vyksta setup-server worker'yje (runner'is perduoda `SETUP_SERVER_ROOT`, o setup checkout'as priklauso jo paskyrai), build root grąžinamas, setup checkout'as perjungiamas į naujausią to paties MAJOR release tag'ą (`vX.Y.Z`), kuris pakankamai naujas, ir žingsnis paleidžiamas iš naujo jau su juo (`==> setup 2.4.0 -> v2.7.0 …`). Naujas MAJOR, checkout'as su vietiniais pakeitimais ar tag'o nebuvimas – deploy'us sustoja ir paaiškina; programuotojo kompiuteryje setup savaime neatnaujinamas.
-5. `IMAGES=yes`: `make release`, `make deploy-images`. Tada `make deploy ref=… backup=…` arba `make deploy rollback=1`.
-6. `CRON=yes`: `make cron-reload`, kai kodas jau įdiegtas. Crontab'ą, kurio `supercronic -test` nepriima, cron nepritaiko: lieka ankstesnis grafikas, žingsnis baigiasi klaida, bet niekas negrąžinama.
+5. `IMAGES=yes`: `make release`, `make deploy-images`. Tada `make deploy ref=… backup=…` arba `make deploy rollback=1`. [Taikinys tik failams](#taikinys-tik-failams-deploy_modefiles): tik `make release` (be `make deploy-images`), `BACKUP=yes` praleidžiamas su pastaba.
+6. `CRON=yes`: `make cron-reload`, kai kodas jau įdiegtas (taikiniui tik failams – praleidžiama su pastaba). Crontab'ą, kurio `supercronic -test` nepriima, cron nepritaiko: lieka ankstesnis grafikas, žingsnis baigiasi klaida, bet niekas negrąžinama.
 
 **`auto` sprendimai** daromi prieš checkout'ą, lyginant build root'o veikiantį commit'ą su deploy'inamu, ir parašomi log'e su priežastimi (`==> IMAGES=auto: yes (changed since …: config/nginx/site.conf)`):
 

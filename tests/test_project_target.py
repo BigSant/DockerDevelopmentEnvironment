@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "docker"))
-from project_target import SSH_OPTIONS, LocalTarget, SshTarget, deploy_target
+from project_target import SSH_OPTIONS, LocalTarget, SshTarget, deploy_mode, deploy_target, files_only
 
 LISTENING = "LISTEN 0 511 0.0.0.0:80 0.0.0.0:*\nLISTEN 0 4096 [::]:443 [::]:*\n"
 
@@ -23,6 +23,16 @@ class DeployTargetTest(unittest.TestCase):
         for host in ("host", "host; rm -rf /", "shop@host -oProxyCommand=x"):
             with self.subTest(host=host), self.assertRaisesRegex(ValueError, "user@host"):
                 deploy_target(SimpleNamespace(settings={"DEPLOY_SSH": host}))
+
+
+    def test_deploy_mode_is_docker_unless_the_target_file_says_files(self):
+        self.assertEqual([deploy_mode(settings) for settings in ({}, {"DEPLOY_MODE": ""}, {"DEPLOY_MODE": "docker"})],
+                         ["docker"] * 3, "absent or empty: the containers' target, as before")
+        self.assertTrue(files_only({"DEPLOY_MODE": "files"}))
+        self.assertFalse(files_only({"DEPLOY_SSH": "shop@host.example"}))
+        for mode in ("FILES", "rsync", "files "):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "DEPLOY_MODE must be docker or files"):
+                files_only({"DEPLOY_MODE": mode})
 
 
 class LocalTargetTest(unittest.TestCase):
@@ -48,6 +58,16 @@ class LocalTargetTest(unittest.TestCase):
         pulled.parent.mkdir()
         self.target.pull(f"{destination}/modules/shop/", f"{pulled}/", "-a")
         self.assertTrue(pulled.is_dir())
+
+    def test_a_script_runs_with_sh_e_in_the_code_tree(self):
+        tree = self.root / "srv/public"
+        tree.mkdir(parents=True)
+        self.target.script(str(tree), "echo hook > ran.txt\npwd >> ran.txt\n")
+        self.assertEqual((tree / "ran.txt").read_text().split(), ["hook", str(tree)])
+        with self.assertRaises(subprocess.CalledProcessError) as failed:
+            self.target.script(str(tree), "false\necho never > after.txt\n")
+        self.assertEqual(failed.exception.returncode, 1)
+        self.assertFalse((tree / "after.txt").exists(), "sh -e stops at the first failing command")
 
     def test_listening_addresses_or_none_when_they_cannot_be_read(self):
         target = LocalTarget(run=lambda command, **kwargs: subprocess.CompletedProcess(command, 0, LISTENING, ""))
@@ -102,6 +122,13 @@ class SshTargetTest(unittest.TestCase):
         self.assertNotIn("a b.php", command[-1])
         self.assertNotIn("c.php", command[-1])
         self.assertEqual(json.loads(kwargs["input"])["remove"], [b"a b.php".hex(), b"c.php".hex()])
+
+    def test_a_script_travels_on_stdin_and_runs_in_the_code_tree_on_the_server(self):
+        self.target.script("/var/www/my shop/app/prod/public", "php bin/console cache:warmup\n")
+        command, kwargs = self.calls[0]
+        self.assertEqual(command, ["ssh", *SSH_OPTIONS, "shop@host.example", "cd '/var/www/my shop/app/prod/public' && sh -e -s"])
+        self.assertEqual(kwargs["input"], b"php bin/console cache:warmup\n")
+        self.assertTrue(kwargs["check"])
 
     def test_listening_reads_ss_on_the_server(self):
         self.output = LISTENING

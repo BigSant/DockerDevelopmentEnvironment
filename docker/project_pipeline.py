@@ -34,6 +34,9 @@ when those commits touch config/cron/) runs make cron-reload after the deploy, b
 container reads its crontab only at start and nothing above recreates it for a changed mounted file.
 CACHE (default auto) goes to make deploy, which clears the application cache when the deploy changes what it
 holds (cache_needed); yes always, no never.
+A files target (target.env DEPLOY_MODE=files: the code goes to a server without Docker) keeps all of this but what
+needs containers or a database there: IMAGES only builds the release images here (make release, which the release
+build runs in; no make deploy-images), BACKUP=yes and CRON are skipped with a note.
 A failure returns the checkout and env file to the previously live commit, unless this run already
 restarted the containers on the new images: then nothing is undone and the step prints the way back.
 
@@ -76,6 +79,7 @@ from project_attempts import (LOCK_VARIABLE, Attempt, COMMIT, check_attempt, env
 from project_env_files import (TARGET_KEYS, deployment_variables, file_settings,
                                needed_setup_version, project_root, read_dotenv, target_file, target_settings)
 from project_environments import DEPLOYMENT_ENVIRONMENTS, NAME, RESERVED, is_server, server_environments
+from project_target import NO_DATABASE, files_only
 
 SETUP_ROOT = Path(__file__).resolve().parent.parent
 # GitHub Actions: the job's secrets and configuration variables, as toJSON(secrets) / toJSON(vars).
@@ -697,7 +701,19 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
             step.say(f"Warning: empty Deployment variables, their integrations stay off: {' '.join(empty)}")
         health, checked = health_wanted(step, switches['HEALTH'], environ)
         record.event('settings', 'ok', empty_settings=empty)
-        if images:
+        # The deployed commit's target: a files target runs no container and has no database setup manages.
+        files = files_only(file_settings(step.directory, step.environment)[0])
+        backup = switches['BACKUP'] == 'yes'
+        if files and backup:
+            step.say(f'Note: BACKUP=yes skipped: {NO_DATABASE} (ENV={step.environment} is a files deploy target).')
+            backup = False
+        if images and files:
+            # The release build runs in the release PHP image: built here, never sent (the target has no Docker).
+            step.make('release')
+            print('==> DEPLOY_MODE=files: the images stay on this machine for the release build; no make deploy-images',
+                  file=step.out, flush=True)
+            record.event('images', 'ok', files=True)
+        elif images:
             step.make('release')
             state['images'] = True
             step.mark(images=True)
@@ -710,7 +726,7 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
         if rollback:
             step.make('deploy', 'rollback=1', f'cache={switches["CACHE"]}', *attempt)
         else:
-            step.make('deploy', f'ref={ref}', f'backup={1 if switches["BACKUP"] == "yes" else 0}', f'cache={switches["CACHE"]}',
+            step.make('deploy', f'ref={ref}', f'backup={1 if backup else 0}', f'cache={switches["CACHE"]}',
                       *attempt)
         state['restore'], state['deployed'] = False, True
         if rollback:
@@ -737,7 +753,9 @@ def run_step(step, environ, provider, deployment, ref, switches, record=None, fo
                 to = auto_rollback(step, record, switches)
                 if to:
                     cron, _ = decide(step, 'CRON', switches['CRON'], lambda: cron_needed(step, live, to))
-        if cron:
+        if cron and files:
+            step.say(f'Note: CRON skipped: ENV={step.environment} is a files deploy target, no cron container runs there.')
+        elif cron:
             # The code is live: a crontab cron refuses fails the step but undoes nothing.
             step.make('cron-reload')
         step.unmark()

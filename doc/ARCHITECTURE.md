@@ -93,6 +93,9 @@ no env/<env>.env needed): they read the committed env files with `project_env_fi
    only its own inputs (Dockerfile, COPY sources, build args, profile, parent fingerprint).
 7. Stage/prod: `APP_UID/APP_GID` become the container user; with `DEPLOY_CONTEXT`, exec/ps/logs go
    to that Docker context while build/config stay local, and up/down/run are refused (use the release).
+   A files target (`DEPLOY_MODE=files`, `project.files`): every compose command but build/config/images/pull is
+   refused, `project.database` refuses ("files deploy target: no database managed here"), no secret store overlay,
+   and neither container limits, tool allowlists nor `DATABASE_ROOT_PASSWORD` are required; `DEPLOY_CONTEXT` is refused.
 
 ## 3. Images
 
@@ -534,6 +537,23 @@ reach a migration. `translations-migrate` applies pending ones alone (locally, t
 the newest one through the db-pull channel (`database_pull`: connection, `info|fresh PROJECT ENV files`, `get`), reads the
 archive to its end before keeping it, and with `extract=1` writes only regular files this checkout's backup paths
 name into the local code tree (links, `..` and paths outside it are skipped; nothing is deleted).
+**Files-only target** (`DEPLOY_MODE=files` in setup-server's target file, `project_target.files_only`): a server without
+Docker takes the code only. `make release` still builds the images here (the release build runs in the release PHP
+image) and `make deploy` builds and copies the release exactly as above (protected paths, protected release files,
+manifests, removals, history, rollback; the code tree is created first, `mkdir -p`, as no deploy-images prepares it).
+It skips everything that needs a container or the database there: `check_project_root`, the backup (refused before
+anything changes), `sync_environment`, the php-fpm hook, module upgrades, setup and translation migrations, the
+schema report, the php-fpm reload, `publish_release_info` and the traffic-classes check. `finish_files_deploy` runs
+`config/deploy/after-rsync-files.sh`, when present, on the target (`Target.script`: `sh -e -s` in the code tree, the
+script on stdin, over ssh `cd PATH && sh -e -s`; failure records `after-rsync`), then the cache clear `cache_needed`
+decides, on the target too: PrestaShop's cache directories as a shell script (`var/cache/prod|dev`; 1.6: the smarty and
+cachefs contents but `index.php`/`.htaccess`, and `class_index.php`; a link on the way refused) or `CACHE_CLEAR_COMMAND`
+re-quoted word by word. `make deploy-images` and `make tool-access` have nothing to do there, `make cron-reload` says so,
+`make deploy-health` asks `https://DOMAIN` whatever `DEPLOY_SSH`, release isolation refuses the mode (the hook and the
+cache clear run outside a sandbox), and the Deployment variables are the project's two lists only (setup's secrets and
+`APP_ENVIRONMENT` are container settings). `make pipeline-deploy` runs `make release` only for IMAGES, and skips
+`BACKUP=yes` and `CRON` with a note. `make files-backup` needs no container and works unchanged. Absent or `docker`:
+everything as before.
 The release's files reach the **Deploy target** (`project_target.deploy_target`): this machine, or `DEPLOY_SSH=user@host`
 over ssh. Code push, removals, target-only module listing (directories only), `module-pull`, `files-backup`, environment-file sync,
 runtime directories and the port check all go through it; every ssh connection, rsync's included, runs with
@@ -566,7 +586,7 @@ ENV from the deployment environment (staging/production); `REF` (aliases `APP_RE
 separate code repository keeps the environment checkout on the pipeline commit and deploys REF of
 `app/public`, which is only fetched. Order: refusals before any change (exit 64; required Deployment
 variables included) → fetch → checkout → `env/<env>.env` from the example + the build root's `target.env`
-(the deploy target setup-server registers: `DEPLOY_CONTEXT/SSH/PATH`, `APP_UID/GID`; an example naming
+(the deploy target setup-server registers: `DEPLOY_CONTEXT/SSH/PATH`, `APP_UID/GID`, `DEPLOY_MODE`; an example naming
 them is refused; without `target.env` the example's own target, + the runner's ids on the same host)
 → the same checks with the deployed commit's files (a too old setup on a setup-server worker: `setup_self_update`
 checks out the newest release tag of the same MAJOR that is new enough and the step restarts on it) →

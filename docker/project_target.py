@@ -1,7 +1,11 @@
 """The Deploy target: where a release's files go, this machine or a server reached over ssh (DEPLOY_SSH).
 
 The containers' Docker daemon is a separate setting (DEPLOY_CONTEXT) and not handled here. Both targets
-answer the same operations; paths are the target's own."""
+answer the same operations; paths are the target's own.
+
+DEPLOY_MODE (setup-server's target file, like the rest of the target): docker (or empty, the default) runs the
+release's containers on the target; files sends the code only, to a server without Docker (or a directory of this
+machine): no Docker context, no container, no database setup manages there (files_only)."""
 
 import json
 import os
@@ -20,6 +24,22 @@ RSYNC_SSH = ['-e', shlex.join(['ssh', *SSH_OPTIONS])]
 # see its docstring for the threat model.
 REMOVE_HELPER = (Path(__file__).resolve().parent / 'remove_inside.py').read_text()
 PYTHON_CHECK = "import sys; sys.exit(0 if sys.version_info >= (3, 3) else 1)"
+DEPLOY_MODES = ('docker', 'files')
+# What every database step of a files target says (make db-backup, make deploy backup=1, setup-server's backups).
+NO_DATABASE = 'files deploy target: no database managed here'
+
+
+def deploy_mode(settings):
+    """DEPLOY_MODE, checked: docker (also when empty) or files."""
+    mode = str(settings.get('DEPLOY_MODE') or 'docker')
+    if mode not in DEPLOY_MODES:
+        raise ValueError(f'DEPLOY_MODE must be docker or files, not {mode!r} (setup-server writes it into target.env)')
+    return mode
+
+
+def files_only(settings):
+    """Whether the target takes the code files only (DEPLOY_MODE=files): nothing there runs in a container."""
+    return deploy_mode(settings) == 'files'
 
 
 def deploy_target(project, run=subprocess.run):
@@ -74,6 +94,11 @@ class LocalTarget:
         pending, _ = remove_inside(path, [os.fsencode(name) for name in names], [os.fsencode(name) for name in keep],
                                    [os.fsencode(pattern) for pattern in protected], err=sys.stdout)
         return [os.fsdecode(name) for name in pending]
+
+    def script(self, path, text):
+        """Runs a shell script (sh -e, read from standard input) in the directory path; its failure raises
+        CalledProcessError. DEPLOY_MODE=files: what a container would run otherwise (the hook, the cache clear)."""
+        self.run(['sh', '-e', '-s'], cwd=path, input=text.encode(), check=True)
 
     def listening(self):
         """The listening TCP addresses, or None when they cannot be read."""
@@ -141,6 +166,11 @@ class SshTarget:
             return list(names)
         sent = {os.fsencode(name): name for name in names}
         return [sent[name] for name in reply[0] if name in sent]
+
+    def script(self, path, text):
+        """As LocalTarget.script, on the server: ssh … 'cd PATH && sh -e -s', the script on standard input (so it is
+        quoted for no shell and never shows on a command line)."""
+        self.run(['ssh', *SSH_OPTIONS, self.host, f'cd {shlex.quote(path)} && sh -e -s'], input=text.encode(), check=True)
 
     def listening(self):
         result = self.run(self.ssh('ss', '-Hltn'), capture_output=True, text=True)

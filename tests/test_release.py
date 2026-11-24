@@ -58,6 +58,41 @@ class ReleaseTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'numeric ids'):
             self.stage('APP_UID=shop\n')
 
+    def test_a_files_target_needs_only_its_path_and_reaches_no_container_or_database(self):
+        # No container limits, no database passwords, a tool without its allowlist: none of it runs there.
+        with (self.app / 'env/common.env').open('a') as env:
+            env.write('SERVICES="pma cron"\n')
+        (self.app / 'env/stage.env').write_text('DOMAIN=demo.example.com\nDATABASE_USER=demo\nDATABASE_NAME=demo\n'
+                                                'DEPLOY_MODE=files\nDEPLOY_SSH=shop@client.example\n')
+        project = Project(self.app, 'stage')
+        with self.assertRaisesRegex(ValueError, r'ENV=stage \(DEPLOY_MODE=files\) needs DEPLOY_PATH'):
+            release_settings(project)
+        project = self.stage('DEPLOY_PATH=/var/www/shop/\n')
+        self.assertEqual(release_settings(project), (None, '/var/www/shop'))
+        self.assertEqual(release_settings(project, remote=False), (None, '/var/www/shop'))
+        self.assertNotIn('DOCKER_CONTEXT', project.process_env)
+        self.assertNotIn('secrets', project.active_model()['services'], 'no secret store: nothing runs there')
+        for command in (['ps'], ['exec', '-T', 'php-fpm', 'sh'], ['up', '-d'], ['logs']):
+            with self.subTest(command=command), self.assertRaisesRegex(ValueError, 'files deploy target .DEPLOY_MODE=files.'):
+                project.run(command)
+        with self.assertRaisesRegex(ValueError, 'ENV=stage: files deploy target: no database managed here'):
+            project.database
+        from database_backup import backup_database
+        with self.assertRaisesRegex(ValueError, 'files deploy target: no database managed here'):
+            backup_database(project)
+        with self.assertRaisesRegex(ValueError, 'no images to send or start there'):
+            deploy_images(project)
+        from project_tool_access import apply_tool_access
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertFalse(apply_tool_access(project))
+        self.assertIn('no nginx-proxy runs there', output.getvalue())
+        # A Docker context contradicts the mode; an unknown mode is refused.
+        with self.assertRaisesRegex(ValueError, 'DEPLOY_MODE=files .* takes no DEPLOY_CONTEXT'):
+            self.stage('DEPLOY_CONTEXT=shop-stage\nAPP_UID=1012\nAPP_GID=1013\n')
+        (self.app / 'env/stage.env').write_text(REMOTE + 'DEPLOY_MODE=ftp\n')
+        with self.assertRaisesRegex(ValueError, 'DEPLOY_MODE must be docker or files'):
+            Project(self.app, 'stage')
+
     def test_release_model_maps_project_paths_and_needs_no_setup_checkout(self):
         project = self.stage('APP_UID=1012\nAPP_GID=1013\nDEPLOY_PATH=/home/shop/site\nDEPLOY_CONTEXT=shop-stage\n')
         model = release_model(project, '/home/shop/site')

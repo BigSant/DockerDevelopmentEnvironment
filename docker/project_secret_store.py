@@ -77,10 +77,13 @@ def fill_from_store(directory, environment, process_env, run=subprocess.run):
     """
     if not is_server(environment) or os.environ.get('CI') == 'true':
         return []
+    from project_target import files_only
+    values, _ = file_settings(directory, environment)
+    if files_only(values):
+        return []  # a files target (DEPLOY_MODE=files) runs no container, the store neither
     names = [name for name in store_names(directory, environment) if not process_env.get(name)]
     if not names:
         return []
-    values, _ = file_settings(directory, environment)
     store = read_store(container_name(values.get('PROJECT_NAME', ''), environment),
                        values.get('DEPLOY_CONTEXT') or None, run)
     filled = [name for name in names if store.get(name)]

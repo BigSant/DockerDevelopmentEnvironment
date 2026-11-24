@@ -11,7 +11,24 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Files-only deploy target (`DEPLOY_MODE=files`).** A server without Docker (a client's stage or LIVE) can take the
+  code only. setup-server registers it (`bin/add-project --target files:ssh://USER@HOST/PATH` or `files:local:/PATH`):
+  its `target.env` holds `DEPLOY_MODE=files`, `DEPLOY_PATH` and `DEPLOY_SSH` (none for `files:local`), no
+  `DEPLOY_CONTEXT`, `APP_UID` or `APP_GID`. `make deploy` builds the release here as before (`make release` still builds
+  the release PHP image it runs in) and copies it with the same protected paths, manifests, removals, history and
+  rollback; it then leaves out everything that needs a container or a database there: environment files, the
+  `after-rsync.sh` hook in php-fpm, module upgrades, setup and translation migrations, the schema report, the php-fpm
+  reload, the release information for metrics. `config/deploy/after-rsync-files.sh`, if the project has it, runs on the
+  target itself (`sh -e` in the code tree, over ssh; its failure stops the deploy as the container hook's does), and
+  the cache clear (when `cache=auto` finds it needed) too: PrestaShop's cache directories, or `CACHE_CLEAR_COMMAND`.
+  `make deploy-health` asks `https://DOMAIN`. `make db-backup`, `make deploy backup=1` (and every database command)
+  refuse with "files deploy target: no database managed here"; `make pipeline-deploy` skips `BACKUP=yes` and `CRON`
+  with a note and runs no `make deploy-images`; `make files-backup` works as before. Such an environment needs no
+  container limits, tool allowlists, database passwords or PrestaShop keys, has no secret store, and its Deployment
+  variables are the project's `DEPLOY_REQUIRED_VARIABLES` and `DEPLOY_OPTIONAL_VARIABLES` only; release isolation
+  refuses it. Without `DEPLOY_MODE` (or with `docker`) nothing changes.
 
 ## 5.5.2
 

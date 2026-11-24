@@ -81,13 +81,16 @@ def megabytes(size):
 
 
 def resolve_resources(settings, values, environment):
-    """Container limits per service and the internal sizes derived from them."""
+    """Container limits per service and the internal sizes derived from them. A files target (DEPLOY_MODE=files)
+    runs no container: its limits are not required."""
+    from project_target import files_only
     get = lambda key: str(settings.get(key) or '')
     missing = []
+    required = is_server(environment) and not files_only(settings)
     for name, (memory, cpus) in RESOURCES.items():
         explicit_memory = get(f'{name}_MEMORY') or get(MEMORY_ALIASES.get(name, ''))
         explicit_cpus = get(f'{name}_CPUS') or get('CONTAINER_CPUS')
-        if is_server(environment) and name in REMOTE_REQUIRED:
+        if required and name in REMOTE_REQUIRED:
             missing += [f'{name}_{kind}' for kind, value in (('MEMORY', explicit_memory), ('CPUS', explicit_cpus)) if not value]
         values[f'{name}_MEMORY'] = explicit_memory or memory
         values[f'{name}_CPUS'] = explicit_cpus or cpus

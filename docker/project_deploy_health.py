@@ -6,8 +6,8 @@ duplicates dropped. One GET each, no redirect followed, 10 s for the whole reque
 or a 5xx is tried once more after 5 s. Only the status, the time and the tries are kept, never a body.
 
 Where: on a target on this host (no DEPLOY_SSH) http://<PUBLISH_ADDRESS, else 127.0.0.1>:<LOCALHOST_PORT><path> with
-Host: <first DOMAIN> and X-Forwarded-Proto: https, which nginx-proxy trusts from loopback. On another server
-https://<first DOMAIN><path>, connected to DEPLOY_HEALTH_ADDRESS when set (as METRICS_PROBE_ADDRESS: the name stays
+Host: <first DOMAIN> and X-Forwarded-Proto: https, which nginx-proxy trusts from loopback. On another server, and on
+any files target (DEPLOY_MODE=files: no container publishes a port here), https://<first DOMAIN><path>, connected to DEPLOY_HEALTH_ADDRESS when set (as METRICS_PROBE_ADDRESS: the name stays
 in SNI, the Host header and the certificate check).
 
 The release: DEPLOY_HEALTH_RELEASE_PATH (e.g. /_health) must answer JSON whose `release` is the deployed commit, which
@@ -76,7 +76,9 @@ class Endpoint:
         if not domains:
             raise Refusal('The health check needs DOMAIN (env/<env>.env.example): its first name is the Host asked')
         self.domain = domains[0]
-        self.local = not values.get('DEPLOY_SSH')
+        # A files target (DEPLOY_MODE=files) publishes no container port here: its site is asked by its domain.
+        from project_target import files_only
+        self.local = not values.get('DEPLOY_SSH') and not files_only(values)
         if self.local:
             port = str(values.get('LOCALHOST_PORT') or '')
             if not port.isdigit() or not 0 < int(port) < 65536:
