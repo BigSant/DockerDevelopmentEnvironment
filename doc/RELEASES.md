@@ -13,6 +13,8 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+## 5.5.2
+
 - **Neutral example names.** Documentation, comments, templates and tests name example projects, shops, workspaces
   and environments with neutral names (`alpha`, `beta`, `gamma`, `example-team`, the extra environment `demo`)
   instead of real ones; the history below is rewritten the same way. Nothing to change in projects.
