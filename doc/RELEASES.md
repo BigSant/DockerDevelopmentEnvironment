@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.6.0
 
 - **Files-only deploy target (`DEPLOY_MODE=files`).** A server without Docker (a client's stage or LIVE) can take the
   code only. setup-server registers it (`bin/add-project --target files:ssh://USER@HOST/PATH` or `files:local:/PATH`):
