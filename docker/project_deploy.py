@@ -13,6 +13,11 @@ make deploy ENV=stage|prod|<extra> [ref=TAG] [backup=1] [rollback=1]
 Every step that knows an application follows PROFILE: an empty (generic) profile reads and protects
 nothing of PrestaShop, so .htaccess, robots.txt and modules/ are code like any other tracked file.
 rollback=1 deploys the previous release again; the database comes back from the backup by hand.
+DEPLOY_MODE=files (a target without Docker; project_target.files_only): steps 1 and 3, the manifests, the history and
+rollback as above; nothing that needs a container or the database: no backup (refused), no environment files, no module
+upgrades, migrations, schema report or php-fpm reload. config/deploy/after-rsync-files.sh, if present, runs on the
+target itself (sh -e in the code tree, over ssh), and the cache clear too (PrestaShop's cache directories, or
+CACHE_CLEAR_COMMAND), when cache=auto finds it needed as above.
 attempt=ID (make pipeline-deploy's DEPLOY_ATTEMPT) records the attempt in the history entry and, for a deploy (not a
 rollback), each stage as an event of its attempt file (project_attempts): backup, code, hook, migrations, cache, reload.
 The history is written under the environment's lock (project_attempts.environment_lock), and right after the copy:
@@ -33,7 +38,7 @@ import sys
 import time
 
 from project_prestashop import is_prestashop
-from project_target import deploy_target
+from project_target import NO_DATABASE, deploy_target, files_only
 
 # PrestaShop paths written by the shop itself; a PrestaShop deploy never overwrites or deletes them.
 # Module and theme-module translations and the mail subjects (mails/<iso>/lang.php) are content the back office
@@ -60,6 +65,8 @@ CACHE_VALUES = ('auto', 'yes', 'no')
 TOOL_PATHS = ('/.setup-tools/', '/.git/', '/.claude/', '/.idea/')
 PROTECTED_PATH = re.compile(r'/?[A-Za-z0-9._*-]+(/[A-Za-z0-9._*-]+)*/?')
 AFTER_RSYNC_HOOK = 'config/deploy/after-rsync.sh'
+# DEPLOY_MODE=files: the project's hook on the target itself (no php-fpm container there), in the code tree.
+AFTER_RSYNC_FILES_HOOK = 'config/deploy/after-rsync-files.sh'
 KEEP_RELEASES = 3
 # RELEASE_BUILD_NETWORK: the release build's Docker network. host (the default, as before) gives the project's build
 # steps the build machine's network; bridge keeps them off it with outside access (Composer, npm), none with no network
@@ -584,6 +591,63 @@ def reload_php(project):
     print('php-fpm reloaded (OPcache emptied).')
 
 
+# DEPLOY_MODE=files: PrestaShop's cache clear (runtime/prestashop.php clearPrestashopCache) as a shell script on the
+# target, in the code tree: the same directories, a link on the way refused, never followed.
+PRESTASHOP_FILES_CACHE_CLEAR = r'''
+for path in var var/cache var/cache/prod var/cache/dev; do
+    if [ -L "$path" ]; then echo "setup: refusing a symlink in the PrestaShop cache path: $path" >&2; exit 1; fi
+done
+rm -rf -- var/cache/prod var/cache/dev
+echo "PrestaShop application cache cleared."
+'''
+PRESTASHOP_16_FILES_CACHE_CLEAR = r'''
+for path in cache cache/smarty cache/smarty/cache cache/smarty/compile cache/cachefs cache/class_index.php; do
+    if [ -L "$path" ]; then echo "setup: refusing a symlink in the PrestaShop cache path: $path" >&2; exit 1; fi
+done
+for directory in cache/smarty/cache cache/smarty/compile cache/cachefs; do
+    [ -d "$directory" ] || continue
+    find "$directory" -mindepth 1 ! -type d ! -name index.php ! -name .htaccess -delete
+    find "$directory" -mindepth 1 -type d -empty -delete
+done
+rm -f -- cache/class_index.php
+echo "PrestaShop application cache cleared."
+'''
+
+
+def after_rsync_files(project, target, path):
+    """DEPLOY_MODE=files: the project's config/deploy/after-rsync-files.sh on the target itself, in the code tree
+    (sh -e, the script on standard input), once the new code is there; its failure stops the deploy as the container
+    hook's does. Without it nothing runs: the container hook (after-rsync.sh) has no container there."""
+    hook = project.directory / AFTER_RSYNC_FILES_HOOK
+    if not hook.is_file():
+        if (project.directory / AFTER_RSYNC_HOOK).is_file():
+            print(f'DEPLOY_MODE=files: {AFTER_RSYNC_HOOK} runs in a php-fpm container, which this target has not; it '
+                  f'was not run ({AFTER_RSYNC_FILES_HOOK} runs on the target itself).', flush=True)
+        return False
+    print(f'==> {AFTER_RSYNC_FILES_HOOK} on {target.label or "this machine "}{path}', flush=True)
+    try:
+        target.script(path, hook.read_text())
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f'{AFTER_RSYNC_FILES_HOOK} failed (exit {error.returncode}); the deploy stopped: the new code is '
+                         'on the target (recorded as failed), but the cache clear did not run. '
+                         'Fix it and deploy again, or deploy rollback=1') from None
+    return True
+
+
+def clear_cache_files(project, target, path):
+    """DEPLOY_MODE=files: the application cache cleared on the target itself, in the code tree: PrestaShop's cache
+    directories, or CACHE_CLEAR_COMMAND (its words only, as in the container: no shell operator)."""
+    if is_prestashop(project):
+        legacy = str(project.settings.get('PS_VERSION') or '').startswith('1.6')
+        target.script(path, PRESTASHOP_16_FILES_CACHE_CLEAR if legacy else PRESTASHOP_FILES_CACHE_CLEAR)
+        return
+    command = shlex.split(project.settings.get('CACHE_CLEAR_COMMAND') or '')
+    if not command:
+        print('No CACHE_CLEAR_COMMAND for this profile; no application cache was cleared.')
+        return
+    target.script(path, shlex.join(command) + '\n')
+
+
 # Run in the cron container by make cron-reload: what the cron UI does after an edit. Rebuild the wrapped crontab
 # with compose.php's cronCompose() (not compose.php as a script: its start-up step would record the jobs running
 # now as interrupted), check it with supercronic -test, swap it in and SIGUSR2 to supercronic. A command, not a
@@ -611,6 +675,10 @@ def reload_cron(project):
     """make cron-reload: the running cron container takes the crontab in config/cron/ now. supercronic reads it only
     at its start, and compose does not recreate a container whose mounted file alone changed. Running jobs go on.
     A crontab supercronic refuses is not applied: the schedule running now stays, and the command fails."""
+    if files_only(project.settings):
+        print(f'ENV={project.environment} is a files deploy target (DEPLOY_MODE=files): no cron container runs there, '
+              'nothing to reload.')
+        return
     if project.process_env.get('SETUP_ENABLE_CRON') != '1':
         print('No cron service in SERVICES: nothing to reload.')
         return
@@ -686,13 +754,19 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
     # A rollback's stages are one event, rollback, which make pipeline-deploy writes.
     events = Attempt(project.directory, project.environment, None if rollback else attempt)
     context, deploy_path = release_settings(project)
+    files = files_only(project.settings)
+    if files and backup:
+        raise ValueError(f'{NO_DATABASE}: ENV={project.environment} is a files deploy target (DEPLOY_MODE=files), '
+                         'so make deploy backup=1 has nothing to back up; nothing was changed')
     from release_sandbox import Sandbox, check as check_isolation, isolation
     isolated = isolation(project)
     if isolated:
         check_isolation(project)  # before anything changes: a target on this machine, no host network for the build
     # The hooks, upgrades and migrations run in the containers of this name: they must be this project's.
-    model = release_model(project, deploy_path)
-    check_project_root(project, context, model, deploy_path)
+    # A files target runs no container: no model to check (release isolation, which needs one, refuses it).
+    model = None if files else release_model(project, deploy_path)
+    if not files:
+        check_project_root(project, context, model, deploy_path)
     if isolated:
         # The threat model's precondition, before anything is built or copied: no directory above the release or the
         # code tree that the application or another account could change, none mounted into a container.
@@ -752,6 +826,9 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
     # The protected directories the release sends after its code: a link leading out of the release is refused now,
     # before anything is copied.
     protected_release_files(project, release)
+    if files:
+        # No make deploy-images prepares the directories there: the first deploy creates the code tree's parents.
+        target.mkdir([path])
     print(f'==> rsync {release} -> {target.label}{path}', flush=True)
     target.push(f'{release}/', f'{path}/', *code_rsync_options(excludes + [f'/modules/{name}/' for name in protected]))
     # The target holds this code now: recorded at once, as failed until the deploy completes (a killed deploy stays
@@ -785,6 +862,10 @@ def locked_deploy(project, ref, backup, rollback, cache, attempt):
             print(f'Warning: module {name} exists only on the target and was left as is; '
                   f'make module-pull ENV={project.environment} name={name} brings it into the code.')
         events.event('code', 'ok', removed_files=len(removed))
+        if files:
+            stage[0] = 'after-rsync'
+            return finish_files_deploy(project, entries, commit, ref, rollback, cache, prestashop, target, path, entry,
+                                       events, stage)
         stage[0] = 'environment'
         return finish_deploy(project, entries, release, commit, ref, rollback, cache, prestashop, deploy_path, entry,
                              events, stage, versions, ready)
@@ -861,6 +942,40 @@ def finish_deploy(project, entries, release, commit, ref, rollback, cache, prest
     from project_policy import report_traffic_classes
     report_traffic_classes(project)
     print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment}.')
+    return commit
+
+
+def finish_files_deploy(project, entries, commit, ref, rollback, cache, prestashop, target, path, entry, events, stage):
+    """DEPLOY_MODE=files, after the copy: the hook and the cache clear on the target itself, then the completed entry.
+    Nothing there runs in a container or reaches a database setup manages: those steps are left out, said once."""
+    print('DEPLOY_MODE=files: no container or database on the target: environment files, module upgrades, setup '
+          'migrations, translation migrations, the schema report and the php-fpm reload are left out.', flush=True)
+    started = time.monotonic()
+    try:
+        hooked = after_rsync_files(project, target, path)
+    except ValueError:
+        events.event('hook', 'failed', seconds=round(time.monotonic() - started, 1))
+        raise
+    if hooked:
+        events.event('hook', 'ok', seconds=round(time.monotonic() - started, 1))
+    stage[0] = 'cache'
+    if cache == 'auto':
+        clear, reason = cache_needed(project, entries, commit, rollback)
+        print(f"==> CACHE=auto: {'yes' if clear else 'no'} ({reason})", flush=True)
+    else:
+        clear, reason = cache == 'yes', f'cache={cache}'
+        if not clear:
+            print('==> CACHE=no: the application cache is left as it is', flush=True)
+    if clear:
+        clear_cache_files(project, target, path)
+    events.event('cache', 'ok', cleared=clear, reason=reason)
+    entry['cache'] = clear
+    if prestashop:
+        entry['ps_version'] = project.settings.get('PS_VERSION')
+    events.event('reload', 'skipped')
+    replace_last(project, entry)
+    stage[0] = 'completed'
+    print(f'Deployed {ref} ({commit[:12]}) to ENV={project.environment} (files only).')
     return commit
 
 

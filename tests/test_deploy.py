@@ -1218,6 +1218,171 @@ class GenericDeployTest(unittest.TestCase):
             module_pull(self.project, "serveronly")
 
 
+class FilesDeployTest(unittest.TestCase):
+    """DEPLOY_MODE=files: the release is built here as before and only its files reach the target (a directory of this
+    machine here, files:local); nothing there runs in a container or reaches a database."""
+
+    setUp = DeployTest.setUp
+    commit = DeployTest.commit
+    generic = GenericDeployTest.generic
+
+    def files(self, **settings):
+        for key in ("DEPLOY_CONTEXT", "APP_UID", "APP_GID"):
+            self.project.settings.pop(key, None)
+        self.project.settings.update({"DEPLOY_MODE": "files", **settings})
+
+    def deploy(self, **options):
+        def run(args, profiles=None):
+            raise AssertionError(f"a files deploy runs nothing in a container: {args}")
+
+        self.project.run = run
+        self.project.database = FakeDatabase()
+        self.project.database.wait_ready = lambda **options: self.calls.append(["wait"])
+        with patch("project_deploy.php_image", return_value="php:test"), \
+                patch("project_deploy.in_release_image", lambda project, release, command, cache=None: self.calls.append(["image", command])), \
+                patch("database_backup.backup_database", lambda project, registry=False: self.calls.append(["backup", registry]) or "b.sql.gz"), \
+                patch("project_deploy.upgrade_modules", lambda project, release, versions=None: self.calls.append(["upgrade"])), \
+                patch("database_migrations_guarded.migrate", lambda project: self.calls.append(["migrate"])), \
+                patch("database_schema.schema_report", lambda project: self.calls.append(["schema-report"])), \
+                patch("project_application.plan_application", return_value=([], False)), \
+                patch("project_release.release_model", side_effect=AssertionError("no container model for a files target")):
+            return deploy_code(self.project, **options)
+
+    def history(self):
+        return json.loads((self.root / "app/.generated/release/stage/deployments.json").read_text())
+
+    def test_only_the_code_reaches_the_target_and_nothing_runs_in_a_container(self):
+        public = self.generic(CACHE_CLEAR_COMMAND="touch .cache-cleared", DEPLOY_PROTECTED_PATHS="var/data/ config/local.php",
+                              SCHEMA_DIRECTORY="schema")
+        self.files()
+        (self.root / "schema/migrations").mkdir(parents=True)
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        (self.root / "app/config/deploy/after-rsync.sh").write_text("php bin/console doctrine:migrations:migrate\n")
+        with patch("database_migrations_guarded.migrations_directory", return_value=self.root / "schema/migrations"):
+            self.deploy(ref="g1")
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n")
+        self.assertEqual((public / "var/data/seed.json").read_text(), '{"live": true}\n', "protected paths stay")
+        self.assertEqual((public / "config/local.php").read_text(), "<?php // server copy\n")
+        self.assertTrue((public / ".cache-cleared").is_file(), "CACHE_CLEAR_COMMAND ran in the code tree on the target")
+        self.assertEqual(self.calls, [], "no wait for a database, no migration, schema report or module upgrade")
+        self.assertEqual(self.root_checks, [], "no Docker context to ask whose containers run there")
+        self.assertFalse((self.target / "app/config").exists(), "no environment files: no container mounts them")
+        self.assertFalse((self.target / "data").exists(), "no release information for a metrics service")
+        output = self.output.getvalue()
+        self.assertIn("after-rsync.sh runs in a php-fpm container, which this target has not", output)
+        self.assertIn("DEPLOY_MODE=files: no container or database on the target", output)
+        self.assertIn("(files only)", output)
+        entry = self.history()[-1]
+        self.assertEqual((entry["ref"], entry.get("failed"), entry["cache"]), ("g1", None, True))
+        # Removals, history and rollback as with containers.
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"}, removed=["robots.txt"])
+        self.deploy(ref="g2")
+        self.assertFalse((public / "robots.txt").exists(), "a file the previous release shipped and this one does not")
+        self.deploy(rollback=True)
+        self.assertEqual((public / "src/Kernel.php").read_text(), "<?php // g1\n")
+        self.assertTrue((public / "robots.txt").is_file())
+
+    def test_the_first_deploy_creates_the_code_tree(self):
+        self.generic()
+        self.files()
+        fresh = self.root / "fresh-target"
+        self.project.settings["DEPLOY_PATH"] = str(fresh)
+        self.deploy(ref="g1")
+        self.assertEqual((fresh / "app/public/src/Kernel.php").read_text(), "<?php // g1\n")
+
+    def test_the_files_hook_runs_on_the_target_and_its_failure_stops_the_deploy(self):
+        public = self.generic(CACHE_CLEAR_COMMAND="touch .cache-cleared")
+        self.files()
+        hook = self.root / "app/config/deploy/after-rsync-files.sh"
+        hook.parent.mkdir(parents=True)
+        hook.write_text("cat src/Kernel.php > hook-saw.txt\n")
+        self.deploy(ref="g1")
+        self.assertEqual((public / "hook-saw.txt").read_text(), "<?php // g1\n", "in the code tree, once the code is there")
+        self.assertIn("==> config/deploy/after-rsync-files.sh on this machine ", self.output.getvalue())
+        (public / ".cache-cleared").unlink()
+        hook.write_text("exit 4\n")
+        self.commit("g2", {"src/Kernel.php": "<?php // g2\n"})
+        with self.assertRaisesRegex(ValueError, "after-rsync-files.sh failed .exit 4.*recorded as failed.*rollback=1"):
+            self.deploy(ref="g2")
+        self.assertFalse((public / ".cache-cleared").exists(), "the cache clear does not run after a failed hook")
+        self.assertEqual([(entry["ref"], entry.get("failed")) for entry in self.history()], [("g1", None), ("g2", "after-rsync")])
+
+    def test_a_backup_is_refused_before_anything_changes(self):
+        self.generic()
+        self.files()
+        with self.assertRaisesRegex(ValueError, "files deploy target: no database managed here"):
+            self.deploy(ref="g1", backup=True)
+        self.assertFalse((self.root / "app/.generated/release/stage/deployments.json").exists())
+        self.assertFalse((self.target / "app/public/src").exists())
+        from database_backup import backup_database
+        with self.assertRaisesRegex(ValueError, "^files deploy target: no database managed here"):
+            backup_database(self.project)
+
+    def test_prestashop_clears_its_cache_directories_on_the_target_and_upgrades_nothing(self):
+        self.files()
+        public = self.target / "app/public"
+        for name in ("var/cache/prod/appProdProjectContainer.php", "var/cache/dev/x.php"):
+            (public / name).parent.mkdir(parents=True, exist_ok=True)
+            (public / name).write_text("<?php\n")
+        self.deploy(ref="v1", cache="yes")
+        self.assertFalse((public / "var/cache/prod").exists())
+        self.assertFalse((public / "var/cache/dev").exists())
+        self.assertEqual((public / "var/cache/keep.txt").read_text(), "cache", "only the cache directories")
+        self.assertNotIn(["upgrade"], self.calls)
+        self.assertNotIn(["wait"], self.calls)
+        self.assertEqual(self.history()[-1]["ps_version"], "9.0.2")
+        # A link on the way is refused, never followed.
+        elsewhere = self.root / "elsewhere"
+        (elsewhere / "keep").mkdir(parents=True)
+        (public / "var/cache/prod").symlink_to(elsewhere)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.deploy(ref="v1", cache="yes")
+        self.assertTrue((elsewhere / "keep").is_dir())
+        self.assertEqual(self.history()[-1].get("failed"), "cache")
+
+    def test_prestashop_16_keeps_the_guards_of_its_cache_directories(self):
+        self.files(PS_VERSION="1.6.1.24")
+        public = self.target / "app/public"
+        for name in ("cache/smarty/compile/a/b.tpl.php", "cache/smarty/compile/index.php", "cache/smarty/cache/c.php",
+                     "cache/cachefs/.htaccess", "cache/cachefs/1/2.cache", "cache/class_index.php"):
+            (public / name).parent.mkdir(parents=True, exist_ok=True)
+            (public / name).write_text("x")
+        self.deploy(ref="v1", cache="yes")
+        left = sorted(path.relative_to(public / "cache").as_posix() for path in (public / "cache").rglob("*")
+                      if path.is_file())
+        self.assertEqual(left, ["cachefs/.htaccess", "smarty/compile/index.php"])
+
+    def test_no_cron_to_reload_and_the_server_target_runs_the_hook_over_ssh(self):
+        from project_deploy import reload_cron
+        self.files()
+        self.project.process_env["SETUP_ENABLE_CRON"] = "1"
+        reload_cron(self.project)
+        self.assertIn("no cron container runs there", self.output.getvalue())
+        calls = []
+
+        def record(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        self.generic(CACHE_CLEAR_COMMAND="php bin/console cache:clear --env=prod")
+        self.files(DEPLOY_SSH="shop@client.example")
+        (self.root / "app/config/deploy").mkdir(parents=True)
+        (self.root / "app/config/deploy/after-rsync-files.sh").write_text("php bin/console doctrine:migrations:migrate -n\n")
+        server = SshTarget("shop@client.example", run=record)
+        with patch("project_deploy.deploy_target", lambda project: server):
+            self.deploy(ref="g1")
+        code = f"{self.target}/app/public"
+        scripts = [(command[-1], kwargs["input"]) for command, kwargs in calls if command[-1].endswith("sh -e -s")]
+        self.assertEqual(scripts, [(f"cd {code} && sh -e -s", b"php bin/console doctrine:migrations:migrate -n\n"),
+                                   (f"cd {code} && sh -e -s", b"php bin/console cache:clear --env=prod\n")])
+        self.assertEqual(calls[0][0][-1], f"mkdir -p -- {code}", "the code tree is created before the copy")
+        self.assertEqual([command[-1] for command, _ in calls if command[0] == "rsync"], [f"shop@client.example:{code}/"])
+
+    def test_release_isolation_needs_a_docker_target(self):
+        from release_sandbox import refusal
+        self.assertIn("needs a Docker deploy target", refusal({"DEPLOY_MODE": "files"}))
+
+
 class RemoteRoutingTest(unittest.TestCase):
     def test_running_containers_live_on_the_target_and_images_build_here(self):
         from project import Project

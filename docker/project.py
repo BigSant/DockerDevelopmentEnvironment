@@ -148,6 +148,13 @@ class Project:
             if not (str(settings['APP_UID']).isdigit() and str(settings.get('APP_GID', '')).isdigit()):
                 raise ValueError('APP_UID and APP_GID must both be numeric ids of the account on the server')
             self.process_env.update(HOST_UID=str(settings['APP_UID']), HOST_GID=str(settings['APP_GID']))
+        # DEPLOY_MODE=files: the target takes the code files only; no container runs there (compose_env refuses
+        # every command but the local ones), setup manages no database (database) and asks no secret store.
+        from project_target import files_only
+        self.files = is_server(environment) and files_only(settings)
+        if self.files and settings.get('DEPLOY_CONTEXT'):
+            raise ValueError(f'DEPLOY_MODE=files sends ENV={environment} the code only: it takes no DEPLOY_CONTEXT '
+                             '(setup-server registers such a target as files:ssh://… or files:local:…)')
         if is_server(environment) and settings.get('DEPLOY_CONTEXT'):
             if not settings.get('APP_UID'):
                 raise ValueError(f'DEPLOY_CONTEXT runs ENV={environment} on a server: set APP_UID and APP_GID '
@@ -197,9 +204,9 @@ class Project:
             if any(part in ("", ".", "..") or part.startswith("/") for entry in settings[key].split()
                    for part in [entry] + entry.split("/")):
                 raise ValueError(f"{key} entries must be relative paths inside the shop")
-        if not settings["DATABASE_ROOT_PASSWORD"]:
+        if not settings["DATABASE_ROOT_PASSWORD"] and not self.files:
             raise ValueError(f"Set DATABASE_ROOT_PASSWORD in {private_env} (make bootstrap generates one locally)")
-        if settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
+        if settings["DATABASE_ROOT_PASSWORD"] and settings["DATABASE_ROOT_PASSWORD"] == settings.get("DATABASE_PASSWORD"):
             raise ValueError("DATABASE_ROOT_PASSWORD must differ from DATABASE_PASSWORD")
         extra_schemas(settings)
         if test_schemas(settings) and is_server(environment):
@@ -257,7 +264,7 @@ class Project:
                 self.command += ["-f", str(DOCKER_ROOT / "docker/metrics" / f"{cache}.yml")]
         # Stage/prod keep their Deployment variables for the commands run outside a pipeline.
         from project_secret_store import secret_store, store_names
-        self.command += secret_store(self, store_names(self.directory, environment))
+        self.command += secret_store(self, [] if self.files else store_names(self.directory, environment))
         extras = []
         for entry in shlex.split(settings["EXTRA_COMPOSE_FILES"]):
             extra = (self.directory / entry).resolve()
@@ -278,7 +285,7 @@ class Project:
         from project_mounts import attach_optional_config_mounts
         attach_optional_config_mounts(self)
         active = self.active_model()['services']
-        if is_server(environment):
+        if is_server(environment) and not self.files:
             from project_tool_access import server_addresses
             # setup-server's addresses (tool-access/<env>/allowed-ips) join every tool's list on the target.
             server_list = server_addresses(self)
@@ -311,6 +318,9 @@ class Project:
     def compose_env(self, args, profiles=None):
         """Environment for one Compose command: images build here, running containers live on the target."""
         env = self.child_env(profiles)
+        if getattr(self, 'files', False) and args and args[0] not in LOCAL_COMPOSE_COMMANDS:
+            raise ValueError(f"ENV={self.environment} is a files deploy target (DEPLOY_MODE=files): nothing runs in "
+                             f"containers there, so compose {args[0]} has nothing to reach")
         context = env.get("DOCKER_CONTEXT")
         if context and args and args[0] in LOCAL_COMPOSE_COMMANDS:
             env.pop("DOCKER_CONTEXT")
@@ -335,6 +345,9 @@ class Project:
     @functools.cached_property
     def database(self):
         """The Database client (database_client.DatabaseClient); tests assign a fake instead."""
+        if self.files:
+            from project_target import NO_DATABASE
+            raise ValueError(f'ENV={self.environment}: {NO_DATABASE}')
         from database_client import DatabaseClient
         return DatabaseClient(self)
 

@@ -8,6 +8,8 @@
 # would run in Bitbucket's cloud). The build root holds this repository in app/ and setup beside it;
 # BUILD_ROOT is a repository variable, or the setup-server layout below. Secrets are Deployment variables
 # of the Staging / Production environments: make deploy-variables ENV=prod lists and checks them.
+# A server without Docker (setup-server: bin/add-project --target files:ssh://USER@HOST/PATH) gets the code only:
+# IMAGES then only builds the release images here, BACKUP and CRON are skipped with a note.
 definitions:
   steps:
     - step: &deploy

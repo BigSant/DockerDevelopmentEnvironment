@@ -15,7 +15,7 @@ import shutil
 import subprocess
 
 from project_environments import is_server
-from project_target import deploy_target
+from project_target import deploy_target, files_only
 from project_tool_access import push_tool_access, reload_proxy
 
 DOCKER_ROOT = Path(__file__).resolve().parent
@@ -48,18 +48,26 @@ def setup_version(allow_dirty=False, tagged=False):
 
 
 def release_settings(project, remote=True):
-    """DEPLOY_CONTEXT, DEPLOY_PATH and the server account; all described in env, none tied to this machine."""
+    """DEPLOY_CONTEXT, DEPLOY_PATH and the server account; all described in env, none tied to this machine.
+    A files target (DEPLOY_MODE=files) has DEPLOY_PATH only: no Docker context (None), the files belong to the account
+    that copies them."""
     if not is_server(project.environment):
         raise ValueError('Releases are built for a server environment: ENV=stage, prod or one STAGE_ENVIRONMENTS lists')
     settings = project.settings
-    missing = [name for name in ('APP_UID', 'APP_GID', 'DEPLOY_PATH') + (('DEPLOY_CONTEXT',) if remote else ())
-               if not settings.get(name)]
+    files = files_only(settings)
+    required = ('DEPLOY_PATH',) if files else ('APP_UID', 'APP_GID', 'DEPLOY_PATH') + (('DEPLOY_CONTEXT',) if remote else ())
+    missing = [name for name in required if not settings.get(name)]
+    if missing and files:
+        raise ValueError(f'ENV={project.environment} (DEPLOY_MODE=files) needs DEPLOY_PATH, the project root on the '
+                         'target (setup-server: target.env)')
     if missing:
         raise ValueError(f'ENV={project.environment} release needs {", ".join(missing)} in env/{project.environment}.env '
                          '(APP_UID/APP_GID: the hosting account on the server)')
     path = settings['DEPLOY_PATH']
     if not path.startswith('/') or '..' in path.split('/'):
         raise ValueError('DEPLOY_PATH must be the absolute project root on the target (the directory holding app/ and data/)')
+    if files:
+        return None, path.rstrip('/') or '/'
     if remote and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', settings['DEPLOY_CONTEXT']):
         raise ValueError('DEPLOY_CONTEXT must name a Docker context (docker context create NAME --docker host=ssh://...)')
     return settings.get('DEPLOY_CONTEXT'), path.rstrip('/') or '/'
@@ -588,6 +596,10 @@ def prune_target_images(context, now=None):
 
 def deploy_images(project, transfer=True):
     """Load the release images into the target's Docker and start the release model there."""
+    if files_only(project.settings):
+        raise ValueError(f'ENV={project.environment} is a files deploy target (DEPLOY_MODE=files): it runs no '
+                         'container, so there are no images to send or start there. make release builds the images '
+                         'the release build uses here; make deploy sends the code')
     context, deploy_path = release_settings(project)
     directory = release_directory(project)
     if not (directory / LOCK_NAME).is_file():

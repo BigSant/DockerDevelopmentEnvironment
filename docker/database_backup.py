@@ -44,6 +44,9 @@ def registry_passes(project, database):
 
 
 def backup_database(project, destination=None, registry=False):
+    from project_target import NO_DATABASE, files_only
+    if files_only(project.settings):
+        raise ValueError(f'{NO_DATABASE} (DEPLOY_MODE=files: only the code goes to the target)')
     database = project.settings['DATABASE_NAME']
     if not database:
         raise ValueError('DATABASE_NAME is required for backup')

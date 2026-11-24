@@ -309,6 +309,26 @@ class OneRepositoryTest(Fixture):
         self.assert_out("No deploy target:")
         self.assert_root("G")
 
+    def test_a_files_target_gets_the_code_without_containers_or_a_database(self):
+        # setup-server's files:ssh:// target: no Docker context, no account ids.
+        (self.work / "root/target.env").write_text("DEPLOY_MODE=files\nDEPLOY_SSH=shop@client.example\nDEPLOY_PATH=/var/www/shop\n")
+        self.run_step(0, REF=self.commits["G"], IMAGES="yes", BACKUP="yes", CRON="yes",
+                      DATABASE_PASSWORD="", DATABASE_ROOT_PASSWORD="")
+        env = parse_dotenv((self.app / "env/prod.env").read_text())
+        self.assertEqual({key: env.get(key) for key in ("DEPLOY_MODE", "DEPLOY_SSH", "DEPLOY_PATH", "DEPLOY_CONTEXT", "APP_UID")},
+                         {"DEPLOY_MODE": "files", "DEPLOY_SSH": "shop@client.example", "DEPLOY_PATH": "/var/www/shop",
+                          "DEPLOY_CONTEXT": None, "APP_UID": None})
+        self.assertEqual([line.split(" |")[0] for line in self.make_log().splitlines()],
+                         ["make release ENV=prod", f"make deploy ENV=prod ref={self.commits['G']} backup=0 cache=auto"],
+                         "the release images stay here for the build; no deploy-images, no cron-reload")
+        self.assert_out("Note: BACKUP=yes skipped: files deploy target: no database managed here")
+        self.assert_out("Note: CRON skipped")
+        self.assert_out("no make deploy-images")
+        self.assertNotIn("DATABASE_PASSWORD", self.output, "setup's database secrets are none of a files target's")
+        self.assert_root("G")
+        self.assertNotIn("DATABASE_ROOT_PASSWORD", deployment_variables(self.app, "prod"))
+        self.assertIn("HTPASSWD_API", deployment_variables(self.app, "prod"), "the project's own lists stay required")
+
     def test_the_checkout_follows_what_setup_deployed(self):
         self.run_step(0, FAKE_DEPLOYED=self.commits["B"])
         self.assert_out(f"Warning: setup deployed {self.commits['B']}, not {self.commits['C']}; the build root follows it.")

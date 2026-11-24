@@ -18,8 +18,9 @@ DOCKER_ROOT = Path(__file__).resolve().parent
 ENTRY = re.compile(r'(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*[=:][ \t]*')
 NAME = re.compile(r'[A-Z][A-Z0-9_]*')
 # Where a server deploys stage/prod is the server's knowledge, not the project's: setup-server registers it
-# as target.env in the build root, beside the environment repository (bin/add-project).
-TARGET_KEYS = ('DEPLOY_CONTEXT', 'DEPLOY_SSH', 'DEPLOY_PATH', 'APP_UID', 'APP_GID')
+# as target.env in the build root, beside the environment repository (bin/add-project). DEPLOY_MODE=files: a target
+# that takes the code files only (project_target.files_only), with DEPLOY_PATH and DEPLOY_SSH (none: this machine).
+TARGET_KEYS = ('DEPLOY_CONTEXT', 'DEPLOY_SSH', 'DEPLOY_PATH', 'APP_UID', 'APP_GID', 'DEPLOY_MODE')
 TARGET_FILE = 'target.env'
 TARGET_VALUE = re.compile(r'[A-Za-z0-9@._:/+-]*')
 ESCAPES = {'n': '\n', 't': '\t', 'r': '\r'}
@@ -174,10 +175,14 @@ def deployment_variables(directory, environment):
     pma, mailpit, cron, backup and metrics (optional Basic-auth on top of their allowlist). The project's:
     DEPLOY_REQUIRED_VARIABLES, DEPLOY_OPTIONAL_VARIABLES and every APP_ENVIRONMENT name the env files
     leave to the process.
+    A files target (DEPLOY_MODE=files) runs no container and setup manages no database there: setup's own names and
+    APP_ENVIRONMENT (the containers' environment) are none of its Deployment variables, the project's two lists are.
     A name the env files set is not a Deployment variable (the file wins); one they leave blank hides
     the Deployment variable, which only setup's own secrets survive (hides_process_value).
     """
+    from project_target import files_only
     values, mentioned = file_settings(directory, environment)
+    files = is_server(environment) and files_only(values)
     services = str(values.get('SERVICES') or '').split()
     setup_required = ['DATABASE_PASSWORD', 'DATABASE_ROOT_PASSWORD']
     version = str(values.get('PS_VERSION') or '')
@@ -186,11 +191,17 @@ def deployment_variables(directory, environment):
     setup_optional = (['DATABASE_MONITOR_PASSWORD'] if {'metrics', 'dbmonitor'} & set(services) else []) + \
         (['METRICS_TOKEN'] if 'metrics' in services else []) + (['DBMONITOR_TOKEN'] if 'dbmonitor' in services else []) + \
         [password for tool, password in TOOL_PASSWORDS.items() if tool in services]
+    application = [name for name in names_setting(values, 'APP_ENVIRONMENT') if name not in mentioned]
+    # DEPLOY_PLAIN_VARIABLES is checked against these names whatever the target lists.
+    candidates = {*setup_required, *setup_optional, *application, *names_setting(values, 'DEPLOY_REQUIRED_VARIABLES'),
+                  *names_setting(values, 'DEPLOY_OPTIONAL_VARIABLES')}
+    if files:
+        setup_required, setup_optional, application = [], [], []
     groups = [('setup', setup_required, True),
               ('DEPLOY_REQUIRED_VARIABLES', names_setting(values, 'DEPLOY_REQUIRED_VARIABLES'), True),
               ('setup', setup_optional, False),
               ('DEPLOY_OPTIONAL_VARIABLES', names_setting(values, 'DEPLOY_OPTIONAL_VARIABLES'), False),
-              ('APP_ENVIRONMENT', [name for name in names_setting(values, 'APP_ENVIRONMENT') if name not in mentioned], False)]
+              ('APP_ENVIRONMENT', application, False)]
     plain = names_setting(values, 'DEPLOY_PLAIN_VARIABLES')
     listed, hidden = {}, []
     for source, names, required in groups:
@@ -206,7 +217,6 @@ def deployment_variables(directory, environment):
         raise ValueError(f"env/common.env or env/{environment}.env.example names {', '.join(hidden)} with an empty "
                          "value, which hides the Deployment variable from the containers: remove the line (only "
                          "setup's own secrets, such as DATABASE_PASSWORD, may stay blank)")
-    candidates = {name for _, names, _ in groups for name in names}
     unknown = [name for name in plain if name not in candidates]
     if unknown:
         raise ValueError(f"DEPLOY_PLAIN_VARIABLES names {', '.join(unknown)}, which no list names "

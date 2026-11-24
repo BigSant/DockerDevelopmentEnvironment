@@ -75,6 +75,17 @@ class SecretStoreTest(unittest.TestCase):
             self.assertEqual(fill_from_store(self.app, "stage", env, run), [])
         self.assertEqual((env, calls), ({}, []))
 
+    def test_a_files_target_has_no_store_and_lists_only_the_projects_names(self):
+        # setup-server registered the stage target as files only: no container keeps anything there.
+        (self.app.parent / "target.env").write_text("DEPLOY_MODE=files\nDEPLOY_SSH=shop@client.example\nDEPLOY_PATH=/var/www/shop\n")
+        with (self.app / "env/common.env").open("a") as env:
+            env.write('DEPLOY_REQUIRED_VARIABLES="BUILD_TOKEN"\n')
+        self.assertEqual(store_names(self.app, "stage"), ["BUILD_TOKEN"],
+                         "no database password, PrestaShop key or APP_ENVIRONMENT name: nothing on the target reads them")
+        run, calls = inspect(SECRETS)
+        self.assertEqual(fill_from_store(self.app, "stage", {}, run), [])
+        self.assertEqual(calls, [], "no docker inspect")
+
     def test_local_and_a_missing_store_change_nothing(self):
         run, calls = inspect(SECRETS)
         self.assertEqual(fill_from_store(self.app, "local", {}, run), [])

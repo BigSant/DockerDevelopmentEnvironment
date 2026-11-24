@@ -830,6 +830,9 @@ class HealthCheckTest(unittest.TestCase):
         self.assertEqual((local.local, local.address, local.port), (True, "10.8.0.14", 18080))
         with self.assertRaisesRegex(Refusal, "needs LOCALHOST_PORT"):
             Endpoint({"DOMAIN": "shop.test"})
+        # A files target publishes no container port here, on this machine or not: its site by its domain.
+        files = Endpoint({"DOMAIN": "shop.test", "DEPLOY_MODE": "files", "DEPLOY_PATH": "/srv/shop"})
+        self.assertEqual((files.local, files.address, files.port), (False, "", 443))
 
 
 class CapabilityTest(unittest.TestCase):

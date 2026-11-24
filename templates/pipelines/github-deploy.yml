@@ -14,6 +14,8 @@
 # step passes the JSON of every secret and variable the job can read, and make pipeline-deploy expands
 # the names its own environment lacks (never printing a value; the runner masks each secret also in
 # its JSON-escaped form).
+# A server without Docker (setup-server: bin/add-project --target files:ssh://USER@HOST/PATH) gets the code only:
+# images then only builds the release images here, backup and cron are skipped with a note.
 name: Deploy
 run-name: Deploy to ${{ inputs.environment }} ${{ inputs.rollback == 'yes' && '(rollback)' || inputs.ref }}
 

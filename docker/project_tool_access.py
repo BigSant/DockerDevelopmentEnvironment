@@ -84,6 +84,11 @@ def reload_proxy(project):
 def apply_tool_access(project):
     """make tool-access: what setup-server runs after a change of who may use this environment's tools."""
     from project_release import release_settings
+    from project_target import files_only
+    if files_only(project.settings):
+        print(f'ENV={project.environment} is a files deploy target (DEPLOY_MODE=files): no nginx-proxy runs there, '
+              'so there is no tool access to apply; nothing changed.')
+        return False
     _, deploy_path = release_settings(project, remote=False)
     if not push_tool_access(project, deploy_path):
         print(f'No {SOURCE}/{project.environment}/ beside target.env: setup-server keeps no tool access for '

@@ -30,6 +30,8 @@ services:
       DEPLOY_CONTEXT: ${DEPLOY_CONTEXT-}
       DEPLOY_PATH: ${DEPLOY_PATH-}
       DEPLOY_SSH: ${DEPLOY_SSH-}
+      # docker (empty) or files: a target that takes the code files only, without Docker (setup-server's target.env).
+      DEPLOY_MODE: ${DEPLOY_MODE-}
       DEPLOY_PROTECTED_PATHS: ${DEPLOY_PROTECTED_PATHS-}
       # Code tree paths the server writes and git ignores (e.g. modules/*/translations/): make files-backup.
       BACKUP_FILE_PATHS: ${BACKUP_FILE_PATHS-}
