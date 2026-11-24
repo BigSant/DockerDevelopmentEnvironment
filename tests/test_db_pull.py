@@ -37,8 +37,8 @@ case "$request" in
         case "$request" in *full) echo "fresh-full-prod-20261013T150000Z.sql.gz $(wc -c < "$BACKUP_FILE")" ;;
                            *) echo "fresh-prod-20261013T150000Z.sql.gz $(wc -c < "$BACKUP_FILE")" ;; esac ;;
     "get shop prod "*) cat "$BACKUP_FILE" ;;
-    "info shop mdv") echo "${MDV_LATEST:-worker-mdv-20261012T033000Z.sql.gz} $(wc -c < "$BACKUP_FILE")" ;;
-    "get shop mdv "*) cat "$BACKUP_FILE" ;;
+    "info shop demo") echo "${DEMO_LATEST:-worker-demo-20261012T033000Z.sql.gz} $(wc -c < "$BACKUP_FILE")" ;;
+    "get shop demo "*) cat "$BACKUP_FILE" ;;
     "info "*|"latest "*|"fresh "*) set -- $request; echo "setup-server-backup-pull: no project $2 on this server" >&2; exit 65 ;;
     *) usage ;;
 esac
@@ -204,17 +204,17 @@ class DbPullTest(unittest.TestCase):
 
     def test_an_extra_environment_the_project_lists_is_pulled_by_its_name(self):
         with self.assertRaisesRegex(ValueError, "STAGE_ENVIRONMENTS"):
-            self.pull("mdv")
-        (self.root / "app/env/common.env").write_text('PROJECT_NAME=shop\nSTAGE_ENVIRONMENTS="mdv"\n')
-        target, _ = self.pull("mdv")
-        self.assertEqual(target.name, "worker-mdv-20261012T033000Z.sql.gz")
-        self.assertEqual(self.calls(), ["info shop mdv", "get shop mdv worker-mdv-20261012T033000Z.sql.gz"])
+            self.pull("demo")
+        (self.root / "app/env/common.env").write_text('PROJECT_NAME=shop\nSTAGE_ENVIRONMENTS="demo"\n')
+        target, _ = self.pull("demo")
+        self.assertEqual(target.name, "worker-demo-20261012T033000Z.sql.gz")
+        self.assertEqual(self.calls(), ["info shop demo", "get shop demo worker-demo-20261012T033000Z.sql.gz"])
         # The answer must be a backup of that environment, also for a pre-deploy one named after the project.
-        os.environ["MDV_LATEST"] = "worker-prod-20261012T033000Z.sql.gz"
+        os.environ["DEMO_LATEST"] = "worker-prod-20261012T033000Z.sql.gz"
         with self.assertRaisesRegex(ValueError, "named no usable backup"):
-            self.pull("mdv")
-        os.environ["MDV_LATEST"] = "shop-mdv-20261012T0330001234.sql.gz"
-        self.assertEqual(self.pull("mdv")[0].name, "shop-mdv-20261012T0330001234.sql.gz")
+            self.pull("demo")
+        os.environ["DEMO_LATEST"] = "shop-demo-20261012T0330001234.sql.gz"
+        self.assertEqual(self.pull("demo")[0].name, "shop-demo-20261012T0330001234.sql.gz")
 
     def test_refusals_and_settings_are_clear(self):
         with self.assertRaisesRegex(ValueError, "no stage backup of shop yet"):

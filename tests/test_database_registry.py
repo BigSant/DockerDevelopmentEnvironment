@@ -50,13 +50,13 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(unknown_tables(entries, ["fs_product", "fs_custom_widget"]), ["fs_custom_widget"])
 
     def test_a_line_with_a_dot_is_about_the_extra_schemas_and_one_without_about_the_main_database(self):
-        self.write("*_log logs empty skip\nasana_graph.*  graph full import\nasana_git.raw_* git empty skip\n")
+        self.write("*_log logs empty skip\nalpha_graph.*  graph full import\nalpha_git.raw_* git empty skip\n")
         entries = load(self.project)
         self.assertEqual(classify(entries, "fs_api_log")[1], "logs")
-        self.assertIsNone(classify(entries, "asana_bitbucket.commit_log"), "a main-database line does not reach an extra schema")
-        self.assertEqual(classify(entries, "asana_graph.edges")[1], "graph")
-        self.assertEqual(classify(entries, "asana_git.raw_blobs")[1:], ("git", "empty", "skip"))
-        self.assertEqual(unknown_tables(entries, ["asana_git.refs", "asana_graph.x"]), ["asana_git.refs"])
+        self.assertIsNone(classify(entries, "alpha_bitbucket.commit_log"), "a main-database line does not reach an extra schema")
+        self.assertEqual(classify(entries, "alpha_graph.edges")[1], "graph")
+        self.assertEqual(classify(entries, "alpha_git.raw_blobs")[1:], ("git", "empty", "skip"))
+        self.assertEqual(unknown_tables(entries, ["alpha_git.refs", "alpha_graph.x"]), ["alpha_git.refs"])
 
     def test_profile_defaults_cover_the_core_tables(self):
         self.project.settings["PS_DATABASE_PREFIX"] = "ps_"
@@ -123,15 +123,15 @@ class SchemaNameTest(unittest.TestCase):
     """The registry reads schema.table names with the snapshot's split_name, dotted table names included."""
 
     def test_a_dotted_extra_schema_table_is_read_from_its_schema(self):
-        database = FakeDatabase(answer=lambda sql: [("odd.name", "id")] if "'asana_graph'" in sql else [("orders", "id")])
-        columns = table_columns(SimpleNamespace(database=database), ["asana_graph.odd.name", "orders"])
-        self.assertEqual(columns, {"asana_graph.odd.name": {"id"}, "orders": {"id"}})
-        self.assertIn("TABLE_SCHEMA = 'asana_graph' AND TABLE_NAME IN ('odd.name')", database.queried[0])
+        database = FakeDatabase(answer=lambda sql: [("odd.name", "id")] if "'alpha_graph'" in sql else [("orders", "id")])
+        columns = table_columns(SimpleNamespace(database=database), ["alpha_graph.odd.name", "orders"])
+        self.assertEqual(columns, {"alpha_graph.odd.name": {"id"}, "orders": {"id"}})
+        self.assertIn("TABLE_SCHEMA = 'alpha_graph' AND TABLE_NAME IN ('odd.name')", database.queried[0])
 
     def test_a_name_without_a_schema_before_its_dot_is_a_main_table(self):
-        entries = [("asana_graph.*", "graph", "full", "import"), ("ps_*", "shop", "full", "import"),
+        entries = [("alpha_graph.*", "graph", "full", "import"), ("ps_*", "shop", "full", "import"),
                    ("*", "other", "empty", "skip")]
-        self.assertEqual(classify(entries, "asana_graph.odd.name")[1], "graph")
+        self.assertEqual(classify(entries, "alpha_graph.odd.name")[1], "graph")
         self.assertEqual(classify(entries, "ps_orders")[1], "shop")
         self.assertEqual(classify(entries, "not-a-schema.log")[1], "other")
 

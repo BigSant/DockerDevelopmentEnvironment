@@ -54,7 +54,7 @@ Runner'is skaito tik raktus, išvardytus [project-settings.yaml](../../docker/pr
 | `COMPOSE_PROFILES` | Tuščias | Compose profiliai savo apraše turimiems servisams. Kasdieniam darbui dažniausiai nereikia. |
 | `PROJECT_COMPOSE_FILES` | Tuščias | Papildomi projekto YAML failai (keliai nuo `app/`), skaitomi po `compose/common.yaml` ir prieš `compose/<ENV>.yaml`. |
 | `APP_ENVIRONMENT` | Tuščias | Aplikacijos savų env kintamųjų **vardai** per tarpus (be reikšmių), kuriuos setup perduoda `php-fpm` ir `cron`. Laikyk `common.env`. Žr. [Savi aplikacijos parametrai](#savi-aplikacijos-parametrai-app_environment). |
-| `STAGE_ENVIRONMENTS` | Tuščias | Papildomos serverio aplinkos šalia `stage` ir `prod`, pvz. laikina `"mdv"` didesniam darbui: per tarpą ar kablelį, mažosios raidės ir skaitmenys, 2–16 simbolių, pirmas – raidė (`local`, `test`, `stage`, `prod` negalimi). Kiekviena veikia lygiai kaip `stage` (limitai, IP sąrašai, `APP_UID`, secret store, Mailpit, ne-prod after-import), su savu `env/<vardas>.env`, konteineriais (`demo-mdv-…`), `data/<vardas>/` ir deploy aplinka tuo pačiu vardu. `ENV=` priima tik išvardytas. Laikyk `common.env`. Žr. [papildomos aplinkos](09-aplinkos.md#papildomos-aplinkos-stage_environments). |
+| `STAGE_ENVIRONMENTS` | Tuščias | Papildomos serverio aplinkos šalia `stage` ir `prod`, pvz. laikina `"demo"` didesniam darbui: per tarpą ar kablelį, mažosios raidės ir skaitmenys, 2–16 simbolių, pirmas – raidė (`local`, `test`, `stage`, `prod` negalimi). Kiekviena veikia lygiai kaip `stage` (limitai, IP sąrašai, `APP_UID`, secret store, Mailpit, ne-prod after-import), su savu `env/<vardas>.env`, konteineriais (`demo-demo-…`), `data/<vardas>/` ir deploy aplinka tuo pačiu vardu. `ENV=` priima tik išvardytas. Laikyk `common.env`. Žr. [papildomos aplinkos](09-aplinkos.md#papildomos-aplinkos-stage_environments). |
 | `SETUP_MIN_VERSION` | Tuščias | Seniausia setup versija, su kuria projektas veikia, pvz. `2.3.0`. Kiekviena `make` komanda pirmiausia palygina ją su setup `VERSION` ir su senesniu setup sustoja, nieko nepakeitusi. Laikyk `common.env`. Jį tikrina setup versijos po 2.2.0; 2.2.0 ir senesnės jį ignoruoja. |
 
 `PROFILE=prestashop` nusako **aplikacijos rūšį**, `ENV=test` – **aplinką**, `SERVICES` – **papildomus servisus**. Tai trys atskiri pasirinkimai.
@@ -107,8 +107,8 @@ IP sąrašų taisyklės ir pavyzdžiai: [IP apribojimai](05-servisai.md#ip-aprib
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
 | `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | Tuščias | Aplikacijos DB ir jos vartotojas. Vartotojas gauna teises **tik į savo DB** (ir `DATABASE_EXTRA_SCHEMAS`). Sukuriami pirmą kartą paleidžiant tuščią DB. |
-| `DATABASE_EXTRA_SCHEMAS` | Tuščias | Papildomos projekto schemos per tarpą, pvz. `"asana_graph asana_git"`. Sukuriamos kartu su DB, vartotojas gauna teises ir į jas. Kopija, importas, `db-restrict-grants`, registras, snapshot'as (kiekviena schema – savo kataloge), migracijos ir after-import (`<grupė>/<schema>/`) apima visas schemas; bazinis rinkinys, `db-load` ir Doctrine diff – tik `DATABASE_NAME`. Žr. [papildomos schemos](07-duomenu-baze.md#papildomos-schemos). |
-| `DATABASE_TEST_SCHEMAS` | Tuščias | Aplikacijos testų schemos per tarpą, vardai baigiasi `_test`, `*` – bet kokie simboliai, pvz. `"asana*_test"`. Vartotojas gauna teises (pirmas paleidimas, `db-restrict-grants`), bet setup jų nekuria ir jos nepatenka į snapshot'ą, kopiją, importą ar registrą. Tik local/test. Žr. [testų schemos](07-duomenu-baze.md#testų-schemos). |
+| `DATABASE_EXTRA_SCHEMAS` | Tuščias | Papildomos projekto schemos per tarpą, pvz. `"alpha_graph alpha_git"`. Sukuriamos kartu su DB, vartotojas gauna teises ir į jas. Kopija, importas, `db-restrict-grants`, registras, snapshot'as (kiekviena schema – savo kataloge), migracijos ir after-import (`<grupė>/<schema>/`) apima visas schemas; bazinis rinkinys, `db-load` ir Doctrine diff – tik `DATABASE_NAME`. Žr. [papildomos schemos](07-duomenu-baze.md#papildomos-schemos). |
+| `DATABASE_TEST_SCHEMAS` | Tuščias | Aplikacijos testų schemos per tarpą, vardai baigiasi `_test`, `*` – bet kokie simboliai, pvz. `"alpha*_test"`. Vartotojas gauna teises (pirmas paleidimas, `db-restrict-grants`), bet setup jų nekuria ir jos nepatenka į snapshot'ą, kopiją, importą ar registrą. Tik local/test. Žr. [testų schemos](07-duomenu-baze.md#testų-schemos). |
 | `DATABASE_ROOT_PASSWORD` | Privalomas | Atskiras root slaptažodis, turi skirtis nuo `DATABASE_PASSWORD`. Local/test sugeneruoja `make init` / `make bootstrap`. |
 | `APP_DATABASE_HOST`, `APP_DATABASE_PORT` | `database`, `3306` | Kur jungiasi PHP. Keisk tik jei aplikacija sąmoningai jungiasi kitur. |
 | `DATABASE_HOST` | `127.0.0.1` (bendrame `.env`) | DB konteinerio vartotojo host'o nustatymas (MySQL `MYSQL_HOST`, MariaDB `MYSQL_ROOT_HOST`). Tai ne PHP adresas. |
@@ -180,7 +180,7 @@ Raktai local/test aplinkoje įrašomi į privatų env failą automatiškai. Stag
 | `POST_IMPORT_SQL_DIRECTORY` | `database/after-import` šalia Makefile | Kitas after-import katalogas nuo projekto šaknies. |
 | `FIXTURES_DIRECTORY` | Tuščias | Fixtures katalogas nuo projekto šaknies, pvz. `app/database/fixtures`. |
 | `BACKUP_SSH` | Kompiuterio atsakymas | `make db-pull` ir `make ssh`: setup-server paskyra VPN adresu, pvz. `setup@10.8.0.14`. Paprastai nenurodomas: pirmas `make db-pull` paklausia ir išsaugo setup'o `docker/.env.backup` visiems projektams. Projekte – tik jei jo kopijos kitame serveryje. |
-| `BACKUP_SERVER_PROJECT` | git vardas, tada `PROJECT_NAME` | Projekto katalogo vardas serveryje (`projects/<vardas>`). Paprastai nereikia: pirmiausia bandomas aplinkos repo vardas (`origin`, pvz. `asana_tracker`), tada `PROJECT_NAME`; serveriui nežinant nė vieno, `make db-pull` paklausia ir įrašo į `env/local.env`. |
+| `BACKUP_SERVER_PROJECT` | git vardas, tada `PROJECT_NAME` | Projekto katalogo vardas serveryje (`projects/<vardas>`). Paprastai nereikia: pirmiausia bandomas aplinkos repo vardas (`origin`, pvz. `alpha_shop`), tada `PROJECT_NAME`; serveriui nežinant nė vieno, `make db-pull` paklausia ir įrašo į `env/local.env`. |
 | `BACKUP_SSH_KEY` | Kompiuterio atsakymas | Kitas privatus SSH raktas `make db-pull` (pvz. `~/.ssh/kopijoms_ed25519`); paklausiama kartu su `BACKUP_SSH`. |
 | `INTEGRATIONS_ENABLED` | Tuščias | Integracijos, kurias po užkėlimo palikti įjungtas, per tarpus. |
 | `MAIL_MODE` | `auto` | `auto`, `off`, `mailpit`, `preserve`. Žr. [paštas](12-cache-ir-hibridines-aplinkos.md#paštas-mail_mode). |
@@ -191,7 +191,7 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 
 | Raktas | Numatyta | Ką daro |
 | --- | --- | --- |
-| `TEST_COPY_EXCLUDE` | Tuščias | Keliai parduotuvėje per tarpus, kurių nekopijuoti į `ENV=test` kopiją, pvz. `/modules/prgenericsync/cache`. PrestaShop kopija visada praleidžia `var/cache`, `var/logs`, `cache`; generic aplikacijos savo cache katalogus išvardina čia. |
+| `TEST_COPY_EXCLUDE` | Tuščias | Keliai parduotuvėje per tarpus, kurių nekopijuoti į `ENV=test` kopiją, pvz. `/modules/genericsync/cache`. PrestaShop kopija visada praleidžia `var/cache`, `var/logs`, `cache`; generic aplikacijos savo cache katalogus išvardina čia. |
 | `PHPSTAN_BASELINE_FILE` | Tuščias | Konteinerio kelias, kur `make phpstan-baseline` rašo baseline. |
 | `PLAYWRIGHT_COMMAND` | `npx playwright test` | `make e2e` komanda. |
 | `DOCTRINE_PHP_VERSION` | `8.3` | Doctrine migracijų įrankio PHP versija. |

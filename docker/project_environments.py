@@ -1,5 +1,5 @@
 """The environments of a project: local and test on a developer machine, stage and prod on a server, and the
-extra stage-class server environments env/common.env lists in STAGE_ENVIRONMENTS (e.g. a temporary `mdv` for a
+extra stage-class server environments env/common.env lists in STAGE_ENVIRONMENTS (e.g. a temporary `demo` for a
 large piece of work, with its own domain, database and containers).
 
 An extra environment behaves exactly like stage: every guard, permission and policy of stage applies to it

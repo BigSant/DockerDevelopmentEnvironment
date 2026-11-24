@@ -834,7 +834,7 @@ class HealthCheckTest(unittest.TestCase):
 
 class CapabilityTest(unittest.TestCase):
     def test_a_workflow_can_ask_what_this_setup_does_without_any_project(self):
-        """The probe zarskis.lt's workflow runs before an untrusted stage deploy: setup's own make file alone."""
+        """The probe gamma.example's workflow runs before an untrusted stage deploy: setup's own make file alone."""
         result = subprocess.run(["make", "-s", "-f", str(ROOT / "docker/project.mk"), "setup-capabilities"],
                                 capture_output=True, text=True, cwd=tempfile.gettempdir(), env={"PATH": os.environ["PATH"]})
         self.assertEqual(result.returncode, 0, result.stderr)

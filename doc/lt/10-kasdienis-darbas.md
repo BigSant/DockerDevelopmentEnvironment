@@ -91,8 +91,8 @@ Privatus interpretatoriaus Compose failas `.generated/phpstorm-compose.<ENV>.yam
 ## Dvi Git repozitorijos
 
 ```text
-forsena/app/.git            # Aplinkos repozitorija: env, compose, config, database, tests
-forsena/app/public/.git     # Parduotuvės kodas
+beta/app/.git            # Aplinkos repozitorija: env, compose, config, database, tests
+beta/app/public/.git     # Parduotuvės kodas
 ```
 
 | Failai | Kur commit'inti |

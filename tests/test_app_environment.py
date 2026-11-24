@@ -151,7 +151,7 @@ class ApplicationEnvironmentTest(unittest.TestCase):
                      'BUILD_ENV', 'IMAGE_ENV', 'ENV', 'HOST_UID', 'HOST_GID', 'SETUP_IMAGE_SUFFIX_PHP_FPM',
                      'SETUP_CRON_CONFIG_ACCESS', 'PS_RELEASE_IMAGE', 'DOCKER_CONTEXT', 'COMPOSE_PROFILES'):
             self.assertTrue(reserved(name, settings), name)
-        self.assertFalse(reserved('ASANA_TOKEN', settings))
+        self.assertFalse(reserved('ALPHA_TOKEN', settings))
         self.assertEqual(application_names({'APP_ENVIRONMENT': ' A  B A\nC '}), ['A', 'B', 'C'])
         self.assertEqual(application_names({'APP_ENVIRONMENT': ''}), [])
 

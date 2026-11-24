@@ -12,7 +12,7 @@ PHP konteineris komandas vykdo tavo vartotojo UID, todėl sukurti failai neprikl
 
 Bendros versijos yra `setup/docker/.env`. Projekto `env/common.env` jas pakeičia visoms aplinkoms. Versijos paveldimos iš setup, todėl setup atnaujinimas pasiekia visus projektus, kurie jų neperrašė.
 
-Pavyzdys PHP 8.4 projektui (Forsena):
+Pavyzdys PHP 8.4 projektui (`beta`):
 
 ```dotenv
 PHP_VERSION=8.4

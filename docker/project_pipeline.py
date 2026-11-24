@@ -12,11 +12,11 @@ The step runs on a self-hosted shell runner of the build server; the work happen
 build root (its environment checkout, the directory this runs in), not in the runner's own clone,
 which only identifies the commit (BITBUCKET_COMMIT, GITHUB_SHA). Two layouts:
 
-  one repository (asana.local): the code is part of the environment repository (app/public has no
+  one repository (alpha.local): the code is part of the environment repository (app/public has no
       .git of its own). The checkout is the commit being deployed: REF (APP_REF), else the pipeline
       commit; ROLLBACK=yes checks out the commit setup's rollback returns to. When the build root is
       also DEPLOY_PATH the running containers mount its config, so it must always match the code.
-  separate code repository (Forsena): app/public is the shop's own repository. The environment
+  separate code repository (beta): app/public is the shop's own repository. The environment
       checkout follows the pipeline commit; REF (SHOP_REF) names the code commit to deploy and is
       required unless ROLLBACK=yes.
 

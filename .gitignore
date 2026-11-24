@@ -1,5 +1,5 @@
 .idea
 .env.*
-.asana-memory-session
+.*-memory-session
 __pycache__/
 .test-work/

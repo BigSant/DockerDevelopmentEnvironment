@@ -210,7 +210,7 @@ class DatabaseImportTest(ImportFixture):
         self.assertIn("differs", result.stderr)
 
     def test_domain_substitution_is_only_for_hooks_and_does_not_rewrite_sources(self):
-        self.project.settings["DOMAIN"] = "forsena.local"
+        self.project.settings["DOMAIN"] = "beta.local"
         self.dump.write_text("SELECT '${DOMAIN}';\n")
         hook = self.sql / "local/010-local.sql"
         hook.write_text("UPDATE shop SET domain = '${DOMAIN}';\n")
@@ -219,7 +219,7 @@ class DatabaseImportTest(ImportFixture):
             run_load(self.project, plan)
         inputs = self.project.database.loaded
         self.assertIn(b"${DOMAIN}", inputs[0])
-        self.assertEqual(inputs[-1], b"UPDATE shop SET domain = 'forsena.local';\n")
+        self.assertEqual(inputs[-1], b"UPDATE shop SET domain = 'beta.local';\n")
         self.assertIn("${DOMAIN}", hook.read_text())
 
     def test_invalid_hook_domain_fails_preflight_before_database_writes(self):

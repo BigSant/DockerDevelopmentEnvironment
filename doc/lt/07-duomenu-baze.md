@@ -41,13 +41,13 @@ Tada schemos komandos (`schema-export`, `schema-check`, `db-dataset`…) sustoja
 make db-load set=dev
 ```
 
-Įkeliama schema iš snapshot'o, rinkinys `database/data/dev/`, after-import SQL, fixtures, laukiančios migracijos. Prisijungimas prie BO: `employee<id>@example.test` / `dev12345` (klientai – `customer<id>@example.test`). Forsenoje tai konfigūracija ir apie 2000 prekių.
+Įkeliama schema iš snapshot'o, rinkinys `database/data/dev/`, after-import SQL, fixtures, laukiančios migracijos. Prisijungimas prie BO: `employee<id>@example.test` / `dev12345` (klientai – `customer<id>@example.test`). Projekte `beta` tai konfigūracija ir apie 2000 prekių.
 
 **LIVE dump'as** (realūs duomenys, rankinis failas):
 
 ```bash
-make db-import-plan file=/kelias/forsena.sql.gz
-make db-import file=/kelias/forsena.sql.gz
+make db-import-plan file=/kelias/beta.sql.gz
+make db-import file=/kelias/beta.sql.gz
 ```
 
 Pirma komanda parodo, kokie failai bus vykdomi, SQL nevykdo. Antra užkelia dump'ą ir viską, kas aprašyta [D dalyje](#d-live-dumpo-užkėlimas). Jei DB konteineris dar nepaleistas, `make db-prepare` paleidžia tik jį.
@@ -85,7 +85,7 @@ git add -A database
 git commit -m "Add supplier code"
 ```
 
-Hook'as veikia toje repozitorijoje, kuriai priklauso schemos katalogas (Forsenoje – aplinkos `app/`, ne parduotuvės `app/public`). Jei repozitorija naudoja `core.hooksPath` arba jau turi kieno nors kito `pre-commit` (ne setup'o), installeris jo neperrašo ir praneša. Savo patikras projektas deda į `bin/pre-commit`, ne į hook'ą.
+Hook'as veikia toje repozitorijoje, kuriai priklauso schemos katalogas (projekte `beta` – aplinkos `app/`, ne parduotuvės `app/public`). Jei repozitorija naudoja `core.hooksPath` arba jau turi kieno nors kito `pre-commit` (ne setup'o), installeris jo neperrašo ir praneša. Savo patikras projektas deda į `bin/pre-commit`, ne į hook'ą.
 
 **Commit'as `git worktree` kopijoje.** Hook'as bendras visoms tos repozitorijos darbo kopijoms (`git worktree add`). Kai commit'ini susietoje kopijoje, nustatymai ir DB lieka pagrindinės kopijos (ten yra `env/local.env` ir veikianti vietinė DB), bet schema eksportuojama į **commit'inamos kopijos** schemos katalogą (tas pats santykinis kelias) ir lyginama su **jos** indeksu; ten pat atsiranda migracijos juodraštis, o pranešimai rodo tos kopijos kelią. Pagrindinė kopija nekeičiama. Hook'as tai praneša eilute `Committing in the worktree …; DB and settings from …`. Jei kopijos šaka turi kitą (pvz. senesnį) snapshot'ą nei DB, commit'as sustabdomas kaip įprasta, o eksportas lieka toje kopijoje peržiūrai.
 
@@ -114,7 +114,7 @@ Kiekviena DB lentelė privalo būti registre. Neklasifikuota lentelė sustabdo c
 
 | Laukas | Reikšmės |
 | --- | --- |
-| lentelė | Vardas. `{p}` – PrestaShop prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`; generic projekte atmetamas), `*` – bet kokia seka. [Papildomos schemos](#papildomos-schemos) lentelė – `schema.lentelė` (pvz. `asana_git.*`): eilutė su tašku galioja tik papildomoms schemoms, be taško – tik pagrindinei DB. |
+| lentelė | Vardas. `{p}` – PrestaShop prefiksas (`PS_DATABASE_PREFIX`, numatyta `ps_`; generic projekte atmetamas), `*` – bet kokia seka. [Papildomos schemos](#papildomos-schemos) lentelė – `schema.lentelė` (pvz. `alpha_git.*`): eilutė su tašku galioja tik papildomoms schemoms, be taško – tik pagrindinei DB. |
 | grupė | Laisvas vardas, pvz. `config`, `catalog`, `customers`, `orders`, `cache`. Pagal jį grupuojami rinkinio failai. |
 | rinkinys | `full` – visos eilutės; `slice` – tik prekių imties eilutės; `faker` – visos eilutės, asmens duomenys pakeisti; `empty` – be eilučių; `drop` – lentelė šalinama. |
 | LIVE importas | Kas patenka į eksportą (`make db-backup`, serverio kopijos): `import` – struktūra ir duomenys; `skip` – tik struktūra. Užkeliant dump'ą (`make db-import`) įkeliama viskas, kas faile. |
@@ -132,7 +132,7 @@ Terminale paklausia apie kiekvieną nežinomą lentelę ir pasiūlo klasifikacij
 ## D. LIVE dump'o užkėlimas
 
 ```bash
-make db-import file=/kelias/forsena.sql.gz
+make db-import file=/kelias/beta.sql.gz
 ```
 
 Prieš pirmą importą verta žinoti LIVE DB variklį, versiją, `sql_mode`, koduotes, didžiausias lenteles ir `DEFINER` objektus. Juos parodo [LIVE zondas](../../tools/live-probe/README.md), kartu su `config/mysql` drop-in'u ir lentelių registro juodraščiu.
@@ -154,7 +154,7 @@ Tvarka:
 **Importuojama viskas, kas faile.** Registro `skip` taikomas eksportuojant ([atsarginės kopijos](#g-atsarginės-kopijos)), todėl serverio kopijoje cache, log'ų ir eilių lentelių duomenų jau nėra. Didelį pilną dump'ą (pvz. tiesiai iš LIVE) galima užkelti be `skip` lentelių duomenų, struktūra sukuriama visada:
 
 ```bash
-make db-import file=/kelias/forsena.sql.gz skip=1
+make db-import file=/kelias/beta.sql.gz skip=1
 ```
 
 **Saugūs numatytieji** ne prod aplinkoje ([šaltiniai](../../docker/database-profile/prestashop/after-import)):
@@ -172,7 +172,7 @@ make db-import file=/kelias/forsena.sql.gz skip=1
 INTEGRATIONS_ENABLED="tecdoc"
 ```
 
-Tada užkelk DB iš naujo. Nežinomas vardas yra klaida. Forsenoje integracijos yra `couriers`, `gtm`, `omnisend`, `suppliers`, `tecdoc`.
+Tada užkelk DB iš naujo. Nežinomas vardas yra klaida. Projekte `beta` integracijos yra `couriers`, `gtm`, `omnisend`, `suppliers`, `tecdoc`.
 
 **After-import SQL.** Savo SQL dėk į `database/after-import/common/` arba `database/after-import/<ENV>/`, failus numeruok vienodo ilgio numeriais (`010-…`, `020-…`). Juose galima naudoti `${DOMAIN}` (pagrindinį hostname) ir `DOMAIN` išvardytus `${DOMAIN_<VARDAS>}` ([keli domenai](03-nustatymai.md#keli-domenai)), o `PROFILE=prestashop` projekte – ir `${DB_PREFIX}` bei `${PS_SSL}` (generic projekte jie atmetami, nes PS prefikso ir SSL vėliavos ten nėra):
 
@@ -183,7 +183,7 @@ UPDATE `${DB_PREFIX}shop_url` SET `domain` = '${DOMAIN_LV}', `domain_ssl` = '${D
 
 Kiti kintamieji šiuose failuose nepakeičiami.
 
-Papildomos schemos ([papildomos schemos](#papildomos-schemos)) SQL dėk į tos schemos pakatalogį, pvz. `database/after-import/local/asana_memory/010-reset.sql`: setup jį vykdo toje schemoje (prideda `USE`), po tos grupės pagrindinės DB failų. Pakatalogis su `.sql` failais, kurio vardo nėra `DATABASE_EXTRA_SCHEMAS`, yra klaida.
+Papildomos schemos ([papildomos schemos](#papildomos-schemos)) SQL dėk į tos schemos pakatalogį, pvz. `database/after-import/local/alpha_memory/010-reset.sql`: setup jį vykdo toje schemoje (prideda `USE`), po tos grupės pagrindinės DB failų. Pakatalogis su `.sql` failais, kurio vardo nėra `DATABASE_EXTRA_SCHEMAS`, yra klaida.
 
 **Kita:**
 
@@ -323,17 +323,17 @@ make db-pull fresh=1 full=1        # nauja pilna kopija dabar
 make db-pull import=1              # + užkelia (kaip make db-import: after-import, migracijos)
 make db-pull fresh=1 import=1 backup=1   # prieš užkeliant – vietinės DB kopija
 make db-pull from=stage            # stage
-make db-pull from=mdv              # papildoma aplinka (STAGE_ENVIRONMENTS)
+make db-pull from=demo              # papildoma aplinka (STAGE_ENVIRONMENTS)
 ```
 
 Kiekvienas žingsnis rodomas atskirai, terminale – su juosta (dalis, kiekis, likęs laikas):
 
 ```text
-==> [1/3] A new prod backup of asana_tracker on the server
+==> [1/3] A new prod backup of alpha_shop on the server
 Backup on the server     [##############..............]  51%  1.12 GB / 2.20 GB  3:10 left
 ==> [2/3] Download fresh-prod-20261013T150000Z.sql.gz (2.20 GB)
 Download                 [############################] 100%  2.20 GB / 2.20 GB  1:42
-==> [3/3] Import into the local database (asana): dump, after-import, migrations
+==> [3/3] Import into the local database (alpha): dump, after-import, migrations
 Unpack dump              [############################] 100%  2.20 GB / 2.20 GB  0:58
 Import                   [##########..................]  37%  4.10 GB / 11.08 GB  6:20 left
 ```
@@ -370,10 +370,10 @@ make db-import file=/kelias/dump.sql.gz db-fixtures=test
 
 ## Papildomos schemos
 
-Kai kurios sistemos (pvz. asana.local) naudoja kelias DB schemas. Jas išvardink `env/common.env`:
+Kai kurios sistemos (pvz. alpha.local) naudoja kelias DB schemas. Jas išvardink `env/common.env`:
 
 ```dotenv
-DATABASE_EXTRA_SCHEMAS="asana_frontapp asana_memory asana_graph asana_bitbucket asana_git"
+DATABASE_EXTRA_SCHEMAS="alpha_frontapp alpha_memory alpha_graph alpha_bitbucket alpha_git"
 ```
 
 Vardai – raidės, skaitmenys ir `_` (iki 64 simbolių), be pasikartojimų, ne `DATABASE_NAME` ir ne sistemos schemos (`mysql`, `sys`…). Kitaip runner'is sustoja.
@@ -398,10 +398,10 @@ Vardai – raidės, skaitmenys ir `_` (iki 64 simbolių), be pasikartojimų, ne 
 
 ### Testų schemos
 
-Jei aplikacijos testai patys kuria ir trina savo DB (pvz. asana.local testai – `<schema>_test` kiekvienai schemai), išvardink jas `env/local.env`, ne `DATABASE_EXTRA_SCHEMAS`:
+Jei aplikacijos testai patys kuria ir trina savo DB (pvz. alpha.local testai – `<schema>_test` kiekvienai schemai), išvardink jas `env/local.env`, ne `DATABASE_EXTRA_SCHEMAS`:
 
 ```dotenv
-DATABASE_TEST_SCHEMAS="asana*_test"
+DATABASE_TEST_SCHEMAS="alpha*_test"
 ```
 
 Vardas turi baigtis `_test`, `*` – bet kokie simboliai, todėl šablonas negali pasiekti tikros schemos. Aplikacijos vartotojas gauna teises į atitinkančias schemas, bet setup jų **nekuria** ir niekur kitur neliečia: jų nėra snapshot'e, kopijoje, importe, registre ir migracijose. Teisės suteikiamos pirmą kartą paleidžiant tuščią DB ir per `make db-restrict-grants`. Stage/prod runner'is šio nustatymo nepriima – testai serverio DB nevyksta.

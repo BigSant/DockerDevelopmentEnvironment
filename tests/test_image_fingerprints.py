@@ -95,10 +95,10 @@ class PrunePlanTest(unittest.TestCase):
     def test_plan_keeps_used_and_expected_images(self):
         images = {
             "sha256:used": {"names": ["mysql-local-8.4.0-sold"], "size": "1GB"},
-            "sha256:expected": {"names": ["forsena-php-fpm-local-snew"], "size": "1GB"},
+            "sha256:expected": {"names": ["beta-php-fpm-local-snew"], "size": "1GB"},
             "sha256:stale": {"names": ["php-fpm-base-local-7.1-2.9.8-2.2-sold"], "size": "1GB"},
         }
-        plan = plan_prune(images, {"sha256:used"}, {"forsena-php-fpm-local-snew"})
+        plan = plan_prune(images, {"sha256:used"}, {"beta-php-fpm-local-snew"})
         self.assertEqual(set(plan), {"sha256:stale"})
 
     def test_images_of_a_release_lock_are_kept_for_deploy_and_rollback(self):
@@ -116,7 +116,7 @@ class PrunePlanTest(unittest.TestCase):
 
     def test_legacy_names_match_setup_images_only(self):
         for name in ("php-fpm-base-local-7.3-3.1.5-2.7.6", "mysql-local-8.4.0-s1bd8429c96c7",
-                     "forsena-php-fpm-local-s98210b6d2a04", "webserver-apache-local-2.4.59"):
+                     "beta-php-fpm-local-s98210b6d2a04", "webserver-apache-local-2.4.59"):
             self.assertTrue(LEGACY_NAME.match(name), name)
         for name in ("mysql", "redis", "php", "mcr.microsoft.com/playwright"):
             self.assertFalse(LEGACY_NAME.match(name), name)

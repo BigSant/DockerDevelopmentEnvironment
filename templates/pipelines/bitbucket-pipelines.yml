@@ -60,12 +60,12 @@ pipelines:
           <<: *deploy
           name: Deploy to production
           deployment: Production
-    # An extra environment (STAGE_ENVIRONMENTS="mdv" in env/common.env, env/mdv.env.example): a custom pipeline
+    # An extra environment (STAGE_ENVIRONMENTS="demo" in env/common.env, env/demo.env.example): a custom pipeline
     # deploy-<name> whose step deploys to a deployment environment of that same name (Repository settings ->
-    # Deployments -> Staging -> Add environment: mdv). The setup-server web UI starts it as "Deploy į mdv".
-    # deploy-mdv:
+    # Deployments -> Staging -> Add environment: demo). The setup-server web UI starts it as "Deploy į demo".
+    # deploy-demo:
     #   - variables: *variables
     #   - step:
     #       <<: *deploy
-    #       name: Deploy to mdv
-    #       deployment: mdv
+    #       name: Deploy to demo
+    #       deployment: demo

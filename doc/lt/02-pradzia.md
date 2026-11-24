@@ -63,12 +63,12 @@ Tikslios diegimo, būsenos ir išjungimo komandos yra setup-server README skyriu
 
 ## B. Esamas projektas iš švaraus clone'o
 
-Situacija: kolega jau turi projektą, tu nori jį paleisti savo kompiuteryje. Pavyzdys su Forsena, kur aplinka ir parduotuvė yra atskiros repozitorijos:
+Situacija: kolega jau turi projektą, tu nori jį paleisti savo kompiuteryje. Pavyzdys su projektu `beta`, kur aplinka ir parduotuvė yra atskiros repozitorijos:
 
 ```bash
-git clone git@bitbucket.org:KOMANDA/forsena_docker.git ~/Projects/forsena/app
-git clone git@bitbucket.org:KOMANDA/forsena.git ~/Projects/forsena/app/public
-cd ~/Projects/forsena/app
+git clone git@bitbucket.org:KOMANDA/beta_docker.git ~/Projects/beta/app
+git clone git@bitbucket.org:KOMANDA/beta.git ~/Projects/beta/app/public
+cd ~/Projects/beta/app
 make setup
 ```
 
@@ -95,12 +95,12 @@ make setup
 Pabaigoje `make setup` tik praneša DB būseną. Jei DB tuščia, pasiūlo komandas:
 
 ```text
-Setup complete. Database forsena is empty — load data deliberately:
+Setup complete. Database beta is empty — load data deliberately:
   make db-load set=dev          # versioned dev data set
   make db-import file=dump.sql  # a LIVE dump
 ```
 
-DB užkeli sąmoningai, žr. [duomenų bazės skyrių](07-duomenu-baze.md). Po to atidaryk `https://forsena.local/` (projektui `demo` – `https://demo.local/`).
+DB užkeli sąmoningai, žr. [duomenų bazės skyrių](07-duomenu-baze.md). Po to atidaryk `https://beta.local/` (projektui `demo` – `https://demo.local/`).
 
 ### Pakartotinis make setup
 
@@ -155,7 +155,7 @@ Komanda paklausia, o kiekvienas klausimas turi numatytąjį atsakymą (Enter):
 
 | Klausimas | Numatyta | Pastaba |
 | --- | --- | --- |
-| Projekto vardas | – | Pvz. `demo`, `Melga`, `GameroomAkeneo`. |
+| Projekto vardas | – | Pvz. `demo`, `Nova`, `GardenAkeneo`. |
 | Profilis | `prestashop` | `prestashop` arba `generic` (bendras PHP). |
 | PrestaShop versija | `9.0.2` | Klausiama tik `prestashop` profiliui. |
 | PHP versija | naujausia tinkama | Siūlomos tik tos versijos, kurias palaiko PS šaka ir kurioms setup turi image'ą. |
@@ -217,9 +217,9 @@ make -C ~/Projects/demo/app setup
 
 | Įvedi | Katalogas, `PROJECT_NAME` | DB vardas ir vartotojas | PhpStorm pavadinimas | Adresas |
 | --- | --- | --- | --- | --- |
-| `Melga` | `melga` | `melga` | `Melga` | `melga.local` |
-| `MelgaMCP` | `melga-mcp` | `melga_mcp` | `MelgaMCP` | `melga-mcp.local` |
-| `GameroomAkeneo` | `gameroom-akeneo` | `gameroom_akeneo` | `GameroomAkeneo` | `gameroom-akeneo.local` |
+| `Nova` | `nova` | `nova` | `Nova` | `nova.local` |
+| `NovaMCP` | `nova-mcp` | `nova_mcp` | `NovaMCP` | `nova-mcp.local` |
+| `GardenAkeneo` | `garden-akeneo` | `garden_akeneo` | `GardenAkeneo` | `garden-akeneo.local` |
 
 Normalizuotas vardas prasideda raide ir turi iki 32 simbolių. Leidžiami skaičiai ir pavieniai `_` ar `-`. Jei toks domenas jau priklauso kitam projektui, kūrimas sustoja prieš rašant failus. Originali rašyba saugoma `.idea/.name`.
 

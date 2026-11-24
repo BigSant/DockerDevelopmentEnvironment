@@ -158,4 +158,4 @@ Tada `env/common.env` įrašyk `DOCUMENT_ROOT=public`. Kodo vieta nesikeičia, p
 
 ## Dvi repozitorijos viename projekte
 
-Forsenoje aplinkos repozitorija yra `forsena/app` (env, compose, config, database), o parduotuvės repozitorija – `forsena/app/public`. `git status` kataloge `app/` ir `git -C public status` rodo skirtingus darbus. Daugiau: [kasdienis darbas](10-kasdienis-darbas.md#dvi-git-repozitorijos).
+Projekte `beta` aplinkos repozitorija yra `beta/app` (env, compose, config, database), o parduotuvės repozitorija – `beta/app/public`. `git status` kataloge `app/` ir `git -C public status` rodo skirtingus darbus. Daugiau: [kasdienis darbas](10-kasdienis-darbas.md#dvi-git-repozitorijos).

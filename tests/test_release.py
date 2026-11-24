@@ -216,7 +216,7 @@ class ReleaseTest(unittest.TestCase):
         layers = lambda *ids: {'RootFS': {'Layers': list(ids)}, 'Config': {'Cmd': ['php-fpm']}, 'Os': 'linux',
                                'Architecture': 'amd64'}
         here = {'shop-php-fpm-stage-s1': layers('l1', 'l2'), 'mysql-stage-8.4-s2': layers('l3'), 'new:1': layers('l4')}
-        there = {'sha256:other': {**layers('l1', 'l2'), 'Id': 'sha256:other', 'RepoTags': ['forsena-php-fpm-stage-s1']},
+        there = {'sha256:other': {**layers('l1', 'l2'), 'Id': 'sha256:other', 'RepoTags': ['beta-php-fpm-stage-s1']},
                  'sha256:dangling': {**layers('l3'), 'Id': 'sha256:dangling', 'RepoTags': []}}
         calls = []
 
@@ -249,7 +249,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn(['docker', '--context', 'shop-stage', 'image', 'tag', 'sha256:dangling', 'mysql-stage-8.4-s2'], calls,
                       'an image without a name is a build all the same')
         self.assertIn(['docker', 'save', 'new:1'], calls, 'only the build the target has under no name travels')
-        self.assertIn('shop-php-fpm-stage-s1: the same build is on shop-stage as forsena-php-fpm-stage-s1; tagged there',
+        self.assertIn('shop-php-fpm-stage-s1: the same build is on shop-stage as beta-php-fpm-stage-s1; tagged there',
                       out.getvalue())
         self.assertIn('sending 1 images to Docker context shop-stage (2 there already)', out.getvalue())
 
