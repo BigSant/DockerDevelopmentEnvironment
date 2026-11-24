@@ -1145,10 +1145,10 @@ class SettingsTest(unittest.TestCase):
     def test_local_runs_without_a_list_or_token_and_probes_the_vpn_address(self):
         app = self.project("")
         with (app / "env/local.env").open("a") as env:
-            env.write("METRICS_URLS=http://asana.local/\nMETRICS_PROBE_ADDRESS=10.8.0.14\n")
+            env.write("METRICS_URLS=http://alpha.local/\nMETRICS_PROBE_ADDRESS=10.8.0.14\n")
         project = Project(app, "local")
         metrics = json.loads(project.capture(["config", "--format", "json"]))["services"]["metrics"]["environment"]
-        self.assertEqual((metrics["METRICS_URLS"], metrics["METRICS_PROBE_ADDRESS"]), ("http://asana.local/", "10.8.0.14"))
+        self.assertEqual((metrics["METRICS_URLS"], metrics["METRICS_PROBE_ADDRESS"]), ("http://alpha.local/", "10.8.0.14"))
 
 
 PHP = os.environ.get("PHP_TEST_IMAGE")

@@ -34,11 +34,11 @@ setup/
   tests/                              unittest suite (A: no Docker; B: opt-in disposable containers)
 ```
 
-A project (example `~/Projects/forsena`):
+A project (example `~/Projects/beta`):
 
 ```
-forsena/
-  app/                 environment repository (forsena_docker)
+beta/
+  app/                 environment repository (beta_docker)
     Makefile           includes setup/docker/project.mk
     env/common.env     shared settings (git);  env/<env>.env private settings (not in git)
     compose/           optional Compose overrides (base, per env)
@@ -383,7 +383,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 | local | `app/public` | developer stack; tools open without allowlist |
 | test | `.generated/test/app` copy | own DB/containers; `make test-prepare`, `make phpunit`, e2e only here |
 | stage / prod | release on the target | limits, allowlists and `APP_UID` required; started from the release model |
-| extra (e.g. `mdv`) | release on the target | listed in `STAGE_ENVIRONMENTS` (env/common.env); a stage in every rule |
+| extra (e.g. `demo`) | release on the target | listed in `STAGE_ENVIRONMENTS` (env/common.env); a stage in every rule |
 
 `project_environments` owns the list. `ENV` is local, test, stage, prod or a name `STAGE_ENVIRONMENTS` lists
 (`[a-z][a-z0-9]{1,15}`, not one of those four); the runner refuses any other before it reads anything else, and a bad

@@ -2,7 +2,7 @@
 
 Šis vadovas skirtas žmogui, kuris nori paleisti projektą ir suprasti, ką keičia. Daug Docker žinių nereikia. Pavyzdžiai skirti Linux ir remiasi bendru `setup` bei projekto struktūra `env/` + `compose/`.
 
-**Pradėk nuo pirmų dviejų skyrių.** Kitus atsiversk pagal užduotį. Projekto vardas `demo` yra mokomasis, savo projekte jį pakeisk tikru vardu. Forsena minima tik kaip realus pavyzdys. Pavyzdiniai slaptažodžiai ir IP adresai nėra tikri.
+**Pradėk nuo pirmų dviejų skyrių.** Kitus atsiversk pagal užduotį. Projekto vardas `demo` yra mokomasis, savo projekte jį pakeisk tikru vardu. Projektas `beta` minimas kaip pavyzdys su atskira kodo repozitorija. Pavyzdiniai slaptažodžiai ir IP adresai nėra tikri.
 
 | Eilė | Skyrius | Ką išmoksi |
 | --- | --- | --- |

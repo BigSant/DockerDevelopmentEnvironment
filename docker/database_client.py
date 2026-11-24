@@ -64,7 +64,7 @@ def test_schemas(settings):
 
     The application user is granted them like the extra schemas, but nothing else of setup touches them:
     no snapshot, backup, import, registry or migration, and they are not created. `*` matches any
-    characters (`asana*_test` covers `asana_test` and `asana_graph_x1_test`); every name ends in `_test`,
+    characters (`alpha*_test` covers `alpha_test` and `alpha_graph_x1_test`); every name ends in `_test`,
     so a pattern cannot reach a real schema. Local and test only (project.py refuses it on stage/prod).
     """
     names = str(settings.get('DATABASE_TEST_SCHEMAS') or '').split()

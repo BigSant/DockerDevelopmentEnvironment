@@ -65,7 +65,7 @@ Kaip tai veikia:
 **Iš kur raktai:**
 
 - **local/test:** `make init` / `make bootstrap` (taigi ir `make setup`) įrašo trūkstamus raktus į privatų env failą. Jei parduotuvėje jau yra konfigūracijos failas, raktai nukopijuojami iš jo, kitaip sugeneruojami taip, kaip juos generuoja PS diegimo programa. Švari aplinka veikia be LIVE raktų.
-- **stage/prod:** raktai niekada negeneruojami. Jie ateina iš serverio env arba Bitbucket Deployment variables. Prod naudoja esamus LIVE raktus: be jų, pvz., Forsenoje neišsišifruotų mokėjimo modulio duomenys.
+- **stage/prod:** raktai niekada negeneruojami. Jie ateina iš serverio env arba Bitbucket Deployment variables. Prod naudoja esamus LIVE raktus: be jų, pvz., Projekte `beta` neišsišifruotų mokėjimo modulio duomenys.
 - **PS 1.6:** visi slaptažodžiai priklauso nuo `PS_COOKIE_KEY`. Užkeliant LIVE dump'ą lokaliai reikia LIVE `PS_COOKIE_KEY` privačiame `local.env`.
 
 ## PrestaShop .htaccess
@@ -134,8 +134,8 @@ išvardinta aiškiu keliu nuo parduotuvės šaknies. Viskas kita sekama. Sprendi
 - **Jokių taisyklių pagal plėtinį ar katalogo vardą bet kur** (`*.png`, `*.svg`, `cache/`, `log/`, `.htaccess`,
   `composer.lock`, `tests`, `vendor/`, `bin/*`): jos tyliai paslepia modulių kodą. Leidžiamos tik įrankių būsenos
   taisyklės, kurios bet kur reiškia tą patį (`.idea/`, `.vscode/`, `node_modules/`, `.phpunit.result.cache`,
-  `.DS_Store`, `.asana-memory-session`).
-- **Komentarai paprasti, po vieną eilutę**, prasideda grupės numeriu: `# 3. Content: …`, `# 5c. PrestaRock modules:
+  `.DS_Store`, `.alpha-memory-session`).
+- **Komentarai paprasti, po vieną eilutę**, prasideda grupės numeriu: `# 3. Content: …`, `# 5c. Own modules:
   content (as group 3)`. Taisyklė, kuri dėl eilės stovi kitos grupės viduje, gauna savo grupės komentarą.
 - **Grupės:**
 
@@ -145,11 +145,11 @@ išvardinta aiškiu keliu nuo parduotuvės šaknies. Viskas kita sekama. Sprendi
 | 2. Generated | Ką rašo setup, PrestaShop ar build'as | `/app/config/parameters.php`, `/.htaccess`, `/robots.txt`, `/*sitemap*.xml`, `/var/`, `/config/themes/`, `/config/xml/*.xml`, `/modules/*/config*.xml`, `/modules/*/logs/`, temos build'o rezultatas (`/themes/x/assets/js/`, `/themes/x/assets/css/`) |
 | 3. Content | LIVE failai, kurių deploy'us neliečia | `/img/`, `/upload/`, `/download/`, `/cache/` (apsaugas `index.php`/`.htaccess` atneša setup iš release'o), `/invoices/`, `/translations/*-*/` (kalbų paketai), `/translations/export/`, `/modules/*/translations/`, `/mails/*/lang.php` (laiškų temos), `/modules/*/cache/`, `/modules/*/var/` |
 | 4. Tools | Redaktorių, AI ir build įrankių būsena | `.idea/`, `.vscode/`, `.claude/`, `node_modules/`, `.phpunit.result.cache`, `/deploy/` |
-| 5. Atskiri moduliai | Vieno modulio keliai, sugrupuoti pagal kūrėją: PrestaShop (5a), trečiųjų šalių, PrestaRock; kiekvienoje – generated ir content | `/modules/ps_banner/img/`, `/modules/prpigu/data/pigu_product_export.xml`, `/modules/prproductlogistics/config/credentials.json` |
+| 5. Atskiri moduliai | Vieno modulio keliai, sugrupuoti pagal kūrėją: PrestaShop (5a), trečiųjų šalių, savi moduliai; kiekvienoje – generated ir content | `/modules/ps_banner/img/`, `/modules/marketfeed/data/product_export.xml`, `/modules/productlogistics/config/credentials.json` |
 
 **Kas yra kodas (sekama):** modulių `vendor/` (įskaitant `psr/log`, `psr/cache`), testai ir jų fixture'ai, laiškų
 šablonai `mails/` (`*.html`, `*.txt`; ir modulių bei temos `mails/`), modulių `composer.lock`, modulių katalogų apsaugos (`.htaccess`,
-`index.php`, kurių joks release neatneša, pvz. `modules/prvarlefeed/var/.htaccess`), temų ir modulių paveikslėliai bei
+`index.php`, kurių joks release neatneša, pvz. `modules/pricefeed/var/.htaccess`), temų ir modulių paveikslėliai bei
 šriftai, `override/`, `admin-api/`, `js/`, `pdf/`.
 
 **Kas ne kodas, nors atrodo:** modulių `config.xml` ir `config_<iso>.xml` (juos rašo PrestaShop,

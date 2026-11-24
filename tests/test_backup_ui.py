@@ -101,18 +101,18 @@ class BackupRegistryCheckTest(unittest.TestCase):
         self.assertEqual((saved["backup"], saved["tables"], saved["unregistered"]), ("shop-local-1.sql.gz", 4, status["unregistered"]))
 
     def test_tables_of_extra_schemas_are_checked_as_schema_table(self):
-        (self.root / "app/database/table-registry.txt").write_text("{p}feed  feeds full import\nasana_graph.*  graph full import\n")
-        with patch("database_schema.extra_tables", return_value=["asana_graph.edges", "asana_git.refs"]):
+        (self.root / "app/database/table-registry.txt").write_text("{p}feed  feeds full import\nalpha_graph.*  graph full import\n")
+        with patch("database_schema.extra_tables", return_value=["alpha_graph.edges", "alpha_git.refs"]):
             status, output = self.check(["ps_feed"])
-        self.assertEqual(status["unregistered"], ["asana_git.refs"])
+        self.assertEqual(status["unregistered"], ["alpha_git.refs"])
 
     def test_the_commit_hook_stops_on_an_unclassified_extra_schema_table(self):
         from database_schema import commit_schema
         (self.root / "app/database/table-registry.txt").write_text("{p}feed  feeds full import\n")
         with patch("database_schema.in_committing_checkout", side_effect=lambda project: project), \
                 patch("database_schema.database_tables", return_value=["ps_feed"]), \
-                patch("database_schema.extra_tables", return_value=["asana_git.refs"]), \
-                self.assertRaisesRegex(ValueError, "1 tables are not in the table registry: asana_git.refs"):
+                patch("database_schema.extra_tables", return_value=["alpha_git.refs"]), \
+                self.assertRaisesRegex(ValueError, "1 tables are not in the table registry: alpha_git.refs"):
             commit_schema(self.project)
 
     def test_a_classified_database_records_an_empty_list_quietly(self):
@@ -182,11 +182,11 @@ class BackupRegistryPhpTest(unittest.TestCase):
             registry.write_text("*_log  logs empty skip\n")
             env = {"PROFILE": "prestashop", "PS_DATABASE_PREFIX": "ps_", "BACKUP_PROFILE_DIRECTORY": "/nonexistent"}
             php(f"require '{UI}/registry.php'; tablesWrite({json.dumps(str(registry))}, array("
-                "'asana_git.ps_refs' => array('git', 'empty', 'skip')));", env)
-            self.assertTrue(registry.read_text().startswith("asana_git.ps_refs "), "no {p} in an extra schema's name")
+                "'alpha_git.ps_refs' => array('git', 'empty', 'skip')));", env)
+            self.assertTrue(registry.read_text().startswith("alpha_git.ps_refs "), "no {p} in an extra schema's name")
             matched = json.loads(php(f"require '{UI}/registry.php'; $r = tablesLoad({json.dumps(str(registry))}); "
-                                     "echo json_encode(array(tablesMatch($r, 'asana_git.commit_log'), tablesMatch($r, 'ps_api_log')[2], "
-                                     "tablesMatch($r, 'asana_git.ps_refs')[2]));", env))
+                                     "echo json_encode(array(tablesMatch($r, 'alpha_git.commit_log'), tablesMatch($r, 'ps_api_log')[2], "
+                                     "tablesMatch($r, 'alpha_git.ps_refs')[2]));", env))
             self.assertEqual(matched, [None, "logs", "git"], "a line without a dot does not reach an extra schema")
 
     def test_rules_are_validated(self):

@@ -32,15 +32,15 @@ Kitas rinkinys: `make test-prepare set=<rinkinys>` (katalogas `database/data/<ri
 Dideli ne kodo katalogai (tiekėjų failų cache, media) kopijavimą sulėtina. Juos praleisk `env/common.env`:
 
 ```dotenv
-TEST_COPY_EXCLUDE=/modules/prgenericsync/cache
+TEST_COPY_EXCLUDE=/modules/genericsync/cache
 ```
 
 ## B. PHPUnit
 
 ```bash
 make phpunit
-make phpunit module=prgenericsync
-make phpunit module=prgenericsync filter=ImportTest
+make phpunit module=genericsync
+make phpunit module=genericsync filter=ImportTest
 ```
 
 `make phpunit` pats randa rinkinius: `phpunit.xml` arba `phpunit.xml.dist` kiekviename modulyje (`modules/<modulis>/` arba `modules/<modulis>/tests/`) ir parduotuvės šaknyje (vardas `shop`). Generic projekte (`PROFILE` ne `prestashop`) `modules/` – paprastas katalogas: rinkinys ieškomas tik aplikacijos šaknyje arba jos `tests/` (vardas `app`). `module=` paleidžia vieną rinkinį, `filter=` perduodamas PHPUnit `--filter`.

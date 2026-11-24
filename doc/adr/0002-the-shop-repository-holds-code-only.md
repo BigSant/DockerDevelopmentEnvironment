@@ -5,10 +5,10 @@ Status: accepted (2026-10-28)
 ## Context
 
 A PrestaShop shop repository mixes three kinds of files: the shop's code, what the official release ships unchanged,
-and what the server writes (content, caches, generated files). The shops moved into setup (forsena, anodas) had
+and what the server writes (content, caches, generated files). The shops moved into setup (beta, delta) had
 .gitignore files written over the years with rules by file type and folder name (`*.png`, `*.svg`, `cache/`, `log/`,
 `.htaccess`, `composer.lock`) plus each module author's own .gitignore. Checked against full LIVE copies, those rules
-hid code a clean clone needs: 1083 files in anodas (module `vendor/psr/log`, deny `.htaccess` files, theme and module
+hid code a clean clone needs: 1083 files in delta (module `vendor/psr/log`, deny `.htaccess` files, theme and module
 images, module `composer.lock`), our own `ets_translate` tests, and a module's mail templates. At the same time they
 tracked what the server owns: module translations the back office edits, and a GDPR export with customer data.
 

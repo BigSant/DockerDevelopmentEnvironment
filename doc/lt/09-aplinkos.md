@@ -10,7 +10,7 @@
 | `test` | `env/test.env` | `app/.generated/test/app` | `app/.generated/test/data/` | Testai, žr. [8 skyrių](08-kodo-kokybe.md). |
 | `stage` | `env/stage.env` | `app/stage/public` | `data/stage/` | Tarpinis serveris. |
 | `prod` | `env/prod.env` | `app/prod/public` | `data/prod/` | LIVE. |
-| papildoma, pvz. `mdv` | `env/mdv.env` | `app/mdv/public` | `data/mdv/` | Kitas stage, pvz. laikinas didesniam darbui; `STAGE_ENVIRONMENTS`, žr. [žemiau](#papildomos-aplinkos-stage_environments). |
+| papildoma, pvz. `demo` | `env/demo.env` | `app/demo/public` | `data/demo/` | Kitas stage, pvz. laikinas didesniam darbui; `STAGE_ENVIRONMENTS`, žr. [žemiau](#papildomos-aplinkos-stage_environments). |
 
 Konteinerių ir tinklo varduose yra aplinka (`demo-local-…`, `demo-test-…`), todėl kelios aplinkos gali veikti kartu. Aplinką pasirenka `ENV=` bet kurioje komandoje: `make ps ENV=test`.
 
@@ -20,25 +20,25 @@ Kai vieno stage neužtenka (pvz. didesnis darbas, kurį reikia rodyti atskirai n
 daugiau serverio aplinkų. Kiekviena jų yra **dar vienas stage**: galioja visos stage taisyklės ir leidimai (limitai, IP
 sąrašai, `APP_UID`, secret store, Mailpit, ne-prod after-import SQL, release'ai ir iš ne-tag setup). Prod tėra vienas.
 
-Pridėti (pvz. `mdv`):
+Pridėti (pvz. `demo`):
 
-1. `env/common.env`: `STAGE_ENVIRONMENTS="mdv"` (kelios – per tarpą). Vardas: mažosios raidės ir skaitmenys, 2–16
-   simbolių, pirmas – raidė; `local`, `test`, `stage`, `prod` negalimi. Neišvardytą `ENV=mdv` runner'is atmeta.
-2. `env/mdv.env.example` – kaip `stage.env.example`, su savu `DOMAIN`, limitais ir IP sąrašais (be slaptažodžių).
+1. `env/common.env`: `STAGE_ENVIRONMENTS="demo"` (kelios – per tarpą). Vardas: mažosios raidės ir skaitmenys, 2–16
+   simbolių, pirmas – raidė; `local`, `test`, `stage`, `prod` negalimi. Neišvardytą `ENV=demo` runner'is atmeta.
+2. `env/demo.env.example` – kaip `stage.env.example`, su savu `DOMAIN`, limitais ir IP sąrašais (be slaptažodžių).
 3. Deploy aplinka **tuo pačiu vardu**: Bitbucket'e *Repository settings → Deployments → Staging → Add environment:
-   `mdv`* (jos Deployment variables), GitHub'e – aplinka `mdv` (jos secrets). `staging`/`production` lieka stage ir prod.
-4. Pipeline'as: Bitbucket'e custom pipeline'as `deploy-mdv` su `deployment: mdv` (pavyzdys
-   `templates/pipelines/bitbucket-pipelines.yml` gale; setup-server sąsaja jį paleidžia mygtuku „Deploy į mdv“), GitHub'e –
-   `mdv` workflow `environment` pasirinkimuose. `make pipeline-deploy` aplinką ima iš deploy aplinkos vardo ir dar kartą
+   `demo`* (jos Deployment variables), GitHub'e – aplinka `demo` (jos secrets). `staging`/`production` lieka stage ir prod.
+4. Pipeline'as: Bitbucket'e custom pipeline'as `deploy-demo` su `deployment: demo` (pavyzdys
+   `templates/pipelines/bitbucket-pipelines.yml` gale; setup-server sąsaja jį paleidžia mygtuku „Deploy į demo“), GitHub'e –
+   `demo` workflow `environment` pasirinkimuose. `make pipeline-deploy` aplinką ima iš deploy aplinkos vardo ir dar kartą
    patikrina, ar deploy'inamas commit'as ją išvardija.
-5. Jei taikinys kitas nei stage: setup-server'yje `sudo bin/add-project --target mdv=ssh://…` (be jo – bendras
+5. Jei taikinys kitas nei stage: setup-server'yje `sudo bin/add-project --target demo=ssh://…` (be jo – bendras
    `target.env`).
 
-Toliau viskas kaip stage: `make release ENV=mdv`, `make deploy ENV=mdv ref=…`, `make deploy-variables ENV=mdv`,
-`make db-pull from=mdv`, `make ssh from=mdv`; kopijos `worker-mdv-…`, konteineriai `demo-mdv-…`.
+Toliau viskas kaip stage: `make release ENV=demo`, `make deploy ENV=demo ref=…`, `make deploy-variables ENV=demo`,
+`make db-pull from=demo`, `make ssh from=demo`; kopijos `worker-demo-…`, konteineriai `<PROJECT_NAME>-demo-…`.
 
-Panaikinti: serveryje `make down ENV=mdv`, ištrink `data/mdv/` ir `app/mdv/` (jei kodas buvo ten), išbrauk vardą iš
-`STAGE_ENVIRONMENTS`, ištrink `env/mdv.env.example`, pipeline'ą ir deploy aplinką. Kopijos `.generated/backups/*-mdv-*`
+Panaikinti: serveryje `make down ENV=demo`, ištrink `data/demo/` ir `app/demo/` (jei kodas buvo ten), išbrauk vardą iš
+`STAGE_ENVIRONMENTS`, ištrink `env/demo.env.example`, pipeline'ą ir deploy aplinką. Kopijos `.generated/backups/*-demo-*`
 lieka, kol jų neištrini.
 
 ## Ką stage ir prod reikalauja
@@ -71,7 +71,7 @@ LIVE serveris: tik Docker, kodas, duomenys ir DirectAdmin web serveris
 - Serveris valdomas per Docker context (`DEPLOY_CONTEXT`). Kai jis nurodytas, `make ps`, `make logs`, `make shell`, `make db-backup` ENV=stage/prod vykdomi serveryje, o `make up` / `make down` atmetami: konteinerius paleidžia `make deploy-images`.
 - Serveriuose naudojamas fiksuotas setup tag'as: `make release ENV=prod` veikia tik kai setup yra tiksliai ant release tag'o (`vX.Y.Z`), stage tinka bet kuris commit'as. Release iš necommit'into setup atmetamas.
 - **TLS baigiasi DirectAdmin'e** (jo Let's Encrypt). Konteinerio portas rišamas tik prie `127.0.0.1`, DirectAdmin web serveris perduoda užklausas į `http://127.0.0.1:<LOCALHOST_PORT>`. nginx-proxy priima tikrą kliento IP iš `X-Forwarded-For`, o `X-Forwarded-Proto: https` PHP pusėje tampa HTTPS žyma. Konkreti DirectAdmin proxy konfigūracija šiame vadove neaprašyta. Kai `DOMAIN` išvardija kelis hostname'us ([keli domenai](03-nustatymai.md#keli-domenai)), DirectAdmin'e kiekvienas jų turi savo sertifikatą ir tą patį proxy į projekto portą; nginx-proxy juos visus jau priima.
-- **VPN serveris be DirectAdmin** (pvz. asana.local): `PUBLISH_ADDRESS` – serverio VPN sąsajos adresas (`env/prod.env`, pvz. `PUBLISH_ADDRESS=10.8.0.14`). Portai publikuojami tik toje sąsajoje, viešų portų nėra; VPN klientai jungiasi `http://<DOMAIN>:<LOCALHOST_PORT>` (vardas jų `/etc/hosts` rodo į VPN adresą). Klientų `X-Forwarded-*` antraštės ignoruojamos, IP sąrašuose – VPN klientų adresai ([Tikras kliento IP](05-servisai.md#ip-apribojimai)). Kliento IP išlieka tik su Docker numatytu iptables NAT; jei Docker'io iptables išjungti, visi klientai atrodo kaip gateway.
+- **VPN serveris be DirectAdmin** (pvz. alpha.local): `PUBLISH_ADDRESS` – serverio VPN sąsajos adresas (`env/prod.env`, pvz. `PUBLISH_ADDRESS=10.8.0.14`). Portai publikuojami tik toje sąsajoje, viešų portų nėra; VPN klientai jungiasi `http://<DOMAIN>:<LOCALHOST_PORT>` (vardas jų `/etc/hosts` rodo į VPN adresą). Klientų `X-Forwarded-*` antraštės ignoruojamos, IP sąrašuose – VPN klientų adresai ([Tikras kliento IP](05-servisai.md#ip-apribojimai)). Kliento IP išlieka tik su Docker numatytu iptables NAT; jei Docker'io iptables išjungti, visi klientai atrodo kaip gateway.
 - **Sertifikatai serveryje nebūtini.** TLS baigiasi nginx-proxy, Apache dirba tik HTTP ir sertifikatų nenaudoja. Jei `data/<env>/ssl/` tuščias (DirectAdmin baigia TLS pats, VPN serveris dirba per HTTP), nginx-proxy paleidimo metu sugeneruoja savo pasirašytą porą `domain.crt`/`domain.key` konteinerio viduje (`/etc/nginx/ssl-generated`, savininkas `root`, raktas `0600`). Rankinio žingsnio nereikia, o `make doctor` tai tik pažymi. Jei kataloge yra tikra pora, ji naudojama ir niekada neperrašoma. Jei yra tik vienas iš dviejų failų, nginx-proxy nepasileidžia.
 
 ## LIVE parametrai iš esamo serverio
@@ -340,8 +340,8 @@ Paleidimo kintamieji (pipeline'o `variables`):
 
 Du išdėstymai. Setup juos atskiria pagal tai, ar `app/public` turi savo `.git`:
 
-- **Viena repozitorija** (pvz. asana.local: kodas yra aplinkos repozitorijos `public/` kataloge). Build root checkout'as visada yra deploy'inamas commit'as: `REF` arba pipeline commit'as. `ROLLBACK=yes` checkout'ina commit'ą, į kurį grąžina `make deploy rollback=1` (deploy istorija `.generated/release/<env>/deployments.json`). Po deploy'aus checkout'as seka tai, ką setup įrašė į istoriją. Tai svarbu, kai build root yra ir `DEPLOY_PATH`: veikiantys konteineriai naudoja jo `config/`.
-- **Atskira kodo repozitorija** `app/public` (pvz. Forsena: parduotuvės repozitorija). Aplinkos checkout'as seka pipeline commit'ą, `REF` – kodo repozitorijos tag'as arba commit'as. Kodo repozitorijai daromas tik `git fetch --tags`, jos checkout'as nekeičiamas (`make deploy` kodą ima per `git archive`).
+- **Viena repozitorija** (pvz. alpha.local: kodas yra aplinkos repozitorijos `public/` kataloge). Build root checkout'as visada yra deploy'inamas commit'as: `REF` arba pipeline commit'as. `ROLLBACK=yes` checkout'ina commit'ą, į kurį grąžina `make deploy rollback=1` (deploy istorija `.generated/release/<env>/deployments.json`). Po deploy'aus checkout'as seka tai, ką setup įrašė į istoriją. Tai svarbu, kai build root yra ir `DEPLOY_PATH`: veikiantys konteineriai naudoja jo `config/`.
+- **Atskira kodo repozitorija** `app/public` (pvz. `beta`: parduotuvės repozitorija). Aplinkos checkout'as seka pipeline commit'ą, `REF` – kodo repozitorijos tag'as arba commit'as. Kodo repozitorijai daromas tik `git fetch --tags`, jos checkout'as nekeičiamas (`make deploy` kodą ima per `git archive`).
 
 Eiga:
 

@@ -35,8 +35,8 @@ INIT_SCRIPTS = {"mysql": ROOT / "docker/docker/mysql/conf/init.sh", "mariadb": R
 INIT_SQL = ("SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES';\n"
             "CREATE USER IF NOT EXISTS 'app'@'localhost' IDENTIFIED BY 'app-secret';\n"
             "CREATE USER IF NOT EXISTS 'app'@'%' IDENTIFIED BY 'app-secret';\n"
-            "GRANT ALL PRIVILEGES ON `asana`.* TO 'app'@'localhost';\n"
-            "GRANT ALL PRIVILEGES ON `asana`.* TO 'app'@'%';\n")
+            "GRANT ALL PRIVILEGES ON `alpha`.* TO 'app'@'localhost';\n"
+            "GRANT ALL PRIVILEGES ON `alpha`.* TO 'app'@'%';\n")
 
 
 def scratch_directory(test):
@@ -73,30 +73,30 @@ def calls(log):
 
 class ExtraSchemaSettingTest(unittest.TestCase):
     def test_names_are_split_on_whitespace_and_empty_means_none(self):
-        self.assertEqual(extra_schemas({"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": " asana_graph\tasana_git  "}),
-                         ["asana_graph", "asana_git"])
-        self.assertEqual(extra_schemas({"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": ""}), [])
-        self.assertEqual(extra_schemas({"DATABASE_NAME": "asana"}), [])
+        self.assertEqual(extra_schemas({"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": " alpha_graph\talpha_git  "}),
+                         ["alpha_graph", "alpha_git"])
+        self.assertEqual(extra_schemas({"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": ""}), [])
+        self.assertEqual(extra_schemas({"DATABASE_NAME": "alpha"}), [])
 
     def test_unsafe_duplicate_main_and_system_names_are_rejected(self):
-        for value in ("bad-name", "a;b", "`x`", "x" * 65, "asana_git asana_git", "asana", "mysql", "Information_Schema",
+        for value in ("bad-name", "a;b", "`x`", "x" * 65, "alpha_git alpha_git", "alpha", "mysql", "Information_Schema",
                       "sys", "performance_schema", "a/b", "ą"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                extra_schemas({"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": value})
+                extra_schemas({"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": value})
 
 
 class TestSchemaSettingTest(unittest.TestCase):
-    SETTINGS = {"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph"}
+    SETTINGS = {"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": "alpha_graph"}
 
     def test_names_and_wildcards_ending_in_test_are_kept_in_order(self):
-        self.assertEqual(test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": " asana*_test\tasana_probe_test "}),
-                         ["asana*_test", "asana_probe_test"])
+        self.assertEqual(test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": " alpha*_test\talpha_probe_test "}),
+                         ["alpha*_test", "alpha_probe_test"])
         self.assertEqual(test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": ""}), [])
         self.assertEqual(test_schemas(self.SETTINGS), [])
 
     def test_a_name_that_could_reach_a_real_schema_is_rejected(self):
-        for value in ("asana", "asana_graph", "_test", "asana_test_copy", "asana-x_test", "a;b_test", "`x`_test",
-                      "a%_test", "a/b_test", "ą_test", "x" * 60 + "_test", "asana*_test asana*_test"):
+        for value in ("alpha", "alpha_graph", "_test", "alpha_test_copy", "alpha-x_test", "a;b_test", "`x`_test",
+                      "a%_test", "a/b_test", "ą_test", "x" * 60 + "_test", "alpha*_test alpha*_test"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 test_schemas({**self.SETTINGS, "DATABASE_TEST_SCHEMAS": value})
 
@@ -161,9 +161,9 @@ class FirstStartScriptTest(unittest.TestCase):
         directory = scratch_directory(self)
         log = fake_clients(directory)
         # A file a * pattern would match if the hook let the shell expand it.
-        (directory / "asana_glob_test").write_text("")
+        (directory / "alpha_glob_test").write_text("")
         env = {"PATH": f"{directory / 'bin'}:/usr/bin:/bin", "MYSQL_USER": "app", "MYSQL_PASSWORD": "app-secret",
-               "MYSQL_DATABASE": "asana", "MYSQL_ROOT_PASSWORD": "root-secret"}
+               "MYSQL_DATABASE": "alpha", "MYSQL_ROOT_PASSWORD": "root-secret"}
         if extras is not None:
             env["DATABASE_EXTRA_SCHEMAS"] = extras
         if tests is not None:
@@ -183,12 +183,12 @@ class FirstStartScriptTest(unittest.TestCase):
     def test_extra_schemas_are_created_and_granted_without_wildcards_or_global_rights(self):
         for engine in INIT_SCRIPTS:
             with self.subTest(engine=engine):
-                result, executed = self.run_init(engine, "asana_graph asana_git")
+                result, executed = self.run_init(engine, "alpha_graph alpha_git")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 argv, sql = executed[0]
                 self.assertNotIn("secret", argv)
                 self.assertTrue(sql.startswith(INIT_SQL), sql)
-                for schema, pattern in (("asana_graph", r"asana\_graph"), ("asana_git", r"asana\_git")):
+                for schema, pattern in (("alpha_graph", r"alpha\_graph"), ("alpha_git", r"alpha\_git")):
                     self.assertIn(f"CREATE DATABASE IF NOT EXISTS `{schema}`;", sql)
                     for host in ("localhost", "%"):
                         self.assertIn(f"GRANT ALL PRIVILEGES ON `{pattern}`.* TO 'app'@'{host}';", sql)
@@ -199,11 +199,11 @@ class FirstStartScriptTest(unittest.TestCase):
     def test_test_schemas_are_granted_as_patterns_and_never_created(self):
         for engine in INIT_SCRIPTS:
             with self.subTest(engine=engine):
-                result, executed = self.run_init(engine, "asana_graph", "asana*_test asana_probe_test")
+                result, executed = self.run_init(engine, "alpha_graph", "alpha*_test alpha_probe_test")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 sql = executed[0][1]
                 self.assertTrue(sql.startswith(INIT_SQL), sql)
-                for pattern in (r"asana%\_test", r"asana\_probe\_test"):
+                for pattern in (r"alpha%\_test", r"alpha\_probe\_test"):
                     for host in ("localhost", "%"):
                         self.assertIn(f"GRANT ALL PRIVILEGES ON `{pattern}`.* TO 'app'@'{host}';", sql)
                 self.assertEqual(sql.count("CREATE DATABASE"), 1, "only the extra schema is created")
@@ -212,7 +212,7 @@ class FirstStartScriptTest(unittest.TestCase):
 
     def test_an_invalid_test_schema_fails_before_any_sql(self):
         for engine in INIT_SCRIPTS:
-            for tests in ("asana*", "x`;DROP DATABASE asana;--_test", "a-b_test"):
+            for tests in ("alpha*", "x`;DROP DATABASE alpha;--_test", "a-b_test"):
                 with self.subTest(engine=engine, tests=tests):
                     result, executed = self.run_init(engine, tests=tests)
                     self.assertNotEqual(result.returncode, 0)
@@ -222,7 +222,7 @@ class FirstStartScriptTest(unittest.TestCase):
     def test_an_invalid_name_fails_before_any_sql(self):
         for engine in INIT_SCRIPTS:
             with self.subTest(engine=engine):
-                result, executed = self.run_init(engine, "asana_graph `x`;DROP")
+                result, executed = self.run_init(engine, "alpha_graph `x`;DROP")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("DATABASE_EXTRA_SCHEMAS", result.stderr)
                 self.assertEqual(executed, [])
@@ -242,7 +242,7 @@ class OldBashFirstStartTest(unittest.TestCase):
     @unittest.skipUnless(OLD_BASH_IMAGE, "Set SETUP_OLD_BASH_IMAGE to an image with bash < 4.4 (mysql:5.7)")
     def test_the_hook_runs_under_bash_4_2_with_and_without_extra_schemas(self):
         for engine, script in INIT_SCRIPTS.items():
-            for extras in ("", "asana_graph"):
+            for extras in ("", "alpha_graph"):
                 with self.subTest(engine=engine, extras=extras):
                     directory = scratch_directory(self)
                     log = fake_clients(directory)
@@ -250,23 +250,23 @@ class OldBashFirstStartTest(unittest.TestCase):
                         ["docker", "run", "--rm", "--network", "none", "--memory", "64m", "--user", f"{os.getuid()}:{os.getgid()}",
                          "-v", f"{directory}:{directory}", "-v", f"{script}:/hook.sh:ro", "--entrypoint", "bash",
                          "-e", f"PATH={directory / 'bin'}:/usr/bin:/bin", "-e", "MYSQL_USER=app", "-e", "MYSQL_PASSWORD=app-secret",
-                         "-e", "MYSQL_DATABASE=asana", "-e", "MYSQL_ROOT_PASSWORD=root-secret",
+                         "-e", "MYSQL_DATABASE=alpha", "-e", "MYSQL_ROOT_PASSWORD=root-secret",
                          "-e", f"DATABASE_EXTRA_SCHEMAS={extras}", OLD_BASH_IMAGE, "-c",
                          'case $BASH_VERSION in 4.[0-3].*|3.*) ;; *) echo "bash $BASH_VERSION is not old" >&2; exit 99 ;; esac\n'
                          'exec bash /hook.sh'], capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     sql = calls(log)[0][1]
-                    self.assertIn("GRANT ALL PRIVILEGES ON `asana`.* TO 'app'@'%';", sql)
-                    self.assertEqual(r"asana\_graph" in sql, bool(extras))
+                    self.assertIn("GRANT ALL PRIVILEGES ON `alpha`.* TO 'app'@'%';", sql)
+                    self.assertEqual(r"alpha\_graph" in sql, bool(extras))
 
 
 class RestrictScriptTest(unittest.TestCase):
     def run_restrict(self, *schemas):
         directory = scratch_directory(self)
         log = fake_clients(directory)
-        (directory / "asana_glob_test").write_text("")  # what a * pattern would match if the shell expanded it
+        (directory / "alpha_glob_test").write_text("")  # what a * pattern would match if the shell expanded it
         env = {"PATH": f"{directory / 'bin'}:/usr/bin:/bin", "MYSQL_USER": "app", "MYSQL_PASSWORD": "app-secret",
-               "MYSQL_DATABASE": "asana", "MYSQL_ROOT_PASSWORD": "root-secret"}
+               "MYSQL_DATABASE": "alpha", "MYSQL_ROOT_PASSWORD": "root-secret"}
         result = subprocess.run(["sh", "-c", RESTRICT, "restrict-grants", *schemas], env=env, cwd=directory,
                                 capture_output=True, text=True)
         return result, calls(log)
@@ -275,21 +275,21 @@ class RestrictScriptTest(unittest.TestCase):
         return [sql for _, sql in executed if "REVOKE" in sql][0]
 
     def test_extra_schemas_are_created_and_granted_to_every_application_host(self):
-        result, executed = self.run_restrict("asana_graph", "asana_git")
+        result, executed = self.run_restrict("alpha_graph", "alpha_git")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(all("secret" not in argv for argv, _ in executed))
         sql = self.grant_statements(executed)
         for host in ("%", "localhost"):
             self.assertIn(f"REVOKE ALL PRIVILEGES ON *.* FROM 'app'@'{host}';", sql)
             self.assertIn(f"REVOKE GRANT OPTION ON *.* FROM 'app'@'{host}';", sql)
-            self.assertIn(f"GRANT ALL PRIVILEGES ON `asana`.* TO 'app'@'{host}';", sql)
-            for pattern in (r"asana\_graph", r"asana\_git"):
+            self.assertIn(f"GRANT ALL PRIVILEGES ON `alpha`.* TO 'app'@'{host}';", sql)
+            for pattern in (r"alpha\_graph", r"alpha\_git"):
                 self.assertIn(f"GRANT ALL PRIVILEGES ON `{pattern}`.* TO 'app'@'{host}';", sql)
-        for schema in ("asana_graph", "asana_git"):
+        for schema in ("alpha_graph", "alpha_git"):
             self.assertIn(f"CREATE DATABASE IF NOT EXISTS `{schema}`;", sql)
         self.assertNotIn("WITH GRANT OPTION", sql)
         self.assertEqual(sql.count("GRANT ALL PRIVILEGES"), 6)
-        self.assertIn("asana and 2 extra schemas", result.stdout)
+        self.assertIn("alpha and 2 extra schemas", result.stdout)
 
     def test_without_extra_schemas_only_the_main_database_is_granted(self):
         result, executed = self.run_restrict()
@@ -297,69 +297,69 @@ class RestrictScriptTest(unittest.TestCase):
         sql = self.grant_statements(executed)
         self.assertEqual(sql.count("GRANT ALL PRIVILEGES"), 2)
         self.assertNotIn("CREATE DATABASE", sql)
-        self.assertIn("app has privileges on asana only", result.stdout)
+        self.assertIn("app has privileges on alpha only", result.stdout)
 
     def test_test_schemas_after_the_marker_are_granted_and_never_created(self):
-        result, executed = self.run_restrict("asana_graph", "--test", "asana*_test")
+        result, executed = self.run_restrict("alpha_graph", "--test", "alpha*_test")
         self.assertEqual(result.returncode, 0, result.stderr)
         sql = self.grant_statements(executed)
         for host in ("%", "localhost"):
-            self.assertIn(f"GRANT ALL PRIVILEGES ON `asana%\\_test`.* TO 'app'@'{host}';", sql)
+            self.assertIn(f"GRANT ALL PRIVILEGES ON `alpha%\\_test`.* TO 'app'@'{host}';", sql)
         self.assertEqual(sql.count("CREATE DATABASE"), 1)
         self.assertNotIn("glob", sql)
         self.assertEqual(sql.count("GRANT ALL PRIVILEGES"), 6)
-        self.assertIn("asana and 1 extra schemas (+ 1 test schema patterns) only", result.stdout)
+        self.assertIn("alpha and 1 extra schemas (+ 1 test schema patterns) only", result.stdout)
 
     def test_test_schemas_alone_keep_the_main_database_message(self):
-        result, _ = self.run_restrict("--test", "asana*_test")
+        result, _ = self.run_restrict("--test", "alpha*_test")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("app has privileges on asana (+ 1 test schema patterns) only", result.stdout)
+        self.assertIn("app has privileges on alpha (+ 1 test schema patterns) only", result.stdout)
 
     def test_an_invalid_test_schema_changes_nothing(self):
-        for name in ("asana*", "asana_graph", "x`;DROP DATABASE asana;--_test", "_test", "a-b_test"):
+        for name in ("alpha*", "alpha_graph", "x`;DROP DATABASE alpha;--_test", "_test", "a-b_test"):
             with self.subTest(name=name):
-                result, executed = self.run_restrict("asana_graph", "--test", name)
+                result, executed = self.run_restrict("alpha_graph", "--test", name)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(executed, [])
 
     def test_an_invalid_name_changes_nothing(self):
-        for name in ("bad-name", "x`;DROP DATABASE asana;--", ""):
+        for name in ("bad-name", "x`;DROP DATABASE alpha;--", ""):
             with self.subTest(name=name):
-                result, executed = self.run_restrict("asana_graph", name)
+                result, executed = self.run_restrict("alpha_graph", name)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(executed, [])
 
     def test_the_runner_passes_the_project_list_as_arguments(self):
         commands = []
-        project = SimpleNamespace(settings={"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph asana_git"},
+        project = SimpleNamespace(settings={"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": "alpha_graph alpha_git"},
                                   capture=lambda args: "database\nphp-fpm\n", run=commands.append)
         restrict_grants(project)
         self.assertEqual(commands, [["exec", "-T", "database", "sh", "-c", RESTRICT, "restrict-grants",
-                                     "asana_graph", "asana_git"]])
+                                     "alpha_graph", "alpha_git"]])
 
     def test_the_runner_passes_test_schemas_after_the_marker(self):
         commands = []
-        project = SimpleNamespace(settings={"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph",
-                                            "DATABASE_TEST_SCHEMAS": "asana*_test"},
+        project = SimpleNamespace(settings={"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": "alpha_graph",
+                                            "DATABASE_TEST_SCHEMAS": "alpha*_test"},
                                   capture=lambda args: "database\n", run=commands.append)
         restrict_grants(project)
         self.assertEqual(commands, [["exec", "-T", "database", "sh", "-c", RESTRICT, "restrict-grants",
-                                     "asana_graph", "--test", "asana*_test"]])
+                                     "alpha_graph", "--test", "alpha*_test"]])
 
 
 class BackupPlanTest(unittest.TestCase):
     def setUp(self):
         self.root = scratch_directory(self)
         self.project = SimpleNamespace(
-            name="asana-local", directory=self.root, settings={"DATABASE_NAME": "asana", "MIN_FREE_DISK_MB": "0"},
+            name="alpha-local", directory=self.root, settings={"DATABASE_NAME": "alpha", "MIN_FREE_DISK_MB": "0"},
             database=FakeDatabase(dump_output=lambda options, schema: b"-- dump\nCREATE TABLE `t` (id int);\n"))
 
     def dumps(self, registry=False, skipped=()):
         """(schema, dump options) of every dump the backup asked for."""
         self.project.database.dumps.clear()
         with patch("database_import.skip_rule", return_value=(lambda table: table in skipped) if skipped else None), \
-                patch("database_schema.database_tables", return_value=["asana_log", "asana_task"]), \
-                patch("database_schema.extra_tables", return_value=["asana_graph.edges", "asana_graph.nodes"]), \
+                patch("database_schema.database_tables", return_value=["alpha_log", "alpha_task"]), \
+                patch("database_schema.extra_tables", return_value=["alpha_graph.edges", "alpha_graph.nodes"]), \
                 contextlib.redirect_stdout(io.StringIO()):
             target = backup_database(self.project, self.root / f"backup-{len(list(self.root.iterdir()))}.sql.gz",
                                      registry=registry)
@@ -377,30 +377,30 @@ class BackupPlanTest(unittest.TestCase):
         self.assertEqual(list(self.root.glob("*.gz")), [])
 
     def test_without_extra_schemas_the_backup_runs_as_before(self):
-        self.assertEqual(self.dumps(), [("asana", [])])
-        self.assertEqual(self.dumps(registry=True, skipped={"asana_log"}),
-                         [("asana", ["--ignore-table=asana.asana_log"]),
-                          ("asana", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"])])
+        self.assertEqual(self.dumps(), [("alpha", [])])
+        self.assertEqual(self.dumps(registry=True, skipped={"alpha_log"}),
+                         [("alpha", ["--ignore-table=alpha.alpha_log"]),
+                          ("alpha", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "alpha_log"])])
 
     def test_extra_schemas_join_the_main_database_in_one_dump_run(self):
-        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph asana_git"
-        self.assertEqual(self.dumps(), [("asana", ["--databases", "asana_graph", "asana_git"])])
+        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "alpha_graph alpha_git"
+        self.assertEqual(self.dumps(), [("alpha", ["--databases", "alpha_graph", "alpha_git"])])
 
     def test_registry_structure_comes_first_so_it_restores_into_the_main_database(self):
         # The multi-schema run ends inside the last schema (USE), so the header-less structure pass leads.
-        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph"
-        self.assertEqual(self.dumps(registry=True, skipped={"asana_log"}),
-                         [("asana", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "asana_log"]),
-                          ("asana", ["--ignore-table=asana.asana_log", "--databases", "asana_graph"])])
+        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "alpha_graph"
+        self.assertEqual(self.dumps(registry=True, skipped={"alpha_log"}),
+                         [("alpha", ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events", "alpha_log"]),
+                          ("alpha", ["--ignore-table=alpha.alpha_log", "--databases", "alpha_graph"])])
 
     def test_an_extra_schemas_skip_tables_keep_structure_under_their_own_schema(self):
-        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "asana_graph"
+        self.project.settings["DATABASE_EXTRA_SCHEMAS"] = "alpha_graph"
         structure = ["--no-data", "--skip-add-drop-table", "--skip-routines", "--skip-events"]
-        self.assertEqual(self.dumps(registry=True, skipped={"asana_log", "asana_graph.edges"}),
-                         [("asana", [*structure, "asana_log"]), ("asana_graph", [*structure, "edges"]),
-                          ("asana", ["--ignore-table=asana.asana_log", "--ignore-table=asana_graph.edges", "--databases", "asana_graph"])])
+        self.assertEqual(self.dumps(registry=True, skipped={"alpha_log", "alpha_graph.edges"}),
+                         [("alpha", [*structure, "alpha_log"]), ("alpha_graph", [*structure, "edges"]),
+                          ("alpha", ["--ignore-table=alpha.alpha_log", "--ignore-table=alpha_graph.edges", "--databases", "alpha_graph"])])
         # The main structure restores into the target database; the extra schema's names its schema first.
-        first, second = self.written.split(b"USE `asana_graph`;", 1)
+        first, second = self.written.split(b"USE `alpha_graph`;", 1)
         self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", first)
         self.assertIn(b"CREATE TABLE IF NOT EXISTS `t`", second)
 
@@ -408,9 +408,9 @@ class BackupPlanTest(unittest.TestCase):
         from database_backup import registry_passes
         with patch("database_import.skip_rule", return_value=lambda table: True), \
                 patch("database_schema.database_tables", return_value=[]), \
-                patch("database_schema.extra_tables", return_value=["asana_graph.odd.name"]):
-            passes = registry_passes(self.project, "asana")
-        self.assertEqual(passes[-1], ("asana_graph", ["--no-data", "--skip-add-drop-table", "--skip-routines",
+                patch("database_schema.extra_tables", return_value=["alpha_graph.odd.name"]):
+            passes = registry_passes(self.project, "alpha")
+        self.assertEqual(passes[-1], ("alpha_graph", ["--no-data", "--skip-add-drop-table", "--skip-routines",
                                                       "--skip-events", "odd.name"]))
 
     def test_the_dump_client_still_checks_the_main_database_name(self):
@@ -421,26 +421,26 @@ class BackupPlanTest(unittest.TestCase):
         # ("Configured database differs from the running container"): every registry backup with an extra
         # schema's skip table failed.
         script = DUMP.replace('exec "$dump_client"', 'echo "$database" "$@"; exit 0; exec "$dump_client"')
-        environment = {**os.environ, "MYSQL_DATABASE": "asana", "MYSQL_PASSWORD": "x", "MYSQL_USER": "u"}
+        environment = {**os.environ, "MYSQL_DATABASE": "alpha", "MYSQL_PASSWORD": "x", "MYSQL_USER": "u"}
         run = lambda *arguments: subprocess.run(["sh", "-c", script, "database-backup", *arguments], env=environment,
                                                 capture_output=True, text=True)
-        self.assertEqual(run("asana", "--schema", "asana_graph", "--no-data", "edges").stdout.split()[-3:],
-                         ["asana_graph", "--no-data", "edges"])
-        self.assertEqual(run("asana", "--no-data", "asana_log").stdout.split()[-3:], ["asana", "--no-data", "asana_log"])
-        refused = run("asana_graph", "--no-data", "edges")
+        self.assertEqual(run("alpha", "--schema", "alpha_graph", "--no-data", "edges").stdout.split()[-3:],
+                         ["alpha_graph", "--no-data", "edges"])
+        self.assertEqual(run("alpha", "--no-data", "alpha_log").stdout.split()[-3:], ["alpha", "--no-data", "alpha_log"])
+        refused = run("alpha_graph", "--no-data", "edges")
         self.assertEqual(refused.returncode, 64)
         self.assertIn("differs from the running container", refused.stderr)
 
 
 class MultiSchemaImportTest(unittest.TestCase):
-    DUMP = (b"CREATE DATABASE /*!32312 IF NOT EXISTS*/ `asana` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;\n"
-            b"USE `asana`;\n"
-            b"CREATE TABLE `asana_log` (\n  `id` int\n);\nINSERT INTO `asana_log` VALUES (1);\n"
-            b"CREATE DATABASE /*!32312 IF NOT EXISTS*/ `asana_graph`;\n"
-            b"USE `asana_graph`;\n"
-            b"CREATE TABLE `asana_log` (\n  `node` int\n);\nINSERT INTO `asana_log` VALUES (2);\n"
+    DUMP = (b"CREATE DATABASE /*!32312 IF NOT EXISTS*/ `alpha` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;\n"
+            b"USE `alpha`;\n"
+            b"CREATE TABLE `alpha_log` (\n  `id` int\n);\nINSERT INTO `alpha_log` VALUES (1);\n"
+            b"CREATE DATABASE /*!32312 IF NOT EXISTS*/ `alpha_graph`;\n"
+            b"USE `alpha_graph`;\n"
+            b"CREATE TABLE `alpha_log` (\n  `node` int\n);\nINSERT INTO `alpha_log` VALUES (2);\n"
             b"CREATE TABLE `edges` (\n  `id` int\n);\nINSERT INTO `edges` VALUES (3);\n"
-            b"USE `asana`;\nINSERT INTO `asana_log` VALUES (4);\n")
+            b"USE `alpha`;\nINSERT INTO `alpha_log` VALUES (4);\n")
 
     def setUp(self):
         self.root = scratch_directory(self)
@@ -448,39 +448,39 @@ class MultiSchemaImportTest(unittest.TestCase):
         self.dump = self.root / "all-schemas.sql"
         self.dump.write_bytes(self.DUMP)
         self.project = SimpleNamespace(root=self.root, directory=self.root / "docker", environment="local",
-                                       settings={"DATABASE_NAME": "asana", "DATABASE_EXTRA_SCHEMAS": "asana_graph"})
+                                       settings={"DATABASE_NAME": "alpha", "DATABASE_EXTRA_SCHEMAS": "alpha_graph"})
 
     def test_registry_skip_names_an_extra_schemas_table_schema_table(self):
         out = io.BytesIO()
-        skipped = filter_dump(io.BytesIO(self.DUMP), out, lambda table: table in ("asana_log", "asana_graph.edges"), main="asana")
-        self.assertEqual(skipped, {"asana_log", "asana_graph.edges"})
+        skipped = filter_dump(io.BytesIO(self.DUMP), out, lambda table: table in ("alpha_log", "alpha_graph.edges"), main="alpha")
+        self.assertEqual(skipped, {"alpha_log", "alpha_graph.edges"})
         kept = out.getvalue()
         self.assertNotIn(b"VALUES (1)", kept)
-        self.assertIn(b"INSERT INTO `asana_log` VALUES (2);", kept, "asana_log of asana_graph is another table")
+        self.assertIn(b"INSERT INTO `alpha_log` VALUES (2);", kept, "alpha_log of alpha_graph is another table")
         self.assertNotIn(b"VALUES (3)", kept)
         self.assertNotIn(b"VALUES (4)", kept)
         # A header-less (single schema) dump is the main database.
         out = io.BytesIO()
-        filter_dump(io.BytesIO(b"INSERT INTO `asana_log` VALUES (1);\n"), out, lambda table: True, main="asana")
+        filter_dump(io.BytesIO(b"INSERT INTO `alpha_log` VALUES (1);\n"), out, lambda table: True, main="alpha")
         self.assertEqual(out.getvalue(), b"")
 
     def test_without_extra_schemas_the_filter_ignores_use_statements_as_before(self):
         out = io.BytesIO()
-        filter_dump(io.BytesIO(self.DUMP), out, lambda table: table == "asana_log")
+        filter_dump(io.BytesIO(self.DUMP), out, lambda table: table == "alpha_log")
         self.assertNotIn(b"VALUES (2)", out.getvalue())
 
     def test_the_registry_check_reads_every_schema(self):
-        self.assertEqual(dump_tables(self.dump, main="asana"), {"asana_log": {"id"}})
-        self.assertEqual(dump_tables(self.dump, main="asana", qualified=True),
-                         {"asana_log": {"id"}, "asana_graph.asana_log": {"node"}, "asana_graph.edges": {"id"}})
-        self.assertEqual(set(dump_tables(self.dump)), {"asana_log", "edges"})
+        self.assertEqual(dump_tables(self.dump, main="alpha"), {"alpha_log": {"id"}})
+        self.assertEqual(dump_tables(self.dump, main="alpha", qualified=True),
+                         {"alpha_log": {"id"}, "alpha_graph.alpha_log": {"node"}, "alpha_graph.edges": {"id"}})
+        self.assertEqual(set(dump_tables(self.dump)), {"alpha_log", "edges"})
         self.project.settings.update(SCHEMA_DIRECTORY="database/schema")
         (self.root / "database").mkdir()
         registry = self.root / "database/table-registry.txt"
-        registry.write_text("asana_log logs empty skip\n")
+        registry.write_text("alpha_log logs empty skip\n")
         with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, "2 tables are not classified"):
             check_dump_tables(self.project, self.dump, interactive=False)
-        registry.write_text("asana_log logs empty skip\nasana_graph.*  graph full import\n")
+        registry.write_text("alpha_log logs empty skip\nalpha_graph.*  graph full import\n")
         check_dump_tables(self.project, self.dump, interactive=False)
 
     def test_a_dump_that_switches_to_an_unlisted_schema_is_refused_before_loading(self):
@@ -490,7 +490,7 @@ class MultiSchemaImportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mysql"):
             plan_load(self.project, dump=str(foreign)).paths()
         renamed = self.root / "renamed.sql"
-        renamed.write_bytes(self.DUMP.replace(b"`asana_graph`", b"`other_graph`"))
+        renamed.write_bytes(self.DUMP.replace(b"`alpha_graph`", b"`other_graph`"))
         with self.assertRaisesRegex(ValueError, "other_graph"):
             plan_load(self.project, dump=str(renamed)).paths()
 
@@ -512,8 +512,8 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         git(self.root, "init", "-q")
         (self.root / "docker").mkdir()
         self.project = SimpleNamespace(root=self.root, directory=self.root / "docker", environment="local",
-                                       settings={"SCHEMA_DIRECTORY": "database/schema", "DATABASE_NAME": "asana",
-                                                 "DATABASE_EXTRA_SCHEMAS": "asana_git"},
+                                       settings={"SCHEMA_DIRECTORY": "database/schema", "DATABASE_NAME": "alpha",
+                                                 "DATABASE_EXTRA_SCHEMAS": "alpha_git"},
                                        command=["docker", "compose"], child_env=lambda: {})
         self.output = contextlib.redirect_stdout(io.StringIO())
         self.output.__enter__()
@@ -523,7 +523,7 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         """read_schema against fake DB answers: main tables, extra tables, SHOW CREATE rows, then both lists again."""
         from database_schema import read_schema
         main = [("users".encode().hex(),)]
-        extra = [("asana_git".encode().hex(), name.encode().hex()) for name in extra_rows]
+        extra = [("alpha_git".encode().hex(), name.encode().hex()) for name in extra_rows]
         ddl = [("users", self.MAIN.rstrip(";\n"))]
         ddl += [(name, self.REFS.replace("refs", name).rstrip(";\n")) for name in extra_rows]
         self.project.database = FakeDatabase(answer=[main, extra, ddl, main, extra])
@@ -534,16 +534,16 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         import json
         from database_schema import export_schema
         files, query = self.read(["refs"])
-        self.assertIn("SHOW CREATE TABLE `asana_git`.`refs`;", query[2])
-        self.assertEqual(sorted(files), ["asana/table-users.sql", "asana_git/table-refs.sql", "schema.manifest.json"])
+        self.assertIn("SHOW CREATE TABLE `alpha_git`.`refs`;", query[2])
+        self.assertEqual(sorted(files), ["alpha/table-users.sql", "alpha_git/table-refs.sql", "schema.manifest.json"])
         self.assertEqual([(t["name"], t["file"]) for t in json.loads(files["schema.manifest.json"])["tables"]],
-                         [("asana_git.refs", "asana_git/table-refs.sql"), ("users", "asana/table-users.sql")])
+                         [("alpha_git.refs", "alpha_git/table-refs.sql"), ("users", "alpha/table-users.sql")])
         export_schema(self.project, files)
         directory = self.root / "database/schema"
-        self.assertTrue((directory / "asana_git/table-refs.sql").read_text().startswith("CREATE TABLE `refs`"))
+        self.assertTrue((directory / "alpha_git/table-refs.sql").read_text().startswith("CREATE TABLE `refs`"))
         files, _ = self.read([])
         export_schema(self.project, files)
-        self.assertFalse((directory / "asana_git").exists(), "a schema without tables leaves no directory behind")
+        self.assertFalse((directory / "alpha_git").exists(), "a schema without tables leaves no directory behind")
 
     def test_the_layout_follows_the_extra_schemas_and_the_export_moves_the_files(self):
         from database_schema import export_schema
@@ -557,8 +557,8 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in directory.iterdir()), ["schema.manifest.json", "table-users.sql"])
         files, _ = self.read(["refs"])
         export_schema(self.project, files)
-        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["asana", "asana_git", "schema.manifest.json"])
-        self.assertTrue((directory / "asana/table-users.sql").is_file())
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["alpha", "alpha_git", "schema.manifest.json"])
+        self.assertTrue((directory / "alpha/table-users.sql").is_file())
         flat.database = FakeDatabase(answer=[[("users".encode().hex(),)], [("users", self.MAIN.rstrip(";\n"))],
                                              [("users".encode().hex(),)]])
         export_schema(flat, read_schema(flat))
@@ -572,8 +572,8 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         flat = {"schema.manifest.json": b"{}", "table-users.sql": self.MAIN.encode()}
         files, _ = self.read(["refs"])
         lines = schema_differences(flat, files)
-        self.assertIn("moved: table-users.sql -> asana/table-users.sql", lines)
-        self.assertIn("not staged: asana_git/table-refs.sql", lines)
+        self.assertIn("moved: table-users.sql -> alpha/table-users.sql", lines)
+        self.assertIn("not staged: alpha_git/table-refs.sql", lines)
         self.assertFalse([line for line in lines if line.startswith("no longer in DB")])
         before = {"users": self.MAIN}
         self.assertEqual(baselined(before, definitions(files)), before, "same tables, other directory: no migration")
@@ -582,18 +582,18 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
         from database_schema import export_schema, schema_report
         files, _ = self.read(["refs"])
         export_schema(self.project, files)
-        server = SimpleNamespace(**{**vars(self.project), "settings": dict(self.project.settings, DATABASE_NAME="live_asana")})
-        relayout = {name.replace("asana/", "live_asana/"): body.replace(b'"asana/', b'"live_asana/') for name, body in files.items()}
+        server = SimpleNamespace(**{**vars(self.project), "settings": dict(self.project.settings, DATABASE_NAME="live_alpha")})
+        relayout = {name.replace("alpha/", "live_alpha/"): body.replace(b'"alpha/', b'"live_alpha/') for name, body in files.items()}
         with patch("database_schema.read_schema", return_value=relayout):
             self.assertEqual(schema_report(server), [])
 
     def test_a_manifest_may_not_give_two_tables_one_file(self):
         import json
         from database_migrations import definitions
-        manifest = {"format": 1, "dialect": "mysql", "tables": [{"name": "refs", "file": "asana_git/table-refs.sql"},
-                                                                {"name": "asana_git.refs", "file": "asana_git/table-refs.sql"}]}
+        manifest = {"format": 1, "dialect": "mysql", "tables": [{"name": "refs", "file": "alpha_git/table-refs.sql"},
+                                                                {"name": "alpha_git.refs", "file": "alpha_git/table-refs.sql"}]}
         with self.assertRaisesRegex(ValueError, "Invalid schema manifest table"):
-            definitions({"schema.manifest.json": json.dumps(manifest).encode(), "asana_git/table-refs.sql": self.REFS.encode()})
+            definitions({"schema.manifest.json": json.dumps(manifest).encode(), "alpha_git/table-refs.sql": self.REFS.encode()})
 
     def test_the_hook_compares_and_the_committed_snapshot_reads_the_subdirectories(self):
         from database_migrations import committed_schema
@@ -605,31 +605,31 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
             check_schema(self.project)
         git(self.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "schema")
         tables = committed_schema(self.root / "database/schema", "HEAD")[2]
-        self.assertEqual(sorted(tables), ["asana_git.refs", "users"])
+        self.assertEqual(sorted(tables), ["alpha_git.refs", "users"])
         changed = dict(files)
-        changed["asana_git/table-refs.sql"] = b"CREATE TABLE `refs` (\n  `id` bigint NOT NULL\n) ENGINE=InnoDB;\n"
+        changed["alpha_git/table-refs.sql"] = b"CREATE TABLE `refs` (\n  `id` bigint NOT NULL\n) ENGINE=InnoDB;\n"
         with patch("database_schema.read_schema", return_value=changed), \
-                self.assertRaisesRegex(ValueError, "different: asana_git/table-refs.sql"):
+                self.assertRaisesRegex(ValueError, "different: alpha_git/table-refs.sql"):
             check_schema(self.project)
 
     def test_a_schemas_first_snapshot_is_its_baseline_and_later_changes_need_a_migration(self):
         from database_migrations_guarded import baselined
         main = {"users": self.MAIN}
-        added = {"users": self.MAIN, "asana_git.refs": self.REFS}
+        added = {"users": self.MAIN, "alpha_git.refs": self.REFS}
         self.assertEqual(baselined(main, added), main, "the schema joins the snapshot: no migration")
-        changed = {"users": self.MAIN, "asana_git.refs": self.REFS, "asana_git.tags": self.REFS.replace("refs", "tags")}
+        changed = {"users": self.MAIN, "alpha_git.refs": self.REFS, "alpha_git.tags": self.REFS.replace("refs", "tags")}
         self.assertEqual(baselined(added, changed), changed, "once committed, its changes are drafted")
         self.assertEqual(baselined(main, {"users": self.MAIN, "logs": self.MAIN}), {"users": self.MAIN, "logs": self.MAIN})
 
     def test_a_guarded_migration_names_the_extra_schema(self):
         from database_migrations_guarded import draft_text
-        before = {"users": self.MAIN, "asana_git.refs": self.REFS}
-        after = {"users": self.MAIN, "asana_git.refs": self.REFS.replace("NOT NULL\n", "NOT NULL,\n  `sha` char(40)\n"),
-                 "asana_git.tags": self.REFS.replace("refs", "tags")}
+        before = {"users": self.MAIN, "alpha_git.refs": self.REFS}
+        after = {"users": self.MAIN, "alpha_git.refs": self.REFS.replace("NOT NULL\n", "NOT NULL,\n  `sha` char(40)\n"),
+                 "alpha_git.tags": self.REFS.replace("refs", "tags")}
         text = draft_text(before, after)
-        self.assertIn("CREATE TABLE IF NOT EXISTS `asana_git`.`tags` (", text)
-        self.assertIn("TABLE_SCHEMA = 'asana_git' AND TABLE_NAME = 'refs'", text)
-        self.assertIn("ALTER TABLE `asana_git`.`refs` ADD COLUMN `sha` char(40)", text)
+        self.assertIn("CREATE TABLE IF NOT EXISTS `alpha_git`.`tags` (", text)
+        self.assertIn("TABLE_SCHEMA = 'alpha_git' AND TABLE_NAME = 'refs'", text)
+        self.assertIn("ALTER TABLE `alpha_git`.`refs` ADD COLUMN `sha` char(40)", text)
         self.assertNotIn("CREATE TABLE IF NOT EXISTS `tags`", text, "never created in the main database")
         main = draft_text({"users": self.MAIN}, {"users": self.MAIN, "logs": self.MAIN.replace("users", "logs")})
         self.assertIn("CREATE TABLE IF NOT EXISTS `logs` (", main)
@@ -639,17 +639,17 @@ class MultiSchemaSnapshotTest(unittest.TestCase):
     def test_after_import_runs_an_extra_schemas_scripts_in_that_schema(self):
         from database_import import after_import_hooks, render_hook
         hooks = self.root / "docker/database/after-import"
-        for path in ("common/010-main.sql", "local/020-main.sql", "local/asana_git/010-git.sql", "common/asana_git/005-git.sql"):
+        for path in ("common/010-main.sql", "local/020-main.sql", "local/alpha_git/010-git.sql", "common/alpha_git/005-git.sql"):
             (hooks / path).parent.mkdir(parents=True, exist_ok=True)
             (hooks / path).write_text("UPDATE x SET y = 1;\n")
         planned = after_import_hooks(self.project)
         self.assertEqual([path.relative_to(hooks).as_posix() for path in planned],
-                         ["common/010-main.sql", "common/asana_git/005-git.sql", "local/020-main.sql", "local/asana_git/010-git.sql"])
-        self.assertEqual(render_hook(self.project, planned[1]), b"USE `asana_git`;\nUPDATE x SET y = 1;\n")
+                         ["common/010-main.sql", "common/alpha_git/005-git.sql", "local/020-main.sql", "local/alpha_git/010-git.sql"])
+        self.assertEqual(render_hook(self.project, planned[1]), b"USE `alpha_git`;\nUPDATE x SET y = 1;\n")
         self.assertEqual(render_hook(self.project, planned[0]), b"UPDATE x SET y = 1;\n")
-        (hooks / "local/asana_typo").mkdir()
-        (hooks / "local/asana_typo/010.sql").write_text("SELECT 1;\n")
-        with self.assertRaisesRegex(ValueError, "asana_typo is not a schema of DATABASE_EXTRA_SCHEMAS"):
+        (hooks / "local/alpha_typo").mkdir()
+        (hooks / "local/alpha_typo/010.sql").write_text("SELECT 1;\n")
+        with self.assertRaisesRegex(ValueError, "alpha_typo is not a schema of DATABASE_EXTRA_SCHEMAS"):
             after_import_hooks(self.project)
 
     def test_db_load_creates_only_the_main_databases_tables(self):

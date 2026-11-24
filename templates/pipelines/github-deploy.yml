@@ -21,8 +21,8 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        # An extra environment (STAGE_ENVIRONMENTS="mdv" in env/common.env, env/mdv.env.example) is a GitHub
-        # environment of its own name: add it to the options, e.g. [staging, production, mdv].
+        # An extra environment (STAGE_ENVIRONMENTS="demo" in env/common.env, env/demo.env.example) is a GitHub
+        # environment of its own name: add it to the options, e.g. [staging, production, demo].
         description: GitHub environment (staging = ENV=stage, production = ENV=prod, another = that ENV)
         type: choice
         options: [staging, production]

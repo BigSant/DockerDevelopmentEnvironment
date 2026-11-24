@@ -84,12 +84,12 @@ class ServerAccessTest(unittest.TestCase):
 
     def test_an_extra_environment_the_project_lists_is_reached_by_its_name(self):
         with self.assertRaisesRegex(ValueError, "STAGE_ENVIRONMENTS"):
-            self.connect("mdv")
+            self.connect("demo")
         (self.root / "app/env").mkdir()
-        (self.root / "app/env/common.env").write_text('PROJECT_NAME=shop\nSTAGE_ENVIRONMENTS="mdv"\n')
-        os.environ["GRANTS"] = "shop mdv docker\n"
-        self.assertEqual(self.connect("mdv", docker="ps")[0], 0)
-        self.assertEqual(self.calls()[-1][1], "docker shop mdv ps")
+        (self.root / "app/env/common.env").write_text('PROJECT_NAME=shop\nSTAGE_ENVIRONMENTS="demo"\n')
+        os.environ["GRANTS"] = "shop demo docker\n"
+        self.assertEqual(self.connect("demo", docker="ps")[0], 0)
+        self.assertEqual(self.calls()[-1][1], "docker shop demo ps")
 
     def test_wrong_combinations_stop_before_connecting(self):
         for options, message in (({"root": True, "readonly": True}, "exclude each other"),
@@ -116,16 +116,16 @@ class ServerAccessTest(unittest.TestCase):
 
     def test_the_project_is_the_first_name_the_key_may_reach(self):
         # The git name comes first, but the key reaches only PROJECT_NAME's; stage picks the name granted for stage.
-        os.environ["GRANTS"] = "asana prod phpfpm\\nshop stage phpfpm-readonly\\n"
-        with patch("database_pull.git_name", return_value="asana_tracker"):
+        os.environ["GRANTS"] = "alpha prod phpfpm\\nshop stage phpfpm-readonly\\n"
+        with patch("database_pull.git_name", return_value="alpha_shop"):
             self.project.settings["PROJECT_NAME"] = "shop"
             self.connect("stage")
             self.assertEqual(self.calls()[-1][1], "shell shop stage")
-            os.environ["GRANTS"] = "shop prod phpfpm\\nasana_tracker prod full\\n"
+            os.environ["GRANTS"] = "shop prod phpfpm\\nalpha_shop prod full\\n"
             self.connect()
-            self.assertEqual(self.calls()[-1][1], "shell asana_tracker prod")
+            self.assertEqual(self.calls()[-1][1], "shell alpha_shop prod")
             os.environ["GRANTS"] = "other prod full\\n"
-            with self.assertRaisesRegex(ValueError, "no project named asana_tracker or shop.*BACKUP_SERVER_PROJECT"):
+            with self.assertRaisesRegex(ValueError, "no project named alpha_shop or shop.*BACKUP_SERVER_PROJECT"):
                 self.connect()
 
     def test_access_lists_what_the_key_may_reach(self):

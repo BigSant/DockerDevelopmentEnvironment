@@ -13,6 +13,10 @@ change (say how). An empty section still releases a patch.
 
 ## Unreleased
 
+- **Neutral example names.** Documentation, comments, templates and tests name example projects, shops, workspaces
+  and environments with neutral names (`alpha`, `beta`, `gamma`, `example-team`, the extra environment `demo`)
+  instead of real ones; the history below is rewritten the same way. Nothing to change in projects.
+
 ## 5.5.1
 
 Internal changes only (tests, tooling, documentation); nothing to change in projects.
@@ -163,7 +167,7 @@ Internal changes only (tests, tooling, documentation); nothing to change in proj
 
 - **Language packs are server content.** `translations/<locale>/` (e.g. `translations/lt-LT/`) is written on the server:
   installing or updating a pack in the back office replaces its `*.xlf`, and translation modules add to them
-  (`ets_translate` wrote 143 files in each of anodas's `et-EE` and `lv-LV` on LIVE). A deploy that ships them as code
+  (`ets_translate` wrote 143 files in each of delta's `et-EE` and `lv-LV` on LIVE). A deploy that ships them as code
   replaced those with the repository's copy. They are now a protected path of the PrestaShop profile, as the module
   translations are; `mails/` stays code. **Projects that track language packs in the shop repository must change:**
   `git rm -r --cached translations/*-*/` and ignore `/translations/*-*/` (the files stay on every server, a deploy never
@@ -211,7 +215,7 @@ Internal changes only (tests, tooling, documentation); nothing to change in proj
 ## 3.7.1
 
 - **The cron service no longer collects zombies.** supercronic ran as the container's PID 1 and reaps no orphan, so a
-  child a job left behind (PHP starting `git`) stayed a zombie until the container stopped: a server's asana cron held
+  child a job left behind (PHP starting `git`) stayed a zombie until the container stopped: a server's alpha cron held
   3100 after ten days. The service runs with Docker's init (`init: true`), which reaps them; the next
   `make deploy-images` recreates the cron container.
 
@@ -248,7 +252,7 @@ Internal changes only (tests, tooling, documentation); nothing to change in proj
 
 ## 3.4.1
 
-- **`make shop-audit` is gone again.** It stays a standalone script outside setup (Forsena's environment repository,
+- **`make shop-audit` is gone again.** It stays a standalone script outside setup (the `beta` shop's environment repository,
   `bin/shop-audit`), which needs no setup and runs in any PrestaShop project. Nothing used the command.
 
 ## 3.4.0
@@ -321,7 +325,7 @@ Internal changes only (tests, tooling, documentation); nothing to change in proj
 The v1 `templates/grouped` scaffold and its `prepare_project.py` command are gone; `create-project` (templates/minimal)
 is the only scaffold. Nothing to change in a project: setup never read those files at run time. `make ssh` opens a
 terminal on a stage/prod server through the setup-server worker. `STAGE_ENVIRONMENTS` adds server environments that
-behave like stage (e.g. a temporary `mdv`).
+behave like stage (e.g. a temporary `demo`).
 
 - **No more `templates/grouped`.** It still described the v1 layout (`qa/`, `compose/qa.yaml`, root `.env` rules in
   `.gitignore`, a `date.timezone` line), and the guide told you to copy QA and Doctrine files from it. The guide now
@@ -337,13 +341,13 @@ behave like stage (e.g. a temporary `mdv`).
   logs, exec, restart of the project's containers) or `full` (`host=1`, the server itself in `DEPLOY_PATH`).
   `make ssh access=1` lists what the key may reach. Needs a setup-server with the access gate; nothing to change in
   the project (`doc/lt/09-aplinkos.md`, „Prisijungimas prie serverio per worker'į“).
-- **Extra stage environments.** `STAGE_ENVIRONMENTS="mdv"` in `env/common.env` gives a project more server
+- **Extra stage environments.** `STAGE_ENVIRONMENTS="demo"` in `env/common.env` gives a project more server
   environments beside stage and prod, e.g. a temporary one for a large piece of work: each is a stage in every rule
   (limits, allowlists, `APP_UID`, the secret store, mail, after-import SQL, releases from an untagged setup), with
-  its own `env/mdv.env`, containers (`<PROJECT_NAME>-mdv-…`), `data/mdv/`, backups (`worker-mdv-…`) and a deployment
-  (Bitbucket) or GitHub environment named `mdv`. `ENV=` now accepts the names the list holds and refuses others with a
-  message naming the setting; `make db-pull from=mdv` and `make ssh from=mdv` reach them through setup-server. The
-  pipeline templates end with an example step (Bitbucket custom pipeline `deploy-mdv`). Nothing to change in a project
+  its own `env/demo.env`, containers (`<PROJECT_NAME>-demo-…`), `data/demo/`, backups (`worker-demo-…`) and a deployment
+  (Bitbucket) or GitHub environment named `demo`. `ENV=` now accepts the names the list holds and refuses others with a
+  message naming the setting; `make db-pull from=demo` and `make ssh from=demo` reach them through setup-server. The
+  pipeline templates end with an example step (Bitbucket custom pipeline `deploy-demo`). Nothing to change in a project
   that has none; see `doc/lt/09-aplinkos.md`, "Papildomos aplinkos".
 
 ## 2.14.1
@@ -388,7 +392,7 @@ and shows what release runs where. `make build` and `make deploy-images` (a pipe
 it, because setup moved); a project changes nothing unless it wants classes of its own.
 
 - **Scripts and API clients are a traffic class of their own (`api`).** curl, Wget, python-requests and other HTTP
-  libraries and command-line tools, and requests without a user agent, counted as people before: on asana prod 24 912
+  libraries and command-line tools, and requests without a user agent, counted as people before: on alpha prod 24 912
   of 24 929 requests were "human", almost all of them API calls. The Traffic tab has a "Scripts & API" card,
   `setup_http_class_requests` an `api` label. **"human" drops on the day this deploys**: the requests are spread over
   the new classes, the traffic itself did not fall. Regular and suspicious IPs now count people and attacks only.
@@ -714,8 +718,8 @@ maintenance.
 ### A registry backup with an extra schema's skip table works again
 
 - **`make db-backup` (and setup-server's nightly backup) failed** with "Configured database differs from the
-  running container" whenever the table registry skipped a table of a `DATABASE_EXTRA_SCHEMAS` schema (asana.local:
-  `asana_git.git_files` and the other synced tables): the structure pass of that schema gave the dump client the
+  running container" whenever the table registry skipped a table of a `DATABASE_EXTRA_SCHEMAS` schema (alpha.local:
+  `alpha_git.git_files` and the other synced tables): the structure pass of that schema gave the dump client the
   extra schema's name where it checks the main database. The dump client now takes `--schema NAME` after the
   checked main database name.
 
@@ -742,7 +746,7 @@ maintenance.
 ### DATABASE_TEST_SCHEMAS
 
 - **Schemas an application's own tests create and drop** get the application user's privileges without becoming
-  project schemas: `DATABASE_TEST_SCHEMAS="asana*_test"` (names end in `_test`, `*` is a wildcard) is granted on a
+  project schemas: `DATABASE_TEST_SCHEMAS="alpha*_test"` (names end in `_test`, `*` is a wildcard) is granted on a
   first database start and by `make db-restrict-grants` (after a `--test` marker in its arguments), but never
   created, and the snapshot, backups, imports, the table registry and migrations ignore it. Listing such schemas in
   `DATABASE_EXTRA_SCHEMAS` put every test table into the snapshot. Local and test only: the runner refuses it on
@@ -961,7 +965,7 @@ maintenance.
 ### Database as code is on by default
 
 - **No setting needed:** the schema lives in `app/database/schema` (the registry, migrations and data
-  sets beside it), as `SCHEMA_DIRECTORY` was set in Forsena. `make setup` installs the schema commit
+  sets beside it), as `SCHEMA_DIRECTORY` was set in the `beta` shop. `make setup` installs the schema commit
   hook, `db-import` stops on an unclassified table and loads apply pending migrations in every project.
 - **`DATABASE_AS_CODE=off`** in `env/common.env` turns all of it off (schema commands then stop with an
   error, `make setup` installs no hook, an already installed hook lets commits through with a note).
@@ -989,8 +993,8 @@ maintenance.
 ### The table registry covers the extra schemas
 
 - A table of `DATABASE_EXTRA_SCHEMAS` is named `schema.table` in `database/table-registry.txt` (`*` works
-  in both parts, e.g. `asana_git.*`). A line with a dot is about the extra schemas only, one without about
-  the main database only, so `*_log` does not reach `asana_git.commit_log`.
+  in both parts, e.g. `alpha_git.*`). A line with a dot is about the extra schemas only, one without about
+  the main database only, so `*_log` does not reach `alpha_git.commit_log`.
 - Every table of every schema must be classified: the commit hook, `make db-import` (and
   `make schema-resolve`) stop on an unclassified one; the backup check and `/metrics` list them as
   `schema.table`.
@@ -1115,7 +1119,7 @@ No project has to change; those with a `deploy/pipeline.sh` can switch (below).
 - **`make pipeline-deploy [ENV=stage|prod]`** runs a Bitbucket deployment step in the build root
   (`make -C "$BUILD_ROOT/app" pipeline-deploy`): refuses outside a Staging/Production step, checks the
   required Deployment variables before any change, checks out the deployed commit (one repository) or
-  the pipeline commit beside the code repository in `app/public` (Forsena's layout), writes
+  the pipeline commit beside the code repository in `app/public` (the `beta` shop's layout), writes
   `env/<env>.env` from its example (plus the runner's `APP_UID`/`APP_GID` for `DEPLOY_CONTEXT=default`),
   runs `IMAGES=yes` → `make release` + `make deploy-images`, then `make deploy` or `ROLLBACK=yes` →
   `make deploy rollback=1`, `BACKUP=no` → `backup=0`, and returns the checkout to the live commit on a
@@ -1265,7 +1269,7 @@ the last v1-compatible commit is `f9c4da9`.
 7. Servers: fill `APP_UID`, `APP_GID`, `DEPLOY_CONTEXT`, `DEPLOY_SSH`, `DEPLOY_PATH` and the limits in the
    stage/prod env (example files without secrets), then `make release` / `make deploy-images` / `make deploy`.
 
-Forsena is the reference migration (`forsena_docker`, branch `feature/setup-v2-docker-aplinka`,
+The `beta` shop is the reference migration (`beta_docker`, branch `feature/setup-v2-docker-aplinka`,
 `doc/v2-acceptance.md`).
 
 ## Release procedure

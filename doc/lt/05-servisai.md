@@ -27,7 +27,7 @@ SERVICES="pma mailpit cron"
 
 Įrankiai (`playwright`, `php-phpstan`, `php-cs`) su `make up` nepasileidžia: jie paleidžiami tik savo komanda. Kiti servisai pasileidžia su `make up`.
 
-Sąrašą gali nurodyti `env/common.env` ir perrašyti aplinkos faile. Aplinkos faile nurodytas sąrašas pakeičia visą bendrą sąrašą, o ne prideda prie jo. Forsenos pavyzdys:
+Sąrašą gali nurodyti `env/common.env` ir perrašyti aplinkos faile. Aplinkos faile nurodytas sąrašas pakeičia visą bendrą sąrašą, o ne prideda prie jo. Projekto `beta` pavyzdys:
 
 ```dotenv
 # env/common.env – visose aplinkose

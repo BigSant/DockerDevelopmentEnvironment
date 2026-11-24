@@ -24,26 +24,26 @@ sys.path[:0] = [str(ROOT), str(ROOT / "docker")]
 from project_bitbucket import repository
 from project_ci import deploy_variables
 
-BASE = "/2.0/repositories/rsmaizys/asana_tracker"
-# asana.local's list: setup's own (metrics on prod, the cron UI password), its required and optional names, its APP_ENVIRONMENT.
+BASE = "/2.0/repositories/example-team/alpha_shop"
+# alpha.local's list: setup's own (metrics on prod, the cron UI password), its required and optional names, its APP_ENVIRONMENT.
 COMMON = """\
-PROJECT_NAME=asana
+PROJECT_NAME=alpha
 SERVICES=cron
-DEPLOY_BITBUCKET_REPOSITORY=rsmaizys/asana_tracker
+DEPLOY_BITBUCKET_REPOSITORY=example-team/alpha_shop
 DEPLOY_REQUIRED_VARIABLES="MEILISEARCH_MASTER_KEY HTPASSWD_WEB HTPASSWD_API"
 DEPLOY_OPTIONAL_VARIABLES=HTPASSWD_BUILDER
 DEPLOY_PLAIN_VARIABLES="GRAFANA_BASE_URL CLOUDFLARE_ACCOUNT_ID ERP_EMPLOYEE_ID"
 APP_ENVIRONMENT="
-  ASANA_TOKEN ASANA_WRITE_TOKEN ASANA_WRITE_ENABLED ASANA_WORKSPACE
+  ALPHA_TOKEN ALPHA_WRITE_TOKEN ALPHA_WRITE_ENABLED ALPHA_WORKSPACE
   INTAKE_API_KEY OPENSPEC_API_KEY BUILDER_API_KEY MCP_SERVER_TOKEN
   FRONTAPP_TOKEN TOGGL_API_TOKEN ANTHROPIC_API_KEY LLM_MODEL OPENAI_API_KEY VOYAGE_API_KEY
   BITBUCKET_CLIENT_ID BITBUCKET_CLIENT_SECRET GRAFANA_BASE_URL GRAFANA_TOKEN
   CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ERP_API_KEY ERP_EMPLOYEE_ID
 "
-ASANA_WORKSPACE=14409416458195
+ALPHA_WORKSPACE=10000000000001
 LLM_MODEL=claude-haiku
 """
-PROD = 'SERVICES="cron metrics"\nASANA_WRITE_ENABLED=0\n'
+PROD = 'SERVICES="cron metrics"\nALPHA_WRITE_ENABLED=0\n'
 
 
 class FakeBitbucket(BaseHTTPRequestHandler):
@@ -192,12 +192,12 @@ class DeployVariablesTest(unittest.TestCase):
                          ["GRAFANA_BASE_URL", "CLOUDFLARE_ACCOUNT_ID", "ERP_EMPLOYEE_ID"])
         # Names an env file sets are not Deployment variables.
         listed = {name for name, *_ in self.names}
-        self.assertFalse(listed & {"ASANA_WORKSPACE", "LLM_MODEL", "ASANA_WRITE_ENABLED"})
+        self.assertFalse(listed & {"ALPHA_WORKSPACE", "LLM_MODEL", "ALPHA_WRITE_ENABLED"})
         self.assertEqual(self.requests("GET"), [])
 
     def test_check_reads_every_page(self):
         self.run_tool(0)
-        self.assertIn("Bitbucket rsmaizys/asana_tracker, environment production: 29 listed variables", self.output)
+        self.assertIn("Bitbucket example-team/alpha_shop, environment production: 29 listed variables", self.output)
         self.assertIn("29 present, 0 missing, 0 secured/plain mismatches", self.output)
         self.assertIn("  present   ERP_EMPLOYEE_ID", self.output)
         gets = [f'{r["path"]}?{r["query"]}' for r in self.requests("GET")]
@@ -222,7 +222,7 @@ class DeployVariablesTest(unittest.TestCase):
     def test_stage_reads_staging_with_its_own_list(self):
         (self.work / "env/stage.env.example").write_text("")
         self.run_tool(1, environment="stage")
-        self.assertIn("environment staging: 27 listed variables", self.output)  # no metrics, ASANA_WRITE_ENABLED unset
+        self.assertIn("environment staging: 27 listed variables", self.output)  # no metrics, ALPHA_WRITE_ENABLED unset
         self.assertIn("0 present, 27 missing", self.output)
         self.assertTrue(any("{env-staging}/variables" in r["path"] for r in self.requests("GET")))
         self.run_tool(64, environment="test")
@@ -235,7 +235,7 @@ class DeployVariablesTest(unittest.TestCase):
             DATABASE_PASSWORD=db-VALUE-1   # inline comment
             HTPASSWD_WEB='admin:$apr1$VALUE2$hash other:$2y$05$VALUE3'
             export GRAFANA_BASE_URL="https://grafana.example/VALUE-4"
-            ASANA_TOKEN='asana-VALUE-5'
+            ALPHA_TOKEN='alpha-VALUE-5'
             ERP_EMPLOYEE_ID=
             NOT_LISTED=nl-VALUE-6
             """.replace("            ", ""))
@@ -244,7 +244,7 @@ class DeployVariablesTest(unittest.TestCase):
         self.assertEqual(self.stored("DATABASE_PASSWORD"), "secured db-VALUE-1")
         self.assertEqual(self.stored("HTPASSWD_WEB"), "secured admin:$apr1$VALUE2$hash other:$2y$05$VALUE3")
         self.assertEqual(self.stored("GRAFANA_BASE_URL"), "plain https://grafana.example/VALUE-4")
-        self.assertEqual(self.stored("ASANA_TOKEN"), "secured stored-ASANA_TOKEN")
+        self.assertEqual(self.stored("ALPHA_TOKEN"), "secured stored-ALPHA_TOKEN")
         for line in ("  created   DATABASE_PASSWORD (secured)", "  created   GRAFANA_BASE_URL (plain)",
                      "  MISSING   ERP_EMPLOYEE_ID (empty in", "  MISSING   VOYAGE_API_KEY (not in",
                      "  skipped   NOT_LISTED (in", "Now: 27 present, 2 missing"):
@@ -253,14 +253,14 @@ class DeployVariablesTest(unittest.TestCase):
         self.run_tool(1, source=values)
         self.assertEqual(self.requests("POST"), [])
 
-        more = self.private_file("more.env", "ERP_EMPLOYEE_ID=42-VALUE-7\nVOYAGE_API_KEY=\"voyage-VALUE-8\"\nASANA_TOKEN='asana-VALUE-5'\n")
+        more = self.private_file("more.env", "ERP_EMPLOYEE_ID=42-VALUE-7\nVOYAGE_API_KEY=\"voyage-VALUE-8\"\nALPHA_TOKEN='alpha-VALUE-5'\n")
         self.run_tool(0, source=more, replace=True)
         self.assertEqual((len(self.requests("POST")), len(self.requests("PUT"))), (2, 1))
         put = self.requests("PUT")[0]
-        self.assertEqual(put["path"], f"{BASE}/deployments_config/environments/{{env-production}}/variables/{{var-ASANA_TOKEN}}")
-        self.assertEqual(put["body"], {"key": "ASANA_TOKEN", "value": "asana-VALUE-5", "secured": True})
+        self.assertEqual(put["path"], f"{BASE}/deployments_config/environments/{{env-production}}/variables/{{var-ALPHA_TOKEN}}")
+        self.assertEqual(put["body"], {"key": "ALPHA_TOKEN", "value": "alpha-VALUE-5", "secured": True})
         self.assertEqual(self.stored("ERP_EMPLOYEE_ID"), "plain 42-VALUE-7")
-        self.assertIn("  replaced  ASANA_TOKEN (secured)", self.output)
+        self.assertIn("  replaced  ALPHA_TOKEN (secured)", self.output)
         self.assertIn("Now: 29 present, 0 missing", self.output)
 
     def test_apply_refuses_unsafe_files_before_any_request(self):
@@ -304,11 +304,11 @@ class DeployVariablesTest(unittest.TestCase):
     def test_the_repository_comes_from_the_setting_or_the_origin_remote(self):
         self.assertEqual(repository(self.work, {"DEPLOY_BITBUCKET_REPOSITORY": "ws/repo"}), "ws/repo")
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
-        for url in ("git@bitbucket.org:rsmaizys/forsena_docker.git", "https://user@bitbucket.org/rsmaizys/forsena_docker.git",
-                    "ssh://git@bitbucket.org/rsmaizys/forsena_docker"):
+        for url in ("git@bitbucket.org:example-team/beta_docker.git", "https://user@bitbucket.org/example-team/beta_docker.git",
+                    "ssh://git@bitbucket.org/example-team/beta_docker"):
             subprocess.run(["git", "-C", str(self.work), "remote", "remove", "origin"], capture_output=True)
             subprocess.run(["git", "-C", str(self.work), "remote", "add", "origin", url], check=True)
-            self.assertEqual(repository(self.work, {}), "rsmaizys/forsena_docker")
+            self.assertEqual(repository(self.work, {}), "example-team/beta_docker")
         subprocess.run(["git", "-C", str(self.work), "remote", "set-url", "origin", "git@github.com:a/b.git"], check=True)
         with self.assertRaisesRegex(Exception, "set DEPLOY_BITBUCKET_REPOSITORY"):
             repository(self.work, {})

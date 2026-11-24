@@ -34,8 +34,8 @@ class CreateProjectTest(unittest.TestCase):
     def test_phpstorm_name_is_ready_before_first_open_without_docker(self):
         with patch('create_project.subprocess.run', side_effect=AssertionError('Must not invoke Docker or bootstrap')), \
                 patch('project_bootstrap.available_ports', side_effect=AssertionError('Ports belong to bootstrap')):
-            app = self.create('melga')
-        self.assertEqual((app / '.idea/.name').read_text(), 'melga\n')
+            app = self.create('nova')
+        self.assertEqual((app / '.idea/.name').read_text(), 'nova\n')
         self.assertEqual({p.name for p in (app / '.idea').iterdir()}, {'.name'})
 
     def test_new_project_has_working_core_config_and_private_credentials(self):
@@ -136,13 +136,13 @@ class CreateProjectTest(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_retry_repairs_missing_name_without_rewriting_ide_workspace(self):
-        app = self.create('melga')
+        app = self.create('nova')
         (app / '.idea/.name').unlink()
         workspace = app / '.idea/workspace.xml'
         workspace.write_bytes(b'<project version="4"><component name="Personal" /></project>')
         before = workspace.read_bytes()
-        self.create('melga')
-        self.assertEqual((app / '.idea/.name').read_text(), 'melga\n')
+        self.create('nova')
+        self.assertEqual((app / '.idea/.name').read_text(), 'nova\n')
         self.assertEqual(workspace.read_bytes(), before)
 
     def test_project_name_symlink_is_rejected_without_changing_target(self):
@@ -177,8 +177,8 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_original_display_name_and_normalized_identity_survive_ide_init(self):
         from project_ide import ide_plan
-        for entered, normalized in [('Melga', 'melga'), ('MelgaMCP', 'melga-mcp'),
-                                    ('GameroomAkeneo', 'gameroom-akeneo')]:
+        for entered, normalized in [('Nova', 'nova'), ('NovaMCP', 'nova-mcp'),
+                                    ('GardenAkeneo', 'garden-akeneo')]:
             with self.subTest(entered=entered):
                 app = self.create(entered)
                 self.assertEqual(app.parent.name, normalized)
@@ -208,13 +208,13 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_ide_name_is_optional_and_custom_name_is_preserved(self):
         from project_ide import ide_plan
-        app = self.create('MelgaMCP')
+        app = self.create('NovaMCP')
         (app / '.idea/.name').write_text('Custom IDE name\n')
         _, outputs, _ = ide_plan(Project(app), 'Docker')
         self.assertEqual(outputs['.idea/.name'], b'Custom IDE name\n')
         (app / '.idea/.name').unlink()
         _, outputs, _ = ide_plan(Project(app), 'Docker')
-        self.assertEqual(outputs['.idea/.name'], b'melga-mcp\n')
+        self.assertEqual(outputs['.idea/.name'], b'nova-mcp\n')
         with (app / 'env/common.env').open('a') as env:
             env.write('PROJECT_DISPLAY_NAME=Explicit name\n')
         _, outputs, _ = ide_plan(Project(app), 'Docker')
@@ -222,18 +222,18 @@ class CreateProjectTest(unittest.TestCase):
 
     def test_acronyms_and_explicit_separators(self):
         for value, expected in [('XMLParser', 'xml-parser'), ('MCP', 'mcp'), ('Shop2API', 'shop2-api'),
-                                ('melga_mcp', 'melga-mcp'), ('old-shop', 'old-shop')]:
+                                ('nova_mcp', 'nova-mcp'), ('old-shop', 'old-shop')]:
             with self.subTest(value=value): self.assertEqual(normalize_name(value), expected)
 
     def test_domain_alias_collision_is_rejected_before_creating_files(self):
         # Projects created with the previous underscore naming retain their files.
-        app = self.parent / 'melga_mcp/app'
+        app = self.parent / 'nova_mcp/app'
         (app / 'env').mkdir(parents=True)
-        (app / 'env/local.env').write_text('DOMAIN=melga-mcp.local\n')
+        (app / 'env/local.env').write_text('DOMAIN=nova-mcp.local\n')
         private = (app / 'env/local.env').read_bytes()
         with self.assertRaisesRegex(ValueError, 'Domain .* is already used'):
-            self.create('MelgaMCP')
-        self.assertFalse((self.parent / 'melga-mcp').exists())
+            self.create('NovaMCP')
+        self.assertFalse((self.parent / 'nova-mcp').exists())
         self.assertEqual((app / 'env/local.env').read_bytes(), private)
 
     def test_failed_start_preserves_scaffold_and_retry_is_possible(self):
@@ -298,16 +298,16 @@ class WizardTest(unittest.TestCase):
         return code, created, asked, output.getvalue() + errors.getvalue()
 
     def test_enter_everywhere_gives_a_prestashop_9_project(self):
-        code, created, asked, output = self.run_main([], ['Melga'] + [''] * 8)
+        code, created, asked, output = self.run_main([], ['Nova'] + [''] * 8)
         self.assertEqual(code, 0)
         name, options = created[0]
-        self.assertEqual(name, 'Melga')
+        self.assertEqual(name, 'Nova')
         self.assertEqual(options, {'profile': 'prestashop', 'ps_version': '9.0.2', 'php_version': '8.4', 'database': 'mysql',
                                    'database_version': '8.4', 'services': 'pma mailpit'})
         self.assertEqual(self.ci, 'bitbucket')
         self.assertTrue(asked[-2].startswith('CI (deploy pipeline) (bitbucket/github) [bitbucket]'))
         self.assertIn('CI          Bitbucket Pipelines (bitbucket-pipelines.yml)', output)
-        self.assertIn('Domain      melga.local', output)
+        self.assertIn('Domain      nova.local', output)
         self.assertIn('Time zone   Europe/Vilnius', output)
         self.assertTrue(asked[-1].startswith('Create these files?'))
 
@@ -364,7 +364,7 @@ class WizardTest(unittest.TestCase):
                 self.assertIn(f'DATABASE_PASSWORD {kind} required (setup)', result.stdout)
 
     def test_cancel_writes_nothing(self):
-        code, created, _, output = self.run_main([], ['Melga'] + [''] * 7 + ['n'])
+        code, created, _, output = self.run_main([], ['Nova'] + [''] * 7 + ['n'])
         self.assertEqual((code, created), (1, []))
         self.assertIn('nothing was created', output)
 

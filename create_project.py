@@ -221,7 +221,7 @@ def ask_options(name, given, ask=input):
     options = dict(given)
     if not name:
         while True:
-            name = ask('Project name (e.g. Melga, GameroomAkeneo): ').strip()
+            name = ask('Project name (e.g. Nova, GardenAkeneo): ').strip()
             try:
                 normalize_name(name)
                 break
@@ -289,7 +289,7 @@ def start(app):
 def main(argv=None, ask=input, interactive=None):
     parser = argparse.ArgumentParser(prog='create-project', description='Prepare a new project next to the shared setup '
                                      'without starting its environment. Without a name it asks every question.')
-    parser.add_argument('name', metavar='name', nargs='?', help='For example: Melga, MelgaMCP or GameroomAkeneo')
+    parser.add_argument('name', metavar='name', nargs='?', help='For example: Nova, NovaMCP or GardenAkeneo')
     parser.add_argument('--profile', choices=PROFILES)
     parser.add_argument('--ps-version', help=f'PrestaShop version (default {DEFAULT_PS})')
     parser.add_argument('--php-version', help='PHP version; only versions the PrestaShop line supports')

@@ -149,7 +149,7 @@ class FilesPullTest(unittest.TestCase):
             self.pull()
         self.project.environment = "local"
         with self.assertRaisesRegex(ValueError, "from= must be"):
-            self.pull("mdv")
+            self.pull("demo")
 
     def test_listed_follows_the_patterns_as_rsync_does(self):
         patterns = ["/modules/*/translations/", "/config/local.php"]
