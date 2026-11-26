@@ -12,7 +12,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 #   make -s -f <setup>/docker/project.mk setup-capabilities PROJECT_DOCKER_DIRECTORY=<root>/app ENV=stage
 # The second also says release-hardened-v1 when that environment isolates its deploys (RELEASE_ISOLATION=container,
 # a target on this machine, Docker here); it reads the project's env files as data and runs none of its code.
-SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1
+SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1
 setup-capabilities:
 	@$(if $(PROJECT_DOCKER_DIRECTORY),$(RUN_PROJECT) $@,echo '$(SETUP_CAPABILITIES)')
 
@@ -20,7 +20,7 @@ image-prune:
 	@$(RUN_PROJECT) $@ $(if $(filter 1,$(apply)),--apply,) $(if $(filter 1,$(cache)),--cache,)
 
 .PHONY: app-prepare image-prune db-restrict-grants db-monitor-user setup schema-resolve db-migrate db-rollback migration-draft db-dataset db-load test-prepare test-sync phpunit release deploy-images deploy deploy-health deploy-status cron-reload tool-access pipeline-deploy deploy-variables module-pull
-.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
+.PHONY: help check config up build down ps logs phpstan phpstan-baseline phpcs e2e e2e-install doctrine doctrine-diff doctrine-build db-import db-import-plan schema-export schema-check schema-hook-install git-hooks restart composer npm cache-clear db-backup-prune runtime-info
 
 # Quote each value as one shell argument, including paths with whitespace.
 quote = '$(subst ','"'"',$(1))'
@@ -50,6 +50,9 @@ help:
 	@echo 'db-backup-prune [apply=1]: preview / prune old backups'
 	@echo 'image-prune [apply=1] [cache=1]: preview / remove unused outdated setup images (and build cache)'
 	@echo 'phpstan / phpcs / e2e: run QA tools; ENV=local|test|stage|prod|<extra>; PROFILES= selects core only'
+	@echo 'e2e [grep=RE] [grep_invert=RE] [files="a.spec.ts b.spec.ts:12"] [json=1] [storage_states="ROLE=/file.json ..."] [container=NAME]: Playwright in ENV=test; json=1 adds data/playwright/report.json'
+	@echo 'e2e url=https://… [data=DIR] [...]: the same Playwright against a real address (STAGE/LIVE), on its own network'
+	@echo 'e2e-install: npm ci of tests/playwright from its package-lock.json (cached by the lock file; the runs stay read-only)'
 	@echo 'phpstan-baseline / doctrine cmd=status: baseline and schema tools'
 	@echo 'doctrine-build: build only the optional migration tool, independently of application PHP'
 	@echo 'doctrine-diff [ref=HEAD]: generate a migration from committed schema to the local DB'
@@ -70,7 +73,7 @@ help:
 	@echo 'db-monitor-user: create/update the DB monitor account (performance_schema, sys, PROCESS only)'
 	@echo 'db-dataset [set=dev]: rebuild the anonymised base data set from the local LIVE copy'
 	@echo 'db-load [set=dev] [replace=1] [backup=1]: load schema + data set + fixtures, then the after-import sequence'
-	@echo 'test-prepare [set=dev]: refresh the isolated ENV=test copy, load the mock data set into its DB and start it'
+	@echo 'test-prepare [set=dev|dump=FILE]: refresh the isolated ENV=test copy, load the mock data set (or import the dump) into its DB and start it'
 	@echo 'test-sync: refresh the ENV=test application copy from the working tree (PhpStorm runs it before tests)'
 	@echo 'phpunit [module=NAME] [filter=PATTERN] [sync=0]: run PHPUnit suites in ENV=test only (e2e also runs there)'
 	@echo 'release ENV=stage|prod|<extra>: build images here from committed setup, write the image lock and release compose'
@@ -111,8 +114,14 @@ db-backup-prune:
 ide-init:
 	@$(RUN_PROJECT) $@ $(if $(IDE_DOCKER_SERVER),--docker-server $(call quote,$(IDE_DOCKER_SERVER)),) $(if $(IDE_CONFIG_DIRECTORY),--ide-config-directory $(call quote,$(IDE_CONFIG_DIRECTORY)),)
 
-phpstan phpcs e2e doctrine:
+phpstan phpcs doctrine:
 	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),)
+
+e2e:
+	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(grep),--grep $(call quote,$(grep)),) $(if $(grep_invert),--grep-invert $(call quote,$(grep_invert)),) $(if $(files),--files $(call quote,$(files)),) $(if $(filter 1,$(json)),--json,) $(if $(url),--url $(call quote,$(url)),) $(if $(storage_states),--storage-states $(call quote,$(storage_states)),) $(if $(data),--data $(call quote,$(data)),) $(if $(container),--container $(call quote,$(container)),)
+
+e2e-install:
+	@$(RUN_PROJECT) $@
 
 doctrine-diff:
 	@$(RUN_PROJECT) $@ $(if $(ref),--ref $(call quote,$(ref)),)
@@ -155,7 +164,8 @@ tool-access:
 	@$(RUN_PROJECT) $@
 
 test-prepare:
-	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),)
+	$(if $(and $(set),$(dump)),$(error Use set=NAME or dump=FILE, not both))
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter undefined,$(origin dump)),,--dump $(call quote,$(dump)))
 
 phpunit:
 	@$(RUN_PROJECT) $@ $(if $(module),--module $(call quote,$(module)),) $(if $(filter),--filter $(call quote,$(filter)),) $(if $(filter 0,$(sync)),--no-sync,)

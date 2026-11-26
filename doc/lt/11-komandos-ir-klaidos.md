@@ -72,11 +72,13 @@ Setup repozitorijoje yra dvi komandos be `make`:
 
 | Komanda | Ką daro |
 | --- | --- |
-| `make test-prepare [set=dev]` | Atnaujina `ENV=test` kodo kopiją, užkelia rinkinį į testinę DB ir paleidžia `ENV=test`. |
+| `make test-prepare [set=dev\|dump=FAILAS]` | Atnaujina `ENV=test` kodo kopiją, užkelia rinkinį (arba importuoja dump'ą) į testinę DB ir paleidžia `ENV=test`. |
 | `make test-sync` | Atnaujina tik testinę kodo kopiją. |
 | `make test-init [refresh=1]` | Paruošia (arba su `refresh=1` atnaujina) testinę kodo kopiją ir `env/test.env`. Paprastai užtenka `test-prepare`. |
 | `make phpunit [module=VARDAS] [filter=ŠABLONAS] [sync=0]` | PHPUnit tik `ENV=test`. |
-| `make e2e [cmd=…]` | Playwright tik `ENV=test`. |
+| `make e2e [cmd=…] [grep=…] [grep_invert=…] [files=…] [json=1] [storage_states=…] [container=…]` | Playwright tik `ENV=test`; `json=1` – ir `data/playwright/report.json`. |
+| `make e2e url=https://… [data=KATALOGAS] […]` | Tas pats Playwright prieš tikrą adresą (STAGE/LIVE), atskirame tinkle. |
+| `make e2e-install` | `npm ci` į `tests/playwright/node_modules` iš `package-lock.json` (tik jam pasikeitus). |
 | `make phpstan [cmd=…]` / `make phpstan-baseline` | PHPStan / baseline. |
 | `make phpcs [cmd=…]` | PHP-CS-Fixer (numatyta – tik patikra). |
 | `make ide-init` / `make ide-refresh` | PhpStorm nustatymai / tik privatus IDE Compose failas. |

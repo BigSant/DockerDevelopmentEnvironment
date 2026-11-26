@@ -383,7 +383,7 @@ def main():
                         "STAGE_ENVIRONMENTS in env/common.env lists")
     parser.add_argument("--profiles", help="Explicit profiles; an empty value selects core services")
     parser.add_argument("action", choices=["check", "config", "up", "build", "down", "ps", "logs",
-                                           "phpstan", "phpstan-baseline", "phpcs", "e2e", "doctrine", "doctrine-diff", "doctrine-build",
+                                           "phpstan", "phpstan-baseline", "phpcs", "e2e", "e2e-install", "doctrine", "doctrine-diff", "doctrine-build",
                                            "restart", "composer", "npm", "cache-clear", "db-backup-prune", "image-prune", "runtime-info",
                                            "db-import", "db-import-plan", "db-restrict-grants", "db-monitor-user", "db-fixtures-load", "db-fixtures-plan", "schema-export", "schema-check",
                                            "schema-hook-install", "git-hooks", "schema-commit", "schema-resolve", "db-migrate", "db-rollback", "migration-draft", "db-dataset", "db-load", "test-prepare", "test-sync", "phpunit", "release", "deploy-images", "deploy", "deploy-health", "deploy-status", "setup-capabilities", "cron-reload", "tool-access", "pipeline-deploy", "deploy-variables", "module-pull", "init", "doctor", "pull", "shell", "app-prepare", "setup", "ide-init", "ide-refresh", "db-backup", "files-backup", "db-pull", "files-pull", "translations-migration", "translations-migrate", "translations-base", "ssh", "db-prepare", "bootstrap", "test-init", "setup-info"])
@@ -392,7 +392,8 @@ def main():
     parser.add_argument("--command", help="QA command override, parsed as arguments (no shell); ssh: the command to run")
     parser.add_argument("--workdir", default=".", help="Composer/npm directory relative to application sources")
     parser.add_argument("--ref", default="HEAD", help="Committed schema baseline for doctrine-diff (default: HEAD)")
-    parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan")
+    parser.add_argument("--dump", help=".sql or .sql.gz dump for db-import / db-import-plan; test-prepare: import it "
+                        "into ENV=test instead of the data set")
     parser.add_argument("--db-fixtures", help="Fixture set for db-fixtures-* or optional SQL after db-import hooks")
     parser.add_argument('--backup', action='store_true', help='Create a private backup first (db-import, db-load, db-pull import, deploy)')
     parser.add_argument('--dry', action='store_true', help='db-migrate/db-rollback: print the SQL without running it; '
@@ -420,6 +421,14 @@ def main():
     parser.add_argument('--token-file', help='deploy-variables: access token file (0600); default BITBUCKET_ACCESS_TOKEN, '
                         'on GitHub GH_TOKEN or GITHUB_TOKEN')
     parser.add_argument('--names', action='store_true', help='deploy-variables: print the list only (no network)')
+    parser.add_argument('--grep', help='e2e: only the tests whose title (with tags) matches this regular expression')
+    parser.add_argument('--grep-invert', help='e2e: leave out the tests whose title (with tags) matches this')
+    parser.add_argument('--files', help='e2e: spec file filters inside tests/playwright, separated by spaces (FILE[:LINE])')
+    parser.add_argument('--json', action='store_true', help='e2e: also write Playwright\'s JSON report (data/playwright/report.json)')
+    parser.add_argument('--url', help='e2e: run against this address (a STAGE or LIVE site) instead of ENV=test')
+    parser.add_argument('--storage-states', help='e2e: ROLE=/path/state.json ..., each mounted read-only as /e2e/auth/ROLE.json')
+    parser.add_argument('--data', help='e2e with url=: the results directory (default the environment\'s data/playwright)')
+    parser.add_argument('--container', help='e2e: the Playwright container\'s name (so a caller can stop it)')
     parser.add_argument('--module', help='phpunit: run only this module suite (or shop)')
     parser.add_argument('--filter', dest='test_filter', help='phpunit: --filter pattern')
     parser.add_argument('--no-sync', action='store_true', help='phpunit: do not refresh the test application copy first')
@@ -585,7 +594,7 @@ def main():
             run_load(project, plan_load(project, dataset=args.set, replace=args.replace), backup=args.backup)
         elif args.action == "test-prepare":
             from project_testing import prepare_tests
-            prepare_tests(project, args.set)
+            prepare_tests(project, args.set, dump=args.dump)
         elif args.action == "test-sync":
             from project_bootstrap import initialize_test
             initialize_test(project, refresh=(project.directory / '.generated/test/initialized').is_file())
@@ -683,6 +692,13 @@ def main():
         elif args.action == "doctrine":
             arguments = shlex.split(args.command or "status")
             project.run(["run", "--rm", "--no-deps", "php-doctrine-migrations"] + arguments, profiles="doctrine")
+        elif args.action == "e2e":
+            from project_e2e import run as run_e2e
+            run_e2e(project, args.command, grep=args.grep, grep_invert=args.grep_invert, files=args.files,
+                    json_report=args.json, url=args.url, states=args.storage_states, data=args.data, name=args.container)
+        elif args.action == "e2e-install":
+            from project_e2e import install as install_e2e
+            install_e2e(project)
         else:
             from project_commands import run_qa
             run_qa(project, args.action, args.command)

@@ -128,13 +128,41 @@ def route_exists(domain, port, nginx=Path('/etc/nginx'), hosts=()):
     return 'complete' if {f'{host}.{domain}' for host in SERVICE_HOSTS} <= names else 'partial'
 
 
+def test_host_options(project):
+    """(tls, route) of ENV=test: TEST_TLS mkcert|self-signed and TEST_HOST_ROUTE on|off; any other environment
+    always has mkcert and the host route."""
+    if getattr(project, 'environment', 'local') != 'test':
+        return 'mkcert', True
+    tls = project.settings.get('TEST_TLS') or 'mkcert'
+    route = project.settings.get('TEST_HOST_ROUTE') or 'on'
+    if tls not in ('mkcert', 'self-signed'):
+        raise ValueError('TEST_TLS must be mkcert or self-signed')
+    if route not in ('on', 'off'):
+        raise ValueError('TEST_HOST_ROUTE must be on or off')
+    return tls, route == 'on'
+
+
+def self_signed_certificate(names, certificate, key):
+    """A self-signed certificate for these names (the first is the subject), valid 90 days: ENV=test on a server,
+    where nothing installs a CA. Playwright's ignoreHTTPSErrors accepts it."""
+    if not shutil.which('openssl'):
+        raise ValueError('TEST_TLS=self-signed needs openssl on this machine')
+    alternatives = ','.join(f'DNS:{name}' for name in names)
+    result = subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '90', '-subj',
+                             f'/CN={names[0]}', '-addext', f'subjectAltName={alternatives}', '-keyout', str(key),
+                             '-out', str(certificate)], capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError('openssl could not make the self-signed test certificate')
+
+
 def prepare_host(project):
     domain = project.settings.get('DOMAIN', '')
     if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', domain):
         raise ValueError('Set DOMAIN to a hostname without a port')
     from project_domains import extra_hosts
     hosts = extra_hosts(project.settings)
-    for name in (domain, *hosts):
+    tls, route = test_host_options(project)
+    for name in ((domain, *hosts) if route else ()):
         try:
             addresses = {r[4][0] for r in socket.getaddrinfo(name, None)}
         except socket.gaierror:
@@ -152,7 +180,13 @@ def prepare_host(project):
     valid = False
     if certificate.is_file() and key.is_file():
         valid = all(certificate_is_valid(certificate, name) for name in (domain, *hosts))
-    if not valid:
+    if not valid and tls == 'self-signed':
+        with tempfile.TemporaryDirectory(dir=ssl) as temporary:
+            crt, private = Path(temporary)/'domain.crt', Path(temporary)/'domain.key'
+            self_signed_certificate([domain, '*.'+domain, *hosts], crt, private)
+            replace_file(certificate, crt.read_bytes())
+            replace_file(key, private.read_bytes(), private=True)
+    elif not valid:
         if not shutil.which('mkcert'):
             raise ValueError('Install mkcert, then rerun make bootstrap to create local TLS certificates')
         installed = subprocess.run(['mkcert', '-install'], stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
@@ -164,6 +198,10 @@ def prepare_host(project):
             if result.returncode: raise ValueError('mkcert failed to generate the local certificate')
             replace_file(certificate, crt.read_bytes())
             replace_file(key, private.read_bytes(), private=True)
+    if not route:
+        print(f"TLS prepared ({tls}) for {' '.join((domain, *hosts))}; TEST_HOST_ROUTE=off: no hosts entry or host Nginx "
+              "route, the site is reached inside the project network only")
+        return
     print(f"Local hostname and TLS prepared: {' '.join((domain, *hosts))}")
     entry_helper = host_helper('host_entry.py')
     for host in (f'{name}.{domain}' for name in SERVICE_HOSTS):
@@ -246,15 +284,20 @@ def initialize_test(project, refresh=False):
     marker = root / 'initialized'
     if destination.exists() and not marker.exists(): raise ValueError('Unmanaged test checkout exists; preserved')
     env_file = project.directory / 'env/test.env'
-    if not env_file.exists():
+    # Every generated value test.env lacks: a file another tool started (setup-server writes TEST_TLS and
+    # TEST_HOST_ROUTE into a session's) gets the rest, a complete one is left as it is.
+    from project_env_files import read_dotenv
+    present = read_dotenv(env_file) if env_file.is_file() else {}
+    if not {'DOMAIN', 'LOCALHOST_PORT', 'LOCALHOST_PORT_SSL', 'DATABASE_NAME', 'DATABASE_PASSWORD'} <= set(present):
         ports = available_ports(project)
-        domain = project.settings['PROJECT_NAME'].replace('_', '-')+'.test.local'
-        set_env_values(env_file, {'DOMAIN':domain, 'LOCALHOST_PORT':str(ports[0]), 'LOCALHOST_PORT_SSL':str(ports[1]),
-                                 'DATABASE_NAME':project.settings['DATABASE_NAME']+'_test', 'DATABASE_USER':'test',
-                                 'DATABASE_PASSWORD':secrets.token_hex(24),
-                                 'DATABASE_ROOT_PASSWORD':secrets.token_hex(24),
-                                 'APP_SOURCE_DIRECTORY':'', 'DATA_DIRECTORY':'',
-                                 'SQL_DOMAIN':domain})
+        domain = present.get('DOMAIN') or project.settings['PROJECT_NAME'].replace('_', '-')+'.test.local'
+        generated = {'DOMAIN':domain, 'LOCALHOST_PORT':str(ports[0]), 'LOCALHOST_PORT_SSL':str(ports[1]),
+                     'DATABASE_NAME':project.settings['DATABASE_NAME']+'_test', 'DATABASE_USER':'test',
+                     'DATABASE_PASSWORD':secrets.token_hex(24),
+                     'DATABASE_ROOT_PASSWORD':secrets.token_hex(24),
+                     'APP_SOURCE_DIRECTORY':'', 'DATA_DIRECTORY':'',
+                     'SQL_DOMAIN':domain}
+        set_env_values(env_file, {key: text for key, text in generated.items() if key not in present})
     if not destination.exists() or refresh:
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
         # Tool worktrees and setup's own test tools never come from the local checkout; projects add

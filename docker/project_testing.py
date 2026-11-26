@@ -30,19 +30,28 @@ def test_project(project):
     return test
 
 
-def prepare_tests(project, dataset='dev'):
-    """Copy or refresh the application, load the mock data set into the test DB and start ENV=test."""
+def prepare_tests(project, dataset='dev', dump=None):
+    """Copy or refresh the application, load the mock data set (or, with dump, that .sql/.sql.gz dump instead)
+    into the test DB and start ENV=test."""
     from database_load import plan_load, run_load
     from project_bootstrap import initialize_test
     from project_health import start_project
     if project.environment != 'local':
         raise ValueError('Run make test-prepare from ENV=local')
+    if dump is not None and not dump:
+        raise ValueError('dump= needs the path of a .sql or .sql.gz file')
     initialize_test(project, refresh=(project.directory / '.generated/test/initialized').is_file())
     test = test_project(project)
     print('==> starting the test database', flush=True)
     test.run(['up', '-d', '--wait', 'database'])
-    print(f'==> loading data set {dataset} into {test.settings["DATABASE_NAME"]}', flush=True)
-    run_load(test, plan_load(test, dataset=dataset, replace=True))
+    if dump:
+        # The dump replaces the data set: its tables are classified first (no question asked), then the
+        # after-import SQL of common/ and test/ runs as after make db-import.
+        print(f'==> importing {dump} into {test.settings["DATABASE_NAME"]}', flush=True)
+        run_load(test, plan_load(test, dump=dump, interactive=False))
+    else:
+        print(f'==> loading data set {dataset} into {test.settings["DATABASE_NAME"]}', flush=True)
+        run_load(test, plan_load(test, dataset=dataset, replace=True))
     print('==> starting ENV=test', flush=True)
     start_project(test, 180)
     print(f'ENV=test is ready on https://{test.settings["DOMAIN"]}:{test.settings.get("LOCALHOST_PORT_SSL", "")}/ '
