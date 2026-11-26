@@ -73,15 +73,9 @@ def run_qa(project, action, command=None):
     End-to-end tests write orders and customers, so e2e only ever runs against ENV=test."""
     service, profile, entrypoint, default = QA_TOOLS[action]
     if action == 'e2e':
-        from project_testing import test_project
-        default = project.settings['PLAYWRIGHT_COMMAND']  # The setting of the environment make was run in.
-        project = test_project(project)
+        from project_e2e import run
+        return run(project, command)  # selection, reports and url= are project_e2e's
     arguments = shlex.split(command or default)
     if not arguments or not arguments[0]:
         raise ValueError('QA command cannot be empty')
-    if entrypoint:
-        options = ['--no-deps', '--entrypoint', entrypoint]
-    else:
-        # The shared Playwright service otherwise starts `tail -f /dev/null`.
-        options = ['--entrypoint', arguments.pop(0)]
-    project.run(['run', '--rm', *options, service, *arguments], profiles=profile)
+    project.run(['run', '--rm', '--no-deps', '--entrypoint', entrypoint, service, *arguments], profiles=profile)

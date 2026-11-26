@@ -384,7 +384,7 @@ fingerprint is outdated; it removes only with `apply=1`.
 | ENV | Code | Notes |
 |---|---|---|
 | local | `app/public` | developer stack; tools open without allowlist |
-| test | `.generated/test/app` copy | own DB/containers; `make test-prepare`, `make phpunit`, e2e only here |
+| test | `.generated/test/app` copy | own DB/containers; `make test-prepare [set=|dump=]`, `make phpunit`, e2e only here (`TEST_TLS`, `TEST_HOST_ROUTE` for a server) |
 | stage / prod | release on the target | limits, allowlists and `APP_UID` required; started from the release model |
 | extra (e.g. `demo`) | release on the target | listed in `STAGE_ENVIRONMENTS` (env/common.env); a stage in every rule |
 
@@ -492,7 +492,8 @@ removing the build hook's temporary file (relative to a held descriptor of their
 `shutil.rmtree` never follows a link), `release_built` (`lstat` of `.setup-release`, never followed) and the
 `composer.json` presence check (it only decides whether Composer runs, in its own container).
 `make -f docker/project.mk setup-capabilities` lists abilities (`deploy-attempt-v1`, `deploy-health-v1`,
-`deploy-status-v1`, `release-build-network-v1`); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads the settings that
+`deploy-status-v1`, `release-build-network-v1`, `test-session-v1`: `test-prepare dump=`, `e2e-install`, the e2e
+selection, JSON report, storage states and `url=`, `TEST_TLS` and `TEST_HOST_ROUTE`, which setup-server's test sessions use); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads the settings that
 environment's make deploy reads (`env/<env>.env` when present, else its example, and setup-server's target file) and
 adds `release-hardened-v1` when setup isolates that deploy on request: a target on this machine, no host network for
 the build and Docker here. The capability means: within the threat model above, which make deploy checks and refuses

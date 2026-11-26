@@ -25,6 +25,11 @@ services:
       PS_DATABASE_PREFIX: ${PS_DATABASE_PREFIX-}
       PS_COOKIE_KEY: ${PS_COOKIE_KEY-}
       TEST_COPY_EXCLUDE: ${TEST_COPY_EXCLUDE-}
+      # ENV=test's certificate: mkcert (default; a CA the browsers trust) or self-signed (a server: no root install).
+      TEST_TLS: ${TEST_TLS-}
+      # ENV=test's hostname on the host: on (default; /etc/hosts entry and host Nginx route) or off (reached only
+      # inside the project network, as Playwright reaches it: a server's test session).
+      TEST_HOST_ROUTE: ${TEST_HOST_ROUTE-}
       APP_UID: ${APP_UID-}
       APP_GID: ${APP_GID-}
       DEPLOY_CONTEXT: ${DEPLOY_CONTEXT-}

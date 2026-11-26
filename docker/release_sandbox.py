@@ -37,7 +37,8 @@ MANIFEST_LIMIT = 64 * 1024 * 1024
 MANIFEST_NAMES = 500000
 CAPABILITY = 'release-hardened-v1'
 # What every setup of this version offers (docker/project.mk SETUP_CAPABILITIES says the same).
-BASE_CAPABILITIES = ('deploy-attempt-v1', 'deploy-health-v1', 'deploy-status-v1', 'release-build-network-v1')
+BASE_CAPABILITIES = ('deploy-attempt-v1', 'deploy-health-v1', 'deploy-status-v1', 'release-build-network-v1',
+                     'test-session-v1')
 
 
 # The job's request for a hardened deploy: a workflow that probed release-hardened-v1 passes it, and make deploy then

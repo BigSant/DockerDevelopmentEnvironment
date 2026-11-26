@@ -20,7 +20,7 @@ SECTIONS = (
     ('Backup server', ('BACKUP_SSH', 'BACKUP_SERVER_PROJECT', 'BACKUP_SSH_KEY')),
     ('Runtime', ('CACHE_MODE', 'MAIL_MODE', 'HTTP_FORCE_HTTPS')),
     ('Tools', ('PROJECT_COMPOSE_FILES', 'PHPSTAN_BASELINE_FILE', 'PLAYWRIGHT_COMMAND')),
-    ('Test copy', ('APP_SOURCE_DIRECTORY', 'DATA_DIRECTORY')),
+    ('Test copy', ('APP_SOURCE_DIRECTORY', 'DATA_DIRECTORY', 'TEST_TLS', 'TEST_HOST_ROUTE')),
 )
 SECTION = {key: index for index, (_, keys) in enumerate(SECTIONS) for key in keys}
 ORDER = {key: position for _, keys in SECTIONS for position, key in enumerate(keys)}

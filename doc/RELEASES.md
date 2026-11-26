@@ -11,7 +11,24 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **ENV=test on a server, e2e for agents (`test-session-v1`).** What setup-server's test sessions and runs need; nothing
+  changes for a project that passes none of it.
+  - `make test-prepare dump=FILE` imports a `.sql`/`.sql.gz` dump into ENV=test instead of loading the data set
+    (tables classified without questions, then the `common/` and `test/` after-import SQL).
+  - `TEST_TLS=self-signed` (env/test.env): an openssl self-signed certificate instead of mkcert, so nothing is installed
+    as root. `TEST_HOST_ROUTE=off`: no /etc/hosts entry and no host Nginx route; the site is reached inside the project
+    network only, as Playwright reaches it. A test.env that exists already gets the generated values it lacks.
+  - `make e2e-install`: `npm ci --ignore-scripts` of `tests/playwright` (may be a submodule) from its
+    `package-lock.json`, in a one-off Playwright container, again only when the lock file changed; the project's own
+    `@playwright/test`/`playwright`/`playwright-core` are removed so the image's is used. Runs keep read-only mounts.
+  - `make e2e grep= grep_invert= files= json=1 storage_states= container=`: the selection is appended to
+    `PLAYWRIGHT_COMMAND`; `json=1` writes `data/playwright/report.json` next to the HTML report; storage states are mounted
+    read-only as `/e2e/auth/<role>.json`.
+  - `make e2e url=https://… [data=DIR]` (from ENV=local): the same image, specs and configuration against a real
+    address (STAGE/LIVE), on Docker's default bridge network, as the calling account.
+  - `setup-capabilities` adds `test-session-v1`.
 
 ## 5.6.0
 

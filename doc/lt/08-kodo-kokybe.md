@@ -29,6 +29,17 @@ Komanda vykdoma iš įprastos (local) aplinkos ir:
 
 Kitas rinkinys: `make test-prepare set=<rinkinys>` (katalogas `database/data/<rinkinys>/` turi egzistuoti). Testinė DB kiekvieną kartą perrašoma iš naujo, todėl testai visada pradeda nuo žinomos būsenos.
 
+Vietoj rinkinio – dump'as: `make test-prepare dump=/kelias/backup.sql.gz` importuoja jį į testinę DB (kaip `make db-import ENV=test`: lentelės patikrinamos be klausimų, po to `common/` ir `test/` after-import SQL). Rinkinys tada nekeliamas. `set=` ir `dump=` kartu – klaida.
+
+Serveryje (setup-server testų sesija) nėra mkcert CA ir sudo hosts įrašui ar host Nginx. Tam `env/test.env`:
+
+```dotenv
+TEST_TLS=self-signed      # savo pasirašytas sertifikatas (openssl), be root diegimo; Playwright ignoreHTTPSErrors jį priima
+TEST_HOST_ROUTE=off       # be /etc/hosts įrašo ir host Nginx: domenas pasiekiamas tik projekto tinkle (kaip Playwright jį pasiekia)
+```
+
+Jei `env/test.env` jau yra (pvz. setup-server įrašė tik šiuos du raktus), `make test-prepare` papildo tik trūkstamas sugeneruotas reikšmes (domeną, portus, DB vardą ir slaptažodžius).
+
 Dideli ne kodo katalogai (tiekėjų failų cache, media) kopijavimą sulėtina. Juos praleisk `env/common.env`:
 
 ```dotenv
@@ -116,6 +127,26 @@ make build
 make test-prepare
 make e2e
 ```
+
+### Specų priklausomybės (`make e2e-install`)
+
+Jei `tests/playwright/` (gali būti git submodulis) turi `package.json` ir `package-lock.json` (pvz. TypeScript projektas su savo pagalbinėmis bibliotekomis), `make e2e-install` (iš `ENV=local`) vienkartiniame Playwright konteineryje paleidžia `npm ci --ignore-scripts` į `tests/playwright/node_modules`. Kartojama tik pasikeitus `package-lock.json` (ar `PLAYWRIGHT_VERSION`): žymė `node_modules/.setup-e2e-install`. Projekto `@playwright/test`, `playwright` ir `playwright-core` po diegimo pašalinami – visada naudojamas image'o `@playwright/test` (jis atitinka image'o naršykles). `node_modules` turi būti `.gitignore`. Patys testų paleidimai specus ir konfigūraciją toliau mato tik skaitymui.
+
+### Atranka ir JSON ataskaita
+
+```bash
+make e2e grep='@cart' grep_invert='@slow' files='cart.spec.ts checkout/pay.spec.ts:12' json=1
+```
+
+`grep`/`grep_invert` – Playwright `--grep`/`--grep-invert` (reguliarioji išraiška pavadinimui su tagais), `files` – specų filtrai (`FAILAS[:EILUTĖ]`, be `..`). Jie pridedami prie `PLAYWRIGHT_COMMAND` (todėl komanda turi baigtis `playwright test …`; per `npm run` – su `--` gale). `json=1` reporterius pakeičia į `list,html,json`: `data/playwright/report.json` šalia HTML ataskaitos `data/playwright/report/`. `storage_states='admin=/kelias/state.json'` kiekvieną failą prijungia tik skaitymui kaip `/e2e/auth/<rolė>.json` (`E2E_STORAGE_STATE_ADMIN`, visi – JSON `E2E_STORAGE_STATES`). `container=VARDAS` – konteinerio vardas (kad kviečiantysis galėtų jį sustabdyti). Be šių parametrų `make e2e` veikia kaip anksčiau.
+
+### Prieš tikrą adresą (STAGE / LIVE)
+
+```bash
+make e2e url=https://stage.example.com grep='@stage' json=1 data=/kelias/rezultatams
+```
+
+Tas pats Playwright image'as, specai ir konfigūracija, bet `BASE_URL` – nurodytas adresas, konteineris Docker numatytame `bridge` tinkle (jokio projekto tinklo), šios paskyros vardu, `E2E_EXTERNAL=1`. Paleidžiama iš `ENV=local` (ne `ENV=test`). `data=` – rezultatų katalogas (numatyta – aplinkos `data/playwright`). Kurie testai tinka STAGE ar LIVE, sprendžia kviečiantysis (setup-server tai daro tagais `@stage`, `@stage-write`, `@live`, `@deploy`).
 
 Naršyklė kreipiasi į `https://<testinis domenas>` (`BASE_URL`) projekto tinkle. Ataskaita: `app/.generated/test/data/playwright/report/index.html`, nepavykusių testų medžiaga – `…/playwright/test-results`. Konkretus testas: `make e2e cmd='npx playwright test --config=/e2e/config/playwright.config.cjs --grep checkout'` (perduodama visa komanda, todėl nepamiršk `--config`). Konfigūracija: [Playwright](https://playwright.dev/docs/test-configuration).
 
