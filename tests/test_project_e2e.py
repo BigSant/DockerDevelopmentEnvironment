@@ -121,14 +121,21 @@ class E2eTest(unittest.TestCase):
             project_e2e.install(local)
         (tests / "package-lock.json").write_text('{"lockfileVersion": 3}')
 
-        def npm_ci(args, profiles=None):
-            calls.append((args, profiles))
-            for package in ("ms", "@playwright/test", "playwright", "playwright-core"):
-                (target / "node_modules" / package).mkdir(parents=True, exist_ok=True)
-        local.run = npm_ci
+        def npm_ci(args, **keywords):
+            if args[:2] == ["docker", "run"]:
+                calls.append(args)
+                for package in ("ms", "@playwright/test", "playwright", "playwright-core"):
+                    (target / "node_modules" / package).mkdir(parents=True, exist_ok=True)
+            return SimpleNamespace(returncode=0, stdout=b"")
+        installer = patch("subprocess.run", npm_ci)
+        installer.start()
+        self.addCleanup(installer.stop)
         self.assertTrue(project_e2e.install(local))
-        args, profile = calls[0]
-        self.assertEqual((profile, args[-5:]), ("playwright", ["playwright", "ci", "--no-audit", "--no-fund", "--ignore-scripts"]))
+        args = calls[0]
+        self.assertEqual(args[-5:], ["playwright-1.61.1-abc", "ci", "--no-audit", "--no-fund", "--ignore-scripts"])
+        for option in (["--cap-drop", "ALL"], ["--read-only"], ["--pids-limit", "1024"], ["--memory", "2g"]):
+            self.assertIn(option, [args[index:index + len(option)] for index in range(len(args))], option)
+        self.assertNotIn("compose", args, "a one-off container: no Compose project, no network left behind")
         self.assertIn(f"{target}:/e2e/install", args)
         self.assertNotIn(f"{tests}:/e2e/install", args, "the specs are never written")
         self.assertEqual(sorted(path.name for path in (target / "node_modules").iterdir()), ["@playwright", "ms"])
@@ -142,6 +149,12 @@ class E2eTest(unittest.TestCase):
             self.assertTrue(project_e2e.install(local), "each install file is part of the cache key")
         self.assertEqual(len(calls), 4)
         self.assertEqual((target / ".npmrc").read_text(), "registry=https://registry.example/\n")
+        (tests / "package.json").unlink()
+        self.assertFalse(project_e2e.install(local))
+        self.assertEqual(list((target / "node_modules").iterdir()), [], "no manifest: no modules of an earlier commit")
+        self.assertFalse((target / ".setup-e2e-install").exists())
+        (tests / "package.json").write_text('{"dependencies": {}}')
+        self.assertTrue(project_e2e.install(local), "and the next manifest installs again")
         test, _ = self.project("test")
         with self.assertRaisesRegex(ValueError, "ENV=local"):
             project_e2e.install(test)

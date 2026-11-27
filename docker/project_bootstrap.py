@@ -277,7 +277,8 @@ def initialize_test(project, refresh=False):
         raise ValueError('Test directory must stay inside the project and not be a symlink')
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     root.chmod(0o700)
-    source = project.web_directory
+    # A test session copies the shop code it was given (a data directory outside the tree), never the tree's own.
+    source = project.session['app'] if getattr(project, 'session', None) else project.web_directory
     destination = root / 'app'
     if not source.is_dir(): raise ValueError('The local application checkout is missing')
     if destination.is_symlink(): raise ValueError('Test application must not be a symlink')
