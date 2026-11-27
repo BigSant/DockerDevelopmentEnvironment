@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.11.0
 
 - **A test session's PrestaShop shop gets its release layer (`test-session-v5`).** A session copies only the shop code
   it was given (Git), so a shop whose core comes from the official release (`PS_RELEASE=on`, the `PS_RELEASE_PATHS`
