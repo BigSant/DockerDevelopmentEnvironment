@@ -11,7 +11,9 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased (minor)
+## Unreleased
+
+## 5.9.0
 
 - **Test-session mode (`test-session-v3`, `TEST_SESSION=on`).** For setup-server's sessions on a host that also serves
   production; nothing changes for a project or an ENV=test without it.
