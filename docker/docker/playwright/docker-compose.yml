@@ -17,16 +17,31 @@ services:
       target: env-${BUILD_ENV:-${ENV}}
       args:
         PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION}
+    # The specs and their configuration are code from a branch: the browser and the runner are bounded and run as
+    # the account that started them, without capabilities (Playwright's Chromium runs without its own sandbox).
+    user: ${HOST_UID}:${HOST_GID}
+    mem_limit: ${PLAYWRIGHT_MEMORY}
+    memswap_limit: ${PLAYWRIGHT_MEMORY}
+    cpus: ${PLAYWRIGHT_CPUS}
+    pids_limit: 1024
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       - webserver
     networks:
       - network_app
     environment:
       BASE_URL: https://${DOMAIN}
+      HOME: /tmp
+      npm_config_update_notifier: "false"
       PLAYWRIGHT_TEST_DIR: /e2e/tests
       PLAYWRIGHT_DATA_DIR: /e2e/data
-    # e2e runs only in ENV=test: config and specs are shared read-only, results go to the data directory.
+    # e2e runs only in ENV=test: config, specs and their dependencies (make e2e-install, outside the specs) are shared
+    # read-only, results go to the data directory.
     volumes:
       - ${PROJECT_CONFIG_DIRECTORY}/playwright/:/e2e/config/:ro
       - ${PROJECT_APP_DIRECTORY}/tests/playwright/:/e2e/tests/:ro
+      - ${PROJECT_E2E_MODULES_DIRECTORY}/:/e2e/tests/node_modules/:ro
       - ${PROJECT_DATA_DIRECTORY}/playwright/:/e2e/data/

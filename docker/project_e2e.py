@@ -3,12 +3,18 @@
 ENV=test.
 
 The specs (tests/playwright/, which may be a git submodule) and the configuration (config/playwright/) stay read-only
-in every run. make e2e-install alone writes tests/playwright/node_modules, from package-lock.json only (npm ci, no
-install scripts), and only when the lock file changed since the last install. The image's @playwright/test is the
-one every run uses (it matches the browsers in the image), so the project's own copy is removed after the install:
-a spec's import of @playwright/test resolves to /e2e/node_modules, the other packages to tests/playwright/node_modules.
+in every run. make e2e-install alone writes the specs' npm dependencies, from package.json, package-lock.json and
+.npmrc only (npm ci --ignore-scripts, in the Playwright image), into .generated/e2e/ of the project, outside the specs,
+and only when one of those files changed since the last install; every run mounts that node_modules read-only as
+/e2e/tests/node_modules, over whatever tests/playwright/node_modules holds. The image's @playwright/test is the one
+every run uses (it matches the browsers in the image), so the project's own copy is removed after the install: a
+spec's import of @playwright/test resolves to /e2e/node_modules, the other packages to /e2e/tests/node_modules.
+
+Every Playwright container (ENV=test and url=) runs as the account that started it, with PLAYWRIGHT_MEMORY,
+PLAYWRIGHT_CPUS and at most 1024 processes, no capabilities and no-new-privileges: the specs are code from a branch.
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -16,10 +22,14 @@ from pathlib import Path, PurePosixPath
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 
 TESTS = 'tests/playwright'
 INSTALL_MARKER = '.setup-e2e-install'
+# What an install is made of: the files copied from tests/playwright into the install directory.
+INSTALL_FILES = ('package.json', 'package-lock.json', '.npmrc')
+PIDS_LIMIT = '1024'
 # The packages the image brings: two copies of @playwright/test in one run fail ("Requiring @playwright/test second time").
 IMAGE_PACKAGES = ('@playwright/test', 'playwright', 'playwright-core')
 # A spec file filter (Playwright takes it as a pattern on the file path), optionally :LINE.
@@ -52,43 +62,107 @@ def playwright_data(project, data=None):
     return path
 
 
-def install_digest(lock, version):
-    return hashlib.sha256(lock.read_bytes() + b'\0' + str(version).encode()).hexdigest()
+def install_directory(project):
+    """.generated/e2e of the project: the install's package files and node_modules, outside the specs."""
+    return Path(project.process_env['PROJECT_E2E_MODULES_DIRECTORY']).parent
+
+
+def regular_file(path, label):
+    """The bytes of a regular file that is not a symlink (None when it does not exist)."""
+    try:
+        details = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISREG(details.st_mode):
+        raise ValueError(f'{label} must be a regular file, not a symlink or anything else')
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, 'rb') as handle:
+        return handle.read()
+
+
+def real_directory(path, label):
+    """path as a directory that is not a symlink, made when it is missing."""
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        raise ValueError(f'{label} must be a directory, not a symlink')
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def install_digest(files, version):
+    """The cache key of an install: every install file (its name and bytes, or its absence) and PLAYWRIGHT_VERSION."""
+    digest = hashlib.sha256()
+    for name in INSTALL_FILES:
+        content = files.get(name)
+        digest.update(name.encode() + b'\0' + (b'-' if content is None else b'+' + hashlib.sha256(content).digest()))
+    digest.update(b'\0' + str(version).encode())
+    return digest.hexdigest()
 
 
 def install(project):
-    """make e2e-install: npm ci of tests/playwright from its package-lock.json, skipped while the lock file (and
-    PLAYWRIGHT_VERSION) is what the last install used. Returns True when it installed."""
+    """make e2e-install: npm ci of tests/playwright's package.json and package-lock.json (and .npmrc), copied into
+    .generated/e2e, skipped while those files (and PLAYWRIGHT_VERSION) are what the last install used. Returns True
+    when it installed."""
     if project.environment != 'local':
-        raise ValueError('Run make e2e-install from ENV=local: it installs into tests/playwright, which every '
+        raise ValueError('Run make e2e-install from ENV=local: it installs into .generated/e2e, which every '
                          'environment\'s Playwright mounts read-only')
     directory = tests_directory(project)
-    if not (directory / 'package.json').is_file():
+    files = {name: regular_file(directory / name, f'{TESTS}/{name}') for name in INSTALL_FILES}
+    if files['package.json'] is None:
         print(f'{TESTS} has no package.json: nothing to install')
         return False
-    lock = directory / 'package-lock.json'
-    if not lock.is_file():
+    if files['package-lock.json'] is None:
         raise ValueError(f'{TESTS}/package-lock.json is missing: make e2e-install installs from the lock file only (npm ci)')
-    modules = directory / 'node_modules'
+    target = real_directory(install_directory(project), '.generated/e2e')
+    modules = target / 'node_modules'
     if modules.is_symlink():
-        raise ValueError(f'{TESTS}/node_modules must not be a symlink')
-    digest = install_digest(lock, project.settings.get('PLAYWRIGHT_VERSION') or project.process_env.get('PLAYWRIGHT_VERSION', ''))
-    marker = modules / INSTALL_MARKER
-    if marker.is_file() and marker.read_text().strip() == digest:
-        print(f'{TESTS}/node_modules is up to date with package-lock.json')
+        raise ValueError('.generated/e2e/node_modules must not be a symlink')
+    digest = install_digest(files, project.settings.get('PLAYWRIGHT_VERSION') or project.process_env.get('PLAYWRIGHT_VERSION', ''))
+    marker = target / INSTALL_MARKER
+    if (regular_file(marker, f'.generated/e2e/{INSTALL_MARKER}') or b'').decode(errors='replace').strip() == digest \
+            and modules.is_dir():
+        print(f'.generated/e2e/node_modules is up to date with {TESTS}/package-lock.json')
         return False
-    data = playwright_data(project)
-    print(f'==> npm ci in {TESTS} (package-lock.json {digest[:12]})', flush=True)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(marker)
+    shutil.rmtree(modules, ignore_errors=True)
+    for name, content in files.items():
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(target / name)
+        if content is not None:
+            descriptor = os.open(target / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+            with os.fdopen(descriptor, 'wb') as handle:
+                handle.write(content)
+    cache = real_directory(target / '.npm-cache', '.generated/e2e/.npm-cache')
+    mount_points(project)  # the service's own mounts, made as this account (Docker would make them as root)
+    print(f'==> npm ci of {TESTS} into .generated/e2e (install files {digest[:12]})', flush=True)
     project.run(['run', '--rm', '--no-deps', '--user', f'{os.getuid()}:{os.getgid()}',
-                 '--volume', f'{directory}:/e2e/install', '--workdir', '/e2e/install',
-                 '--env', 'HOME=/tmp', '--env', 'npm_config_cache=/e2e/data/.npm-cache',
+                 '--volume', f'{target}:/e2e/install', '--workdir', '/e2e/install',
+                 '--env', 'HOME=/tmp', '--env', 'npm_config_cache=/e2e/install/.npm-cache',
                  '--env', 'npm_config_update_notifier=false', '--entrypoint', 'npm', 'playwright',
                  'ci', '--no-audit', '--no-fund', '--ignore-scripts'], profiles='playwright')
+    shutil.rmtree(cache, ignore_errors=True)
     for package in IMAGE_PACKAGES:
         shutil.rmtree(modules / package, ignore_errors=True)
-    marker.write_text(digest + '\n')
-    print(f'Installed {TESTS}/node_modules (the image\'s @playwright/test is used; cache {data / ".npm-cache"})')
+    real_directory(modules, '.generated/e2e/node_modules')
+    descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    with os.fdopen(descriptor, 'w') as handle:
+        handle.write(digest + '\n')
+    print(f'Installed .generated/e2e/node_modules (the image\'s @playwright/test is used)')
     return True
+
+
+def mount_points(project):
+    """The directories every run mounts, made (as this account) when missing, so Docker never makes one as root: the
+    data directory, the install's node_modules (empty before the first make e2e-install) and its mount point in
+    tests/playwright."""
+    modules = Path(project.process_env['PROJECT_E2E_MODULES_DIRECTORY'])
+    playwright_data(project)  # the service's /e2e/data
+    real_directory(modules.parent, '.generated/e2e')
+    real_directory(modules, '.generated/e2e/node_modules')
+    tests = tests_directory(project)
+    if tests.is_dir() and not tests.is_symlink():
+        real_directory(tests / 'node_modules', f'{TESTS}/node_modules')
+    return modules
 
 
 def selection(grep=None, grep_invert=None, files=None):
@@ -98,7 +172,7 @@ def selection(grep=None, grep_invert=None, files=None):
         if pattern:
             if len(pattern) > PATTERN_LIMIT or any(ord(character) < 32 for character in pattern):
                 raise ValueError(f'{option[2:].replace("-", "_")}: at most {PATTERN_LIMIT} characters, no control characters')
-            arguments += [option, pattern]
+            arguments.append(f'{option}={pattern}')  # one argument: a pattern such as -x is never an option
     for name in (files or '').split():
         if not SPEC_FILTER.fullmatch(name) or '..' in PurePosixPath(name.split(':')[0]).parts:
             raise ValueError(f'files: {name!r} is not a spec path inside {TESTS} (letters, digits, . _ @ / -, optional :LINE)')
@@ -166,6 +240,7 @@ def run(project, command=None, grep=None, grep_invert=None, files=None, json_rep
     from project_testing import test_project
     arguments = command_arguments(project, command)  # The setting of the environment make was run in.
     test = test_project(project)
+    mount_points(test)
     options = ['--entrypoint', arguments.pop(0), *(['--name', name] if name else []), *env_options, *mounts]
     # The shared Playwright service otherwise starts `tail -f /dev/null`.
     test.run(['run', '--rm', *options, 'playwright', *arguments, *extra, *reporter], profiles='playwright')
@@ -194,7 +269,12 @@ def run_external(project, url, command, extra, options, data, name):
             raise ValueError(f'{directory} is missing: url= runs the project\'s own specs and configuration')
     output = playwright_data(project, data)
     image = playwright_image(project)
+    modules = mount_points(project)
+    memory = project.settings.get('PLAYWRIGHT_MEMORY') or project.process_env.get('PLAYWRIGHT_MEMORY') or '2g'
+    cpus = project.settings.get('PLAYWRIGHT_CPUS') or project.process_env.get('PLAYWRIGHT_CPUS') or '2'
     docker = ['docker', 'run', '--rm', '--network', 'bridge', '--user', f'{os.getuid()}:{os.getgid()}',
+              '--memory', memory, '--memory-swap', memory, '--cpus', cpus, '--pids-limit', PIDS_LIMIT,
+              '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
               '--label', 'setup.managed=1', '--label', 'setup.service=playwright-external',
               '--label', f'setup.project={project.settings["PROJECT_NAME"]}',
               *(['--name', name] if name else []),
@@ -202,6 +282,7 @@ def run_external(project, url, command, extra, options, data, name):
               '--env', 'PLAYWRIGHT_TEST_DIR=/e2e/tests',
               '--env', 'PLAYWRIGHT_DATA_DIR=/e2e/data', '--env', 'E2E_EXTERNAL=1',
               '--volume', f'{config_directory(project)}:/e2e/config:ro', '--volume', f'{tests_directory(project)}:/e2e/tests:ro',
+              '--volume', f'{modules}:/e2e/tests/node_modules:ro',
               '--volume', f'{output}:/e2e/data', *options, '--workdir', '/e2e', '--entrypoint', arguments.pop(0),
               image, *arguments, *extra]
     environment = project.child_env()

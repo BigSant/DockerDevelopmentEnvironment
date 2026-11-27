@@ -193,7 +193,8 @@ Keliai `SCHEMA_DIRECTORY`, `POST_IMPORT_SQL_DIRECTORY`, `FIXTURES_DIRECTORY` ska
 | --- | --- | --- |
 | `TEST_COPY_EXCLUDE` | Tuščias | Keliai parduotuvėje per tarpus, kurių nekopijuoti į `ENV=test` kopiją, pvz. `/modules/genericsync/cache`. PrestaShop kopija visada praleidžia `var/cache`, `var/logs`, `cache`; generic aplikacijos savo cache katalogus išvardina čia. |
 | `TEST_TLS` | `mkcert` | `ENV=test` sertifikatas: `mkcert` arba `self-signed` (serveryje, be root diegimo). |
-| `TEST_HOST_ROUTE` | `on` | `ENV=test` domenas hoste: `on` (hosts įrašas ir host Nginx) arba `off` (tik projekto tinkle). |
+| `TEST_HOST_ROUTE` | `on` | `ENV=test` domenas hoste: `on` (hosts įrašas ir host Nginx) arba `off` (tik projekto tinkle: jokių publikuotų portų, tinklas `internal`). |
+| `PLAYWRIGHT_MEMORY` / `PLAYWRIGHT_CPUS` | `2g` / `2` | Playwright konteinerio ribos (`make e2e`, ir `url=`). |
 | `PHPSTAN_BASELINE_FILE` | Tuščias | Konteinerio kelias, kur `make phpstan-baseline` rašo baseline. |
 | `PLAYWRIGHT_COMMAND` | `npx playwright test` | `make e2e` komanda. |
 | `DOCTRINE_PHP_VERSION` | `8.3` | Doctrine migracijų įrankio PHP versija. |

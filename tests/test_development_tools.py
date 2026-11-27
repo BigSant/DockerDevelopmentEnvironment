@@ -2,6 +2,7 @@
 import contextlib
 import io
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -73,7 +74,11 @@ class QaTest(unittest.TestCase):
 
     def project(self, environment='local'):
         calls = []
+        work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, work, True)
         project = SimpleNamespace(environment=environment, settings={'PLAYWRIGHT_COMMAND': 'npx playwright test'},
+                                  process_env={'PROJECT_E2E_MODULES_DIRECTORY': f'{work}/.generated/e2e/node_modules',
+                                               'PROJECT_APP_DIRECTORY': f'{work}/app', 'PROJECT_DATA_DIRECTORY': f'{work}/data'},
                                   run=lambda args, profiles=None: calls.append((args, profiles)))
         return project, calls
 

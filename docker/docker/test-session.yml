@@ -1,0 +1,8 @@
+# ENV=test with TEST_HOST_ROUTE=off (a test session on a server, setup-server): nothing of it is published on the
+# host, and its project network is internal, so neither the shop nor the specs reach anything but the session itself.
+services:
+  nginx-proxy:
+    ports: !reset []
+networks:
+  network_app:
+    internal: true
