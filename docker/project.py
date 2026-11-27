@@ -122,6 +122,9 @@ class Project:
             "PROJECT_DOCKER_DIRECTORY": str(self.directory),
             # make e2e-install's npm dependencies of the specs: outside tests/playwright, mounted read-only.
             "PROJECT_E2E_MODULES_DIRECTORY": str(self.directory / ".generated/e2e/node_modules"),
+            # The specs and their configuration Playwright mounts (a test session's own data directories instead).
+            "PROJECT_E2E_TESTS_DIRECTORY": str(self.root / "app/tests/playwright"),
+            "PROJECT_E2E_CONFIG_DIRECTORY": str(self.root / "app/config/playwright"),
             "DOCKERFILE_DIRECTORY": str(self.directory if (self.directory / "Dockerfile").is_file()
                                         else DOCKER_ROOT / "docker/php-fpm/project"),
             "BUILD_ENV": build_environment, "IMAGE_ENV": build_environment,
@@ -137,6 +140,13 @@ class Project:
         self.command += ["--project-name", "setup-settings", "-f", str(DOCKER_ROOT / "project-settings.yaml")]
         settings = json.loads(self.capture(["config", "--format", "json"]))["services"]["settings"]["environment"]
         self.settings = settings
+        # A test session of setup-server (TEST_SESSION=on, ENV=local/test): what a caller chose (specs, their
+        # configuration, the shop code) lives in data directories outside this tree (project_isolation).
+        from project_isolation import session_directories
+        self.session = session_directories(self, settings, environment)
+        if self.session:
+            self.process_env.update(PROJECT_E2E_TESTS_DIRECTORY=str(self.session['tests']),
+                                    PROJECT_E2E_CONFIG_DIRECTORY=str(self.session['config']))
         stage_environments(settings)  # a bad name stops here, whatever ENV this command is for
         profile = settings['PROFILE']
         if profile == 'ps': profile = 'prestashop'
@@ -224,6 +234,9 @@ class Project:
             raise ValueError('The backup service edits the table registry of database as code, which is off (DATABASE_AS_CODE=off)')
         if unknown:
             raise ValueError(f"Unknown SERVICES entry: {', '.join(unknown)}; available: {' '.join(SERVICE_CATALOGUE)}")
+        if self.session:
+            # The metrics service reads the Docker socket and its network is not internal: never in a test session.
+            services = [name for name in services if name != 'metrics']
         self.services = services
         self.process_env.update(resolve_metrics(settings))
         if profiles is None:
@@ -309,6 +322,14 @@ class Project:
         # One fingerprint per built image, computed from that image's own inputs only.
         self.image_suffixes = image_suffixes(profile, self.model()['services'])
         self.process_env.update({suffix_variable(name): value for name, value in self.image_suffixes.items()})
+        if environment == 'test' and self.session:
+            # Last of all: confinement derived from the rendered model (every service and network), then checked.
+            from project_isolation import session_overlay
+            self.command += ["-f", str(session_overlay(self, json.loads(self.capture(["config", "--format", "json"],
+                                                                                    profiles="*"))))]
+        if self.session:
+            from project_isolation import check_sources
+            check_sources(self)
         if environment == 'test':
             self.validate_test_isolation()
 

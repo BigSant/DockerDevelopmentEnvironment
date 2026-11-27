@@ -183,6 +183,98 @@ define('_DB_PREFIX_', 'custom_');
         self.assertTrue(local_test['services']['nginx-proxy'].get('ports'), 'a developer\'s ENV=test keeps its ports')
         self.assertFalse(next(iter(local_test['networks'].values())).get('internal'))
 
+    def session_project(self, services='playwright metrics cron'):
+        """A project with metrics and cron as setup-server's test session renders it (TEST_SESSION=on)."""
+        scaffold(self.root/'shop')
+        app=self.root/'shop/app'
+        content=self.root/'content'
+        for name in ('tests','config','public'):
+            (content/name).mkdir(parents=True)
+        (content/'public/index.php').write_text('<?php echo "client";')
+        session=(f'TEST_SESSION=on\nE2E_TESTS_DIRECTORY={content}/tests\nE2E_CONFIG_DIRECTORY={content}/config\n'
+                 f'TEST_APP_SOURCE={content}/public\n')
+        (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_ROOT_PASSWORD=r\n'
+                                         'DATABASE_PASSWORD=p\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n' + session)
+        (app/'public').mkdir();(app/'public/index.php').write_text('<?php echo "trusted";')
+        (app/'env/common.env').write_text((app/'env/common.env').read_text() + f'SERVICES={services}\n')
+        (app/'env/test.env').write_text('TEST_TLS=self-signed\nTEST_HOST_ROUTE=off\nPUBLISH_ADDRESS=10.0.0.5\nPLAYWRIGHT_MEMORY=1024m\n'
+                                        'PLAYWRIGHT_CPUS=1.5\nCRON_SCHEDULE=off\n' + session)
+        with patch('project_bootstrap.prepare_host'),contextlib.redirect_stdout(io.StringIO()):
+            initialize_test(Project(app))
+        return app, content
+
+    def test_a_test_session_is_confined_on_every_service_and_network(self):
+        app, content = self.session_project()
+        test=Project(app,'test')
+        model=test.model()
+        self.assertEqual((app/'.generated/test/app/index.php').read_text(), '<?php echo "client";', 'the session copies its own shop code')
+        self.assertNotIn('metrics', model['services'], 'metrics reads the Docker socket: never in a session')
+        self.assertIn('cron', model['services'])
+        self.assertTrue(model['networks'])
+        for name, network in model['networks'].items():
+            self.assertTrue(network.get('internal'), f'network {name}')
+        allowed={'CHOWN','DAC_OVERRIDE','FOWNER','FSETID','KILL','NET_BIND_SERVICE','SETGID','SETUID'}
+        for name, service in model['services'].items():
+            with self.subTest(service=name):
+                self.assertFalse(service.get('ports'))
+                self.assertNotIn('host-gateway', json.dumps(service.get('extra_hosts') or []))
+                self.assertFalse(service.get('privileged'))
+                self.assertEqual(service['cap_drop'], ['ALL'])
+                self.assertLessEqual(set(service.get('cap_add') or []), allowed)
+                self.assertIn('no-new-privileges:true', service['security_opt'])
+                self.assertTrue(service['pids_limit'])
+                self.assertEqual(str(service['memswap_limit']), str(service['mem_limit']))
+                for volume in service.get('volumes', []):
+                    self.assertNotIn('docker.sock', volume.get('source', ''))
+        playwright=model['services']['playwright']
+        self.assertTrue(playwright['read_only'])
+        self.assertEqual(playwright['tmpfs'], ['/tmp:size=256m,mode=1777'])
+        mounts={volume['target']: volume for volume in playwright['volumes']}
+        for target, source in (('/e2e/tests', content/'tests'), ('/e2e/config', content/'config')):
+            self.assertEqual((Path(mounts[target]['source']), mounts[target].get('read_only')), (source, True), target)
+
+    def test_the_session_validator_refuses_what_the_overlay_would_not_allow(self):
+        app, content = self.session_project('playwright')
+        test=Project(app,'test')
+        from project_isolation import validate_session_model
+        good=test.model()
+        validate_session_model(test, good)
+        def bad(change):
+            model=json.loads(json.dumps(good))
+            change(model)
+            return model
+        network=next(iter(good['networks']))
+        cases={'a published port': lambda m: m['services']['php-fpm'].update(ports=[{'target': 80, 'published': '8080'}]),
+               'a routed network': lambda m: m['networks'][network].update(internal=False),
+               'privileged': lambda m: m['services']['php-fpm'].update(privileged=True),
+               'pid host': lambda m: m['services']['database'].update(pid='host'),
+               'SYS_ADMIN': lambda m: m['services']['php-fpm'].update(cap_add=['SYS_ADMIN']),
+               'no cap_drop': lambda m: m['services']['php-fpm'].update(cap_drop=[]),
+               'privileges': lambda m: m['services']['php-fpm'].update(security_opt=[]),
+               'swap': lambda m: m['services']['php-fpm'].update(memswap_limit='-1'),
+               'host-gateway': lambda m: m['services']['php-fpm'].update(extra_hosts=['host.docker.internal=host-gateway']),
+               'docker socket': lambda m: m['services']['php-fpm']['volumes'].append(
+                   {'type': 'bind', 'source': '/var/run/docker.sock', 'target': '/var/run/docker.sock'}),
+               'a host directory': lambda m: m['services']['php-fpm']['volumes'].append({'type': 'bind', 'source': '/etc', 'target': '/x', 'read_only': True}),
+               'specs writable': lambda m: m['services']['playwright']['volumes'].append({'type': 'bind', 'source': str(content/'tests'), 'target': '/y'}),
+               'a writable root': lambda m: m['services']['playwright'].update(read_only=False),
+               'a build from the shop': lambda m: m['services']['php-fpm'].update(build={'context': str(app/'.generated/test/app')})}
+        for label, change in cases.items():
+            with self.subTest(case=label), self.assertRaisesRegex(ValueError, 'Test session'):
+                validate_session_model(test, bad(change))
+
+    def test_a_session_takes_no_compose_file_from_client_content(self):
+        app, content = self.session_project('playwright')
+        (app/'.generated/test/app/evil.yml').write_text('services:\n  php-fpm:\n    privileged: true\n')
+        (app/'env/common.env').write_text((app/'env/common.env').read_text() + 'PROJECT_COMPOSE_FILES=.generated/test/app/evil.yml\n')
+        with self.assertRaisesRegex(ValueError, 'client-writable'):
+            Project(app,'test')
+        (app/'env/common.env').write_text((app/'env/common.env').read_text().replace('PROJECT_COMPOSE_FILES=.generated/test/app/evil.yml\n', ''))
+        (app/'env/test.env').write_text((app/'env/test.env').read_text().replace(f'E2E_TESTS_DIRECTORY={content}/tests', f'E2E_TESTS_DIRECTORY={app}/tests'))
+        (app/'tests').mkdir(exist_ok=True)
+        with self.assertRaisesRegex(ValueError, 'outside'):
+            Project(app,'test')
+
     def test_start_waits_for_containers_without_application_http_requests(self):
         project = SimpleNamespace(run=Mock(), capture=Mock(side_effect=AssertionError('No application probe')))
         with patch('project_policy.preflight_php') as preflight, \

@@ -30,6 +30,7 @@ INSTALL_MARKER = '.setup-e2e-install'
 # What an install is made of: the files copied from tests/playwright into the install directory.
 INSTALL_FILES = ('package.json', 'package-lock.json', '.npmrc')
 PIDS_LIMIT = '1024'
+TMPFS = '/tmp:size=256m,mode=1777'
 # The packages the image brings: two copies of @playwright/test in one run fail ("Requiring @playwright/test second time").
 IMAGE_PACKAGES = ('@playwright/test', 'playwright', 'playwright-core')
 # A spec file filter (Playwright takes it as a pattern on the file path), optionally :LINE.
@@ -43,11 +44,14 @@ REPORT_FILE = '/e2e/data/report.json'
 
 
 def tests_directory(project):
-    return Path(project.process_env['PROJECT_APP_DIRECTORY']) / TESTS
+    """tests/playwright, or a test session's specs directory (TEST_SESSION=on)."""
+    given = project.process_env.get('PROJECT_E2E_TESTS_DIRECTORY')
+    return Path(given) if given else Path(project.process_env['PROJECT_APP_DIRECTORY']) / TESTS
 
 
 def config_directory(project):
-    return Path(project.process_env['PROJECT_CONFIG_DIRECTORY']) / 'playwright'
+    given = project.process_env.get('PROJECT_E2E_CONFIG_DIRECTORY')
+    return Path(given) if given else Path(project.process_env['PROJECT_CONFIG_DIRECTORY']) / 'playwright'
 
 
 def playwright_data(project, data=None):
@@ -108,6 +112,14 @@ def install(project):
     directory = tests_directory(project)
     files = {name: regular_file(directory / name, f'{TESTS}/{name}') for name in INSTALL_FILES}
     if files['package.json'] is None:
+        # No manifest: no dependencies, not the modules an earlier commit installed.
+        target = install_directory(project)
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target / 'node_modules', ignore_errors=True)
+            for name in (INSTALL_MARKER, *INSTALL_FILES):
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(target / name)
+            real_directory(target / 'node_modules', '.generated/e2e/node_modules')
         print(f'{TESTS} has no package.json: nothing to install')
         return False
     if files['package-lock.json'] is None:
@@ -133,13 +145,21 @@ def install(project):
             with os.fdopen(descriptor, 'wb') as handle:
                 handle.write(content)
     cache = real_directory(target / '.npm-cache', '.generated/e2e/.npm-cache')
-    mount_points(project)  # the service's own mounts, made as this account (Docker would make them as root)
+    mount_points(project)
     print(f'==> npm ci of {TESTS} into .generated/e2e (install files {digest[:12]})', flush=True)
-    project.run(['run', '--rm', '--no-deps', '--user', f'{os.getuid()}:{os.getgid()}',
-                 '--volume', f'{target}:/e2e/install', '--workdir', '/e2e/install',
-                 '--env', 'HOME=/tmp', '--env', 'npm_config_cache=/e2e/install/.npm-cache',
-                 '--env', 'npm_config_update_notifier=false', '--entrypoint', 'npm', 'playwright',
-                 'ci', '--no-audit', '--no-fund', '--ignore-scripts'], profiles='playwright')
+    # A one-off container of the image (no Compose project, so no network or orphan is left), bounded and unprivileged;
+    # the bridge network reaches the npm registry.
+    memory = limit(project, 'PLAYWRIGHT_MEMORY', '2g')
+    command = ['docker', 'run', '--rm', '--network', 'bridge', '--user', f'{os.getuid()}:{os.getgid()}',
+               *confinement(memory, limit(project, 'PLAYWRIGHT_CPUS', '2')),
+               '--label', 'setup.managed=1', '--label', 'setup.service=playwright-install',
+               '--volume', f'{target}:/e2e/install', '--workdir', '/e2e/install',
+               '--env', 'HOME=/tmp', '--env', 'npm_config_cache=/e2e/install/.npm-cache',
+               '--env', 'npm_config_update_notifier=false', '--entrypoint', 'npm', playwright_image(project),
+               'ci', '--no-audit', '--no-fund', '--ignore-scripts']
+    environment = project.child_env()
+    environment.pop('DOCKER_CONTEXT', None)
+    subprocess.run(command, env=environment, check=True)
     shutil.rmtree(cache, ignore_errors=True)
     for package in IMAGE_PACKAGES:
         shutil.rmtree(modules / package, ignore_errors=True)
@@ -149,6 +169,16 @@ def install(project):
         handle.write(digest + '\n')
     print(f'Installed .generated/e2e/node_modules (the image\'s @playwright/test is used)')
     return True
+
+
+def limit(project, key, default):
+    return project.settings.get(key) or project.process_env.get(key) or default
+
+
+def confinement(memory, cpus):
+    """docker run options of every Playwright container: limits, no capabilities, a read-only root with a sized /tmp."""
+    return ['--memory', memory, '--memory-swap', memory, '--cpus', cpus, '--pids-limit', PIDS_LIMIT,
+            '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--read-only', '--tmpfs', TMPFS]
 
 
 def mount_points(project):
@@ -270,11 +300,8 @@ def run_external(project, url, command, extra, options, data, name):
     output = playwright_data(project, data)
     image = playwright_image(project)
     modules = mount_points(project)
-    memory = project.settings.get('PLAYWRIGHT_MEMORY') or project.process_env.get('PLAYWRIGHT_MEMORY') or '2g'
-    cpus = project.settings.get('PLAYWRIGHT_CPUS') or project.process_env.get('PLAYWRIGHT_CPUS') or '2'
     docker = ['docker', 'run', '--rm', '--network', 'bridge', '--user', f'{os.getuid()}:{os.getgid()}',
-              '--memory', memory, '--memory-swap', memory, '--cpus', cpus, '--pids-limit', PIDS_LIMIT,
-              '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
+              *confinement(limit(project, 'PLAYWRIGHT_MEMORY', '2g'), limit(project, 'PLAYWRIGHT_CPUS', '2')),
               '--label', 'setup.managed=1', '--label', 'setup.service=playwright-external',
               '--label', f'setup.project={project.settings["PROJECT_NAME"]}',
               *(['--name', name] if name else []),

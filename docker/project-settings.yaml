@@ -30,6 +30,12 @@ services:
       # ENV=test's hostname on the host: on (default; /etc/hosts entry and host Nginx route) or off (reached only
       # inside the project network, as Playwright reaches it: a server's test session).
       TEST_HOST_ROUTE: ${TEST_HOST_ROUTE-}
+      # setup-server's test session: on confines ENV=test (project_isolation); the caller's specs, their configuration
+      # and the shop code come from these absolute data directories outside the project.
+      TEST_SESSION: ${TEST_SESSION-}
+      E2E_TESTS_DIRECTORY: ${E2E_TESTS_DIRECTORY-}
+      E2E_CONFIG_DIRECTORY: ${E2E_CONFIG_DIRECTORY-}
+      TEST_APP_SOURCE: ${TEST_APP_SOURCE-}
       APP_UID: ${APP_UID-}
       APP_GID: ${APP_GID-}
       DEPLOY_CONTEXT: ${DEPLOY_CONTEXT-}

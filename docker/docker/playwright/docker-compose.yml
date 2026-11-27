@@ -41,7 +41,7 @@ services:
     # e2e runs only in ENV=test: config, specs and their dependencies (make e2e-install, outside the specs) are shared
     # read-only, results go to the data directory.
     volumes:
-      - ${PROJECT_CONFIG_DIRECTORY}/playwright/:/e2e/config/:ro
-      - ${PROJECT_APP_DIRECTORY}/tests/playwright/:/e2e/tests/:ro
+      - ${PROJECT_E2E_CONFIG_DIRECTORY}/:/e2e/config/:ro
+      - ${PROJECT_E2E_TESTS_DIRECTORY}/:/e2e/tests/:ro
       - ${PROJECT_E2E_MODULES_DIRECTORY}/:/e2e/tests/node_modules/:ro
       - ${PROJECT_DATA_DIRECTORY}/playwright/:/e2e/data/

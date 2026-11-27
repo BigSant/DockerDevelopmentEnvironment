@@ -11,7 +11,25 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Test-session mode (`test-session-v3`, `TEST_SESSION=on`).** For setup-server's sessions on a host that also serves
+  production; nothing changes for a project or an ENV=test without it.
+  - The caller's specs, their configuration and the shop code come from absolute data directories outside the project
+    (`E2E_TESTS_DIRECTORY`, `E2E_CONFIG_DIRECTORY`, `TEST_APP_SOURCE`); ENV=test copies the shop code from there and
+    mounts the specs read-only. No compose file may come from them or from `.generated/test`.
+  - ENV=test is confined from its rendered model (`.generated/test/session.yml`, loaded last): every network internal; no
+    service publishes a port or keeps `extra_hosts` (`host.docker.internal:host-gateway`); `cap_drop: ALL` with only
+    `CHOWN DAC_OVERRIDE FOWNER FSETID KILL NET_BIND_SERVICE SETGID SETUID` back (none for Playwright),
+    `no-new-privileges`, `pids_limit`, memory equal to memory-and-swap; Playwright with a read-only root and a 256 MB
+    `/tmp`. The `metrics` service is left out (it reads the Docker socket). `validate_test_model` refuses a session
+    model that does not comply (ports, routed networks, privileged, host namespaces, devices, other capabilities, the
+    Docker socket, host directories, a build or `env_file` from the client's content).
+  - `make e2e-install` runs `npm ci` in a one-off `docker run` of the Playwright image (bounded, no capabilities,
+    read-only root), not a Compose run: no Compose project or network is left behind. Without `package.json` it
+    removes the previous install (an empty dependency state).
+  - `make e2e url=` (stage/live) runs Playwright with a read-only root and a sized `/tmp` too.
+  - `setup-capabilities` adds `test-session-v3`.
 
 ## 5.8.0
 
