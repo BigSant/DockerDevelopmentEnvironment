@@ -493,7 +493,9 @@ removing the build hook's temporary file (relative to a held descriptor of their
 `composer.json` presence check (it only decides whether Composer runs, in its own container).
 `make -f docker/project.mk setup-capabilities` lists abilities (`deploy-attempt-v1`, `deploy-health-v1`,
 `deploy-status-v1`, `release-build-network-v1`, `test-session-v1`: `test-prepare dump=`, `e2e-install`, the e2e
-selection, JSON report, storage states and `url=`, `TEST_TLS` and `TEST_HOST_ROUTE`, which setup-server's test sessions use); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads the settings that
+selection, JSON report, storage states and `url=`, `TEST_TLS` and `TEST_HOST_ROUTE`, which setup-server's test sessions use;
+`test-session-v2`: the specs' dependencies outside them (`.generated/e2e`, read-only), bounded non-root Playwright
+containers, no published port and an internal network with `TEST_HOST_ROUTE=off`, `--OPTION=VALUE` arguments); with `PROJECT_DOCKER_DIRECTORY=… ENV=…` it reads the settings that
 environment's make deploy reads (`env/<env>.env` when present, else its example, and setup-server's target file) and
 adds `release-hardened-v1` when setup isolates that deploy on request: a target on this machine, no host network for
 the build and Docker here. The capability means: within the threat model above, which make deploy checks and refuses

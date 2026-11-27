@@ -38,7 +38,8 @@ class E2eTest(unittest.TestCase):
         project = SimpleNamespace(
             environment=environment, settings={"PLAYWRIGHT_COMMAND": command, "PROJECT_NAME": "alpha", "PLAYWRIGHT_VERSION": "1.61.1"},
             process_env={"PROJECT_APP_DIRECTORY": str(self.root / "app"), "PROJECT_CONFIG_DIRECTORY": str(self.root / "app/config"),
-                         "PROJECT_DATA_DIRECTORY": str(self.root / "data")},
+                         "PROJECT_DATA_DIRECTORY": str(self.root / "data"),
+                         "PROJECT_E2E_MODULES_DIRECTORY": str(self.root / "app/.generated/e2e/node_modules")},
             run=lambda args, profiles=None: calls.append((args, profiles)), child_env=lambda: {"PATH": os.environ["PATH"]},
             model=lambda: {"services": {"playwright": {"image": "playwright-1.61.1-abc"}}})
         return project, calls
@@ -65,8 +66,10 @@ class E2eTest(unittest.TestCase):
         self.assertIn("E2E_STORAGE_STATE_GUEST=/e2e/auth/guest.json", args)
         self.assertIn('E2E_STORAGE_STATES={"guest":"/e2e/auth/guest.json"}', args)
         self.assertEqual(args[args.index("playwright"):], [
-            "playwright", "playwright", "test", "--config=/e2e/config/playwright.config.cjs", "--grep", "^(?=.*@stage(?![\\w-]))",
-            "--grep-invert", "@slow", "cart.spec.ts", "checkout/pay.spec.ts:12", "--reporter=list,html,json"])
+            "playwright", "playwright", "test", "--config=/e2e/config/playwright.config.cjs", "--grep=^(?=.*@stage(?![\\w-]))",
+            "--grep-invert=@slow", "cart.spec.ts", "checkout/pay.spec.ts:12", "--reporter=list,html,json"])
+        self.assertTrue((self.root / "app/tests/playwright/node_modules").is_dir(), "the mount point, made as this account")
+        self.assertTrue((self.root / "app/.generated/e2e/node_modules").is_dir())
 
     def test_bad_selections_are_refused_before_anything_runs(self):
         local, calls = self.project()
@@ -94,8 +97,13 @@ class E2eTest(unittest.TestCase):
         self.assertIn(f"{self.root / 'app/config/playwright'}:/e2e/config:ro", docker)
         self.assertIn(f"{self.root / 'run-1'}:/e2e/data", docker)
         self.assertEqual(docker[docker.index("playwright-1.61.1-abc"):],
-                         ["playwright-1.61.1-abc", "playwright", "test", "--config=/e2e/config/playwright.config.cjs", "--grep",
-                          "@stage", "--reporter=list,html,json"])
+                         ["playwright-1.61.1-abc", "playwright", "test", "--config=/e2e/config/playwright.config.cjs",
+                          "--grep=@stage", "--reporter=list,html,json"])
+        for option in (["--memory", "2g"], ["--memory-swap", "2g"], ["--cpus", "2"], ["--pids-limit", "1024"],
+                       ["--cap-drop", "ALL"], ["--security-opt", "no-new-privileges:true"]):
+            self.assertIn(option, [docker[index:index + 2] for index in range(len(docker))], option)
+        self.assertNotIn("0", docker[docker.index("--user") + 1].split(":"), "never root")
+        self.assertIn(f"{self.root / 'app/.generated/e2e/node_modules'}:/e2e/tests/node_modules:ro", docker)
         test, _ = self.project("test")
         for url in ("ftp://x", "https://x/ y", "https://user@x/"):
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, "url"):
@@ -103,9 +111,10 @@ class E2eTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ENV=test has its own"):
             project_e2e.run(test, url="https://x")
 
-    def test_install_runs_npm_ci_once_per_lock_file_and_drops_the_image_packages(self):
+    def test_install_runs_npm_ci_once_per_install_files_outside_the_specs(self):
         local, calls = self.project()
         tests = self.root / "app/tests/playwright"
+        target = self.root / "app/.generated/e2e"
         self.assertFalse(project_e2e.install(local), "no package.json: nothing to do")
         (tests / "package.json").write_text("{}")
         with self.assertRaisesRegex(ValueError, "package-lock.json is missing"):
@@ -115,21 +124,77 @@ class E2eTest(unittest.TestCase):
         def npm_ci(args, profiles=None):
             calls.append((args, profiles))
             for package in ("ms", "@playwright/test", "playwright", "playwright-core"):
-                (tests / "node_modules" / package).mkdir(parents=True, exist_ok=True)
+                (target / "node_modules" / package).mkdir(parents=True, exist_ok=True)
         local.run = npm_ci
         self.assertTrue(project_e2e.install(local))
         args, profile = calls[0]
         self.assertEqual((profile, args[-5:]), ("playwright", ["playwright", "ci", "--no-audit", "--no-fund", "--ignore-scripts"]))
-        self.assertIn(f"{tests}:/e2e/install", args)
-        self.assertEqual(sorted(path.name for path in (tests / "node_modules").iterdir()), [".setup-e2e-install", "@playwright", "ms"])
-        self.assertFalse((tests / "node_modules/@playwright/test").exists())
-        self.assertFalse(project_e2e.install(local), "the same lock file: cached")
-        (tests / "package-lock.json").write_text('{"lockfileVersion": 3, "x": 1}')
-        self.assertTrue(project_e2e.install(local))
-        self.assertEqual(len(calls), 2)
+        self.assertIn(f"{target}:/e2e/install", args)
+        self.assertNotIn(f"{tests}:/e2e/install", args, "the specs are never written")
+        self.assertEqual(sorted(path.name for path in (target / "node_modules").iterdir()), ["@playwright", "ms"])
+        self.assertEqual((target / "package-lock.json").read_text(), '{"lockfileVersion": 3}')
+        self.assertEqual(list((tests / "node_modules").iterdir()), [], "only the empty mount point, made as this account")
+        self.assertFalse(project_e2e.install(local), "the same install files: cached")
+        for change in (lambda: (tests / "package-lock.json").write_text('{"lockfileVersion": 3, "x": 1}'),
+                       lambda: (tests / "package.json").write_text('{"dependencies": {}}'),
+                       lambda: (tests / ".npmrc").write_text("registry=https://registry.example/\n")):
+            change()
+            self.assertTrue(project_e2e.install(local), "each install file is part of the cache key")
+        self.assertEqual(len(calls), 4)
+        self.assertEqual((target / ".npmrc").read_text(), "registry=https://registry.example/\n")
         test, _ = self.project("test")
         with self.assertRaisesRegex(ValueError, "ENV=local"):
             project_e2e.install(test)
+
+    def test_install_refuses_symlinked_install_files_and_marker(self):
+        local, calls = self.project()
+        tests = self.root / "app/tests/playwright"
+        outside = self.root / "outside.json"
+        outside.write_text("{}")
+        (tests / "package.json").write_text("{}")
+        (tests / "package-lock.json").symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "package-lock.json must be a regular file"):
+            project_e2e.install(local)
+        (tests / "package-lock.json").unlink()
+        (tests / "package-lock.json").write_text("{}")
+        target = self.root / "app/.generated/e2e"
+        target.mkdir(parents=True)
+        (target / ".setup-e2e-install").symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "must be a regular file"):
+            project_e2e.install(local)
+        self.assertEqual(outside.read_text(), "{}", "nothing written through the symlink")
+        (target / ".setup-e2e-install").unlink()
+        (target / "node_modules").symlink_to(self.root)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            project_e2e.install(local)
+        self.assertEqual(calls, [])
+
+
+class MakeArgumentsTest(unittest.TestCase):
+    """make e2e / test-prepare: each value is one --OPTION=VALUE argument, and only a value given on make's command line
+    counts (an exported url= or grep= of the caller's shell never reaches the runner)."""
+
+    def make(self, *arguments, environment=None):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            printer = work / "print-arguments"
+            printer.write_text("#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n")
+            printer.chmod(0o755)
+            (work / "Makefile").write_text(f"PROJECT_DOCKER_DIRECTORY := $(CURDIR)\nSETUP_DIRECTORY := {ROOT}\n"
+                                           "include $(SETUP_DIRECTORY)/docker/project.mk\n")
+            result = subprocess.run(["make", "-s", "-C", str(work), *arguments, f"PYTHON={printer}"], capture_output=True,
+                                    text=True, env={**os.environ, **(environment or {})})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)[7:]  # after the runner, --docker-directory, --project-directory, --env
+
+    def test_values_are_single_arguments_and_only_from_the_command_line(self):
+        self.assertEqual(self.make("e2e", "grep=-foo", "grep_invert=--help", "files=a.spec.ts b.spec.ts", "json=1"),
+                         ["e2e", "--grep=-foo", "--grep-invert=--help", "--files=a.spec.ts b.spec.ts", "--json"])
+        self.assertEqual(self.make("e2e", environment={"url": "https://live.example", "data": "/tmp", "grep": "x", "json": "1",
+                                                       "storage_states": "a=/b.json", "container": "c", "cmd": "sh"}),
+                         ["e2e"], "nothing exported reaches make e2e")
+        self.assertEqual(self.make("test-prepare", environment={"dump": "/etc/shadow"}), ["test-prepare"])
+        self.assertEqual(self.make("test-prepare", "dump=/backups/x.sql"), ["test-prepare", "--dump=/backups/x.sql"])
 
 
 class TestPrepareDumpTest(unittest.TestCase):

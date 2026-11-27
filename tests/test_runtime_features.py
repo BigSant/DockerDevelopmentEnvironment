@@ -159,6 +159,30 @@ define('_DB_PREFIX_', 'custom_');
         with test.env_files[-1].open('a') as file: file.write('APP_SOURCE_DIRECTORY=app/public\n')
         with self.assertRaisesRegex(ValueError,'Test data and code'): Project(app,'test')
 
+    def test_a_test_session_publishes_nothing_and_bounds_playwright(self):
+        scaffold(self.root/'shop')
+        app=self.root/'shop/app'
+        (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_ROOT_PASSWORD=r\nDATABASE_PASSWORD=p\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n')
+        (app/'public').mkdir();(app/'public/index.php').write_text('<?php echo "x";')
+        (app/'env/common.env').write_text((app/'env/common.env').read_text() + 'SERVICES=playwright\n')
+        (app/'env/test.env').write_text('TEST_TLS=self-signed\nTEST_HOST_ROUTE=off\nPUBLISH_ADDRESS=10.0.0.5\nPLAYWRIGHT_MEMORY=1024m\nPLAYWRIGHT_CPUS=1.5\n')
+        project=Project(app)
+        with patch('project_bootstrap.prepare_host'),contextlib.redirect_stdout(io.StringIO()):
+            initialize_test(project)
+        session=Project(app,'test').model()
+        self.assertFalse(session['services']['nginx-proxy'].get('ports'), 'TEST_HOST_ROUTE=off publishes no port, whatever PUBLISH_ADDRESS says')
+        self.assertTrue(next(iter(session['networks'].values())).get('internal'), 'the session reaches nothing but itself')
+        playwright=session['services']['playwright']
+        self.assertEqual((playwright['mem_limit'], playwright['memswap_limit'], playwright['cpus'], playwright['pids_limit']),
+                         ('1073741824', '1073741824', 1.5, 1024))
+        self.assertEqual((playwright['cap_drop'], playwright['security_opt']), (['ALL'], ['no-new-privileges:true']))
+        self.assertEqual(playwright['user'], f'{os.getuid()}:{os.getgid()}')
+        self.assertIn('/e2e/tests/node_modules', [volume['target'] for volume in playwright['volumes'] if volume.get('read_only')])
+        (app/'env/test.env').write_text((app/'env/test.env').read_text().replace('TEST_HOST_ROUTE=off', 'TEST_HOST_ROUTE=on'))
+        local_test=Project(app,'test').model()
+        self.assertTrue(local_test['services']['nginx-proxy'].get('ports'), 'a developer\'s ENV=test keeps its ports')
+        self.assertFalse(next(iter(local_test['networks'].values())).get('internal'))
+
     def test_start_waits_for_containers_without_application_http_requests(self):
         project = SimpleNamespace(run=Mock(), capture=Mock(side_effect=AssertionError('No application probe')))
         with patch('project_policy.preflight_php') as preflight, \

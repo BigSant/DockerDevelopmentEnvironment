@@ -11,7 +11,21 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Test sessions that run nothing of a caller's on the host (`test-session-v2`).** For setup-server's hardened test
+  sessions; a developer's ENV=test and `make e2e` work as before.
+  - `make e2e-install` installs from `package.json`, `package-lock.json` and `.npmrc` (all three are the cache key; a
+    symlink is refused) into `.generated/e2e/`, outside the specs, which every run mounts read-only as
+    `/e2e/tests/node_modules`: nothing in `tests/playwright/node_modules` is ever loaded.
+  - Every Playwright container (ENV=test and `url=`) runs as the calling account with `PLAYWRIGHT_MEMORY` (default 2g,
+    no extra swap), `PLAYWRIGHT_CPUS` (2), at most 1024 processes, no capabilities and `no-new-privileges`.
+  - ENV=test with `TEST_HOST_ROUTE=off` publishes no port (whatever `PUBLISH_ADDRESS` says) and its project network is
+    `internal` (`docker/docker/test-session.yml`, loaded last).
+  - `make e2e` and `make test-prepare` pass each value as one `--OPTION=VALUE` argument (`grep=-foo` is a pattern, not
+    an option) and take a value only from make's command line, never from the environment (an exported `url` no longer
+    points `make e2e` at a real address).
+  - `setup-capabilities` adds `test-session-v2`.
 
 ## 5.7.0
 

@@ -120,6 +120,8 @@ class Project:
             "PROJECT_CONFIG_DIRECTORY": str(self.root / "app/config"),
             "PROJECT_DATA_DIRECTORY": str(self.data_directory),
             "PROJECT_DOCKER_DIRECTORY": str(self.directory),
+            # make e2e-install's npm dependencies of the specs: outside tests/playwright, mounted read-only.
+            "PROJECT_E2E_MODULES_DIRECTORY": str(self.directory / ".generated/e2e/node_modules"),
             "DOCKERFILE_DIRECTORY": str(self.directory if (self.directory / "Dockerfile").is_file()
                                         else DOCKER_ROOT / "docker/php-fpm/project"),
             "BUILD_ENV": build_environment, "IMAGE_ENV": build_environment,
@@ -275,6 +277,10 @@ class Project:
         for override in [overrides[0], *extras, overrides[1]]:
             if override.is_file():
                 self.command += ["-f", str(override)]
+        # A test session (ENV=test, TEST_HOST_ROUTE=off): no published ports, an internal project network. Last, so
+        # nothing of the project's own files can publish them again.
+        if environment == 'test' and str(settings.get('TEST_HOST_ROUTE') or 'on') == 'off':
+            self.command += ["-f", str(DOCKER_ROOT / "docker/test-session.yml")]
         # The cron UI edits the crontab only where git is not the deploy path. Set before the
         # optional-mount overlay, which freezes the interpolated volume list.
         self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment in ('local', 'test') else 'ro'

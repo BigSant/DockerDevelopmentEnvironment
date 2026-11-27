@@ -12,7 +12,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 #   make -s -f <setup>/docker/project.mk setup-capabilities PROJECT_DOCKER_DIRECTORY=<root>/app ENV=stage
 # The second also says release-hardened-v1 when that environment isolates its deploys (RELEASE_ISOLATION=container,
 # a target on this machine, Docker here); it reads the project's env files as data and runs none of its code.
-SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1
+SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1 test-session-v2
 setup-capabilities:
 	@$(if $(PROJECT_DOCKER_DIRECTORY),$(RUN_PROJECT) $@,echo '$(SETUP_CAPABILITIES)')
 
@@ -24,6 +24,11 @@ image-prune:
 
 # Quote each value as one shell argument, including paths with whitespace.
 quote = '$(subst ','"'"',$(1))'
+# A variable given on make's command line only, never one inherited from the environment: an exported url= or data=
+# must not point make e2e at a real address, nor an exported dump= feed test-prepare.
+given = $(if $(filter command line,$(origin $(1))),$($(1)),)
+# --OPTION=VALUE of a command-line variable (one argument, so a value such as -foo is never read as an option).
+option = $(if $(call given,$(2)),$(1)=$(call quote,$(call given,$(2))),)
 RUN_PROJECT = $(PYTHON) $(call quote,$(PROJECT_RUNNER)) --docker-directory $(call quote,$(PROJECT_DOCKER_DIRECTORY)) --project-directory $(call quote,$(PROJECT_DIRECTORY)) --env $(call quote,$(ENV)) $(if $(filter undefined,$(origin PROFILES)),,--profiles $(call quote,$(PROFILES)))
 
 help:
@@ -118,7 +123,7 @@ phpstan phpcs doctrine:
 	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),)
 
 e2e:
-	@$(RUN_PROJECT) $@ $(if $(cmd),--command $(call quote,$(cmd)),) $(if $(grep),--grep $(call quote,$(grep)),) $(if $(grep_invert),--grep-invert $(call quote,$(grep_invert)),) $(if $(files),--files $(call quote,$(files)),) $(if $(filter 1,$(json)),--json,) $(if $(url),--url $(call quote,$(url)),) $(if $(storage_states),--storage-states $(call quote,$(storage_states)),) $(if $(data),--data $(call quote,$(data)),) $(if $(container),--container $(call quote,$(container)),)
+	@$(RUN_PROJECT) $@ $(call option,--command,cmd) $(call option,--grep,grep) $(call option,--grep-invert,grep_invert) $(call option,--files,files) $(if $(filter 1,$(call given,json)),--json,) $(call option,--url,url) $(call option,--storage-states,storage_states) $(call option,--data,data) $(call option,--container,container)
 
 e2e-install:
 	@$(RUN_PROJECT) $@
@@ -164,8 +169,8 @@ tool-access:
 	@$(RUN_PROJECT) $@
 
 test-prepare:
-	$(if $(and $(set),$(dump)),$(error Use set=NAME or dump=FILE, not both))
-	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter undefined,$(origin dump)),,--dump $(call quote,$(dump)))
+	$(if $(and $(set),$(call given,dump)),$(error Use set=NAME or dump=FILE, not both))
+	@$(RUN_PROJECT) $@ $(if $(set),--set $(call quote,$(set)),) $(if $(filter command line,$(origin dump)),--dump=$(call quote,$(dump)),)
 
 phpunit:
 	@$(RUN_PROJECT) $@ $(if $(module),--module $(call quote,$(module)),) $(if $(filter),--filter $(call quote,$(filter)),) $(if $(filter 0,$(sync)),--no-sync,)

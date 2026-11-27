@@ -78,7 +78,7 @@ Setup repozitorijoje yra dvi komandos be `make`:
 | `make phpunit [module=VARDAS] [filter=ŠABLONAS] [sync=0]` | PHPUnit tik `ENV=test`. |
 | `make e2e [cmd=…] [grep=…] [grep_invert=…] [files=…] [json=1] [storage_states=…] [container=…]` | Playwright tik `ENV=test`; `json=1` – ir `data/playwright/report.json`. |
 | `make e2e url=https://… [data=KATALOGAS] […]` | Tas pats Playwright prieš tikrą adresą (STAGE/LIVE), atskirame tinkle. |
-| `make e2e-install` | `npm ci` į `tests/playwright/node_modules` iš `package-lock.json` (tik jam pasikeitus). |
+| `make e2e-install` | `npm ci --ignore-scripts` į `.generated/e2e/node_modules` iš `tests/playwright` `package.json`, `package-lock.json`, `.npmrc` (tik jiems pasikeitus); paleidimai jį mato tik skaitymui. |
 | `make phpstan [cmd=…]` / `make phpstan-baseline` | PHPStan / baseline. |
 | `make phpcs [cmd=…]` | PHP-CS-Fixer (numatyta – tik patikra). |
 | `make ide-init` / `make ide-refresh` | PhpStorm nustatymai / tik privatus IDE Compose failas. |

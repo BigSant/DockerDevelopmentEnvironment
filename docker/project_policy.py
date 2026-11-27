@@ -53,6 +53,8 @@ RESOURCES = {
     'CRON': ('512m', '1'), 'MEMCACHED': ('256m', '0.5'), 'REDIS': ('256m', '0.5'), 'PMA': ('256m', '0.5'),
     'MAILPIT': ('256m', '0.5'), 'DBMONITOR': ('128m', '0.25'), 'METRICS': ('128m', '0.25'),
     'BACKUP': ('128m', '0.25'),
+    # Playwright (make e2e): one browser and its test runner, bounded wherever it runs (ENV=test or url=).
+    'PLAYWRIGHT': ('2g', '2'),
 }
 REMOTE_REQUIRED = ('PHP', 'DATABASE', 'WEBSERVER', 'PROXY')
 # Previous shared names remain accepted as fallbacks during the transition.
