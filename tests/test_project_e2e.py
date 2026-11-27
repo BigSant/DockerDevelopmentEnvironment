@@ -136,6 +136,15 @@ class E2eTest(unittest.TestCase):
         for option in (["--cap-drop", "ALL"], ["--read-only"], ["--pids-limit", "1024"], ["--memory", "2g"]):
             self.assertIn(option, [args[index:index + len(option)] for index in range(len(args))], option)
         self.assertNotIn("compose", args, "a one-off container: no Compose project, no network left behind")
+        (tests / "package-lock.json").write_text('{"lockfileVersion": 3, "named": 1}')
+        self.assertTrue(project_e2e.install(local, container="run-0123456789ab"))
+        named = calls[-1]
+        self.assertIn(["--name", "run-0123456789ab", "--label", "setup.owner=run-0123456789ab"],
+                      [named[index:index + 4] for index in range(len(named))], "its owner can find and stop it")
+        calls.pop()
+        (tests / "package-lock.json").write_text('{"lockfileVersion": 3}')
+        self.assertTrue(project_e2e.install(local))
+        calls.pop()
         self.assertIn(f"{target}:/e2e/install", args)
         self.assertNotIn(f"{tests}:/e2e/install", args, "the specs are never written")
         self.assertEqual(sorted(path.name for path in (target / "node_modules").iterdir()), ["@playwright", "ms"])

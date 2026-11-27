@@ -299,6 +299,8 @@ def initialize_test(project, refresh=False):
                      'APP_SOURCE_DIRECTORY':'', 'DATA_DIRECTORY':'',
                      'SQL_DOMAIN':domain}
         set_env_values(env_file, {key: text for key, text in generated.items() if key not in present})
+    # The generated secrets ENV=test needs too (PrestaShop's PS_COOKIE_KEY and the others when Git has no parameters.php).
+    ensure_generated_secrets(project.directory, 'test')
     if not destination.exists() or refresh:
         if not shutil.which('rsync'): raise ValueError('Install rsync to create the isolated test application copy')
         # Tool worktrees and setup's own test tools never come from the local checkout; projects add

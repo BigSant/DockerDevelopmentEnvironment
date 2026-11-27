@@ -12,7 +12,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 #   make -s -f <setup>/docker/project.mk setup-capabilities PROJECT_DOCKER_DIRECTORY=<root>/app ENV=stage
 # The second also says release-hardened-v1 when that environment isolates its deploys (RELEASE_ISOLATION=container,
 # a target on this machine, Docker here); it reads the project's env files as data and runs none of its code.
-SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1 test-session-v2 test-session-v3
+SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1 test-session-v2 test-session-v3 test-session-v4
 setup-capabilities:
 	@$(if $(PROJECT_DOCKER_DIRECTORY),$(RUN_PROJECT) $@,echo '$(SETUP_CAPABILITIES)')
 
@@ -126,7 +126,7 @@ e2e:
 	@$(RUN_PROJECT) $@ $(call option,--command,cmd) $(call option,--grep,grep) $(call option,--grep-invert,grep_invert) $(call option,--files,files) $(if $(filter 1,$(call given,json)),--json,) $(call option,--url,url) $(call option,--storage-states,storage_states) $(call option,--data,data) $(call option,--container,container)
 
 e2e-install:
-	@$(RUN_PROJECT) $@
+	@$(RUN_PROJECT) $@ $(call option,--container,container)
 
 doctrine-diff:
 	@$(RUN_PROJECT) $@ $(if $(ref),--ref $(call quote,$(ref)),)

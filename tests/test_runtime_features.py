@@ -192,7 +192,7 @@ define('_DB_PREFIX_', 'custom_');
             (content/name).mkdir(parents=True)
         (content/'public/index.php').write_text('<?php echo "client";')
         session=(f'TEST_SESSION=on\nE2E_TESTS_DIRECTORY={content}/tests\nE2E_CONFIG_DIRECTORY={content}/config\n'
-                 f'TEST_APP_SOURCE={content}/public\n')
+                 f'TEST_APP_SOURCE={content}/public\nTEST_SESSION_ID=ts-0123456789ab\nTEST_CGROUP_PARENT=setup-server-test.slice\n')
         (app/'env/local.env').write_text('DOMAIN=shop.localhost\nDATABASE_NAME=shop\nDATABASE_USER=local\nDATABASE_ROOT_PASSWORD=r\n'
                                          'DATABASE_PASSWORD=p\nLOCALHOST_PORT=32001\nLOCALHOST_PORT_SSL=32002\n' + session)
         (app/'public').mkdir();(app/'public/index.php').write_text('<?php echo "trusted";')
@@ -213,6 +213,9 @@ define('_DB_PREFIX_', 'custom_');
         self.assertTrue(model['networks'])
         for name, network in model['networks'].items():
             self.assertTrue(network.get('internal'), f'network {name}')
+            self.assertEqual(network['driver_opts'], {'com.docker.network.bridge.gateway_mode_ipv4': 'isolated',
+                                                      'com.docker.network.bridge.gateway_mode_ipv6': 'isolated'}, name)
+            self.assertEqual(network['labels']['setup.session'], 'ts-0123456789ab')
         allowed={'CHOWN','DAC_OVERRIDE','FOWNER','FSETID','KILL','NET_BIND_SERVICE','SETGID','SETUID'}
         for name, service in model['services'].items():
             with self.subTest(service=name):
@@ -221,11 +224,21 @@ define('_DB_PREFIX_', 'custom_');
                 self.assertFalse(service.get('privileged'))
                 self.assertEqual(service['cap_drop'], ['ALL'])
                 self.assertLessEqual(set(service.get('cap_add') or []), allowed)
+                if str(service.get('user') or '0').split(':')[0] not in ('0', 'root'):
+                    self.assertFalse(service.get('cap_add'), 'a service that starts as its user gets no capability back')
+                self.assertTrue(service['cpus'])
+                self.assertEqual(service['labels']['setup.session'], 'ts-0123456789ab')
+                self.assertEqual(service['cgroup_parent'], 'setup-server-test.slice')
                 self.assertIn('no-new-privileges:true', service['security_opt'])
                 self.assertTrue(service['pids_limit'])
                 self.assertEqual(str(service['memswap_limit']), str(service['mem_limit']))
                 for volume in service.get('volumes', []):
                     self.assertNotIn('docker.sock', volume.get('source', ''))
+        budget=json.loads((app/'.generated/test/session-budget.json').read_text())
+        self.assertNotIn('php-fpm-base', budget['services'], 'an image build stage never runs: not in the budget')
+        self.assertIn('playwright', budget['services'], 'a one-off runner is')
+        from project_isolation import session_budget
+        self.assertEqual((budget['memory_mb'], budget['cpus']), session_budget(json.loads(json.dumps(model))))
         playwright=model['services']['playwright']
         self.assertTrue(playwright['read_only'])
         self.assertEqual(playwright['tmpfs'], ['/tmp:size=256m,mode=1777'])
@@ -258,10 +271,45 @@ define('_DB_PREFIX_', 'custom_');
                'a host directory': lambda m: m['services']['php-fpm']['volumes'].append({'type': 'bind', 'source': '/etc', 'target': '/x', 'read_only': True}),
                'specs writable': lambda m: m['services']['playwright']['volumes'].append({'type': 'bind', 'source': str(content/'tests'), 'target': '/y'}),
                'a writable root': lambda m: m['services']['playwright'].update(read_only=False),
-               'a build from the shop': lambda m: m['services']['php-fpm'].update(build={'context': str(app/'.generated/test/app')})}
+               'another container\'s pid': lambda m: m['services']['php-fpm'].update(pid='container:other'),
+               'no cpus': lambda m: m['services']['php-fpm'].pop('cpus'),
+               'a routed gateway': lambda m: m['networks'][network]['driver_opts'].pop('com.docker.network.bridge.gateway_mode_ipv4'),
+               'no session label': lambda m: m['services']['php-fpm']['labels'].pop('setup.session'),
+               'capabilities for a non-root service': lambda m: m['services']['php-fpm'].update(cap_add=['CHOWN']),
+               'outside its slice': lambda m: m['services']['php-fpm'].update(cgroup_parent='system.slice')}
+        from project_isolation import check_inputs
+        for label, change in {'a build from the shop': {'build': {'context': str(app/'.generated/test/app')}},
+                              'an env_file from the specs': {'env_file': [{'path': str(content/'tests/x.env')}]},
+                              'an additional context from the shop': {'build': {'context': str(app), 'additional_contexts': {'x': str(content/'public')}}}}.items():
+            with self.subTest(case=label), self.assertRaisesRegex(ValueError, 'client-writable'):
+                check_inputs(test, {'services': {'php-fpm': change}})
         for label, change in cases.items():
             with self.subTest(case=label), self.assertRaisesRegex(ValueError, 'Test session'):
                 validate_session_model(test, bad(change))
+
+    def test_real_projects_get_a_session_cron_backup_doctrine_and_prestashop(self):
+        app, content = self.session_project('playwright cron backup php-doctrine-migrations')
+        for path in ('config/cron', 'config/doctrine-migrations', 'database/schema'):
+            (app/path).mkdir(parents=True, exist_ok=True)
+        model = Project(app,'test').model()  # the validator would refuse a writable mount outside .generated/test
+        self.assertEqual(model['services']['php-doctrine-migrations']['profiles'], ['doctrine'])
+        for name in ('cron', 'backup', 'php-doctrine-migrations'):
+            writable = [volume['target'] for volume in model['services'][name].get('volumes', [])
+                        if volume.get('type') == 'bind' and not volume.get('read_only')
+                        and not Path(volume['source']).resolve().is_relative_to((app/'.generated/test').resolve())]
+            self.assertEqual(writable, [], name)
+
+    def test_a_prestashop_session_gets_its_generated_secrets(self):
+        scaffold(self.root/'ps')
+        app=self.root/'ps/app'
+        (app/'env/common.env').write_text((app/'env/common.env').read_text() + 'PROFILE=prestashop\nPS_VERSION=8.1.7\n')
+        (app/'env/local.env').write_text('DOMAIN=ps.localhost\nDATABASE_NAME=ps\nDATABASE_USER=local\nDATABASE_ROOT_PASSWORD=r\n'
+                                         'DATABASE_PASSWORD=p\nLOCALHOST_PORT=32011\nLOCALHOST_PORT_SSL=32012\nPS_COOKIE_KEY=local\n')
+        (app/'public').mkdir(); (app/'public/index.php').write_text('<?php')
+        with patch('project_bootstrap.prepare_host'),contextlib.redirect_stdout(io.StringIO()):
+            initialize_test(Project(app))
+        text=(app/'env/test.env').read_text()
+        self.assertRegex(text, r'(?m)^PS_COOKIE_KEY=\S+', 'make test-prepare needs the keys ENV=test would otherwise lack')
 
     def test_a_session_takes_no_compose_file_from_client_content(self):
         app, content = self.session_project('playwright')

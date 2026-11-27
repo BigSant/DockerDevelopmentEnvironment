@@ -11,7 +11,25 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **Test sessions on a production host, round 4 (`test-session-v4`).** Only `TEST_SESSION=on` changes, but for the
+  read-only mounts and the generated secrets of every ENV=test.
+  - Every session network has `com.docker.network.bridge.gateway_mode_ipv4/ipv6: isolated` (Docker Engine 28.2+):
+    no address on the host, so no host service listening on `0.0.0.0` is reachable; the validator requires it.
+  - `TEST_SESSION_ID` labels every service and network `setup.session=<id>`; `TEST_CGROUP_PARENT` puts every container
+    in that slice; every service gets a CPU limit (0.5 when it has none); capabilities come back only to a service that
+    starts as root (one with its own `user` gets none); `pid`, `ipc`, `uts`, `userns_mode`, `cgroup` and
+    `network_mode` may not join another namespace (`container:`, `service:`, `host`).
+  - Compose files, `env_file`s, build contexts, Dockerfiles and additional contexts are checked against the
+    client-writable directories before anything reads them (the model rendered with `--no-env-resolution`).
+  - `.generated/test/session-budget.json`: memory and CPUs of the final model, one-off runners included.
+  - ENV=test mounts the cron, backup and Doctrine configuration read-only (a developer's ENV=test with them was refused
+    too); `php-doctrine-migrations` has the profile `doctrine` and a CPU limit; `make test-init` writes the generated
+    secrets ENV=test needs (PrestaShop's `PS_COOKIE_KEY` and the others).
+  - `make e2e-install container=NAME`: its one-off container is named and labelled `setup.owner=NAME`; `make e2e url=`
+    labels its container the same way.
+  - `setup-capabilities` adds `test-session-v4`.
 
 ## 5.9.0
 
