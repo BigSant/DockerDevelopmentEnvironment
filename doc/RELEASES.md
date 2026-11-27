@@ -11,7 +11,19 @@ Every merge to `master` is released by itself once its CI passed (`.github/workf
 `## Unreleased (minor)` something new with nothing to change in projects, `## Unreleased (major)` projects must
 change (say how). An empty section still releases a patch.
 
-## Unreleased
+## Unreleased (minor)
+
+- **A test session's PrestaShop shop gets its release layer (`test-session-v5`).** A session copies only the shop code
+  it was given (Git), so a shop whose core comes from the official release (`PS_RELEASE=on`, the `PS_RELEASE_PATHS`
+  ignored in its `.gitignore`) had no `vendor/`, `config/defines.inc.php` and the rest, and `make test-prepare` stopped
+  at `Restore config/defines.inc.php before setting PS_DEBUG_MODE`. With `TEST_SESSION=on`, `make test-prepare` now
+  copies the `PS_RELEASE_PATHS` of `PS_VERSION` (and the release's missing files of the protected directories) into
+  ENV=test's copy, as `make app-prepare` does for ENV=local, after every copy and before ENV=test starts. The release
+  is the one baked into the session's php-fpm image by `make build` (the official `prestashop/prestashop:<version>`
+  image, or the GitHub zip with `PS_RELEASE_SHA256` for 1.6), from the trusted settings; the copy runs in a one-off
+  ENV=test container (the session's confinement, no network) and replaces whatever the caller's code had at those
+  paths, so client content cannot put anything else there. A project with `config/composer/composer.json` is refused
+  plainly: Composer needs the network a session's containers lack. Nothing changes without `TEST_SESSION=on`.
 
 ## 5.10.0
 

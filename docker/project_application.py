@@ -10,8 +10,9 @@ from project_prestashop import is_prestashop
 PATH = re.compile(r'[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*')
 
 
-def plan_application(project):
-    """Shell commands for the PHP container and whether composer runs; raises on unsafe settings."""
+def plan_application(project, tracked=True):
+    """Shell commands for the PHP container and whether composer runs; raises on unsafe settings. tracked=False: no
+    refusal for paths the shop repository tracks (a test session's copy, where the release wins)."""
     settings = project.settings
     if not is_prestashop(settings):
         return None
@@ -31,9 +32,9 @@ def plan_application(project):
         target = admin if path == 'admin' and admin else path
         if not PATH.fullmatch(target):
             raise ValueError(f'PS_ADMIN_DIR is not a plain directory name: {target}')
-        tracked = tracked_files(project.web_directory, target)
-        if tracked:
-            raise ValueError(f'{target} contains files tracked by the shop repository ({tracked[0]} …); '
+        files = tracked_files(project.web_directory, target) if tracked else []
+        if files:
+            raise ValueError(f'{target} contains files tracked by the shop repository ({files[0]} …); '
                              'the release never overwrites tracked code')
         source = shlex.quote(f'/opt/prestashop/release/{version}/{path}')
         destination = shlex.quote(f'/var/www/html/{target}')
@@ -90,3 +91,25 @@ def prepare_application(project):
         project.run(['run', '--rm', '--no-deps', '--entrypoint', 'composer', 'php-fpm', *arguments])
     if not commands and not composer:
         print('Nothing to prepare: PS_RELEASE_PATHS is empty and config/composer has no composer.json.')
+
+
+def release_into_test(project, test):
+    """A test session (TEST_SESSION=on) of a PrestaShop project whose core comes from the official release: the
+    PS_RELEASE_PATHS of PS_VERSION (and the release's files of the seeded directories) copied into ENV=test's copy of
+    the shop, as make app-prepare does for ENV=local. The release is the one in this session's php-fpm image (built by
+    make build from setup's Dockerfile and the official image or zip of PS_VERSION, its PS_RELEASE_SHA256 checked);
+    the copy runs in a one-off confined ENV=test container, without a network, and replaces whatever the caller's shop
+    code had at those paths. Nothing for another profile or without PS_RELEASE=on."""
+    if not getattr(project, 'session', None):
+        return False
+    plan = plan_application(project, tracked=False)
+    if plan is None or project.settings.get('PS_RELEASE') != 'on':
+        return False
+    commands, composer = plan
+    if composer:
+        raise ValueError('config/composer/composer.json: composer install needs the network, which a test session\'s '
+                         'containers do not have; such a project cannot get a test session yet')
+    if commands:
+        print(f'==> PrestaShop {project.settings["PS_VERSION"]} release paths into the test copy', flush=True)
+        test.run(['run', '--rm', '--no-deps', '--entrypoint', 'sh', 'php-fpm', '-c', ' && '.join(commands)])
+    return True

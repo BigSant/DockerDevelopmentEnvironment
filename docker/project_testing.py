@@ -42,6 +42,9 @@ def prepare_tests(project, dataset='dev', dump=None):
         raise ValueError('dump= needs the path of a .sql or .sql.gz file')
     initialize_test(project, refresh=(project.directory / '.generated/test/initialized').is_file())
     test = test_project(project)
+    # A session's shop code comes from Git alone: the release layer (PS_RELEASE_PATHS) is added here, after each copy.
+    from project_application import release_into_test
+    release_into_test(project, test)
     print('==> starting the test database', flush=True)
     test.run(['up', '-d', '--wait', 'database'])
     if dump:
