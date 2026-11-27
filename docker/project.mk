@@ -12,7 +12,7 @@ PROJECT_RUNNER := $(SETUP_DIRECTORY)/docker/project.py
 #   make -s -f <setup>/docker/project.mk setup-capabilities PROJECT_DOCKER_DIRECTORY=<root>/app ENV=stage
 # The second also says release-hardened-v1 when that environment isolates its deploys (RELEASE_ISOLATION=container,
 # a target on this machine, Docker here); it reads the project's env files as data and runs none of its code.
-SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1 test-session-v2 test-session-v3 test-session-v4
+SETUP_CAPABILITIES := deploy-attempt-v1 deploy-health-v1 deploy-status-v1 release-build-network-v1 test-session-v1 test-session-v2 test-session-v3 test-session-v4 test-session-v5
 setup-capabilities:
 	@$(if $(PROJECT_DOCKER_DIRECTORY),$(RUN_PROJECT) $@,echo '$(SETUP_CAPABILITIES)')
 
