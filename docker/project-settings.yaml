@@ -36,6 +36,9 @@ services:
       E2E_TESTS_DIRECTORY: ${E2E_TESTS_DIRECTORY-}
       E2E_CONFIG_DIRECTORY: ${E2E_CONFIG_DIRECTORY-}
       TEST_APP_SOURCE: ${TEST_APP_SOURCE-}
+      # The session's id (label setup.session on every container and network) and the cgroup slice its containers join.
+      TEST_SESSION_ID: ${TEST_SESSION_ID-}
+      TEST_CGROUP_PARENT: ${TEST_CGROUP_PARENT-}
       APP_UID: ${APP_UID-}
       APP_GID: ${APP_GID-}
       DEPLOY_CONTEXT: ${DEPLOY_CONTEXT-}

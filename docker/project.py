@@ -296,9 +296,17 @@ class Project:
             self.command += ["-f", str(DOCKER_ROOT / "docker/test-session.yml")]
         # The cron UI edits the crontab only where git is not the deploy path. Set before the
         # optional-mount overlay, which freezes the interpolated volume list.
-        self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment in ('local', 'test') else 'ro'
+        # ENV=test (a developer's or a session's) reads them: only .generated/test is written there.
+        self.process_env['SETUP_CRON_CONFIG_ACCESS'] = 'rw' if environment == 'local' else 'ro'
+        self.process_env['SETUP_DOCTRINE_CONFIG_ACCESS'] = 'rw' if environment == 'local' else 'ro'
         # The backup UI edits the table registry the same way: locally, servers through git.
         self.process_env['SETUP_BACKUP_ACCESS'] = self.process_env['SETUP_CRON_CONFIG_ACCESS']
+        if self.session:
+            # Before anything reads the model's inputs: no compose file, env_file, build context or Dockerfile of the
+            # caller's (the model rendered without reading env files).
+            from project_isolation import check_sources, check_inputs
+            check_sources(self)
+            check_inputs(self, json.loads(self.capture(["config", "--format", "json", "--no-env-resolution"], profiles="*")))
         from project_domains import domain_aliases
         self.command += domain_aliases(self)
         from project_mounts import attach_optional_config_mounts
@@ -327,9 +335,6 @@ class Project:
             from project_isolation import session_overlay
             self.command += ["-f", str(session_overlay(self, json.loads(self.capture(["config", "--format", "json"],
                                                                                     profiles="*"))))]
-        if self.session:
-            from project_isolation import check_sources
-            check_sources(self)
         if environment == 'test':
             self.validate_test_isolation()
 
@@ -725,7 +730,7 @@ def main():
                     json_report=args.json, url=args.url, states=args.storage_states, data=args.data, name=args.container)
         elif args.action == "e2e-install":
             from project_e2e import install as install_e2e
-            install_e2e(project)
+            install_e2e(project, container=args.container)
         else:
             from project_commands import run_qa
             run_qa(project, args.action, args.command)

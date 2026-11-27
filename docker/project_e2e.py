@@ -102,7 +102,7 @@ def install_digest(files, version):
     return digest.hexdigest()
 
 
-def install(project):
+def install(project, container=None):
     """make e2e-install: npm ci of tests/playwright's package.json and package-lock.json (and .npmrc), copied into
     .generated/e2e, skipped while those files (and PLAYWRIGHT_VERSION) are what the last install used. Returns True
     when it installed."""
@@ -150,8 +150,13 @@ def install(project):
     # A one-off container of the image (no Compose project, so no network or orphan is left), bounded and unprivileged;
     # the bridge network reaches the npm registry.
     memory = limit(project, 'PLAYWRIGHT_MEMORY', '2g')
+    if container and not CONTAINER_NAME.fullmatch(container):
+        raise ValueError('container: a container name (lower-case letters, digits, . _ -)')
+    # With container= (a session's or a run's id) the container is named and labelled after its owner, so whoever stops
+    # the owner finds it.
+    owner = ['--name', container, '--label', f'setup.owner={container}'] if container else []
     command = ['docker', 'run', '--rm', '--network', 'bridge', '--user', f'{os.getuid()}:{os.getgid()}',
-               *confinement(memory, limit(project, 'PLAYWRIGHT_CPUS', '2')),
+               *confinement(memory, limit(project, 'PLAYWRIGHT_CPUS', '2')), *owner,
                '--label', 'setup.managed=1', '--label', 'setup.service=playwright-install',
                '--volume', f'{target}:/e2e/install', '--workdir', '/e2e/install',
                '--env', 'HOME=/tmp', '--env', 'npm_config_cache=/e2e/install/.npm-cache',
@@ -304,7 +309,7 @@ def run_external(project, url, command, extra, options, data, name):
               *confinement(limit(project, 'PLAYWRIGHT_MEMORY', '2g'), limit(project, 'PLAYWRIGHT_CPUS', '2')),
               '--label', 'setup.managed=1', '--label', 'setup.service=playwright-external',
               '--label', f'setup.project={project.settings["PROJECT_NAME"]}',
-              *(['--name', name] if name else []),
+              *(['--name', name, '--label', f'setup.owner={name}'] if name else []),
               '--env', 'HOME=/tmp', '--env', 'npm_config_update_notifier=false', '--env', f'BASE_URL={url.rstrip("/")}',
               '--env', 'PLAYWRIGHT_TEST_DIR=/e2e/tests',
               '--env', 'PLAYWRIGHT_DATA_DIR=/e2e/data', '--env', 'E2E_EXTERNAL=1',

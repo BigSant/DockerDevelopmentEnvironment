@@ -3,8 +3,12 @@ services:
     image: php-doctrine-migrations-${DOCTRINE_PHP_VERSION:-8.3}-${DOCTRINE_MIGRATIONS_VERSION}${SETUP_IMAGE_SUFFIX_PHP_DOCTRINE_MIGRATIONS:-}
     container_name: ${PROJECT_NAME}-${ENV}-php-doctrine-migrations-${DOCTRINE_PHP_VERSION:-8.3}-${DOCTRINE_MIGRATIONS_VERSION}
     restart: no
+    # Run on demand (make doctrine …), never started by up.
+    profiles:
+      - doctrine
     entrypoint: ["tail", "-f", "/dev/null"]
     mem_limit: 512m
+    cpus: 1
     build:
       labels:
         setup.managed: "1"
@@ -27,5 +31,5 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD-}
       DATABASE_NAME: ${DATABASE_NAME}
     volumes:
-      - ${PROJECT_CONFIG_DIRECTORY}/doctrine-migrations/:/tmp/doctrine-migrations/config/
+      - ${PROJECT_CONFIG_DIRECTORY}/doctrine-migrations/:/tmp/doctrine-migrations/config/:${SETUP_DOCTRINE_CONFIG_ACCESS:-rw}
       - ${PROJECT_DATA_DIRECTORY}/doctrine-migrations/:/tmp/doctrine-migrations/cache/
